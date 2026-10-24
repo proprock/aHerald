@@ -182,7 +182,7 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 4 — Usage and quotas
 
-- [ ] **AH-017 — Connect to the official app-server.** Depends on AH-013.
+- [x] **AH-017 — Connect to the official app-server.** Depends on AH-013.
   Manage one long-lived stdio child with handshake, bounded JSON messages,
   request IDs, timeout, reconnect/backoff, and shutdown. Handle Codex absence,
   authentication unavailability, and unsupported methods without blocking UI.
