@@ -37,7 +37,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   commit Cargo.lock. Acceptance: Cargo checks pass and a release executable builds
   without an external GUI framework or runtime dependency.
 
-- [ ] **AH-002 — Implement CLI and validated TOML configuration.** Depends on AH-001.
+- [x] **AH-002 — Implement CLI and validated TOML configuration.** Depends on AH-001.
   Support `--hook`, `--resident`, `--transient`, `--event`, `--status`, `--quit`,
   and `--config`; report unimplemented later-milestone operations explicitly.
   Explicit mode arguments override the configured mode; reject conflicting
