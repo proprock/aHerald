@@ -70,3 +70,28 @@ fn permission_and_interrupt_do_not_emit_decisions_or_payloads() {
         assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
     }
 }
+
+#[test]
+fn stop_response_survives_invalid_configuration() {
+    let path =
+        std::env::temp_dir().join(format!("aherald-invalid-hook-{}.toml", std::process::id()));
+    std::fs::write(&path, "invalid = [").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+        .args(["--hook", "--config"])
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(include_bytes!("fixtures/stop.json"))
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"{}\n");
+}

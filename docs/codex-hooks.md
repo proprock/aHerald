@@ -22,5 +22,36 @@ and 250 ms; malformed, oversized, and unknown events do not produce notification
 
 `tests/fixtures/stop.json` is synthetic and sanitized, based on the matching schema.
 Tests invoke the hook process and inspect its response and lifetime. No real account
-or Codex invocation is required. Real hook execution/trust and stable-release coverage
-remain Milestone 3 work. No transcript or unrelated-session observation is implemented.
+or Codex invocation is required. Stable-release coverage remains unverified.
+See the [compatibility matrix](codex-compatibility.md). No transcript or
+unrelated-session observation is implemented.
+
+## Manual Windows setup and removal
+
+1. Build/extract `aherald.exe` and prepare `%APPDATA%\aHerald\config.toml`.
+2. Copy the event entries in `examples/hooks.windows.json` into your chosen
+   `~/.codex/hooks.json` or a trusted project's `.codex/hooks.json`. Replace both
+   absolute paths. JSON doubles backslashes; PowerShell single quotes preserve
+   spaces. A literal apostrophe in a path must be doubled inside the PowerShell
+   string. The explicit `--resident` shares one queue between hook invocations.
+3. Preserve existing event groups and handlers: append these groups to the
+   existing arrays instead of replacing the file. All matching hooks run.
+   Back up the original file and avoid registering aHerald at two config layers.
+4. Start a new Codex session, open `/hooks`, inspect and trust the exact command
+   definitions. Project-local hooks also require a trusted project. Changed
+   commands require trust review again. Never bypass hook trust for normal setup.
+5. Complete a harmless turn, trigger an approval using your normal policy, then
+   interrupt an active turn. Confirm the matching cards and normal approval flow.
+   Hooks neither answer permission requests nor alter prompts. Dismissal only
+   removes a card. Remove `Interrupt` on versions that do not support that event.
+
+Commands have a three-second Codex timeout; aHerald input and delivery have their
+own shorter deadlines. The handler returns before the card expires, including
+indefinite cards. The example needs no script execution-policy change. For a
+direct process smoke check, pipe a sanitized fixture into the quoted executable
+with `--hook --transient --config <path>`; this does not test Codex trust or dispatch.
+
+To remove integration, delete only the aHerald handler/groups, preserving other
+hooks. Quit the resident with `aherald.exe --quit`, then remove portable files if
+desired. Nothing edits global configuration, installs autostart, or changes trust
+automatically. Re-check contracts and repeat the smoke test after Codex upgrades.

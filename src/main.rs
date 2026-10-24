@@ -64,6 +64,21 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         return Ok(());
     }
+    // Respond to the hook contract before any fallible configuration or delivery.
+    let hook_event = if cli.operation.as_deref() == Some("hook") {
+        let bytes =
+            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
+        let event = aherald::events::parse_hook(&bytes)?;
+        if event
+            .as_ref()
+            .is_some_and(|e| e.kind == aherald::events::Kind::TurnComplete)
+        {
+            println!("{{}}");
+        }
+        event
+    } else {
+        None
+    };
     let config = aherald::config::Config::load(&path, cli.config.is_some())?;
     if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
@@ -72,15 +87,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         eprintln!("aHerald: Codex monitoring and usage are not implemented until later milestones");
     }
     if cli.operation.as_deref() == Some("hook") {
-        let bytes =
-            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
-        if let Some(event) = aherald::events::parse_hook(&bytes)? {
-            if event.kind == aherald::events::Kind::TurnComplete {
-                println!("{{}}");
-            }
-            if config.codex.hooks_enabled {
-                dispatch(&event, &config, &path, cli.selected_mode(&config))?;
-            }
+        if let Some(event) = hook_event
+            && config.codex.hooks_enabled
+        {
+            dispatch(&event, &config, &path, cli.selected_mode(&config))?;
         }
         return Ok(());
     }
