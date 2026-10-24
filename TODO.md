@@ -48,7 +48,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   resolution, and mode selection are tested; configuration failures cannot crash
   or change permission behavior in hook mode.
 
-- [ ] **AH-003 — Define normalized events and bounded hook input.** Depends on AH-002.
+- [x] **AH-003 — Define normalized events and bounded hook input.** Depends on AH-002.
   Model `turn_complete`, `permission_required`, `input_required`, `error`, and
   `interrupted`, with priority, source, and optional session/turn/request identity.
   Parse stdin using explicit size/time limits; tolerate unknown JSON fields and

@@ -21,3 +21,14 @@
 - Default mode is transient for this slice. Resident/status/quit and requested monitoring/usage
   report their later-milestone status explicitly. Autostart is never installed.
 - Configuration input is capped at 64 KiB. Diagnostics omit TOML contents.
+
+## AH-003
+
+- Red: Stop process response and three event normalization/bounds tests failed for
+  the missing adapter. Green: all pass after bounded parsing and event normalization.
+- Verified official documentation and six schemas at the exact installed Codex commit;
+  see `docs/codex-hooks.md`. Sanitized fixture is exercised by the process test.
+- The hook exits while stdin remains open, with a 250 ms read deadline; process tests
+  also verify empty permission/interruption responses and sanitized diagnostics.
+- Passed all four standard Cargo checks (14 tests total); release rebuilt.
+- Windows build observed: 10.0.22621. No live Codex hook/trust installation performed.

@@ -31,5 +31,18 @@ fn run(args: Vec<String>) -> Result<(), String> {
     if config.codex.input_monitoring || config.usage.enabled {
         return Err("Codex monitoring and usage are not implemented until later milestones".into());
     }
+    if cli.operation.as_deref() == Some("hook") {
+        let bytes =
+            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
+        if let Some(event) = aherald::events::parse_hook(&bytes)? {
+            if event.kind == aherald::events::Kind::TurnComplete {
+                println!("{{}}");
+            }
+            if config.codex.hooks_enabled {
+                eprintln!("aHerald: notification delivery is not implemented yet");
+            }
+        }
+        return Ok(());
+    }
     Err("notification delivery is not implemented yet".into())
 }
