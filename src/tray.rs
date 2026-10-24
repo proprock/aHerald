@@ -15,7 +15,6 @@ pub const VISUAL: usize = 202;
 pub const PAUSE: usize = 203;
 pub const CONFIG: usize = 204;
 pub const EXIT: usize = 205;
-pub const UNAVAILABLE: &str = "Usage unavailable.\r\n\r\nThe official usage connection is planned for Milestone 4.\r\nNotifications continue to work independently.";
 
 pub struct Icon {
     data: NOTIFYICONDATAW,
@@ -29,7 +28,8 @@ impl Icon {
                 cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
                 hWnd: hwnd,
                 uID: 1,
-                uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+                // Version 4 suppresses standard tooltips unless SHOWTIP is explicit.
+                uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
                 uCallbackMessage: CALLBACK,
                 hIcon: LoadIconW(None, IDI_APPLICATION).map_err(|_| "cannot load tray icon")?,
                 ..Default::default()
@@ -69,6 +69,23 @@ impl Icon {
             let _ = Shell_NotifyIconW(NIM_SETFOCUS, &self.data);
         }
     }
+    pub fn tooltip(&mut self, text: &str) {
+        self.data.szTip.fill(0);
+        let mut position = 0;
+        for c in text.chars() {
+            let mut units = [0; 2];
+            let units = c.encode_utf16(&mut units);
+            if position + units.len() >= self.data.szTip.len() {
+                break;
+            }
+            self.data.szTip[position..position + units.len()].copy_from_slice(units);
+            position += units.len();
+        }
+        // SAFETY: owned NOTIFYICONDATA remains valid, including its terminated tooltip.
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data);
+        }
+    }
 }
 impl Drop for Icon {
     fn drop(&mut self) {
@@ -86,12 +103,12 @@ impl Drop for Menu {
     }
 }
 impl Menu {
-    pub fn new(sound: bool, visual: bool, paused: bool) -> Result<Self, String> {
+    pub fn new(sound: bool, visual: bool, paused: bool, summary: &str) -> Result<Self, String> {
         let menu = Self(unsafe { CreatePopupMenu() }.map_err(|_| "cannot create tray menu")?);
         for (id, label, checked) in [
-            (SUMMARY, "Usage summary (unavailable)", false),
-            (DETAILS, "Usage details (unavailable)", false),
-            (REFRESH, "Refresh usage (unavailable)", false),
+            (SUMMARY, summary, false),
+            (DETAILS, "Usage details", false),
+            (REFRESH, "Refresh usage", false),
             (SOUND, "Sound", sound),
             (VISUAL, "Visual notifications", visual),
             (PAUSE, "Pause notifications", paused),
@@ -138,6 +155,23 @@ unsafe extern "system" fn information_proc(
     wp: WPARAM,
     lp: LPARAM,
 ) -> LRESULT {
+    if msg == WM_SIZE {
+        // SAFETY: the child is owned by this window; bounds are clamped for minimization.
+        unsafe {
+            if let Ok(child) = GetDlgItem(Some(hwnd), 1) {
+                let mut rect = RECT::default();
+                let _ = GetClientRect(hwnd, &mut rect);
+                let _ = MoveWindow(
+                    child,
+                    12,
+                    12,
+                    (rect.right - 24).max(0),
+                    (rect.bottom - 24).max(0),
+                    true,
+                );
+            }
+        }
+    }
     unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
 }
 pub fn information(owner: HWND, title: &str, text: &str) -> Result<HWND, String> {
@@ -160,38 +194,77 @@ pub fn information(owner: HWND, title: &str, text: &str) -> Result<HWND, String>
             WS_EX_TOOLWINDOW,
             class,
             PCWSTR(title.as_ptr()),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            600,
-            210,
+            760,
+            520,
             Some(owner),
             None,
             Some(module.into()),
             None,
         )
         .map_err(|_| "cannot create information window")?;
-        if CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            w!("STATIC"),
+        let editor = match CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            w!("EDIT"),
             PCWSTR(text.as_ptr()),
-            WS_CHILD | WS_VISIBLE,
-            18,
-            18,
-            550,
-            150,
+            WS_CHILD
+                | WS_VISIBLE
+                | WS_VSCROLL
+                | WS_TABSTOP
+                | WINDOW_STYLE((ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32),
+            12,
+            12,
+            720,
+            450,
             Some(window),
-            None,
+            // For a child window this slot encodes an integer control ID, never a pointer.
+            Some(HMENU(std::ptr::without_provenance_mut(1))),
             Some(module.into()),
             None,
-        )
-        .is_err()
-        {
-            let _ = DestroyWindow(window);
-            return Err("cannot create information text".into());
-        }
+        ) {
+            Ok(editor) => editor,
+            Err(_) => {
+                let _ = DestroyWindow(window);
+                return Err("cannot create information text".into());
+            }
+        };
+        // The shared system GUI font is borrowed and must not be deleted.
+        let font = windows::Win32::Graphics::Gdi::GetStockObject(
+            windows::Win32::Graphics::Gdi::DEFAULT_GUI_FONT,
+        );
+        SendMessageW(
+            editor,
+            WM_SETFONT,
+            Some(WPARAM(font.0 as usize)),
+            Some(LPARAM(1)),
+        );
         let _ = ShowWindow(window, SW_SHOWNORMAL);
         Ok(window)
+    }
+}
+
+pub fn update_information(window: HWND, text: &str) {
+    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: IsWindow/GetDlgItem validate the owned modeless window before updating it.
+    unsafe {
+        if IsWindow(Some(window)).as_bool()
+            && let Ok(child) = GetDlgItem(Some(window), 1)
+        {
+            let position = GetScrollPos(child, SB_VERT).clamp(0, u16::MAX as i32);
+            let _ = SetWindowTextW(child, PCWSTR(wide.as_ptr()));
+            // Replacing an edit control's text resets its viewport. Restore the
+            // thumb position so background usage updates do not interrupt reading.
+            SendMessageW(
+                child,
+                WM_VSCROLL,
+                Some(WPARAM(
+                    (position as usize) << 16 | SB_THUMBPOSITION.0 as usize,
+                )),
+                Some(LPARAM(0)),
+            );
+        }
     }
 }
 
@@ -200,7 +273,7 @@ mod tests {
     use super::*;
     #[test]
     fn native_menu_exposes_all_actions_and_current_checkmarks() {
-        let menu = Menu::new(false, true, true).unwrap();
+        let menu = Menu::new(false, true, true, "Codex usage (unavailable)").unwrap();
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 8);
             assert_eq!(
@@ -215,10 +288,14 @@ mod tests {
                 GetMenuState(menu.0, PAUSE as u32, MF_BYCOMMAND) & MF_CHECKED.0,
                 0
             );
-            for id in [SUMMARY, DETAILS, REFRESH] {
+            for (id, expected) in [
+                (SUMMARY, "unavailable"),
+                (DETAILS, "Usage details"),
+                (REFRESH, "Refresh usage"),
+            ] {
                 let mut label = [0u16; 128];
                 let n = GetMenuStringW(menu.0, id as u32, Some(&mut label), MF_BYCOMMAND);
-                assert!(String::from_utf16_lossy(&label[..n as usize]).contains("unavailable"));
+                assert!(String::from_utf16_lossy(&label[..n as usize]).contains(expected));
             }
         }
     }

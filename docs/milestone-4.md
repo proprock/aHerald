@@ -71,3 +71,60 @@ by the Ex API; its expected times were preserved.
 
 AH-018: all four standard Cargo checks and the MSVC x64 release build passed on
 Windows 11 Pro 22621; five focused usage tests passed. Windows 10 is untested.
+
+## AH-019 — Independent background usage and native presentation
+
+Usage stays opt-in (`[usage] enabled = true`) and resident-only. The refresh
+interval defaults to 300 seconds. A dedicated worker owns the connection and
+never takes the notification queue lock or blocks the GUI on Codex I/O. Manual
+refresh has a bounded coalescing mailbox and a five-second minimum request gap;
+failures defer further requests by 10–300 seconds, including manual requests.
+Healthy polling reuses one initialized process. Shutdown cancels pending reads,
+reaps the owned server and joins workers. Disabled usage starts no server/worker.
+
+The tray tooltip/menu summary shows both main windows and explicit
+loading/disabled/unavailable/stale/current state. Its standard tooltip is explicitly
+enabled for tray protocol v4 as required by [Microsoft's NOTIFYICONDATA contract](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw).
+The modeless, resizable native details window lists all buckets and both windows,
+local reset times with UTC offsets, workspace credits, and available reset credits
+without actions to consume them. A read-only scrolling edit control keeps long
+results accessible. It updates while open. Missing values say unavailable;
+expired or failed snapshots are stale, retain their data and show the last update
+age. A verified account-change notification clears previous account data before
+refetching; sparse rate-limit notifications update only their identified bucket.
+
+Verification on 2026-10-25, Windows 11 Pro 22621:
+
+- Controlled-clock tests cover the 300-second cadence, persistent connection reuse,
+  coalesced/manual request limits, exponential failure backoff, stale state,
+  recovery, sparse updates and account-change invalidation. All three original
+  behavior tests failed against the initial placeholder, then passed; a fourth
+  verifies automatic scheduling and disabled operation.
+- A native resident test injects unavailable Codex transport, opens Usage details
+  while the notification overlay is hidden, requests refresh, exchanges an event
+  and status over IPC, and quits. Delivery and shutdown remain responsive; the
+  owned details window is destroyed. No installed Codex/account is needed.
+- Native window tests read displayed bucket text, update it to stale, verify
+  read-only behavior, and scroll a 150-row result. A regression test reproduced
+  background refresh resetting the viewport; the fix preserves its scroll position
+  and the same test now passes. The prior resident UI test now
+  checks disabled usage and nonmodal refresh rather than the Milestone 2 stub.
+- `cargo test --test usage_live -- --ignored --nocapture`: installed Codex
+  handshake passed in the sandbox with safe usage unavailability. The same
+  read-only test outside the sandbox in the user's profile returned one bucket.
+  It prints only a bucket count or sanitized error; no credentials/account data.
+- `cargo test --test usage_ui preview_usage_details -- --ignored --nocapture`:
+  visually inspected synthetic two-bucket usage, primary/secondary percentages,
+  credit values, unknown fields and the repeated DST hour's two different UTC
+  offsets. Final inspection used the system GUI font; no clipped text was seen.
+  The preview alone gets a taskbar style so the desktop inspector can find it.
+  It was closed normally after inspection.
+
+The live test and interactive preview are ignored in ordinary automated runs.
+Final AH-019 checks passed: `cargo fmt --all -- --check`, `cargo clippy
+--all-targets -- -D warnings`, `cargo test --all-targets` (85 passed, five manual
+tests ignored), and `cargo build --release --target x86_64-pc-windows-msvc`.
+Live verification covers this installed alpha only. Windows 10 and a stable
+Codex release remain untested; authentication/network outages are explicit
+unavailability rather than a promise that every account exposes limits. No
+transcripts, unrelated sessions, login flows or account mutations are used.

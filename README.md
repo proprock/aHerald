@@ -68,7 +68,18 @@ sessions; visible time accumulates only while an event is selected.
 
 Click or right-click the aHerald tray icon (possibly under hidden icons) for usage
 summary/details/refresh, sound, visual notifications, pause, configuration location
-and exit. Usage actions explicitly report unavailable until Milestone 4.
+and exit. Enable the read-only Codex usage connection with `[usage] enabled = true`
+in the resident configuration. The tray shows primary/secondary usage; Usage
+details lists every available bucket, workspace/reset credits and reset times in
+the Windows local timezone. `refresh_interval_sec` defaults to 300. Refresh usage
+requests an update without waiting on the UI thread. Missing fields remain
+unavailable; failed or overdue snapshots are marked stale. Errors back off from
+10 to 300 seconds; manual refreshes coalesce and honor backoff (at least five
+seconds between successful requests). Notifications continue during outages.
+Codex must already be installed on PATH and signed in through its own supported
+flow; aHerald never opens a login flow or reads tokens. Usage is resident-only,
+disabled by default, and does not observe unrelated sessions. See
+[Milestone 4 evidence and limits](docs/milestone-4.md).
 Pause hides the card, cancels audio and freezes display time; incoming events
 continue to be validated and queued. Matching verified Codex Stop/Interrupt
 boundaries clear pending cards even while paused. Runtime switches are not saved

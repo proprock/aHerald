@@ -190,12 +190,20 @@ pub struct StdioTransport {
     outgoing: Option<SyncSender<WriteJob>>,
     reader: Option<JoinHandle<()>>,
     writer: Option<JoinHandle<()>>,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 impl StdioTransport {
     pub fn codex() -> Result<Self, Error> {
         let mut command = Command::new("codex.exe");
         command.args(["app-server", "--listen", "stdio://"]);
         Self::spawn(command)
+    }
+    pub fn codex_controlled(
+        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Self, Error> {
+        let mut transport = Self::codex()?;
+        transport.cancel = Some(cancel);
+        Ok(transport)
     }
     pub fn spawn(mut command: Command) -> Result<Self, Error> {
         #[cfg(windows)]
@@ -265,6 +273,7 @@ impl StdioTransport {
             outgoing: Some(outgoing),
             reader: Some(reader),
             writer: Some(writer),
+            cancel: None,
         })
     }
     pub fn pid(&self) -> u32 {
@@ -290,10 +299,26 @@ impl Transport for StdioTransport {
         })?
     }
     fn receive(&mut self, timeout: Duration) -> Result<Value, Error> {
-        self.incoming.recv_timeout(timeout).map_err(|e| match e {
-            mpsc::RecvTimeoutError::Timeout => Error::Timeout,
-            _ => Error::Disconnected,
-        })?
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self
+                .cancel
+                .as_ref()
+                .is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire))
+            {
+                return Err(Error::Disconnected);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match self
+                .incoming
+                .recv_timeout(remaining.min(Duration::from_millis(50)))
+            {
+                Ok(value) => return value,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Err(Error::Disconnected),
+                Err(_) if Instant::now() >= deadline => return Err(Error::Timeout),
+                Err(_) => (),
+            }
+        }
     }
 }
 impl Drop for StdioTransport {

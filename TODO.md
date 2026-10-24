@@ -197,7 +197,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: fixtures cover legacy/multi-bucket, optional fields, unknown fields,
   unavailable values, and local-time reset conversion including DST boundaries.
 
-- [ ] **AH-019 — Present usage independently of notifications.** Depends on AH-012, AH-018.
+- [x] **AH-019 — Present usage independently of notifications.** Depends on AH-012, AH-018.
   Show compact tray usage and a native details window for all available buckets.
   Use local reset times, default 300-second refresh, manual refresh, and explicit
   stale/unavailable states. Acceptance: usage failure leaves notifications working,

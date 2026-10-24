@@ -49,6 +49,10 @@ struct Ui {
     tray_retry: u64,
     config_path: std::path::PathBuf,
     information: HWND,
+    usage: crate::usage_service::Service,
+    usage_next: u64,
+    usage_window: bool,
+    usage_text: String,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
 }
@@ -65,6 +69,19 @@ impl Ui {
             return Ok(());
         }
         let now = self.now();
+        if now >= self.usage_next {
+            self.usage_next = now.saturating_add(1000);
+            if let Some(tray) = &mut self.tray {
+                tray.tooltip(&self.usage.summary());
+            }
+            if self.usage_window {
+                let text = self.usage.details();
+                if text != self.usage_text {
+                    crate::tray::update_information(self.information, &text);
+                    self.usage_text = text;
+                }
+            }
+        }
         let (entry, index, count, paused) = {
             let mut state = self
                 .shared
@@ -311,7 +328,8 @@ impl Ui {
                     }
                 }
             }
-            SUMMARY | DETAILS | REFRESH | CONFIG => {
+            REFRESH => self.usage.refresh(),
+            SUMMARY | DETAILS | CONFIG => {
                 unsafe {
                     if IsWindow(Some(self.information)).as_bool() {
                         let _ = DestroyWindow(self.information);
@@ -323,8 +341,17 @@ impl Ui {
                         self.config_path.display()
                     )
                 } else {
-                    UNAVAILABLE.to_owned()
+                    self.usage_window = command == DETAILS;
+                    if command == DETAILS {
+                        self.usage.details()
+                    } else {
+                        self.usage.summary()
+                    }
                 };
+                if command == CONFIG {
+                    self.usage_window = false;
+                }
+                self.usage_text = message.clone();
                 match information(
                     hwnd,
                     if command == CONFIG {
@@ -380,6 +407,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                             ui.config.sounds.enabled,
                             ui.config.notifications.enabled,
                             ui.shared.lock().ok().is_some_and(|s| s.paused),
+                            &ui.usage.summary().replace("\r\n", "; "),
                         )
                     };
                     if let Ok(menu) = menu {
@@ -451,6 +479,7 @@ pub fn run(
     stop: Arc<AtomicBool>,
     start: Instant,
     config_path: std::path::PathBuf,
+    usage: crate::usage_service::Service,
 ) -> Result<(), String> {
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -516,6 +545,10 @@ pub fn run(
         tray_retry: 0,
         config_path,
         information: HWND::default(),
+        usage,
+        usage_next: 0,
+        usage_window: false,
+        usage_text: String::new(),
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
     });
