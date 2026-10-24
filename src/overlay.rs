@@ -282,16 +282,18 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             crate::events::Kind::Error => "Agent error",
             crate::events::Kind::Interrupted => "Turn interrupted",
         };
-        let path = config.events[event.kind.name()].animation.clone();
+        let assets = config.clone();
+        let kind = event.kind;
         let bilinear = config.notifications.interpolation == "bilinear";
-        let prepared = path.and_then(|path| {
-            std::thread::spawn(move || {
-                crate::animation::Animation::load(&path)?.prepare(scale, bilinear)
-            })
-            .join()
-            .ok()
-            .and_then(Result::ok)
-        });
+        let prepared = std::thread::spawn(move || {
+            crate::pet::for_notification(&assets, kind)?
+                .map(|animation| animation.prepare(scale, bilinear))
+                .transpose()
+        })
+        .join()
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
         let (surfaces, frame_durations, looping) = if let Some(animation) = prepared {
             let surfaces = animation
                 .frames

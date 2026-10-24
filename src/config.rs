@@ -86,6 +86,7 @@ impl Default for Resident {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Notifications {
+    pub pet: Option<PathBuf>,
     pub enabled: bool,
     pub position: String,
     pub monitor: String,
@@ -106,6 +107,7 @@ impl Default for Notifications {
             fade_out_ms: 300,
             click_to_dismiss: true,
             interpolation: "nearest".into(),
+            pet: None,
         }
     }
 }
@@ -206,6 +208,11 @@ impl Config {
                     *path = directory.join(&*path);
                 }
             }
+        }
+        if let Some(path) = &mut config.notifications.pet
+            && path.is_relative()
+        {
+            *path = directory.join(&*path);
         }
         Ok(config)
     }

@@ -12,4 +12,5 @@ pub mod animation;
 pub mod audio;
 pub mod events;
 pub mod notification;
+pub mod pet;
 pub mod process;

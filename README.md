@@ -43,6 +43,14 @@ Explicit `--transient` overrides configured mode. `--resident`, `--status`, and
 `--quit` report their later-milestone status. Monitoring and usage polling are not
 implemented yet; enabling those settings does not stop transient notifications.
 
+## Codex pet artwork
+
+Use `notifications.pet` to point to a downloaded local `pet.json`; its PNG/WebP
+sprite sheet supplies event-specific animations. Standard v1/v2 packages are
+supported. See [pet setup and format limits](docs/pets.md) and `examples/pet.toml`.
+A per-event `animation` overrides the shared pet. No installer commands run from
+configuration; runtime playback needs neither npm nor Codex.
+
 ## Hooks and limits
 
 See [verified hook contracts](docs/codex-hooks.md) before manual integration.
