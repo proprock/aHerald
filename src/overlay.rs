@@ -36,9 +36,8 @@ impl Drop for Font {
     }
 }
 impl Surface {
-    fn text(width: i32, height: i32, scale: f64, label: &str) -> Result<Self, String> {
-        // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
-        // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
+    fn allocate(width: i32, height: i32) -> Result<(Self, *mut u8), String> {
+        // SAFETY: dimensions come from bounded frame preparation or bounded fallback sizing.
         unsafe {
             let dc = CreateCompatibleDC(None);
             if dc.is_invalid() {
@@ -76,8 +75,24 @@ impl Surface {
             if bits.is_null() || previous.is_invalid() {
                 return Err("cannot select overlay bitmap".into());
             }
-            let pixels =
-                std::slice::from_raw_parts_mut(bits as *mut u8, (width * height * 4) as usize);
+            Ok((surface, bits as *mut u8))
+        }
+    }
+    fn image(frame: crate::animation::PreparedFrame) -> Result<Self, String> {
+        let (surface, bits) = Self::allocate(frame.width as i32, frame.height as i32)?;
+        // SAFETY: preparation produces exactly width * height * 4 bytes and the DIB owns that allocation.
+        unsafe {
+            std::ptr::copy_nonoverlapping(frame.bgra.as_ptr(), bits, frame.bgra.len());
+        }
+        Ok(surface)
+    }
+    fn text(width: i32, height: i32, scale: f64, label: &str) -> Result<Self, String> {
+        // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
+        // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
+        unsafe {
+            let (surface, bits) = Self::allocate(width, height)?;
+            let dc = surface.dc;
+            let pixels = std::slice::from_raw_parts_mut(bits, (width * height * 4) as usize);
             let radius = (18.0 * scale) as i32;
             for y in 0..height {
                 for x in 0..width {
@@ -175,7 +190,9 @@ impl Surface {
     }
 }
 struct State {
-    surface: Surface,
+    surfaces: Vec<Surface>,
+    frame_durations: Vec<u64>,
+    looping: bool,
     position: POINT,
     start: Instant,
     duration: u64,
@@ -232,7 +249,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     );
                     if done {
                         let _ = DestroyWindow(hwnd);
-                    } else if state.surface.present(hwnd, state.position, alpha).is_err() {
+                    } else if state.surfaces[crate::animation::frame_index(
+                        &state.frame_durations,
+                        state.looping,
+                        elapsed,
+                    )]
+                    .present(hwnd, state.position, alpha)
+                    .is_err()
+                    {
                         state.failed = true;
                         let _ = DestroyWindow(hwnd);
                     }
@@ -250,7 +274,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let scale = config.notifications.scale * GetDpiForSystem().max(96) as f64 / 96.0;
-        let (width, height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
+        let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = match event.kind {
             crate::events::Kind::TurnComplete => "Turn complete",
             crate::events::Kind::PermissionRequired => "Permission required",
@@ -258,7 +282,50 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             crate::events::Kind::Error => "Agent error",
             crate::events::Kind::Interrupted => "Turn interrupted",
         };
-        let surface = Surface::text(width, height, scale, label)?;
+        let path = config.events[event.kind.name()].animation.clone();
+        let bilinear = config.notifications.interpolation == "bilinear";
+        let prepared = path.and_then(|path| {
+            std::thread::spawn(move || {
+                crate::animation::Animation::load(&path)?.prepare(scale, bilinear)
+            })
+            .join()
+            .ok()
+            .and_then(Result::ok)
+        });
+        let (surfaces, frame_durations, looping) = if let Some(animation) = prepared {
+            let surfaces = animation
+                .frames
+                .into_iter()
+                .map(Surface::image)
+                .collect::<Result<Vec<_>, _>>();
+            match surfaces {
+                Ok(frames) if !frames.is_empty() => {
+                    (frames, animation.durations_ms, animation.looping)
+                }
+                _ => (
+                    vec![Surface::text(
+                        fallback_width,
+                        fallback_height,
+                        scale,
+                        label,
+                    )?],
+                    vec![1000],
+                    false,
+                ),
+            }
+        } else {
+            (
+                vec![Surface::text(
+                    fallback_width,
+                    fallback_height,
+                    scale,
+                    label,
+                )?],
+                vec![1000],
+                false,
+            )
+        };
+        let (width, height) = (surfaces[0].width, surfaces[0].height);
         let mut cursor = POINT::default();
         let _ = GetCursorPos(&mut cursor);
         let point = if config.notifications.position == "near_cursor" {
@@ -289,7 +356,9 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             y: y.clamp(area.top, (area.bottom - height).max(area.top)),
         };
         let mut state = Box::new(State {
-            surface,
+            surfaces,
+            frame_durations,
+            looping,
             position,
             start: Instant::now(),
             duration: config.events[event.kind.name()].duration_ms,
@@ -327,9 +396,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         )
         .map_err(|_| "cannot create overlay window")?;
         let window = Window(hwnd);
-        state
-            .surface
-            .present(hwnd, position, if state.fade_in == 0 { 255 } else { 0 })?;
+        state.surfaces[0].present(hwnd, position, if state.fade_in == 0 { 255 } else { 0 })?;
         if SetTimer(Some(hwnd), 1, 16, None) == 0 {
             return Err("cannot start overlay timer".into());
         }

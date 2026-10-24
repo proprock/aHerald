@@ -73,7 +73,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   resolution event. Acceptance: no focus theft or Alt-Tab entry, responsive UI,
   transparent background, working timers and dismissal; basic DPI-correct sizing.
 
-- [ ] **AH-006 — Load and animate external PNG assets.** Depends on AH-005.
+- [x] **AH-006 — Load and animate external PNG assets.** Depends on AH-005.
   Support TOML-described sprite sheets in row-major order and deterministic PNG
   frame sequences. Support FPS and optional per-frame duration metadata, looping,
   and nearest-neighbor/bilinear scaling. Bound decoded dimensions, frame counts,
@@ -230,3 +230,4 @@ unreleased schemas.
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)
+

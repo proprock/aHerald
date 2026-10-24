@@ -66,3 +66,13 @@
   Full mixed-DPI/multi-monitor and Windows 10 checks remain untested (Milestone 5).
 - Placement currently uses the primary monitor (or cursor monitor for near_cursor).
   Explicit numbered-monitor selection and display-change handling remain AH-020.
+
+## AH-006 acceptance
+
+- Red: extraction, timing and alpha tests failed against the initial loader stubs.
+- Green: row-major sprite extraction, lexical sequence ordering, variable durations,
+  loop/hold timing, premultiplied alpha, both scaling filters, corrupt/missing files,
+  invalid frame dimensions/counts/FPS/durations pass focused execution tests.
+- Native overlay tests still pass with prepared image surfaces and text fallback.
+- PNG decoding and scaling run on a worker; the GUI timer only selects cached frames.
+- Passed formatting, Clippy, all-target tests and the Windows MSVC release build.
