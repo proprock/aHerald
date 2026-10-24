@@ -26,3 +26,23 @@ PNG dimension, 16 MiB per PNG file, 32 MiB decoded frames and 32 MiB scaled fram
 Nearest-neighbor and premultiplied-alpha bilinear interpolation are supported.
 Decoding/scaling runs on a worker before the GUI message loop. Rendering uses
 prepared premultiplied BGRA surfaces. Missing/corrupt/oversized assets use text.
+
+## Sound format and scheduling
+
+Sound files must be RIFF/WAVE PCM, signed 16-bit little-endian mono/stereo,
+8000–48000 Hz, at most five seconds and 2 MiB. Invalid/missing files are ignored.
+Volume scales a private sample buffer; system/device volume is never modified.
+A worker owns the waveOut device, stable sample/header buffers and completion
+handle. Playback and completion waits stay off the GUI thread.
+
+A named mutex serializes playback across transient processes in the current logon
+scope. A second event-identity mutex suppresses repeats for `deduplicate_ms` when
+`suppress_repeats` is enabled. Only a hash appears in that mutex name. Local names
+include the Windows token authentication LUID and use the token default DACL;
+there is no network endpoint. Queue waits are bounded to six seconds; sounds that
+cannot acquire playback in time are skipped. Repeat suppression may keep a child
+alive after its window closes, for at most the configured 60-second cooldown.
+
+Use `examples/resources.toml` for all five original PNG/WAV examples. Ordinary
+tests do not require an audio device; the ignored native device smoke test is
+explicitly opt-in. Missing devices degrade to visual notifications.

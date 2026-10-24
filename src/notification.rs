@@ -7,7 +7,16 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     crate::process::acknowledge()?;
     #[cfg(windows)]
     {
-        overlay::show(event, config)
+        let audio = crate::audio::start(event, config);
+        let result = if config.notifications.enabled {
+            overlay::show(event, config)
+        } else {
+            Ok(())
+        };
+        if let Some(audio) = audio {
+            let _ = audio.join();
+        }
+        result
     }
     #[cfg(not(windows))]
     {

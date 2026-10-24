@@ -81,7 +81,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   the text fallback. Acceptance: frame extraction, timing, sequence ordering,
   bounds, alpha conversion, and asset failures have focused tests.
 
-- [ ] **AH-007 — Add native asynchronous sound and sample resources.** Depends on AH-006.
+- [x] **AH-007 — Add native asynchronous sound and sample resources.** Depends on AH-006.
   Use a Windows audio API supporting per-playback volume without changing system
   volume. Serialize playback to prevent overlap; honor global/per-event settings
   and repeated-event suppression. Add original sample PNG/WAV resources, metadata,
@@ -230,4 +230,3 @@ unreleased schemas.
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)
-

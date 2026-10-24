@@ -1,0 +1,8 @@
+name = "input_required"
+type = "spritesheet"
+image = "sheet.png"
+frame_width = 64
+frame_height = 64
+frames = 8
+fps = 12
+loop = true

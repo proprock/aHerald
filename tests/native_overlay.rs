@@ -107,3 +107,27 @@ fn dismissal_during_fade_in_does_not_flash_to_full_opacity() {
         (127, false)
     );
 }
+
+#[test]
+fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
+    let path = std::env::temp_dir().join(format!("aherald-audio-only-{}.toml", std::process::id()));
+    std::fs::write(&path,"[notifications]\nenabled=false\n[events.permission_required]\nduration_ms=0\nsound='does-not-exist.wav'").unwrap();
+    let mut child = Owned(
+        deliver(
+            &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
+            &path,
+            &Event::demo("permission_required").unwrap(),
+        )
+        .unwrap(),
+    );
+    std::fs::remove_file(path).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            assert!(status.success());
+            return;
+        }
+        std::thread::yield_now();
+    }
+    panic!("sound-only child created an indefinite GUI or blocked on missing WAV");
+}

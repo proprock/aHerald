@@ -76,3 +76,15 @@
 - Native overlay tests still pass with prepared image surfaces and text fallback.
 - PNG decoding and scaling run on a worker; the GUI timer only selects cached frames.
 - Passed formatting, Clippy, all-target tests and the Windows MSVC release build.
+
+## AH-007 acceptance
+
+- Red: sample-volume and event-selection tests failed before audio implementation.
+- Green: PCM attenuation/mute, global/per-event switches, malformed/missing WAV,
+  bundled asset decoding, named-mutex exclusion/recovery and sound-only lifetime
+  tests pass. Standard tests require no audio device or installed Codex.
+- waveOut owns playback buffers on a worker, with per-buffer software volume and
+  bounded completion waits. Native objects use RAII; no system volume changes.
+- Five original external PNG/WAV sets include metadata, reproducible Rust generator,
+  MIT provenance and a relative-path example configuration.
+- All four standard Cargo checks pass (32 tests, one optional device test ignored). The optional Windows audio-device test was also run explicitly and passed.
