@@ -3,6 +3,7 @@
 pub mod app_server;
 pub mod cli;
 pub mod config;
+pub mod usage;
 
 pub const NAME: &str = "aHerald";
 

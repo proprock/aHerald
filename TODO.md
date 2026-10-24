@@ -189,7 +189,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: mock transport tests cover normal responses, timeouts, disconnects,
   malformed messages, and reconnect; credentials are never read or logged directly.
 
-- [ ] **AH-018 — Normalize available rate-limit data.** Depends on AH-017.
+- [x] **AH-018 — Normalize available rate-limit data.** Depends on AH-017.
   Implement `account/rateLimits/read` and supported updates, preferring multi-bucket
   data when available. Preserve primary/secondary windows, percentages, Unix reset
   timestamps, additional buckets, and officially exposed credits. Distinguish
