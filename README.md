@@ -91,8 +91,10 @@ See [verified hook contracts](docs/codex-hooks.md) before manual integration.
 and returns independently of notification lifetime. `Stop` emits `{}`;
 `PermissionRequest` and `Interrupt` emit no response. No permission decisions,
 transcript parsing, token reading, or automatic Codex installation are performed.
-Stable real-session integration is a later milestone; all five event types can
-already be exercised with `--event`.
+See [manual Windows hook setup](docs/codex-hooks.md) and the
+[version/coverage matrix](docs/codex-compatibility.md). Input-wait monitoring for
+unrelated CLI/app sessions is [explicitly unsupported](docs/codex-input-waits.md).
+All five event types can be exercised with `--event`.
 
 See [asset formats and sound scheduling](docs/assets.md) and
 [Milestone 1 evidence](docs/milestone-1.md) and [resident verification](docs/milestone-2.md). Current automated and

@@ -164,7 +164,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   forward notifications promptly; instructions explain manual installation,
   trust requirements, removal, and preservation of existing hooks.
 
-- [ ] **AH-015 — Implement supported input-wait observation.** Depends on AH-013.
+- [x] **AH-015 — Implement supported input-wait observation.** Depends on AH-013.
   Investigate documented stable sources for actual wait entry and resolution,
   including app-server request/resolution events where legitimately observable.
   Share app-server transport with AH-017 if needed. Do not assume a private server

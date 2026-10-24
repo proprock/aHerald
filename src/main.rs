@@ -80,11 +80,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
         None
     };
     let config = aherald::config::Config::load(&path, cli.config.is_some())?;
+    if config.codex.input_monitoring {
+        eprintln!(
+            "aHerald: Codex input monitoring unsupported for unrelated CLI/app sessions: no verified stable observation source; lifecycle hooks remain available"
+        );
+    }
+    if config.usage.enabled {
+        eprintln!("aHerald: Codex usage is not implemented until Milestone 4");
+    }
     if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
-    }
-    if config.codex.input_monitoring || config.usage.enabled {
-        eprintln!("aHerald: Codex monitoring and usage are not implemented until later milestones");
     }
     if cli.operation.as_deref() == Some("hook") {
         if let Some(event) = hook_event

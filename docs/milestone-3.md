@@ -26,4 +26,14 @@ acceptance passes; no global hooks/configuration were edited.
 Full `cargo test --all-targets` passed (three existing interactive tests ignored).
 Clippy initially reported one collapsible `if`; it was simplified and
 `cargo clippy --all-targets -- -D warnings` then passed. Format check passed.
-Release build and subsequent slice checks are recorded below when complete.
+`cargo build --release --target x86_64-pc-windows-msvc` passed (35.27 seconds).
+
+## AH-015 — input-wait investigation
+
+No stable passive source is available for the sessions in scope; the accepted
+unsupported-source path is documented in `codex-input-waits.md`. No heuristic or
+private app-server monitor was introduced. Red: the process diagnostic test found
+only a generic "later milestones" message. Green: `cargo test --test
+codex_monitoring --test hooks --test cli` passed with explicit unsupported-session
+diagnostics and successful event delivery. The diagnostic also precedes resident
+startup. Clippy and diff hygiene passed. Full checks follow AH-016.
