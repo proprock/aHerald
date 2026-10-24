@@ -119,7 +119,7 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 2 — Resident architecture
 
-- [ ] **AH-009 — Enforce a single resident instance.** Depends on AH-008.
+- [x] **AH-009 — Enforce a single resident instance.** Depends on AH-008.
   Scope a named mutex and named pipe to the current Windows user and logon session.
   Apply appropriate security descriptors and reject remote pipe clients. Require
   no elevation. Acceptance: concurrent starts yield one resident; tests exercise

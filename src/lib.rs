@@ -14,3 +14,6 @@ pub mod events;
 pub mod notification;
 pub mod pet;
 pub mod process;
+
+#[cfg(windows)]
+pub mod local;
