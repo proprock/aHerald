@@ -6,7 +6,7 @@ pub mod config;
 pub const NAME: &str = "aHerald";
 
 pub fn help() -> &'static str {
-    "aHerald — native Windows notification companion\nUsage: aherald [--hook | --event EVENT | --status | --quit] [--resident | --transient] [--config PATH]\nResident, status and quit: Milestone 2; Codex monitoring and usage: later milestones.\n"
+    "aHerald — native Windows notification companion\nUsage: aherald [--hook | --event EVENT | --status | --quit] [--resident | --transient] [--config PATH]\nUse --resident to run the local notification service; --status and --quit control it. Codex monitoring and usage: later milestones.\n"
 }
 pub mod animation;
 pub mod audio;
@@ -17,3 +17,8 @@ pub mod process;
 
 #[cfg(windows)]
 pub mod local;
+
+pub mod ipc;
+
+#[cfg(windows)]
+pub mod resident;

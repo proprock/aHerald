@@ -61,6 +61,7 @@ fn sid_text(sid: PSID) -> Result<String, String> {
 }
 #[derive(Clone, Debug)]
 pub struct Scope {
+    pub namespace: String,
     pub mutex_name: String,
     pub pipe_name: String,
     logon_sid: String,
@@ -93,6 +94,7 @@ impl Scope {
         let logon_sid = sid_text(groups.Groups[0].Sid)?;
         let suffix = format!("{namespace}-{user_sid}-{logon_sid}");
         Ok(Self {
+            namespace: namespace.into(),
             mutex_name: format!("Local\\aHerald-{suffix}"),
             pipe_name: format!(r"\\.\pipe\aHerald-{suffix}"),
             logon_sid,

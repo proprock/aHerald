@@ -12,6 +12,17 @@ fn main() {
 }
 
 fn run(args: Vec<String>) -> Result<(), String> {
+    if args.first().map(String::as_str) == Some("--resident-child") {
+        if args.len() != 4 || args[2] != "--config" {
+            return Err("invalid resident invocation".into());
+        }
+        let path = std::path::Path::new(&args[3]);
+        return aherald::resident::run(
+            aherald::local::Scope::current(&args[1])?,
+            aherald::config::Config::load(path, true)?,
+            path,
+        );
+    }
     if args.first().map(String::as_str) == Some("--display-child") {
         if args.len() != 3 || args[1] != "--config" {
             return Err("invalid internal invocation".into());
@@ -38,10 +49,24 @@ fn run(args: Vec<String>) -> Result<(), String> {
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
     let config = aherald::config::Config::load(&path, cli.config.is_some())?;
-    if matches!(cli.operation.as_deref(), Some("status" | "quit"))
-        || cli.selected_mode(&config) == "resident"
-    {
-        return Err("resident operations are not implemented until Milestone 2".into());
+    let scope = aherald::local::Scope::current("resident")?;
+    if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
+        let request = if cli.operation.as_deref() == Some("quit") {
+            aherald::ipc::Request::Quit
+        } else {
+            aherald::ipc::Request::Status
+        };
+        match aherald::ipc::pipe::request(&scope, &request, std::time::Duration::from_millis(100)) {
+            Ok(response) => println!(
+                "{}",
+                serde_json::to_string(&response).map_err(|_| "cannot encode status")?
+            ),
+            Err(_) => println!("{{\"running\":false}}"),
+        }
+        return Ok(());
+    }
+    if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
+        return aherald::resident::run(scope, config, &path);
     }
     if config.codex.input_monitoring || config.usage.enabled {
         eprintln!("aHerald: Codex monitoring and usage are not implemented until later milestones");
@@ -54,7 +79,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 println!("{{}}");
             }
             if config.codex.hooks_enabled {
-                dispatch(&event, &config, &path)?;
+                dispatch(&event, &config, &path, cli.selected_mode(&config))?;
             }
         }
         return Ok(());
@@ -63,13 +88,19 @@ fn run(args: Vec<String>) -> Result<(), String> {
         .event
         .as_deref()
         .ok_or("specify --event EVENT or --hook; see --help")?;
-    dispatch(&aherald::events::Event::demo(name)?, &config, &path)
+    dispatch(
+        &aherald::events::Event::demo(name)?,
+        &config,
+        &path,
+        cli.selected_mode(&config),
+    )
 }
 
 fn dispatch(
     event: &aherald::events::Event,
     config: &aherald::config::Config,
     path: &std::path::Path,
+    mode: &str,
 ) -> Result<(), String> {
     let setting = &config.events[event.kind.name()];
     if !setting.enabled
@@ -78,6 +109,14 @@ fn dispatch(
         return Ok(());
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+    if mode == "resident" {
+        return aherald::resident::forward(
+            &executable,
+            path,
+            &aherald::local::Scope::current("resident")?,
+            event,
+        );
+    }
     let _child = aherald::process::deliver(&executable, path, event)?;
     Ok(())
 }

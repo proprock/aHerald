@@ -43,3 +43,34 @@ remote-host and separate interactive-logon end-to-end tests remain environmental
 limits; the foreign-logon ACL test verifies the local access denial directly.
 
 Passed for AH-009: formatting, Clippy with warnings denied, all 46 tests (one audio-device test ignored), and the x64 MSVC release build.
+
+## AH-010
+
+Red: the frame round-trip test failed against the framing stub; the startup-race
+test failed against the resident-startup stub. Native exchange then reproduced
+ERROR_NO_DATA because DisconnectNamedPipe can discard unread response bytes.
+The final protocol waits for the client's response-consumption acknowledgement
+before disconnecting. No blocking FlushFileBuffers is used.
+
+Frames contain little-endian version 1 (u16), payload length (u32), and at most
+4096 bytes of validated JSON. Read/write stages have 250ms deadlines and connect
+waits are separately bounded. Pending named-pipe I/O is canceled and drained
+before borrowed OVERLAPPED/buffer storage is released. The client uses identification
+SQOS; the server never impersonates a client. Slow, disconnected, oversized,
+incompatible and malformed clients do not terminate the listener. The server uses
+one connection at a time and a bounded event channel; later queue policy is AH-011.
+
+Resident startup retries are bounded to 1.5 seconds plus an in-flight bounded
+exchange. Competing detached starters use the same scoped ownership; only one
+serves. Hooks acknowledge transport independently of presentation and never emit
+permission decisions. --status/--quit do not start an absent resident. An internal
+namespace allows isolated process integration tests without touching the user's
+normal resident. Public operation uses the fixed resident namespace for this logon.
+
+Native tests cover four concurrent starters, same PID status, event acknowledgement,
+graceful quit/resource release, stalled clients, malformed frames and subsequent
+successful exchanges. Ordinary transient delivery remains unchanged. At this commit
+the resident owns temporary display children; AH-011 replaces these with the single
+resident event card. No child survives a graceful quit.
+
+Passed for AH-010: formatting, Clippy with warnings denied, all 49 tests (one audio-device test ignored), and the x64 MSVC release build.

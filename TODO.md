@@ -125,7 +125,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   no elevation. Acceptance: concurrent starts yield one resident; tests exercise
   ownership, access restrictions, and recovery after process termination.
 
-- [ ] **AH-010 — Implement bounded, versioned IPC and control operations.** Depends on AH-009.
+- [x] **AH-010 — Implement bounded, versioned IPC and control operations.** Depends on AH-009.
   Add framing, validated lengths, acknowledgement, connection/read/write deadlines,
   and bounded retries. Forward hook events, start resident when absent, and implement
   `--status`/`--quit`. Acceptance: round-trip, oversized/malformed messages,
