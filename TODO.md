@@ -88,7 +88,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   and example TOML for the event types. Acceptance: sound does not block the GUI,
   mute/volume work, missing WAV files are harmless, and asset provenance is recorded.
 
-- [ ] **AH-008 — Accept the first vertical slice.** Depends on AH-001–AH-007.
+- [x] **AH-008 — Accept the first vertical slice.** Depends on AH-001–AH-007.
   Run the standard Cargo checks and release build. Demonstrate transient visual
   and sound notifications using external resources and text fallback. Record a
   Windows smoke test and hook-return timing under finite and indefinite duration.

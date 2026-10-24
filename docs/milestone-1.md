@@ -88,3 +88,29 @@
 - Five original external PNG/WAV sets include metadata, reproducible Rust generator,
   MIT provenance and a relative-path example configuration.
 - All four standard Cargo checks pass (32 tests, one optional device test ignored). The optional Windows audio-device test was also run explicitly and passed.
+
+## AH-008 final acceptance — 2026-10-24
+
+- All required commands pass with static CRT enabled:
+  `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test --all-targets` (33 passed, one optional audio-device test ignored),
+  `cargo build --release --target x86_64-pc-windows-msvc`.
+- The optional native audio-device test was run explicitly and passed after the
+  static CRT rebuild. It observes waveOut completion rather than assuming audibility.
+- Native resource acceptance passes: a valid external animation produces a square
+  frame-sized window; corrupt and missing PNG resources produce the text card.
+- Hook lifetime test observes successful exit and output EOF with the detached
+  child still alive. Latest measured returns during compilation load: 750 ms for
+  duration 30000 ms, 330 ms for duration 0. Both are independent of overlay expiry.
+- User confirmed seeing/clicking text fallback, seeing the animated sample, and
+  hearing a beep after switching sound cards. These are user-reported manual checks.
+- Packaging inspection initially found VCRUNTIME140.dll. Target-specific static CRT
+  linking removes it and the dynamic CRT imports. `scripts/check-release.ps1` passes:
+  x64 Windows GUI, 1188864 bytes, only Windows system DLL imports. This optional
+  packaging check uses llvm-readobj; the application does not need LLVM installed.
+- Tested platform: Windows 11 build 22621, Rust/Cargo 1.98.1 MSVC x64. No installed
+  Codex is required for ordinary tests or demos. Hook schemas match the recorded
+  Codex CLI version; live trusted-hook installation remains a later milestone.
+- Windows 10, mixed DPI/multiple monitors, display changes and Explorer restart
+  remain untested. Resident/tray/event navigation and numbered-monitor support
+  remain in their scheduled milestones.
