@@ -24,3 +24,6 @@ pub mod ipc;
 pub mod resident;
 
 pub mod queue;
+
+#[cfg(windows)]
+pub mod tray;

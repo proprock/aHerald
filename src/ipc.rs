@@ -46,6 +46,8 @@ pub enum Response {
         pid: u32,
         queued: usize,
         paused: bool,
+        sounds: bool,
+        visuals: bool,
     },
     Bye,
     Rejected,

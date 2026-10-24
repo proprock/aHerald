@@ -68,10 +68,12 @@ pub fn forward(exe: &Path, config: &Path, scope: &Scope, event: &Event) -> Resul
 pub struct Shared {
     pub queue: crate::queue::Queue,
     pub paused: bool,
+    pub sounds: bool,
+    pub visuals: bool,
 }
 #[path = "resident_overlay.rs"]
 mod overlay;
-pub fn run(scope: Scope, config: Config, _path: &Path) -> Result<(), String> {
+pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
@@ -80,6 +82,8 @@ pub fn run(scope: Scope, config: Config, _path: &Path) -> Result<(), String> {
     let shared = Arc::new(std::sync::Mutex::new(Shared {
         queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
         paused: false,
+        sounds: config.sounds.enabled,
+        visuals: config.notifications.enabled,
     }));
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let state = shared.clone();
@@ -104,6 +108,8 @@ pub fn run(scope: Scope, config: Config, _path: &Path) -> Result<(), String> {
                         pid: std::process::id(),
                         queued: state.queue.items().len(),
                         paused: state.paused,
+                        sounds: state.sounds,
+                        visuals: state.visuals,
                     },
                     Request::Quit => {
                         shutdown.store(true, Ordering::Release);
@@ -142,13 +148,13 @@ pub fn run(scope: Scope, config: Config, _path: &Path) -> Result<(), String> {
     });
     let startup = ready_rx
         .recv_timeout(Duration::from_secs(1))
-        .map_err(|_| "resident listener startup deadline exceeded")?;
+        .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
     if let Err(error) = startup {
         stop.store(true, Ordering::Release);
         let _ = listener.join();
         return Err(error);
     }
-    let result = overlay::run(config, shared, stop.clone(), start);
+    let result = overlay::run(config, shared, stop.clone(), start, path.to_owned());
     stop.store(true, Ordering::Release);
     let _ = listener.join();
     result

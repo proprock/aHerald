@@ -45,6 +45,12 @@ struct Ui {
     width: i32,
     height: i32,
     position: POINT,
+    tray: Option<crate::tray::Icon>,
+    tray_retry: u64,
+    config_path: std::path::PathBuf,
+    information: HWND,
+    audio_cancel: Arc<AtomicBool>,
+    error: Option<String>,
 }
 impl Ui {
     fn now(&self) -> u64 {
@@ -52,6 +58,7 @@ impl Ui {
     }
     fn draw(&mut self, hwnd: HWND) -> Result<(), String> {
         if self.stop.load(Ordering::Acquire) {
+            self.tray.take();
             unsafe {
                 let _ = DestroyWindow(hwnd);
             }
@@ -79,12 +86,17 @@ impl Ui {
             self.selection = None;
             return Ok(());
         };
+        self.audio.retain(|job| !job.is_finished());
         if self.sounded.insert(entry.id)
-            && let Some(audio) = crate::audio::start(&entry.event, &self.config)
+            && self.audio.len() < 4
+            && let Some(audio) = crate::audio::start_controlled(
+                &entry.event,
+                &self.config,
+                self.audio_cancel.clone(),
+            )
         {
             self.audio.push(audio);
         }
-        self.audio.retain(|job| !job.is_finished());
         self.sounded.retain(|id| {
             self.shared
                 .lock()
@@ -277,6 +289,59 @@ impl Ui {
             }
         }
     }
+    fn command(&mut self, hwnd: HWND, command: usize) {
+        use crate::tray::*;
+        match command {
+            SOUND | VISUAL | PAUSE => {
+                if let Ok(mut state) = self.shared.lock() {
+                    let paused = state.paused;
+                    state.queue.tick(self.now(), paused);
+                    match command {
+                        SOUND => state.sounds = !state.sounds,
+                        VISUAL => state.visuals = !state.visuals,
+                        PAUSE => state.paused = !state.paused,
+                        _ => {}
+                    }
+                    self.config.sounds.enabled = state.sounds;
+                    self.config.notifications.enabled = state.visuals;
+                    if !state.sounds || state.paused {
+                        self.audio_cancel.store(true, Ordering::Release);
+                    } else if self.audio_cancel.load(Ordering::Acquire) {
+                        self.audio_cancel = Arc::new(AtomicBool::new(false));
+                    }
+                }
+            }
+            SUMMARY | DETAILS | REFRESH | CONFIG => {
+                unsafe {
+                    if IsWindow(Some(self.information)).as_bool() {
+                        let _ = DestroyWindow(self.information);
+                    }
+                }
+                let message = if command == CONFIG {
+                    format!(
+                        "Configuration location:\r\n{}\r\n\r\nRuntime toggles are not saved. Restart to reload edited settings.",
+                        self.config_path.display()
+                    )
+                } else {
+                    UNAVAILABLE.to_owned()
+                };
+                match information(
+                    hwnd,
+                    if command == CONFIG {
+                        "aHerald configuration"
+                    } else {
+                        "aHerald usage"
+                    },
+                    &message,
+                ) {
+                    Ok(window) => self.information = window,
+                    Err(error) => self.error = Some(error),
+                }
+            }
+            EXIT => self.stop.store(true, Ordering::Release),
+            _ => {}
+        }
+    }
 }
 unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     // SAFETY: Ui is boxed for the window's lifetime, and accessed only by its GUI thread.
@@ -285,6 +350,64 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let create = &*(lp.0 as *const CREATESTRUCTW);
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
+        let p = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ui;
+        if !p.is_null() {
+            if (*p)
+                .tray
+                .as_ref()
+                .is_some_and(|tray| msg == tray.taskbar_created)
+            {
+                if let Some(tray) = &mut (*p).tray {
+                    tray.restore();
+                }
+                return LRESULT(0);
+            }
+            if msg == crate::tray::CALLBACK {
+                let event = (lp.0 & 0xffff) as u32;
+                use windows::Win32::UI::Shell::{NIN_SELECT, NINF_KEY};
+                if [
+                    WM_CONTEXTMENU,
+                    WM_RBUTTONUP,
+                    WM_LBUTTONUP,
+                    NIN_SELECT,
+                    NIN_SELECT | NINF_KEY,
+                ]
+                .contains(&event)
+                {
+                    let menu = {
+                        let ui = &*p;
+                        crate::tray::Menu::new(
+                            ui.config.sounds.enabled,
+                            ui.config.notifications.enabled,
+                            ui.shared.lock().ok().is_some_and(|s| s.paused),
+                        )
+                    };
+                    if let Ok(menu) = menu {
+                        // TrackPopupMenu runs a nested message loop. Do not borrow Ui across it.
+                        let command = menu.select(hwnd);
+                        let ui = &mut *p;
+                        ui.command(hwnd, command);
+                        if let Some(tray) = &ui.tray {
+                            tray.focus();
+                        }
+                        if let Err(error) = ui.draw(hwnd) {
+                            ui.error = Some(error);
+                            ui.stop.store(true, Ordering::Release);
+                        }
+                    }
+                }
+                return LRESULT(0);
+            }
+            if msg == WM_COMMAND {
+                let ui = &mut *p;
+                ui.command(hwnd, wp.0 & 0xffff);
+                if let Err(error) = ui.draw(hwnd) {
+                    ui.error = Some(error);
+                    ui.stop.store(true, Ordering::Release);
+                }
+                return LRESULT(0);
+            }
+        }
         match msg {
             WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
             WM_DESTROY => {
@@ -292,22 +415,30 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 return LRESULT(0);
             }
             WM_CLOSE => {
+                if !p.is_null() {
+                    (*p).tray.take();
+                }
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);
             }
-            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN => {
-                let p = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ui;
-                if !p.is_null() {
-                    let ui = &mut *p;
-                    if msg != WM_TIMER {
-                        ui.input(msg, wp, lp);
+            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN if !p.is_null() => {
+                let ui = &mut *p;
+                if ui.now() >= ui.tray_retry {
+                    ui.tray_retry = ui.now().saturating_add(5000);
+                    if let Some(tray) = &mut ui.tray {
+                        tray.restore();
                     }
-                    if ui.draw(hwnd).is_err() {
-                        ui.stop.store(true, Ordering::Release);
-                        let _ = DestroyWindow(hwnd);
-                    }
-                    return LRESULT(0);
                 }
+                if msg != WM_TIMER {
+                    ui.input(msg, wp, lp);
+                }
+                if let Err(error) = ui.draw(hwnd) {
+                    ui.error = Some(error);
+                    ui.stop.store(true, Ordering::Release);
+                    ui.tray.take();
+                    let _ = DestroyWindow(hwnd);
+                }
+                return LRESULT(0);
             }
             _ => {}
         }
@@ -319,6 +450,7 @@ pub fn run(
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
     start: Instant,
+    config_path: std::path::PathBuf,
 ) -> Result<(), String> {
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -380,6 +512,12 @@ pub fn run(
         width: 320,
         height: 110,
         position: POINT::default(),
+        tray: None,
+        tray_retry: 0,
+        config_path,
+        information: HWND::default(),
+        audio_cancel: Arc::new(AtomicBool::new(false)),
+        error: None,
     });
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;
@@ -409,7 +547,15 @@ pub fn run(
             Some(&mut *ui as *mut Ui as *const std::ffi::c_void),
         )
         .map_err(|_| "cannot create resident window")?;
+        match crate::tray::Icon::new(hwnd) {
+            Ok(tray) => ui.tray = Some(tray),
+            Err(error) => {
+                let _ = DestroyWindow(hwnd);
+                return Err(error);
+            }
+        }
         if SetTimer(Some(hwnd), 1, 16, None) == 0 {
+            ui.tray.take();
             let _ = DestroyWindow(hwnd);
             return Err("cannot start resident timer".into());
         }
@@ -417,6 +563,7 @@ pub fn run(
         loop {
             let code = GetMessageW(&mut msg, None, 0, 0).0;
             if code <= 0 {
+                ui.tray.take();
                 if IsWindow(Some(hwnd)).as_bool() {
                     let _ = DestroyWindow(hwnd);
                 }
@@ -431,10 +578,12 @@ pub fn run(
         Ok(())
     })();
     stop.store(true, Ordering::Release);
+    ui.audio_cancel.store(true, Ordering::Release);
+    ui.tray.take();
     ui.jobs.take();
     let _ = worker.join();
     for job in ui.audio.drain(..) {
         let _ = job.join();
     }
-    result
+    result.and_then(|()| ui.error.take().map_or(Ok(()), Err))
 }

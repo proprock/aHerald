@@ -113,6 +113,18 @@ pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
 mod native;
 #[cfg(windows)]
 pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<()>> {
+    start_controlled(
+        event,
+        config,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+}
+#[cfg(windows)]
+pub fn start_controlled(
+    event: &Event,
+    config: &Config,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Option<std::thread::JoinHandle<()>> {
     let path = selected(config, event)?.to_owned();
     let volume = config.sounds.volume;
     let dedup = if config.sounds.suppress_repeats {
@@ -123,7 +135,7 @@ pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<(
     let key = serde_json::to_vec(event).ok()?;
     Some(std::thread::spawn(move || {
         if let Ok(wave) = Wave::load(&path, volume) {
-            let _ = native::play(wave, &key, dedup);
+            let _ = native::play(wave, &key, dedup, &cancel);
         }
     }))
 }

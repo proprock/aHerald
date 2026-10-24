@@ -48,7 +48,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
         .clone()
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
-    let config = aherald::config::Config::load(&path, cli.config.is_some())?;
     let scope = aherald::local::Scope::current("resident")?;
     if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
         let request = if cli.operation.as_deref() == Some("quit") {
@@ -65,6 +64,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         return Ok(());
     }
+    let config = aherald::config::Config::load(&path, cli.config.is_some())?;
     if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
     }
@@ -103,9 +103,7 @@ fn dispatch(
     mode: &str,
 ) -> Result<(), String> {
     let setting = &config.events[event.kind.name()];
-    if !setting.enabled
-        || (!config.notifications.enabled && (!config.sounds.enabled || !setting.sound_enabled))
-    {
+    if !setting.enabled {
         return Ok(());
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
@@ -116,6 +114,9 @@ fn dispatch(
             &aherald::local::Scope::current("resident")?,
             event,
         );
+    }
+    if !config.notifications.enabled && (!config.sounds.enabled || !setting.sound_enabled) {
+        return Ok(());
     }
     let _child = aherald::process::deliver(&executable, path, event)?;
     Ok(())

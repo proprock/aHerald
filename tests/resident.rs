@@ -181,4 +181,101 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
         Response::Status { queued: 1, .. }
     ));
+    unsafe {
+        PostMessageW(Some(window), WM_COMMAND, WPARAM(203), LPARAM(0)).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if matches!(
+            pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
+            Response::Status { paused: true, .. }
+        ) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "tray pause action did not take effect"
+        );
+    }
+    assert!(!unsafe { IsWindowVisible(window) }.as_bool());
+    let mut event = Event::demo("input_required").unwrap();
+    event.session_id = Some("while-paused".into());
+    pipe::request(
+        &scope,
+        &Request::Event { event },
+        Duration::from_millis(200),
+    )
+    .unwrap();
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
+        Response::Status {
+            queued: 2,
+            paused: true,
+            ..
+        }
+    ));
+    unsafe {
+        PostMessageW(Some(window), WM_COMMAND, WPARAM(203), LPARAM(0)).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !unsafe { IsWindowVisible(window) }.as_bool() {
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    for command in [201, 202] {
+        unsafe {
+            SendMessageW(window, WM_COMMAND, Some(WPARAM(command)), Some(LPARAM(0)));
+        }
+    }
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
+        Response::Status {
+            sounds: true,
+            visuals: false,
+            paused: false,
+            queued: 2,
+            ..
+        }
+    ));
+    assert!(!unsafe { IsWindowVisible(window) }.as_bool());
+    unsafe {
+        SendMessageW(window, WM_COMMAND, Some(WPARAM(202)), Some(LPARAM(0)));
+    }
+    assert!(unsafe { IsWindowVisible(window) }.as_bool());
+    for command in [101, 102, 103, 204] {
+        unsafe {
+            SendMessageW(window, WM_COMMAND, Some(WPARAM(command)), Some(LPARAM(0)));
+        }
+        let mut found = Found {
+            pid,
+            windows: Vec::new(),
+        };
+        unsafe {
+            EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
+        }
+        let info = found
+            .windows
+            .into_iter()
+            .find(|h| *h != window)
+            .expect("tray action did not show information");
+        let child = unsafe { GetWindow(info, GW_CHILD) }.unwrap();
+        let text = title(child);
+        if command == 204 {
+            assert!(text.contains(&config.to_string_lossy().to_string()));
+        } else {
+            assert!(text.contains("Usage unavailable"));
+        }
+        // Leave the modeless information open: Exit must close it without user interaction.
+    }
+    unsafe {
+        PostMessageW(Some(window), WM_COMMAND, WPARAM(205), LPARAM(0)).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while scope.acquire().unwrap().is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "tray exit did not release ownership"
+        );
+        std::thread::yield_now();
+    }
 }

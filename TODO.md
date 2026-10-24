@@ -141,7 +141,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: simultaneous sessions, persistent events, overflow, repeated delivery,
   switching, priority, and individual dismissal are tested.
 
-- [ ] **AH-012 — Add native tray and graceful shutdown.** Depends on AH-011.
+- [x] **AH-012 — Add native tray and graceful shutdown.** Depends on AH-011.
   Use `Shell_NotifyIconW`; restore the icon after Explorer restarts. Add usage
   summary/details/refresh, sound and visual toggles, pause, configuration location,
   and exit. Pause suppresses presentation/audio while resolution processing

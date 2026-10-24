@@ -95,3 +95,56 @@ part of AH-012's manual acceptance.
 
 Passed: formatting, Clippy with warnings denied, all 53 tests (one audio-device
 test ignored), and the x64 MSVC release build.
+
+## AH-012
+
+Red: the resident integration test failed because WM_COMMAND Pause had no effect.
+The cancellation regression failed because an already-canceled audio job still
+waited for the serial playback gate. Both pass after implementation. Native menu
+inspection checks all eight actions and the current sound/visual/pause checkmarks.
+The resident integration test executes Pause/Resume, accepts events while paused,
+toggles sound/visual state, opens each usage/configuration action and exits while
+an information window remains open. Ownership is then reacquired. Audio tests
+interrupt pending completion and repeat cooldown without requiring an audio device.
+
+Shell_NotifyIconW uses a shared system icon and version 4 callbacks. TaskbarCreated
+re-adds it; a bounded periodic retry also tolerates Explorer being absent at startup.
+Native menus, icon registration, windows, audio handles, decoding worker and IPC
+listener have explicit lifetime cleanup. Information windows are modeless and owned
+by the resident so they cannot prevent Quit. Runtime toggles are not persisted.
+Usage is explicitly unavailable; no polling or fabricated counters are introduced.
+Pause freezes selected display time and suppresses presentation/audio while IPC
+validation/queueing continues. Actual terminal-event resolution is deferred to M3.
+
+The opt-in Explorer integration test passed in the interactive user session:
+it observes the registered icon, deletes only that icon, sends the registered
+TaskbarCreated message, waits for Explorer's asynchronous layout, observes the
+restored icon, quits the isolated resident and observes icon removal. The original
+immediate layout assertion was corrected to a bounded wait; the expected restored
+icon was not changed. The sandbox could not register a notification-area icon;
+this desktop check therefore ran outside the sandbox. No Explorer process was
+restarted, and no unrelated tray icon or application was changed.
+
+References checked 2026-10-24:
+- https://learn.microsoft.com/en-us/windows/win32/shell/taskbar
+- https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyiconw
+- https://learn.microsoft.com/en-us/windows/win32/shell/notification-area
+
+Passed for AH-012: cargo fmt --all -- --check, cargo clippy --all-targets -- -D warnings, cargo test --all-targets (57 passed, three opt-in tests ignored), cargo build --release --target x86_64-pc-windows-msvc, and scripts/check-release.ps1. The Explorer-icon and manual-window opt-in tests also passed separately in the interactive user session. The release is a 1,723,904-byte x64 Windows GUI executable with system DLL imports and no separately distributed CRT.
+
+Additional control regression: an invalid notification TOML originally prevented
+--status (and the shared --quit path) from executing. The test failed with that
+configuration error, then passed after control operations were moved before TOML
+loading. Runtime-disabled resident notifications still accept events so tray
+switches can enable presentation later.
+
+Manual evidence: after automated UI fixtures finished, the release executable was
+copied to a temporary portable demo folder and started with the external Becky
+package and two persistent events. A read-only native probe found one visible
+`aHerald.Resident` window, title `aHerald demo - Permission required [1/2]`, plus
+only the invisible system IME window. The user confirmed: one window and a working
+tray menu. The initial preview was inconclusive because the user reported seeing
+small and large cards; the repeated, isolated preview resolved that ambiguity.
+The demo was subsequently stopped through --quit. No user hooks/config/autostart
+were installed. Windows 11 build 22621 is the tested platform; Windows 10,
+multiple monitors/mixed DPI and a complete Explorer process restart remain untested.
