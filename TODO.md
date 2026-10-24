@@ -132,7 +132,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   incompatible versions, broken connections, startup races, and graceful lifecycle
   are tested; no TCP listener exists.
 
-- [ ] **AH-011 — Queue, deduplicate, and switch notification events.** Depends on AH-010.
+- [x] **AH-011 — Queue, deduplicate, and switch notification events.** Depends on AH-010.
   Use a bounded queue with High/Medium/Low priority and FIFO within each priority.
   Show one overlay with count and navigation controls. Persistent waits must not
   prevent presentation of other events; dismissal affects only the selected event.

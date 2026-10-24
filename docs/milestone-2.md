@@ -74,3 +74,24 @@ the resident owns temporary display children; AH-011 replaces these with the sin
 resident event card. No child survives a graceful quit.
 
 Passed for AH-010: formatting, Clippy with warnings denied, all 49 tests (one audio-device test ignored), and the x64 MSVC release build.
+
+## AH-011
+
+Red: deterministic queue tests failed against the queue stub. The native resident
+window test failed against AH-010, which created separate display processes.
+Green: priority/FIFO ordering, overflow, identity-based cross-source deduplication,
+unrelated sessions, dismissed-event history, persistent selection, selected-only
+dismissal, navigation and paused display budgets pass. Queue capacity is 64;
+higher-priority arrivals evict the oldest lowest-priority entry when full.
+
+The resident now owns one nonactivating layered card and no display children.
+Its title and visible source show the selected index/count; Prev, Next and Dismiss
+operate on the selected event. Asset decoding uses a bounded worker channel.
+Native integration exchanges real IPC messages, observes one window for two events,
+switches selection, dismisses one entry and verifies the surviving event and count.
+It also checks that the card does not become the foreground window. This is
+programmatic Windows UI evidence; visual inspection of the final tray/card remains
+part of AH-012's manual acceptance.
+
+Passed: formatting, Clippy with warnings denied, all 53 tests (one audio-device
+test ignored), and the x64 MSVC release build.

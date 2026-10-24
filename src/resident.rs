@@ -64,14 +64,27 @@ pub fn forward(exe: &Path, config: &Path, scope: &Scope, event: &Event) -> Resul
         _ => Err("resident event queue rejected notification".into()),
     }
 }
-pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
+
+pub struct Shared {
+    pub queue: crate::queue::Queue,
+    pub paused: bool,
+}
+#[path = "resident_overlay.rs"]
+mod overlay;
+pub fn run(scope: Scope, config: Config, _path: &Path) -> Result<(), String> {
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
     let stop = Arc::new(AtomicBool::new(false));
-    let (tx, rx) = mpsc::sync_channel::<Event>(64);
+    let start = Instant::now();
+    let shared = Arc::new(std::sync::Mutex::new(Shared {
+        queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
+        paused: false,
+    }));
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let state = shared.clone();
     let shutdown = stop.clone();
+    let settings = config.clone();
     let listener = std::thread::spawn(move || {
         let server = match scope.create_pipe() {
             Ok(s) => s,
@@ -82,21 +95,46 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         };
         let _ = ready_tx.send(Ok(()));
         while !shutdown.load(Ordering::Acquire) {
-            let _ = server.serve_once(|request| match request {
-                Request::Status => Response::Status {
-                    pid: std::process::id(),
-                    queued: 0,
-                    paused: false,
-                },
-                Request::Quit => {
-                    shutdown.store(true, Ordering::Release);
-                    Response::Bye
-                }
-                Request::Event { event } => {
-                    if event.validate().is_ok() && tx.try_send(event).is_ok() {
-                        Response::Accepted
-                    } else {
-                        Response::Rejected
+            let _ = server.serve_once(|request| {
+                let Ok(mut state) = state.lock() else {
+                    return Response::Rejected;
+                };
+                match request {
+                    Request::Status => Response::Status {
+                        pid: std::process::id(),
+                        queued: state.queue.items().len(),
+                        paused: state.paused,
+                    },
+                    Request::Quit => {
+                        shutdown.store(true, Ordering::Release);
+                        Response::Bye
+                    }
+                    Request::Event { event } => {
+                        if event.validate().is_err() {
+                            return Response::Rejected;
+                        }
+                        let setting = &settings.events[event.kind.name()];
+                        if !setting.enabled {
+                            return Response::Accepted;
+                        }
+                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        let duplicate = state.queue.is_duplicate(&event, now);
+                        if state.queue.push(
+                            event,
+                            now,
+                            if setting.duration_ms == 0 {
+                                0
+                            } else {
+                                setting
+                                    .duration_ms
+                                    .saturating_add(settings.notifications.fade_out_ms)
+                            },
+                        ) || duplicate
+                        {
+                            Response::Accepted
+                        } else {
+                            Response::Rejected
+                        }
                     }
                 }
             });
@@ -110,22 +148,8 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         let _ = listener.join();
         return Err(error);
     }
-    let exe = std::env::current_exe().map_err(|_| "cannot find resident executable")?;
-    let mut children = Vec::new();
-    while !stop.load(Ordering::Acquire) {
-        if let Ok(event) = rx.recv_timeout(Duration::from_millis(20))
-            && config.events[event.kind.name()].enabled
-            && (config.notifications.enabled || config.sounds.enabled)
-            && let Ok(child) = crate::process::deliver(&exe, path, &event)
-        {
-            children.push(child);
-        }
-        children.retain_mut(|child| matches!(child.try_wait(), Ok(None)));
-    }
-    for child in &mut children {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    let result = overlay::run(config, shared, stop.clone(), start);
+    stop.store(true, Ordering::Release);
     let _ = listener.join();
-    Ok(())
+    result
 }

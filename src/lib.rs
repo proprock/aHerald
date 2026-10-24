@@ -22,3 +22,5 @@ pub mod ipc;
 
 #[cfg(windows)]
 pub mod resident;
+
+pub mod queue;
