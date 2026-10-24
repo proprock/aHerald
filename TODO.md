@@ -150,7 +150,7 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 3 — Verified Codex integration
 
-- [ ] **AH-013 — Record version and event-source compatibility.** Depends on AH-008.
+- [x] **AH-013 — Record version and event-source compatibility.** Depends on AH-008.
   Inspect current official documentation and matching release/protocol schemas.
   Record tested Codex versions, payload fixtures, capabilities, and coverage limits.
   Planning observed `codex-cli 0.164.0-alpha.11.1`; this is not proof of stable
