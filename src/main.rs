@@ -12,6 +12,21 @@ fn main() {
 }
 
 fn run(args: Vec<String>) -> Result<(), String> {
+    if args.first().map(String::as_str) == Some("--display-child") {
+        if args.len() != 3 || args[1] != "--config" {
+            return Err("invalid internal invocation".into());
+        }
+        let config = aherald::config::Config::load(std::path::Path::new(&args[2]), false)?;
+        let bytes =
+            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
+        if bytes.len() > aherald::process::TRANSFER_LIMIT {
+            return Err("notification transfer exceeds limit".into());
+        }
+        let event: aherald::events::Event =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid normalized notification")?;
+        event.validate()?;
+        return aherald::notification::show(&event, &config);
+    }
     let cli = aherald::cli::Cli::parse(args)?;
     if cli.operation.as_deref() == Some("help") {
         println!("{}", aherald::help());
@@ -29,7 +44,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         return Err("resident operations are not implemented until Milestone 2".into());
     }
     if config.codex.input_monitoring || config.usage.enabled {
-        return Err("Codex monitoring and usage are not implemented until later milestones".into());
+        eprintln!("aHerald: Codex monitoring and usage are not implemented until later milestones");
     }
     if cli.operation.as_deref() == Some("hook") {
         let bytes =
@@ -39,10 +54,30 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 println!("{{}}");
             }
             if config.codex.hooks_enabled {
-                eprintln!("aHerald: notification delivery is not implemented yet");
+                dispatch(&event, &config, &path)?;
             }
         }
         return Ok(());
     }
-    Err("notification delivery is not implemented yet".into())
+    let name = cli
+        .event
+        .as_deref()
+        .ok_or("specify --event EVENT or --hook; see --help")?;
+    dispatch(&aherald::events::Event::demo(name)?, &config, &path)
+}
+
+fn dispatch(
+    event: &aherald::events::Event,
+    config: &aherald::config::Config,
+    path: &std::path::Path,
+) -> Result<(), String> {
+    let setting = &config.events[event.kind.name()];
+    if !setting.enabled
+        || (!config.notifications.enabled && (!config.sounds.enabled || !setting.sound_enabled))
+    {
+        return Ok(());
+    }
+    let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+    let _child = aherald::process::deliver(&executable, path, event)?;
+    Ok(())
 }

@@ -32,3 +32,16 @@
   also verify empty permission/interruption responses and sanitized diagnostics.
 - Passed all four standard Cargo checks (14 tests total); release rebuilt.
 - Windows build observed: 10.0.22621. No live Codex hook/trust installation performed.
+
+## AH-004 delivery implementation
+
+- Red: actual detached-process delivery test failed before implementation.
+- Green: startup/transfer completes independently of 5000 ms and indefinite child
+  lifetimes; invalid identities and missing executables fail safely. Owned test children
+  are killed and reaped. All four standard Cargo checks pass (16 tests).
+- The private inherited stdin pipe carries at most 2048 bytes. Child stdout is a
+  separate one-byte readiness acknowledgement; hook output handles are not inherited.
+- Handler startup deadline: 750 ms; child readiness deadline: 500 ms. A timed-out
+  launch kills its child when the launch worker resumes. No global IPC endpoint exists.
+- AH-004 remains unchecked until AH-005 replaces the lifetime placeholder with the
+  actual overlay and repeats the lifecycle acceptance against that window.

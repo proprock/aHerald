@@ -6,7 +6,7 @@ use std::{
 
 fn invoke(input: &[u8]) -> std::process::Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config", "examples/config.toml"])
+        .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -36,7 +36,7 @@ fn malformed_and_unknown_hooks_are_silent_success() {
 #[test]
 fn open_stdin_does_not_hold_hook_process() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config", "examples/config.toml"])
+        .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
