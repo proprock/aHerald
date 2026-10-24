@@ -182,7 +182,7 @@ fn native_pet_window_keeps_source_and_signal_with_or_without_artwork() {
     use aherald::{events::Event, process::deliver};
     use std::time::{Duration, Instant};
     use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
-    struct Owned(std::process::Child);
+    struct Owned(aherald::process::Child);
     impl Drop for Owned {
         fn drop(&mut self) {
             let _ = self.0.kill();

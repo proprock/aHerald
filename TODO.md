@@ -157,7 +157,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   release support. Acceptance: a technical note distinguishes verified behavior,
   unsupported behavior, and experimental/version-dependent behavior.
 
-- [ ] **AH-014 — Deliver lifecycle hook integration and examples.** Depends on AH-010, AH-013.
+- [x] **AH-014 — Deliver lifecycle hook integration and examples.** Depends on AH-010, AH-013.
   Verify `Stop`, `PermissionRequest`, and version-supported `Interrupt`; provide
   Windows hooks.json examples with correct path quoting and response contracts.
   Never decide permissions. Acceptance: mocked and real supported hook invocations

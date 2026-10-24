@@ -34,7 +34,9 @@ unrelated-session observation is implemented.
    `~/.codex/hooks.json` or a trusted project's `.codex/hooks.json`. Replace both
    absolute paths. JSON doubles backslashes; PowerShell single quotes preserve
    spaces. A literal apostrophe in a path must be doubled inside the PowerShell
-   string. The explicit `--resident` shares one queue between hook invocations.
+   string. Keep `| Out-String`: PowerShell needs an output consumer to wait for
+   this GUI-subsystem executable and collect its hook response. The explicit
+   `--resident` shares one queue between hook invocations.
 3. Preserve existing event groups and handlers: append these groups to the
    existing arrays instead of replacing the file. All matching hooks run.
    Back up the original file and avoid registering aHerald at two config layers.

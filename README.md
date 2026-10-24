@@ -39,8 +39,9 @@ not the working directory. The default config is `%APPDATA%\aHerald\config.toml`
 a missing default file uses built-in defaults. An explicitly missing/invalid file
 is an error. No user configuration or startup entries are installed automatically.
 
-Explicit `--transient` or `--resident` overrides configured mode. Monitoring and
-usage polling are not implemented yet; enabling those settings does not stop notifications.
+Explicit `--transient` or `--resident` overrides configured mode. Input-wait
+monitoring is unsupported for unrelated Codex sessions; usage polling awaits
+Milestone 4. Enabling those settings reports limits without stopping notifications.
 
 ## Resident mode and tray
 
@@ -69,8 +70,9 @@ Click or right-click the aHerald tray icon (possibly under hidden icons) for usa
 summary/details/refresh, sound, visual notifications, pause, configuration location
 and exit. Usage actions explicitly report unavailable until Milestone 4.
 Pause hides the card, cancels audio and freezes display time; incoming events
-continue to be validated and queued. Real terminal-state resolution belongs to
-Milestone 3. Runtime switches are not saved to TOML. Muted/skipped sounds are not
+continue to be validated and queued. Matching verified Codex Stop/Interrupt
+boundaries clear pending cards even while paused. Runtime switches are not saved
+to TOML. Muted/skipped sounds are not
 replayed on resume; at most four pending audio jobs are retained and playback is
 serialized. Exit also closes open information windows and releases owned resources.
 The icon is restored on `TaskbarCreated` and retried if Explorer is absent.

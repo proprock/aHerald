@@ -19,10 +19,37 @@ Actual handler processes returned in 140–231 ms for Stop, PermissionRequest an
 Interrupt with both 30-second and indefinite native child lifetimes; each child
 remained alive after its parent returned and was cleaned up by the test.
 
-These are real aHerald process invocations with sanitized input, not observed
-dispatch by Codex. The normal-user `/hooks` trust review and live Codex lifecycle
-smoke check have not been performed. AH-014 remains unchecked until that manual
-acceptance passes; no global hooks/configuration were edited.
+Real Codex dispatch was then verified with the installed version above using an
+isolated temporary CODEX_HOME/project and a local mock Responses SSE provider.
+A thread owned by this check completed a harmless synthetic response (`Stop`), then
+requested escalation (`PermissionRequest`) and was interrupted (`Interrupt`).
+No approval response or tool execution was supplied. Hook definitions were trusted
+by their exact current hashes in the temporary profile only. No global hooks or
+configuration were edited; no account credentials or unrelated threads were accessed.
+
+All three actual hook executions completed successfully through PowerShell in
+1648/907/878 ms respectively, within the three-second deadline. Their detached
+30-second notification processes remained alive after hook completion. The
+executable was copied to a path containing spaces; owned fixture processes were
+terminated after observation. This verifies real Codex dispatch with synthetic
+model responses, not a live model/account or the normal-user `/hooks` trust UI.
+
+This check exposed a collector-handle leak: an overlay inherited unrelated
+inheritable output handles and kept Codex waiting until timeout. Regression red:
+`detached_child_does_not_inherit_unrelated_hook_collector_handles` did not observe
+EOF while the overlay lived. Green: explicit Win32 handle allowlists inherit only
+the two transfer handles; resident startup inherits none. The regression now
+observes EOF while the indefinite notification remains alive. A separate
+PowerShell process test covers responses and paths containing spaces/apostrophes.
+The Windows example retains `| Out-String` so PowerShell waits for the GUI handler
+and captures its response. AH-014 acceptance is complete with these limits.
+
+The final native-process run also exposed a startup race: a losing resident
+launch could remain in flight after `ensure` returned another process's status
+and acquire ownership after that winner was quit. The existing
+`resident_startup_races_status_forwarding_and_quit` failed its ownership-release
+deadline. `ensure` now terminates and reaps its own losing startup process before
+returning the winner's status; the focused resident/process checks then passed.
 
 Full `cargo test --all-targets` passed (three existing interactive tests ignored).
 Clippy initially reported one collapsible `if`; it was simplified and
@@ -58,12 +85,12 @@ different agents; this deliberately removes the old false duplicate across them.
 
 Runtime hooks lack request IDs; separate permission boundaries cannot safely be
 deduplicated. Pending state remains in the resident only; transient windows keep
-manual/timer dismissal. AH-014's normal-user trust/dispatch acceptance remains
-outstanding independently of automated correlation checks.
+manual/timer dismissal. The normal-user trust UI remains a manual setup step;
+isolated real dispatch was verified as recorded above.
 
-Final checks after the Stop-continuation regression fix:
+Final checks after the Stop-continuation and collector-handle regression fixes:
 `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`,
 `cargo test --all-targets`, and `cargo build --release --target
 x86_64-pc-windows-msvc` all passed. Three pre-existing interactive tests remain
-ignored. The final optimized build took 69 seconds and produced
+ignored. The optimized build produced
 `target/x86_64-pc-windows-msvc/release/aherald.exe`.

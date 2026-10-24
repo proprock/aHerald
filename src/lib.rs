@@ -10,6 +10,8 @@ pub fn help() -> &'static str {
 }
 pub mod animation;
 pub mod audio;
+#[cfg(windows)]
+mod detached;
 pub mod events;
 pub mod notification;
 pub mod pet;

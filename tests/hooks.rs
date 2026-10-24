@@ -95,3 +95,55 @@ fn stop_response_survives_invalid_configuration() {
     assert!(output.status.success());
     assert_eq!(output.stdout, b"{}\n");
 }
+
+#[cfg(windows)]
+#[test]
+fn powershell_gui_invocation_collects_hook_responses_with_quoted_paths() {
+    let root = std::env::temp_dir().join(format!("aherald shell's paths {}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("quiet config.toml");
+    std::fs::copy("tests/fixtures/quiet.toml", &config).unwrap();
+    let executable = root.join("aherald.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_aherald"), &executable).unwrap();
+    let quote = |path: &std::path::Path| path.to_str().unwrap().replace('\'', "''");
+    for (input, expected) in [
+        (include_bytes!("fixtures/stop.json").as_slice(), "{}"),
+        (
+            include_bytes!("fixtures/permission-request.json").as_slice(),
+            "",
+        ),
+        (include_bytes!("fixtures/interrupt.json").as_slice(), ""),
+    ] {
+        let command = format!(
+            "& '{}' --hook --transient --config '{}' | Out-String",
+            quote(&executable),
+            quote(&config)
+        );
+        let mut child = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("PowerShell hook invocation exceeded its deadline");
+            }
+            std::thread::yield_now();
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);
+        assert!(output.stderr.is_empty());
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
