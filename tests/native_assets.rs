@@ -31,7 +31,7 @@ unsafe extern "system" fn find(hwnd: HWND, p: LPARAM) -> windows::core::BOOL {
     }
 }
 #[test]
-fn native_window_uses_external_frame_dimensions_and_recovers_to_text() {
+fn native_window_keeps_card_beside_external_frames_and_recovers_to_text() {
     let root = std::env::temp_dir().join(format!("aherald-resource-native-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     struct Cleanup(PathBuf);
@@ -87,8 +87,11 @@ fn native_window_uses_external_frame_dimensions_and_recovers_to_text() {
             GetWindowRect(search.hwnd, &mut rect).unwrap();
             let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
             if is_image {
-                assert_eq!(width, height);
-                assert!(width >= 64);
+                // A 64x64 decoration joins the 320x110 card with an 18px gap.
+                assert!(
+                    width > height * 3,
+                    "text space must remain beside the frame"
+                );
             } else {
                 assert!(width > height * 2);
             }

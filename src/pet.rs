@@ -139,3 +139,23 @@ pub fn for_notification(config: &Config, kind: Kind) -> Result<Option<Animation>
         .map(|path| load(path, kind))
         .transpose()
 }
+
+/// Select artwork for an event source.
+pub fn for_event(
+    config: &Config,
+    event: &crate::events::Event,
+) -> Result<Option<Animation>, String> {
+    let explicit = config
+        .events
+        .get(event.kind.name())
+        .and_then(|e| e.animation.as_ref());
+    if explicit.is_none()
+        && let Some(path) = config
+            .agents
+            .get(event.source.agent_key())
+            .and_then(|a| a.pet.as_deref())
+    {
+        return load(path, event.kind).map(Some);
+    }
+    for_notification(config, event.kind)
+}

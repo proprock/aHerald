@@ -45,10 +45,11 @@ implemented yet; enabling those settings does not stop transient notifications.
 
 ## Codex pet artwork
 
-Use `notifications.pet` to point to a downloaded local `pet.json`; its PNG/WebP
-sprite sheet supplies event-specific animations. Standard v1/v2 packages are
+The card always shows the event source and signal text. Use `agents.codex.pet`
+to point to a downloaded local `pet.json`; its PNG/WebP sprite sheet animates beside
+the text. `notifications.pet` supplies an optional shared default. Standard v1/v2 packages are
 supported. See [pet setup and format limits](docs/pets.md) and `examples/pet.toml`.
-A per-event `animation` overrides the shared pet. No installer commands run from
+A per-event `animation` overrides agent and shared pets. No installer commands run from
 configuration; runtime playback needs neither npm nor Codex.
 
 ## Hooks and limits

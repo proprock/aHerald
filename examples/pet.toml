@@ -1,9 +1,12 @@
 # Point to a downloaded Codex pet.json. No installer command is executed.
 # Relative paths resolve against this configuration directory.
 [notifications]
-pet = '../characters/becky--natewanggg/pet.json'
 scale = 1.0
 interpolation = 'bilinear'
+
+# Codex hooks use this artwork; --event demos use agents.demo or notifications.pet.
+[agents.codex]
+pet = '../characters/becky--natewanggg/pet.json'
 
 # Optional: retain the default sound settings or set your own WAV per event.
 [sounds]

@@ -10,6 +10,10 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
 - Support resident and detached transient notifications. A hook must finish
   independently of notification lifetime, animation, monitoring, or usage queries.
 - Use one overlay with a count and controls for switching between events.
+- Always show the event source and signal text in the overlay. Optional animation
+  decorates the same card and identifies the agent; it never replaces that text.
+- Select optional pet artwork by agent; keep permission-response buttons as future
+  product work. Dismissing the current card never answers an agent request.
 - Supply simple original PNG animations and WAV sounds under MIT; assets remain
   external and replaceable without recompilation.
 - Observe input waits only through verified, documented stable interfaces. Do not
@@ -104,6 +108,14 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: focused tests verify paths, frames, alpha, timing, version/size bounds,
   invalid resources and native window recovery; visually demonstrate a real pet.
   User approved extending the existing image decoder with WebP on 2026-10-24.
+
+- [x] **AH-025 — Keep source and signal text beside optional agent artwork.** Depends on AH-024.
+  Always render the source and normalized signal in one native card. Add animation
+  as an optional decoration, selected by agent with a shared fallback; preserve
+  explicit event animation overrides. Invalid artwork keeps the source/text card.
+  Acceptance: test source isolation, asset precedence, visible text pixels, alpha
+  composition, native card recovery/dismissal; visually inspect the Codex/Becky card.
+  This slice does not implement Claude event ingestion, a resident queue, or replies.
 
 ## Milestone 2 — Resident architecture
 

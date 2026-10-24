@@ -21,6 +21,7 @@ pub struct Config {
     pub notifications: Notifications,
     pub sounds: Sounds,
     pub events: BTreeMap<String, EventConfig>,
+    pub agents: BTreeMap<String, AgentAssets>,
     pub codex: Codex,
     pub usage: Usage,
 }
@@ -33,6 +34,7 @@ impl Default for Config {
             sounds: Sounds::default(),
             codex: Codex::default(),
             usage: Usage::default(),
+            agents: BTreeMap::new(),
             events: EVENT_NAMES
                 .into_iter()
                 .map(|name| {
@@ -52,6 +54,11 @@ impl Default for Config {
                 .collect(),
         }
     }
+}
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AgentAssets {
+    pub pet: Option<PathBuf>,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -209,10 +216,13 @@ impl Config {
                 }
             }
         }
-        if let Some(path) = &mut config.notifications.pet
-            && path.is_relative()
+        for path in std::iter::once(&mut config.notifications.pet)
+            .chain(config.agents.values_mut().map(|agent| &mut agent.pet))
+            .flatten()
         {
-            *path = directory.join(&*path);
+            if path.is_relative() {
+                *path = directory.join(&*path);
+            }
         }
         Ok(config)
     }
