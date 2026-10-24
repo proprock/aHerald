@@ -1,5 +1,5 @@
 //! Deterministic bounded event queue; time is supplied by the caller.
-use crate::events::{Event, Priority, Source};
+use crate::events::{Event, Kind, Priority, Source};
 use std::collections::VecDeque;
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -16,6 +16,7 @@ pub struct Queue {
     dedup_ms: u64,
     sequence: u64,
     last_tick: Option<u64>,
+    terminal_history: VecDeque<Event>,
 }
 fn rank(e: &Event) -> u8 {
     match e.kind.priority() {
@@ -26,10 +27,25 @@ fn rank(e: &Event) -> u8 {
 }
 fn same(a: &Event, b: &Event) -> bool {
     a.kind == b.kind
+        && a.source.agent_key() == b.source.agent_key()
+        && a.agent_id == b.agent_id
+        // Hooks expose no request ID: identical turn IDs can be distinct waits.
+        && (!pending(a) || a.source == Source::Demo || a.request_id.is_some())
         && a.session_id == b.session_id
         && a.turn_id == b.turn_id
         && a.request_id == b.request_id
         && (a.session_id.is_some() || (a.source == Source::Demo && b.source == Source::Demo))
+}
+fn pending(event: &Event) -> bool {
+    matches!(event.kind, Kind::PermissionRequired | Kind::InputRequired)
+}
+fn same_turn(a: &Event, b: &Event) -> bool {
+    a.source.agent_key() == b.source.agent_key()
+        && a.agent_id == b.agent_id
+        && a.session_id.is_some()
+        && a.turn_id.is_some()
+        && a.session_id == b.session_id
+        && a.turn_id == b.turn_id
 }
 impl Queue {
     pub fn new(capacity: usize, dedup_ms: u64) -> Self {
@@ -41,7 +57,42 @@ impl Queue {
             dedup_ms,
             sequence: 0,
             last_tick: None,
+            terminal_history: VecDeque::new(),
         }
+    }
+    pub fn is_obsolete(&self, event: &Event) -> bool {
+        pending(event)
+            && self
+                .terminal_history
+                .iter()
+                .any(|terminal| same_turn(terminal, event))
+    }
+    /// Process verified lifecycle evidence even while presentation is disabled.
+    pub fn observe_terminal(&mut self, event: &Event) -> usize {
+        if !event.is_terminal_evidence() {
+            return 0;
+        }
+        // Another Stop hook can continue the same turn. Only interruption proves
+        // that a later-delivered wait belongs to an already terminated turn.
+        if event.kind == Kind::Interrupted
+            && !self.terminal_history.iter().any(|e| same_turn(e, event))
+        {
+            self.terminal_history.push_back(event.clone());
+            while self.terminal_history.len() > 128 {
+                self.terminal_history.pop_front();
+            }
+        }
+        let previous_index = self.selected_index();
+        let count = self.items.len();
+        self.items
+            .retain(|entry| !(pending(&entry.event) && same_turn(&entry.event, event)));
+        if self.selected().is_none() {
+            self.selected = self
+                .items
+                .get(previous_index.min(self.items.len().saturating_sub(1)))
+                .map(|e| e.id);
+        }
+        count - self.items.len()
     }
     pub fn is_duplicate(&self, event: &Event, now: u64) -> bool {
         self.dedup_ms > 0
@@ -52,6 +103,10 @@ impl Queue {
     }
     pub fn push(&mut self, event: Event, now: u64, duration: u64) -> bool {
         if event.validate().is_err() {
+            return false;
+        }
+        self.observe_terminal(&event);
+        if self.is_obsolete(&event) {
             return false;
         }
         if self.is_duplicate(&event, now) {

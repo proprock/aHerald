@@ -74,8 +74,17 @@ pub struct Event {
     pub session_id: Option<String>,
     pub turn_id: Option<String>,
     pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 impl Event {
+    pub fn is_terminal_evidence(&self) -> bool {
+        self.source == Source::CodexHook
+            && matches!(self.kind, Kind::TurnComplete | Kind::Interrupted)
+            && self.session_id.is_some()
+            && self.turn_id.is_some()
+            && self.validate().is_ok()
+    }
     pub fn demo(name: &str) -> Result<Self, String> {
         let kind: Kind = serde_json::from_value(serde_json::Value::String(name.into()))
             .map_err(|_| "unknown event")?;
@@ -85,12 +94,18 @@ impl Event {
             session_id: None,
             turn_id: None,
             request_id: None,
+            agent_id: None,
         })
     }
     pub fn validate(&self) -> Result<(), String> {
-        for id in [&self.session_id, &self.turn_id, &self.request_id]
-            .into_iter()
-            .flatten()
+        for id in [
+            &self.session_id,
+            &self.turn_id,
+            &self.request_id,
+            &self.agent_id,
+        ]
+        .into_iter()
+        .flatten()
         {
             if id.is_empty() || id.len() > 256 || id.chars().any(char::is_control) {
                 return Err("invalid event identity".into());
@@ -109,6 +124,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         hook_event_name: String,
         session_id: Option<String>,
         turn_id: Option<String>,
+        agent_id: Option<String>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
     let kind = match hook.hook_event_name.as_str() {
@@ -123,6 +139,11 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,
+        agent_id: if kind == Kind::PermissionRequired {
+            hook.agent_id
+        } else {
+            None
+        },
     };
     event.validate()?;
     Ok(Some(event))

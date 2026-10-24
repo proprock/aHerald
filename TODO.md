@@ -173,7 +173,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   waiting, and resolved states; unobservable sessions report unsupported explicitly.
   Lack of a stable source is documented rather than replaced with heuristic detection.
 
-- [ ] **AH-016 — Correlate pending and terminal states.** Depends on AH-011, AH-014, AH-015.
+- [x] **AH-016 — Correlate pending and terminal states.** Depends on AH-011, AH-014, AH-015.
   Resolve pending notifications only on verified matching request/turn lifecycle
   evidence. Deduplicate multiple sources and handle completion/interruption.
   A failed individual tool call is not automatically an agent execution error.

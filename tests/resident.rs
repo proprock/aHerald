@@ -5,6 +5,74 @@ use aherald::{
     resident,
 };
 use std::{path::PathBuf, time::Duration};
+
+#[test]
+fn disabled_terminal_cards_still_resolve_matching_waits_over_ipc() {
+    let root = std::env::temp_dir().join(format!("aherald-resolved-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(&config, "[notifications]\nenabled=false\n[sounds]\nenabled=false\n[events.interrupted]\nenabled=false").unwrap();
+    let scope = Scope::current(&format!("resolved-test-{}", std::process::id())).unwrap();
+    struct Cleanup(Scope, PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while std::time::Instant::now() < deadline {
+                if self.0.acquire().ok().flatten().is_some() {
+                    break;
+                }
+                std::thread::yield_now();
+            }
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+    let _cleanup = Cleanup(scope.clone(), root);
+    resident::ensure(
+        &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
+        &config,
+        &scope,
+    )
+    .unwrap();
+    let event = |name: &str| {
+        aherald::events::parse_hook(
+            format!(r#"{{"hook_event_name":"{name}","session_id":"one","turn_id":"turn-a"}}"#)
+                .as_bytes(),
+        )
+        .unwrap()
+        .unwrap()
+    };
+    for name in [
+        "PermissionRequest",
+        "PermissionRequest",
+        "Interrupt",
+        "PermissionRequest",
+    ] {
+        assert!(matches!(
+            pipe::request(
+                &scope,
+                &Request::Event { event: event(name) },
+                Duration::from_millis(500)
+            )
+            .unwrap(),
+            Response::Accepted
+        ));
+        let expected = if name == "PermissionRequest" {
+            None
+        } else {
+            Some(0)
+        };
+        if let Some(expected) = expected {
+            assert!(
+                matches!(pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(), Response::Status { queued, .. } if queued == expected)
+            );
+        }
+    }
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(),
+        Response::Status { queued: 0, .. }
+    ));
+}
 #[test]
 fn resident_startup_races_status_forwarding_and_quit() {
     let root = std::env::temp_dir().join(format!("aherald-resident-{}", std::process::id()));

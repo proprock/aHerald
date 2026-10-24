@@ -118,7 +118,7 @@ fn dispatch(
     mode: &str,
 ) -> Result<(), String> {
     let setting = &config.events[event.kind.name()];
-    if !setting.enabled {
+    if !setting.enabled && !(mode == "resident" && event.is_terminal_evidence()) {
         return Ok(());
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;

@@ -119,12 +119,14 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                         if event.validate().is_err() {
                             return Response::Rejected;
                         }
+                        let resolved = state.queue.observe_terminal(&event);
                         let setting = &settings.events[event.kind.name()];
                         if !setting.enabled {
                             return Response::Accepted;
                         }
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        let duplicate = state.queue.is_duplicate(&event, now);
+                        let duplicate = state.queue.is_duplicate(&event, now)
+                            || state.queue.is_obsolete(&event);
                         if state.queue.push(
                             event,
                             now,
@@ -136,6 +138,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                                     .saturating_add(settings.notifications.fade_out_ms)
                             },
                         ) || duplicate
+                            || resolved > 0
                         {
                             Response::Accepted
                         } else {

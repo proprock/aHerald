@@ -10,8 +10,9 @@ Sources:
   Inspected both input and output for stop, permission-request, and interrupt.
 
 The adapter maps Stop to completion, PermissionRequest to a pending permission
-notification, and Interrupt to interruption. It retains only optional session/turn
-identifiers; these schemas expose no request identity. It ignores other fields,
+notification, and Interrupt to interruption. It retains optional session/turn
+identifiers and PermissionRequest's optional subagent identity; these schemas
+expose no request identity. It ignores other fields,
 including messages, transcript paths, and tool arguments. It tolerates missing
 identities for compatibility and unknown fields for forward compatibility.
 
@@ -55,3 +56,20 @@ To remove integration, delete only the aHerald handler/groups, preserving other
 hooks. Quit the resident with `aherald.exe --quit`, then remove portable files if
 desired. Nothing edits global configuration, installs autostart, or changes trust
 automatically. Re-check contracts and repeat the smoke test after Codex upgrades.
+
+## Resident lifecycle correlation
+
+Matching Stop/Interrupt boundaries clear current pending main-thread cards only
+with a valid session and turn identity from Codex. Different turns, sources and
+subagents remain isolated. Processing also runs with presentation disabled or
+paused. Demo events never resolve Codex waits. Incomplete identities and subagent
+waits without a supported terminal source remain manually dismissible.
+
+Interrupt retains at most 128 terminated-turn identities to suppress delayed
+wait delivery. Stop does not: another Stop hook can continue the same turn, so
+subsequent waits must remain visible. A delayed Stop cannot be distinguished from
+a new Stop boundary in a continued turn; these hooks have no ordering token.
+Hook permission requests also have no request identity: separate invocations are
+kept separate rather than incorrectly merged. Identified normalized duplicates
+are suppressed within the configured window and only within the same agent.
+No second independently observable Codex source is currently integrated.
