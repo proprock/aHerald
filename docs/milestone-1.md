@@ -45,3 +45,24 @@
   launch kills its child when the launch worker resumes. No global IPC endpoint exists.
 - AH-004 remains unchecked until AH-005 replaces the lifetime placeholder with the
   actual overlay and repeats the lifecycle acceptance against that window.
+
+## AH-004/AH-005 acceptance
+
+- Red: native enumeration found no window before implementation; controlled-time
+  fade tests failed, and a later test exposed an opacity jump on early dismissal.
+- Green: 22 tests pass, including an actual layered/no-activate/tool window,
+  click dismissal of an indefinite wait, automatic timed exit, and smooth fades.
+- Full hook-process capture initially waited for notification expiry: Windows had
+  inherited the hook's original output pipe despite redirected child stdio. Clearing
+  inheritance of the hook's original standard handles fixes the regression.
+- Actual `--hook` timing: 395 ms (30-second duration), 236 ms (indefinite duration).
+  The test observes successful hook exit AND output EOF while the child is alive,
+  then terminates/reaps only its own child. No arbitrary sleeps or installed Codex.
+- Acknowledgement means validated event received; graphics/resources initialize
+  afterward. Native window tests independently verify successful presentation.
+- Passed fmt check, Clippy with warnings denied, all-target tests, release build.
+- Manual Windows 11 build 22621: user reported seeing the demo and clicking it.
+  Automated checks verify styles, focus exclusion, click handling, and timer lifetime.
+  Full mixed-DPI/multi-monitor and Windows 10 checks remain untested (Milestone 5).
+- Placement currently uses the primary monitor (or cursor monitor for near_cursor).
+  Explicit numbered-monitor selection and display-change handling remain AH-020.

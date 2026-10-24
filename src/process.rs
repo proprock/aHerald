@@ -43,6 +43,25 @@ fn spawn_ready(executable: PathBuf, config: PathBuf, payload: Vec<u8>) -> Result
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        use windows::Win32::{
+            Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation},
+            System::Console::{
+                GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+            },
+        };
+        // Command redirects child stdio, but Windows also inherits unrelated inheritable handles.
+        // Clear inheritance of this hook's original channels so collectors observe EOF promptly.
+        // SAFETY: only inheritance flags on our own standard handles change; the handles stay open.
+        unsafe {
+            for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+                if let Ok(handle) = GetStdHandle(id)
+                    && !handle.is_invalid()
+                {
+                    SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, Default::default())
+                        .map_err(|_| "cannot isolate hook channels")?;
+                }
+            }
+        }
         // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP; no console window.
         command.creation_flags(0x0000_0008 | 0x0000_0200);
     }

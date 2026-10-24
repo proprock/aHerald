@@ -58,14 +58,14 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: fixtures test normalization, optional identifiers, unknown events,
   malformed input, input bounds, and event-specific non-blocking responses.
 
-- [ ] **AH-004 — Implement detached transient delivery.** Depends on AH-003.
+- [x] **AH-004 — Implement detached transient delivery.** Depends on AH-003.
   Launch a detached GUI child and hand off only bounded normalized event data
   through a local channel, not sensitive command-line arguments. Bound startup
   and transfer time. Keep `--event` available for demonstrations without Codex.
   Acceptance: an integration test proves the hook returns before an overlay's
   lifetime ends, including `duration_ms = 0`; startup failure exits safely.
 
-- [ ] **AH-005 — Render a native layered overlay.** Depends on AH-004.
+- [x] **AH-005 — Render a native layered overlay.** Depends on AH-004.
   Use `WS_POPUP`, `WS_EX_TOPMOST`, `WS_EX_LAYERED`, `WS_EX_TOOLWINDOW`, and
   `WS_EX_NOACTIVATE`, with `UpdateLayeredWindow` and correct alpha handling.
   Implement text fallback, click-to-dismiss, automatic dismissal, smooth fades,
