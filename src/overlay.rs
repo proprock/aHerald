@@ -22,6 +22,7 @@ pub(crate) struct Surface {
     pub(crate) width: i32,
     pub(crate) height: i32,
     pixels: *mut u8,
+    resized: std::cell::RefCell<Option<Box<Surface>>>,
 }
 impl Drop for Surface {
     fn drop(&mut self) {
@@ -78,6 +79,7 @@ impl Surface {
                 width,
                 height,
                 pixels: bits as *mut u8,
+                resized: std::cell::RefCell::new(None),
             };
             if bits.is_null() || previous.is_invalid() {
                 return Err("cannot select overlay bitmap".into());
@@ -243,6 +245,48 @@ impl Surface {
             Ok(surface)
         }
     }
+    pub(crate) fn present_placed(
+        &self,
+        window: HWND,
+        placement: (i32, i32, i32, i32),
+        alpha: u8,
+    ) -> Result<(i32, i32), String> {
+        let (x, y, width, height) = placement;
+        let point = POINT { x, y };
+        if (width, height) == (self.width, self.height) {
+            self.present(window, point, alpha)?;
+        } else {
+            let mut cached = self.resized.borrow_mut();
+            if cached
+                .as_ref()
+                .is_none_or(|s| (s.width, s.height) != (width, height))
+            {
+                let (surface, bits) = Self::allocate(width, height)?;
+                // SAFETY: both DIB buffers have their checked dimensions * four bytes. Copy
+                // premultiplied pixels directly so scaling preserves transparent edges.
+                unsafe {
+                    for y in 0..height as usize {
+                        for x in 0..width as usize {
+                            let src = ((y * self.height as usize / height as usize)
+                                * self.width as usize
+                                + x * self.width as usize / width as usize)
+                                * 4;
+                            std::ptr::copy_nonoverlapping(
+                                self.pixels.add(src),
+                                bits.add((y * width as usize + x) * 4),
+                                4,
+                            );
+                        }
+                    }
+                }
+                *cached = Some(Box::new(surface));
+            }
+            if let Some(surface) = cached.as_ref() {
+                surface.present(window, point, alpha)?;
+            }
+        }
+        Ok((width, height))
+    }
     pub(crate) fn present(&self, window: HWND, position: POINT, alpha: u8) -> Result<(), String> {
         let size = SIZE {
             cx: self.width,
@@ -276,7 +320,8 @@ struct State {
     surfaces: Vec<Surface>,
     frame_durations: Vec<u64>,
     looping: bool,
-    position: POINT,
+    notifications: crate::config::Notifications,
+    placement: (i32, i32, i32, i32),
     start: Instant,
     duration: u64,
     fade_in: u64,
@@ -315,10 +360,19 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);
             }
-            WM_TIMER | WM_LBUTTONUP => {
+            WM_TIMER | WM_LBUTTONUP | WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE => {
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
                 if !ptr.is_null() {
                     let state = &mut *ptr;
+                    if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE)
+                        && let Ok(p) = crate::placement::current(
+                            &state.notifications,
+                            (state.surfaces[0].width, state.surfaces[0].height),
+                            state.surfaces.len(),
+                        )
+                    {
+                        state.placement = p;
+                    }
                     let elapsed = state.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
                     if message == WM_LBUTTONUP && state.click && state.dismissed.is_none() {
                         state.dismissed = Some(elapsed);
@@ -337,7 +391,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         state.looping,
                         elapsed,
                     )]
-                    .present(hwnd, state.position, alpha)
+                    .present_placed(hwnd, state.placement, alpha)
                     .is_err()
                     {
                         state.failed = true;
@@ -356,7 +410,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     // SAFETY: all Win32 objects are created/used/destroyed on this thread; boxed State outlives Window.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let scale = config.notifications.scale * GetDpiForSystem().max(96) as f64 / 96.0;
+        let scale = config.notifications.scale;
         let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = event.kind.label();
         let source = event.source.label();
@@ -410,40 +464,15 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             )?);
         }
         let (width, height) = (surfaces[0].width, surfaces[0].height);
-        let mut cursor = POINT::default();
-        let _ = GetCursorPos(&mut cursor);
-        let point = if config.notifications.position == "near_cursor" {
-            cursor
-        } else {
-            POINT::default()
-        };
-        let monitor = MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
-        let mut info = MONITORINFO {
-            cbSize: size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return Err("cannot determine monitor work area".into());
-        }
-        let area = info.rcWork;
-        let (x, y) = match config.notifications.position.as_str() {
-            "top_center" => ((area.left + area.right - width) / 2, area.top + 24),
-            "bottom_right" => (area.right - width - 24, area.bottom - height - 24),
-            "near_cursor" => (cursor.x + 16, cursor.y + 16),
-            _ => (
-                (area.left + area.right - width) / 2,
-                (area.top + area.bottom - height) / 2,
-            ),
-        };
-        let position = POINT {
-            x: x.clamp(area.left, (area.right - width).max(area.left)),
-            y: y.clamp(area.top, (area.bottom - height).max(area.top)),
-        };
+        let position = POINT::default();
+        let placement =
+            crate::placement::current(&config.notifications, (width, height), surfaces.len())?;
         let mut state = Box::new(State {
             surfaces,
             frame_durations,
             looping,
-            position,
+            notifications: config.notifications.clone(),
+            placement,
             start: Instant::now(),
             duration: config.events[event.kind.name()].duration_ms,
             fade_in: config.notifications.fade_in_ms,
@@ -484,7 +513,11 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         )
         .map_err(|_| "cannot create overlay window")?;
         let window = Window(hwnd);
-        state.surfaces[0].present(hwnd, position, if state.fade_in == 0 { 255 } else { 0 })?;
+        state.surfaces[0].present_placed(
+            hwnd,
+            state.placement,
+            if state.fade_in == 0 { 255 } else { 0 },
+        )?;
         if SetTimer(Some(hwnd), 1, 16, None) == 0 {
             return Err("cannot start overlay timer".into());
         }
