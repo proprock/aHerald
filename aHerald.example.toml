@@ -51,6 +51,9 @@ activate_agent_on_click = true
 # Artwork resize filter: "nearest" (default) or "bilinear".
 interpolation = "nearest"
 # Shared local pet.json path; default absent (use builtin artwork in auto mode).
+# Installed Codex pets are stored in ~/.codex/pets, with one folder per pet.
+# On Windows, ~ is %USERPROFILE%: %USERPROFILE%\.codex\pets.
+# Use the full path to a pet's pet.json here; ~ and environment variables are not expanded.
 # Agent pet takes priority over this shared pet. In auto mode, setting a pet
 # switches all inherited events to it, regardless of stored animation paths.
 # pet = 'characters/my-pet/pet.json'
