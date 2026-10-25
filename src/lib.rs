@@ -6,6 +6,7 @@ pub mod app_server;
 pub mod card;
 pub mod claude_usage;
 pub mod cli;
+mod codex_install;
 pub mod config;
 mod default_config;
 pub mod demo;

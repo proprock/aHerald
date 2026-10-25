@@ -193,6 +193,10 @@ An implementation alone is not evidence of Windows visual acceptance.
   authentication unavailability, and unsupported methods without blocking UI.
   Acceptance: mock transport tests cover normal responses, timeouts, disconnects,
   malformed messages, and reconnect; credentials are never read or logged directly.
+  Codex discovery: prefer codex.exe in absolute PATH directories, then fall back
+  to the existing npm installation's native x64 binary; never copy/install Codex
+  or execute npm shims. Verify precedence, spaced prefixes, missing/incomplete
+  installations, and a live usage read with the ordinary Windows PATH.
 
 - [x] **AH-018 — Normalize available rate-limit data.** Depends on AH-017.
   Implement `account/rateLimits/read` and supported updates, preferring multi-bucket

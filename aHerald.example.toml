@@ -220,7 +220,8 @@ refresh_interval_sec = 300
 # Optional usage card background; omitted means inherit notifications.background_color.
 # background_color = "#202D40"
 # Read-only usage polling in resident/demo mode; default false. Requires codex.exe
-# on PATH and an existing sign-in; usage failures leave event notifications working.
+# or the npm codex.cmd installation on PATH and an existing sign-in.
+# Usage failures leave event notifications working.
 enabled = false
 # Automatic refresh interval in seconds: 10..86400; default 300.
 refresh_interval_sec = 300

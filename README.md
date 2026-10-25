@@ -147,7 +147,12 @@ delayed or failed refreshes; update age and errors remain in the card details.
 Errors back off from 10 to 300 seconds. Notifications continue during outages.
 See [tray usage behavior and verification](docs/tray-usage.md).
 Codex must already be installed on PATH and signed in through its own supported
-flow; aHerald never opens a login flow or reads tokens. Usage is resident-only,
+flow. aHerald first searches absolute PATH directories for `codex.exe`; if absent,
+it finds the native x64 binary inside an existing npm `@openai/codex` installation
+beside a `codex.cmd` shim on PATH. Both nested and hoisted platform packages and
+the bundled vendor layout are supported. No Codex copy, installation, Node process,
+or shim execution is needed. Restart aHerald after changing its inherited PATH.
+aHerald never opens a login flow or reads tokens. Usage is resident-only,
 disabled by default, and does not observe unrelated sessions. See
 [Milestone 4 evidence and limits](docs/milestone-4.md).
 Pause hides the card, cancels audio and freezes display time; incoming events
