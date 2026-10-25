@@ -1,4 +1,4 @@
-//! Read-only Codex app-server connection. No thread, login or approval operations.
+//! Read-only Codex metadata and usage connection. Never resumes threads or answers requests.
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -72,6 +72,18 @@ impl<T: Transport> Client<T> {
     }
     pub fn read_limits(&mut self) -> Result<Value, Error> {
         self.request("account/rateLimits/read", Value::Null)
+    }
+    pub fn read_thread_name(&mut self, id: &str) -> Result<Option<String>, Error> {
+        let result = self.request("thread/read", json!({"threadId":id,"includeTurns":false}))?;
+        let thread = result.get("thread").ok_or(Error::Malformed)?;
+        if thread.get("id").and_then(Value::as_str) != Some(id) {
+            return Err(Error::Malformed);
+        }
+        match thread.get("name") {
+            Some(Value::String(name)) => Ok(Some(name.clone())),
+            None | Some(Value::Null) => Ok(None),
+            _ => Err(Error::Malformed),
+        }
     }
     fn notification(&mut self, value: &Value) -> Result<(), Error> {
         if value.get("id").is_some() {

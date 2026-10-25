@@ -278,6 +278,45 @@ impl Surface {
             Ok(surface)
         }
     }
+    pub(crate) fn with_heading(
+        &self,
+        source: &str,
+        text_left: i32,
+        scale: f64,
+    ) -> Result<Self, String> {
+        let heading = Self::card(
+            self.width,
+            self.height,
+            scale,
+            text_left,
+            CardText {
+                source,
+                label: "",
+                navigation: false,
+                dismiss_button: false,
+                color: crate::config::Color([0, 0, 0]),
+            },
+        )?;
+        let (surface, bits) = Self::allocate(self.width, self.height)?;
+        // SAFETY: all three owned DIBs have identical dimensions. Copy only the
+        // heading's bounded rectangle, preserving artwork, controls and event text.
+        unsafe {
+            let len = self.width as usize * self.height as usize * 4;
+            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
+            let top = ((self.height - (64.0 * scale) as i32) / 2).max(0);
+            let right = (self.width - (82.0 * scale) as i32).clamp(0, self.width);
+            for y in top..(top + (26.0 * scale) as i32).min(self.height) {
+                let left = text_left.clamp(0, right);
+                let offset = ((y * self.width + left) * 4) as usize;
+                std::ptr::copy_nonoverlapping(
+                    heading.pixels.add(offset),
+                    bits.add(offset),
+                    ((right - left) * 4) as usize,
+                );
+            }
+        }
+        Ok(surface)
+    }
     pub(crate) fn with_countdown(&self, seconds: u64, scale: f64) -> Result<Self, String> {
         let (surface, bits) = Self::allocate(self.width, self.height)?;
         // SAFETY: both DIBs own exactly width * height * four bytes; only this owned DC
@@ -418,6 +457,9 @@ struct State {
     countdown: Option<(usize, u64, Surface)>,
     dismissed: Option<u64>,
     failed: bool,
+    source_labels: crate::session_source::Service,
+    event: Event,
+    text_left: i32,
 }
 struct Window(HWND);
 impl Drop for Window {
@@ -453,6 +495,38 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
                 if !ptr.is_null() {
                     let state = &mut *ptr;
+                    let source = state.source_labels.label(&state.event);
+                    if source != state.controls.heading {
+                        let updated = state
+                            .surfaces
+                            .iter()
+                            .map(|surface| {
+                                surface.with_heading(
+                                    &source,
+                                    state.text_left,
+                                    state.notifications.scale,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>();
+                        match updated {
+                            Ok(surfaces) => {
+                                state.surfaces = surfaces;
+                                state.controls.heading = source.clone();
+                                state.countdown = None;
+                                let title: Vec<u16> =
+                                    format!("{source} - {}", state.event.kind.label())
+                                        .encode_utf16()
+                                        .chain(Some(0))
+                                        .collect();
+                                let _ = SetWindowTextW(hwnd, windows::core::PCWSTR(title.as_ptr()));
+                            }
+                            Err(_) => {
+                                state.failed = true;
+                                let _ = DestroyWindow(hwnd);
+                                return LRESULT(0);
+                            }
+                        }
+                    }
                     if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE)
                         && let Ok(p) = crate::placement::current(
                             &state.notifications,
@@ -535,14 +609,21 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
 }
 
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
+    show_with_source(event, config, crate::session_source::Service::codex())
+}
+fn show_with_source(
+    event: &Event,
+    config: &Config,
+    mut source_labels: crate::session_source::Service,
+) -> Result<(), String> {
     // SAFETY: all Win32 objects are created/used/destroyed on this thread; boxed State outlives Window.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let scale = config.notifications.scale;
         let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = event.kind.label();
-        let source = event.source.label();
-        let controls = crate::card::Card::new(source, 0, 1, config.notifications.click_to_dismiss);
+        let source = source_labels.label(event);
+        let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
         let make_card = |width, height, text_left| {
             Surface::card(
                 width,
@@ -550,7 +631,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
                 scale,
                 text_left,
                 CardText {
-                    source,
+                    source: &source,
                     label,
                     navigation: false,
                     dismiss_button: controls.dismiss_button,
@@ -569,6 +650,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         let mut surfaces = Vec::new();
         let mut frame_durations = vec![1000];
         let mut looping = false;
+        let mut text_left = (22.0 * scale) as i32;
         if let Some(animation) = prepared {
             let padding = (18.0 * scale) as i32;
             let art_width = animation.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
@@ -586,6 +668,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
                     })
                     .collect::<Result<Vec<_>, _>>();
                 if let Ok(frames) = composed {
+                    text_left = art_width + padding * 2;
                     surfaces = frames;
                     frame_durations = animation.durations_ms;
                     looping = animation.looping;
@@ -617,6 +700,9 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             countdown: None,
             dismissed: None,
             failed: false,
+            source_labels,
+            event: event.clone(),
+            text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;
         let class = w!("aHerald.Overlay");
@@ -684,6 +770,130 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
 #[cfg(test)]
 mod card_tests {
     use super::Surface;
+    #[test]
+    fn metadata_heading_preserves_artwork_signal_and_controls() {
+        let card = Surface::text(
+            530,
+            244,
+            1.0,
+            "Codex: session 12345678",
+            "Permission required",
+            228,
+        )
+        .unwrap();
+        let updated = card
+            .with_heading("Codex: Проверка aHerald", 228, 1.0)
+            .unwrap();
+        // SAFETY: both owned DIBs contain width * height BGRA pixels.
+        unsafe {
+            let old = std::slice::from_raw_parts(card.pixels, 530 * 244 * 4);
+            let new = std::slice::from_raw_parts(updated.pixels, old.len());
+            let mut changed = 0;
+            for y in 0..244 {
+                for x in 0..530 {
+                    let i = (y * 530 + x) * 4;
+                    if (90..116).contains(&y) && (228..448).contains(&x) {
+                        changed += usize::from(old[i..i + 4] != new[i..i + 4]);
+                    } else {
+                        assert_eq!(old[i..i + 4], new[i..i + 4]);
+                    }
+                }
+            }
+            assert!(changed > 100);
+        }
+    }
+
+    #[test]
+    fn background_title_reaches_native_window() {
+        source_window(false);
+    }
+    #[test]
+    #[ignore = "one native visual inspection of the resolved session heading"]
+    fn preview_session_heading() {
+        source_window(true);
+    }
+    fn source_window(preview: bool) {
+        use super::*;
+        use std::{sync::mpsc, time::Duration};
+        use windows::core::BOOL;
+        let (release, gate) = mpsc::channel();
+        let mut event = Event::demo("permission_required").unwrap();
+        event.source = crate::events::Source::CodexHook;
+        event.session_id = Some("019a0000-0000-0000-0000-000012345678".into());
+        let mut config = Config::default();
+        config.sounds.enabled = false;
+        let job = std::thread::spawn(move || {
+            show_with_source(
+                &event,
+                &config,
+                crate::session_source::Service::new(move |_| {
+                    gate.recv().ok()?;
+                    Some("Проверка aHerald".into())
+                }),
+            )
+        });
+        unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> BOOL {
+            unsafe {
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                let mut class = [0u16; 80];
+                let len = GetClassNameW(hwnd, &mut class);
+                if pid == std::process::id()
+                    && String::from_utf16_lossy(&class[..len as usize]) == "aHerald.Overlay"
+                {
+                    *(param.0 as *mut HWND) = hwnd;
+                    return BOOL(0);
+                }
+                BOOL(1)
+            }
+        }
+        let mut hwnd = HWND::default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while hwnd.is_invalid() {
+            unsafe {
+                let _ = EnumWindows(Some(find), LPARAM(&mut hwnd as *mut HWND as isize));
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        struct Close(HWND);
+        impl Drop for Close {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = PostMessageW(Some(self.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+        let close = Close(hwnd);
+        let title = || {
+            let mut text = [0u16; 256];
+            let len = unsafe { GetWindowTextW(hwnd, &mut text) };
+            String::from_utf16_lossy(&text[..len as usize])
+        };
+        assert_eq!(title(), "Codex: session 12345678 - Permission required");
+        release.send(()).unwrap();
+        while title() != "Codex: Проверка aHerald - Permission required" {
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_ne!(unsafe { GetForegroundWindow() }, hwnd);
+        if preview {
+            // Expose only this owned fixture window to desktop capture.
+            unsafe {
+                let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ((style & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0) as isize,
+                );
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            std::thread::park_timeout(Duration::from_secs(30));
+        }
+        drop(close);
+        job.join().unwrap().unwrap();
+    }
     use crate::animation::PreparedFrame;
     #[test]
     fn controls_accent_and_countdown_render_real_pixels_in_their_regions() {

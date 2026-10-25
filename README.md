@@ -52,6 +52,15 @@ Explicit `--transient` or `--resident` overrides configured mode. Input-wait
 monitoring is unsupported for unrelated Codex sessions; usage polling awaits
 Milestone 4. Enabling those settings reports limits without stopping notifications.
 
+Codex hook notifications identify their originating chat as `Codex: <thread name>`.
+Names are read in the background through the official metadata-only `thread/read`
+API; hooks and the window do not wait for that request. While loading, or when no
+stored name is available, the source is `Codex: session <last 8 ID characters>`.
+The automatic sidebar caption is not always a stored thread name. No session ID
+means the source stays `Codex`. Titles refresh after 60 seconds while displayed;
+the notification timer and animation continue unchanged. Long names are ellipsized.
+See [session source labels](docs/session-source.md) for protocol verification and limits.
+
 ## Configuration demo
 
 ```powershell

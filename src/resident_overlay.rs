@@ -57,6 +57,8 @@ struct Ui {
     error: Option<String>,
     demo: Option<crate::demo::Demo>,
     countdown: Option<(usize, u64, Surface)>,
+    source_labels: crate::session_source::Service,
+    source_heading: String,
 }
 impl Ui {
     fn now(&self) -> u64 {
@@ -154,13 +156,19 @@ impl Ui {
                 loaded = true;
             }
         }
+        let source = self.source_labels.label(&entry.event);
         let controls = crate::card::Card::new(
-            entry.event.source.label(),
+            &source,
             index,
             count,
             self.config.notifications.click_to_dismiss,
         );
-        if changed || loaded || self.layout_count != count {
+        if changed
+            || loaded
+            || self.layout_count != count
+            || self.source_heading != controls.heading
+        {
+            self.source_heading = controls.heading.clone();
             self.countdown = None;
             self.layout_count = count;
             self.placement = None;
@@ -585,6 +593,8 @@ pub(super) fn run_preview(
         error: None,
         demo,
         countdown: None,
+        source_labels: crate::session_source::Service::codex(),
+        source_heading: String::new(),
     });
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;

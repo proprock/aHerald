@@ -5,6 +5,7 @@ pub mod card;
 pub mod cli;
 pub mod config;
 pub mod demo;
+pub mod session_source;
 pub mod usage;
 pub mod usage_service;
 
