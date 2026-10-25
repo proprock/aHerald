@@ -20,6 +20,8 @@ pub enum Error {
     Remote(i64),
     UnexpectedRequest,
     Backoff,
+    /// A fixed, sanitized message from a non-Codex usage provider.
+    Service(&'static str),
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,6 +34,7 @@ impl std::fmt::Display for Error {
             Self::Remote(_) => "Codex usage unavailable (authentication or service error)",
             Self::UnexpectedRequest => "Unexpected Codex server request; connection closed",
             Self::Backoff => "Codex reconnect delayed",
+            Self::Service(message) => message,
         })
     }
 }

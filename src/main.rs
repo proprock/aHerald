@@ -77,12 +77,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     let hook_event = if cli.operation.as_deref() == Some("hook") {
         let bytes =
             aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
-        let event = aherald::events::parse_hook(&bytes)?;
-        if event
-            .as_ref()
-            .is_some_and(|e| e.kind == aherald::events::Kind::TurnComplete)
-        {
-            println!("{{}}");
+        let event = cli.hook_agent().parse_hook(&bytes)?;
+        if let Some(reply) = event.as_ref().and_then(|e| cli.hook_agent().hook_reply(e)) {
+            println!("{reply}");
         }
         event
     } else {
@@ -102,7 +99,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     if cli.operation.as_deref() == Some("hook") {
         if let Some(event) = hook_event
-            && config.codex.hooks_enabled
+            && cli.hook_agent().hooks_enabled(&config)
         {
             dispatch(&event, &config, &path, cli.selected_mode(&config))?;
         }

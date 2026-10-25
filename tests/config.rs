@@ -14,6 +14,29 @@ fn background_colors_accept_all_three_scopes_and_reject_invalid_hex() {
 }
 
 #[test]
+fn claude_sections_default_safely_and_validate() {
+    let dir = PathBuf::from(".");
+    let defaults = Config::parse("", &dir).unwrap();
+    assert!(defaults.claude.hooks_enabled);
+    assert!(!defaults.claude_usage.enabled, "token use is opt-in");
+    assert_eq!(defaults.claude_usage.refresh_interval_sec, 300);
+    assert!(
+        Config::parse(
+            "[claude_usage]\nenabled=true\nrefresh_interval_sec=600",
+            &dir
+        )
+        .is_ok()
+    );
+    for bad in [
+        "[claude_usage]\nrefresh_interval_sec=299",
+        "[claude_usage]\nunknown=1",
+        "[claude]\nunknown=1",
+    ] {
+        assert!(Config::parse(bad, &dir).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn background_colors_inherit_global_unless_overridden() {
     use aherald::events::Kind;
     let defaults = Config::default();

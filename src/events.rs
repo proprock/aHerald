@@ -42,21 +42,30 @@ pub enum Source {
     #[serde(skip)]
     Usage,
     CodexHook,
+    ClaudeHook,
     Demo,
 }
 impl Source {
+    /// The agent that produced a hook event; `None` for internal/demo sources.
+    pub fn agent(&self) -> Option<crate::agent::Agent> {
+        match self {
+            Self::CodexHook => Some(crate::agent::Agent::Codex),
+            Self::ClaudeHook => Some(crate::agent::Agent::Claude),
+            Self::Usage | Self::Demo => None,
+        }
+    }
     pub fn agent_key(&self) -> &'static str {
         match self {
             Self::Usage => "usage",
-            Self::CodexHook => "codex",
             Self::Demo => "demo",
+            hook => hook.agent().map_or("demo", |a| a.key()),
         }
     }
     pub fn label(&self) -> &'static str {
         match self {
             Self::Usage => "Codex",
-            Self::CodexHook => "Codex",
             Self::Demo => "aHerald demo",
+            hook => hook.agent().map_or("aHerald demo", |a| a.label()),
         }
     }
 }
@@ -209,6 +218,76 @@ mod tests {
             parse_hook(br#"{"hook_event_name":"PostToolUse"}"#)
                 .unwrap()
                 .is_none()
+        );
+    }
+    fn claude(json: &str) -> Option<Event> {
+        crate::agent::Agent::Claude
+            .parse_hook(json.as_bytes())
+            .unwrap()
+    }
+    #[test]
+    fn claude_notification_types_map_to_event_kinds() {
+        for (ty, kind) in [
+            ("permission_prompt", Some(Kind::PermissionRequired)),
+            ("idle_prompt", Some(Kind::InputRequired)),
+            ("elicitation_dialog", Some(Kind::InputRequired)),
+            ("agent_needs_input", Some(Kind::InputRequired)),
+            ("auth_success", None),
+            ("future_type", None),
+        ] {
+            let event = claude(&format!(
+                r#"{{"hook_event_name":"Notification","session_id":"s","notification_type":"{ty}","message":"SECRET"}}"#
+            ));
+            assert_eq!(event.as_ref().map(|e| e.kind), kind, "{ty}");
+            if let Some(event) = event {
+                assert_eq!(event.source, Source::ClaudeHook);
+                assert_eq!(event.session_id.as_deref(), Some("s"));
+                assert!(!serde_json::to_string(&event).unwrap().contains("SECRET"));
+            }
+        }
+    }
+    #[test]
+    fn claude_stop_failure_and_permission_request_events() {
+        for (json, kind) in [
+            (
+                r#"{"hook_event_name":"Stop","session_id":"s"}"#,
+                Kind::TurnComplete,
+            ),
+            (
+                r#"{"hook_event_name":"StopFailure","session_id":"s","error":"rate_limit"}"#,
+                Kind::Error,
+            ),
+            (
+                r#"{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"SECRET"}}"#,
+                Kind::PermissionRequired,
+            ),
+        ] {
+            let event = claude(json).unwrap();
+            assert_eq!(event.kind, kind);
+            assert_eq!(event.source, Source::ClaudeHook);
+            assert!(!serde_json::to_string(&event).unwrap().contains("SECRET"));
+        }
+        assert!(claude(r#"{"hook_event_name":"PostToolUse"}"#).is_none());
+        assert!(
+            crate::agent::Agent::Claude.parse_hook(b"{").is_err(),
+            "malformed JSON is an error"
+        );
+    }
+    #[test]
+    fn agent_identity_is_derived_from_source() {
+        use crate::agent::Agent;
+        assert_eq!(Source::CodexHook.agent(), Some(Agent::Codex));
+        assert_eq!(Source::ClaudeHook.agent(), Some(Agent::Claude));
+        assert_eq!(Source::Demo.agent(), None);
+        assert_eq!(Source::ClaudeHook.agent_key(), "claude");
+        assert_eq!(Source::ClaudeHook.label(), "Claude");
+        assert_eq!(
+            Agent::Codex
+                .parse_hook(br#"{"hook_event_name":"Stop"}"#)
+                .unwrap()
+                .unwrap()
+                .source,
+            Source::CodexHook
         );
     }
     #[test]

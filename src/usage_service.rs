@@ -19,16 +19,33 @@ pub struct View {
     pub updated: Option<Duration>,
     pub interval: Duration,
     pub enabled: bool,
+    /// Agent shown in texts; its lowercase form is the preferred bucket key.
+    pub label: &'static str,
 }
 impl View {
     pub fn new(enabled: bool, interval: Duration) -> Self {
+        Self::labeled("Codex", enabled, interval)
+    }
+    pub fn labeled(label: &'static str, enabled: bool, interval: Duration) -> Self {
         Self {
             snapshot: None,
             error: None,
             updated: None,
             interval,
             enabled,
+            label,
         }
+    }
+    fn key(&self) -> String {
+        self.label.to_ascii_lowercase()
+    }
+    /// Bucket of this agent, or the first one when the id is unknown.
+    pub fn bucket(&self) -> Option<&crate::usage::Bucket> {
+        let snapshot = self.snapshot.as_ref()?;
+        snapshot
+            .buckets
+            .get(&self.key())
+            .or_else(|| snapshot.buckets.values().next())
     }
     fn status(&self, _now: Duration) -> &'static str {
         if !self.enabled {
@@ -46,13 +63,8 @@ impl View {
         }
     }
     pub fn summary(&self, now: Duration) -> String {
-        let mut text = format!("Codex usage ({})", self.status(now));
-        if let Some(snapshot) = &self.snapshot
-            && let Some(bucket) = snapshot
-                .buckets
-                .get("codex")
-                .or_else(|| snapshot.buckets.values().next())
-        {
+        let mut text = format!("{} usage ({})", self.label, self.status(now));
+        if let Some(bucket) = self.bucket() {
             for (label, window) in [
                 ("Primary", &bucket.primary),
                 ("Secondary", &bucket.secondary),
@@ -73,12 +85,8 @@ impl View {
             crate::config::UsageDisplay::Remain => "remain",
             crate::config::UsageDisplay::Used => "used",
         };
-        let Some(bucket) = self
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.buckets.get("codex").or_else(|| s.buckets.values().next()))
-        else {
-            return format!("Codex {display_name}: {status}");
+        let Some(bucket) = self.bucket() else {
+            return format!("{} {display_name}: {status}", self.label);
         };
         let value = |window: Option<&crate::usage::Window>| {
             let percent = window
@@ -99,12 +107,51 @@ impl View {
             format!(" ({status})")
         };
         format!(
-            "Codex {display_name}: 5h {}, 7d {}{suffix}",
+            "{} {display_name}: 5h {}, 7d {}{suffix}",
+            self.label,
             value(bucket.primary.as_ref()),
             value(bucket.secondary.as_ref())
         )
     }
+    /// Two-window card for agents without Codex's credit and reset-credit details.
+    fn simple_card_text(&self, now: Duration, unix: i64) -> String {
+        let mut text = format!("{} usage\n", self.label);
+        if let Some(bucket) = self.bucket() {
+            for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
+                let percent = window
+                    .as_ref()
+                    .and_then(|w| w.used_percent)
+                    .map(|v| format!("{v:.0}% used"))
+                    .unwrap_or_else(|| "—".into());
+                let reset = window.as_ref().and_then(|w| w.resets_at);
+                text.push_str(&format!(
+                    "{label}: {percent} / {}; reset: {}\n",
+                    countdown(reset, unix),
+                    reset
+                        .and_then(short_reset_text)
+                        .unwrap_or_else(|| "—".into())
+                ));
+            }
+        }
+        let status = self.status(now);
+        if status != "current" {
+            text.push_str(&format!("Status: {status}\n"));
+        }
+        if let Some(error) = &self.error {
+            text.push_str(&format!("Last refresh: {}\n", clean(error)));
+        }
+        if let Some(updated) = self.updated {
+            text.push_str(&format!(
+                "Updated {}s ago",
+                now.saturating_sub(updated).as_secs()
+            ));
+        }
+        text
+    }
     pub fn card_text(&self, now: Duration, unix: i64) -> String {
+        if self.label != "Codex" {
+            return self.simple_card_text(now, unix);
+        }
         let mut text = String::new();
         if let Some(snapshot) = &self.snapshot {
             for (id, bucket) in &snapshot.buckets {
@@ -201,7 +248,7 @@ impl View {
         text
     }
     pub fn details(&self, now: Duration) -> String {
-        let mut text = format!("Codex usage: {}\r\n", self.status(now));
+        let mut text = format!("{} usage: {}\r\n", self.label, self.status(now));
         if !self.enabled {
             text.push_str("Set [usage] enabled = true and restart the resident.\r\n");
         }
@@ -384,9 +431,12 @@ pub struct Driver<T, F> {
 }
 impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<T, F> {
     pub fn new(interval: Duration, factory: F) -> Self {
+        Self::labeled("Codex", interval, factory)
+    }
+    pub fn labeled(label: &'static str, interval: Duration, factory: F) -> Self {
         Self {
             connection: Connection::new(factory),
-            view: View::new(true, interval),
+            view: View::labeled(label, true, interval),
             next: Duration::ZERO,
             allowed: Duration::ZERO,
             backoff: Duration::from_secs(10),
@@ -472,20 +522,47 @@ impl Service {
             StdioTransport::codex_controlled(canceled.clone())
         })
     }
+    /// Opt-in Claude quota poller; see `claude_usage` for the data source and its limits.
+    #[cfg(windows)]
+    pub fn claude(enabled: bool, interval: Duration) -> Self {
+        Self::spawn_labeled(
+            "Claude",
+            enabled,
+            interval,
+            Arc::new(AtomicBool::new(false)),
+            || {
+                Ok(crate::claude_usage::ClaudeTransport::new(
+                    crate::claude_usage::fetch_live,
+                ))
+            },
+        )
+    }
     pub fn spawn<T: Transport + Send + 'static, F: FnMut() -> Result<T, Error> + Send + 'static>(
         enabled: bool,
         interval: Duration,
         stop: Arc<AtomicBool>,
         factory: F,
     ) -> Self {
-        let state = Arc::new(Mutex::new(View::new(enabled, interval)));
+        Self::spawn_labeled("Codex", enabled, interval, stop, factory)
+    }
+    pub fn spawn_labeled<
+        T: Transport + Send + 'static,
+        F: FnMut() -> Result<T, Error> + Send + 'static,
+    >(
+        label: &'static str,
+        enabled: bool,
+        interval: Duration,
+        stop: Arc<AtomicBool>,
+        factory: F,
+    ) -> Self {
+        let state = Arc::new(Mutex::new(View::labeled(label, enabled, interval)));
         let origin = Instant::now();
         let (refresh, rx) = mpsc::sync_channel(1);
         let shared = state.clone();
         let done = stop.clone();
         let worker = enabled.then(|| {
             std::thread::spawn(move || {
-                let mut driver = Driver::new(interval, factory);
+                let mut driver = Driver::labeled(label, interval, factory);
                 while !done.load(Ordering::Acquire) {
                     let manual = rx.try_recv().is_ok();
                     if driver.step(origin.elapsed(), manual)

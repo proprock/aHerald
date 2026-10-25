@@ -202,6 +202,20 @@ hooks_enabled = true
 # of unrelated Codex CLI/app sessions; it does not enable input-wait detection.
 input_monitoring = false
 
+[claude]
+# Accept Claude Code hooks delivered with --hook --agent claude; default true.
+# This switch does not install hooks. See examples/claude-settings.json for manual setup.
+hooks_enabled = true
+
+[claude_usage]
+# Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access
+# token Claude Code stores in ~/.claude/.credentials.json (or CLAUDE_CONFIG_DIR) and sends it only
+# to https://api.anthropic.com/api/oauth/usage. The token is never logged, stored or refreshed.
+# The endpoint is undocumented and may change; failures leave notifications working.
+enabled = false
+# Refresh interval in seconds: 300..86400; default 300.
+refresh_interval_sec = 300
+
 [usage]
 # Optional usage card background; omitted means inherit notifications.background_color.
 # background_color = "#202D40"
