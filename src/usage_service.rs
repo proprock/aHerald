@@ -74,12 +74,16 @@ impl View {
         display: crate::config::UsageDisplay,
     ) -> String {
         let status = self.status(now);
+        let display_name = match display {
+            crate::config::UsageDisplay::Remain => "remain",
+            crate::config::UsageDisplay::Used => "used",
+        };
         let Some(bucket) = self
             .snapshot
             .as_ref()
             .and_then(|s| s.buckets.get("codex").or_else(|| s.buckets.values().next()))
         else {
-            return format!("Codex: {status}");
+            return format!("Codex {display_name}: {status}");
         };
         let value = |window: Option<&crate::usage::Window>| {
             let percent = window
@@ -100,7 +104,7 @@ impl View {
             format!(" ({status})")
         };
         format!(
-            "Codex: 5h {}, week {}{suffix}",
+            "Codex {display_name}: 5h {}, week {}{suffix}",
             value(bucket.primary.as_ref()),
             value(bucket.secondary.as_ref())
         )

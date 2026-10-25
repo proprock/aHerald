@@ -1,6 +1,6 @@
 # Tray usage and restart
 
-The first menu item displays `Codex: 5h 25% / 2:35, week 10% / 6d`.
+The first menu item displays `Codex remain: 5h 25% / 2:35, week 10% / 6d`.
 `[usage] display = "remain"` is the default; `"used"` selects consumed percentages.
 Unknown values use an em dash. Disabled, loading, unavailable and stale data are
 explicit. Countdown units are whole days, H:MM below a day, and minutes below an

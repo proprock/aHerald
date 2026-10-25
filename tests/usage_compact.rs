@@ -17,11 +17,11 @@ fn compact_modes_and_countdowns() {
     assert_eq!(Config::default().usage.display, UsageDisplay::Remain);
     assert_eq!(
         view().compact(Duration::ZERO, 1000, UsageDisplay::Remain),
-        "Codex: 5h 25% / 2:35, week 10% / 6d"
+        "Codex remain: 5h 25% / 2:35, week 10% / 6d"
     );
     assert_eq!(
         view().compact(Duration::ZERO, 1000, UsageDisplay::Used),
-        "Codex: 5h 75% / 2:35, week 90% / 6d"
+        "Codex used: 5h 75% / 2:35, week 90% / 6d"
     );
     assert!(Config::parse("[usage]\ndisplay = 'invalid'", std::path::Path::new(".")).is_err());
 }
