@@ -269,9 +269,12 @@ impl Config {
         }))
     }
     pub fn default_path() -> Result<PathBuf, String> {
-        std::env::var_os("APPDATA")
-            .map(|base| PathBuf::from(base).join("aHerald/config.toml"))
-            .ok_or("APPDATA is unavailable; use --config".into())
+        let executable =
+            std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
+        executable
+            .parent()
+            .map(|directory| directory.join("config.toml"))
+            .ok_or_else(|| "executable has no parent directory; use --config".into())
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
         let value: toml::Value = toml::from_str(text).map_err(|_| "invalid TOML configuration")?;
@@ -316,14 +319,16 @@ impl Config {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if !explicit && error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
+                crate::default_config::create(path)?;
+                File::open(path)
+                    .map_err(|e| format!("cannot open configuration {}: {e}", path.display()))?
             }
-            Err(_) => return Err("cannot open configuration file".into()),
+            Err(e) => return Err(format!("cannot open configuration {}: {e}", path.display())),
         };
         let mut text = String::new();
         file.take(65_537)
             .read_to_string(&mut text)
-            .map_err(|_| "cannot read configuration file")?;
+            .map_err(|e| format!("cannot read configuration {}: {e}", path.display()))?;
         if text.len() > 65_536 {
             return Err("configuration exceeds 64 KiB".into());
         }

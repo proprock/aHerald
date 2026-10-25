@@ -1,6 +1,6 @@
 # aHerald configuration reference. Active settings reproduce built-in defaults.
-# Copy to %APPDATA%\aHerald\config.toml, or pass --config PATH explicitly.
-# This file is not loaded automatically from the repository/application directory.
+# The default config.toml beside aherald.exe is created from this reference if absent.
+# Existing files are preserved. Use --config PATH only for a custom configuration.
 # All paths are relative to this configuration file, not the working directory.
 # Use single-quoted Windows paths; ~ and environment variables are not expanded.
 # Optional paths and override tables are absent by default; uncomment to enable.

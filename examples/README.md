@@ -8,10 +8,11 @@ These files serve separate scenarios and do not load automatically or combine to
 | --- | --- |
 | `resources.toml` | Runnable demo preset with automatic builtin/pet artwork, scale 3, bundled WAV paths and volume 0.5. Also used by the opt-in native demo preview test. |
 | `pet.toml` | Minimal pet setup and per-event state overrides. Requires a separately downloaded pet package and a corrected local path; disables sound. |
-| `hooks.windows.json` | Manual Codex hook integration example. Replace executable/configuration paths before merging into your hook configuration. This is not an aHerald TOML config. |
+| `hooks.windows.json` | Manual Codex hook integration example. Replace the executable path before merging into your hook configuration. This is not an aHerald TOML config. |
 | `generate_assets.rs` | Developer utility that regenerates the original bundled PNG/WAV assets; run with `cargo run --example generate_assets`. Not a user configuration or runtime dependency. |
 
-Choose one TOML file with `--config PATH`. Settings omitted from a preset use built-in
+The default is `config.toml` beside `aherald.exe`; startup creates it when absent.
+Use `--config PATH` to choose one of these custom presets. Settings omitted from a preset use built-in
 defaults. Relative paths resolve from that selected file's directory; when copying a
 preset elsewhere, adjust its paths. Nothing in this directory installs hooks, resources,
 user configuration or startup entries automatically.

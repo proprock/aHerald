@@ -44,9 +44,12 @@ See [the examples directory guide](examples/README.md) for the remaining files.
 See [artwork selection](docs/visuals.md) for builtin, full-pet and hybrid setups,
 including migration of existing custom animation paths.
 Paths are relative to the configuration,
-not the working directory. The default config is `%APPDATA%\aHerald\config.toml`;
-a missing default file uses built-in defaults. An explicitly missing/invalid file
-is an error. No user configuration or startup entries are installed automatically.
+not the working directory. Without `--config`, aHerald uses `config.toml` beside
+`aherald.exe`, regardless of the working directory. An absent default file is
+created with the standard settings; an existing file is preserved. An explicit
+missing/invalid `--config PATH` is an error. No APPDATA lookup or automatic migration
+is performed. See [configuration and manual migration](docs/configuration.md).
+No hooks or startup entries are installed automatically.
 
 Explicit `--transient` or `--resident` overrides configured mode. Input-wait
 monitoring is unsupported for unrelated Codex sessions; usage polling awaits

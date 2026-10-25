@@ -36,7 +36,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         if args.len() != 3 || args[1] != "--config" {
             return Err("invalid internal invocation".into());
         }
-        let config = aherald::config::Config::load(std::path::Path::new(&args[2]), false)?;
+        let config = aherald::config::Config::load(std::path::Path::new(&args[2]), true)?;
         let bytes =
             aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
         if bytes.len() > aherald::process::TRANSFER_LIMIT {

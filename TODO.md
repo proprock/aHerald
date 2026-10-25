@@ -6,7 +6,8 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
 
 ## Agreed decisions
 
-- Default configuration: `%APPDATA%\aHerald\config.toml`; `--config` overrides it.
+- Default configuration: `config.toml` beside `aherald.exe`; no APPDATA lookup.
+  Create a missing default with standard settings; `--config` selects an existing custom file.
 - Support resident and detached transient notifications. A hook must finish
   independently of notification lifetime, animation, monitoring, or usage queries.
 - Use one overlay with a count and controls for switching between events.
@@ -243,6 +244,16 @@ An implementation alone is not evidence of Windows visual acceptance.
   Verified with focused/native tests, standard Cargo checks, and user-confirmed
   transition from a transient test card to the correct chat. See
   `docs/notification-click.md` for versions and manual-check limitations.
+
+- [x] **AH-033 — Default to config.toml beside the executable.**
+  Without `--config`, use `config.toml` beside `aherald.exe`, independently of
+  the working directory. Create an absent standard file with current defaults;
+  preserve existing files. No APPDATA search or automatic migration. Explicit
+  missing custom files remain errors. Resolve resources from the selected file.
+  Report creation errors with target path and reason. Simplify standard hook
+  examples and document manual migration. Verified with process tests under
+  Unicode/spaced paths, concurrent creation, preservation and failures, and
+  standard Cargo checks. See `docs/configuration.md`.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
