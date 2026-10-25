@@ -17,6 +17,10 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
   product work. Dismissing the current card never answers an agent request.
 - Supply simple original PNG animations and WAV sounds under MIT; assets remain
   external and replaceable without recompilation.
+- Load builtin animations automatically from `assets` beside the executable.
+  With visual=auto, a configured pet replaces builtin artwork for all inherited
+  events. Explicit event visual choices enable hybrids; animation paths require
+  visual=custom. Failed selected artwork falls back to builtin, then text.
 - Observe input waits only through verified, documented stable interfaces. Do not
   parse unstable transcripts or take control of unrelated sessions. Unsupported
   coverage is explicit and does not block release.
@@ -206,6 +210,50 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 5 — Polish and portable release
 
+- [x] **AH-026 — Preview the current configuration in a looping demo.**
+  Support `--demo [SECONDS]`, with a three-second default pause between scenarios.
+  Cycle enabled event types and a multi-event navigation scenario through the shared
+  native engine; retain configured resources, sounds, position, scale and finite
+  durations. Advance persistent waits automatically. Keep demo events isolated from
+  the resident and allow tray pause/exit. Acceptance: CLI validation, deterministic
+  timing/repetition/disabled-event tests, native lifecycle/isolation tests, visual
+  inspection and standard Cargo checks. No configuration is written.
+  Verified on Windows 11 build 22621 on 2026-10-25; see `docs/demo.md` for
+  commands, manual observations, cold-cache behavior and test limitations.
+
+- [x] **AH-027 — Simplify cards and expose visual event settings.**
+  Hide count/navigation for one event; show bottom-right `<`/`>` for multiple.
+  Dismiss informational cards by body click; retain an explicit Dismiss button
+  only when body dismissal is disabled. Show remaining seconds for finite events.
+  Use configurable per-event accent colors and shared/agent pet state overrides
+  covering all nine standard tracks. Acceptance: behavioral layout/input/timer,
+  configuration and atlas extraction tests, native pixel/lifecycle checks, visual
+  inspection and standard Cargo checks. See `docs/card-controls.md`.
+
+- [x] **AH-028 — Make artwork sources explicit and defaults usable.**
+  Support global auto/builtin/pet and per-event inherit/builtin/pet/custom.
+  Enable full builtin, full pet and both hybrid directions without clearing old
+  animation paths. Stage external builtin resources beside Cargo executables.
+  Recover failed pet/custom assets to builtin, then text. Acceptance: executable
+  source-selection/configuration/fallback tests, native default-resource checks,
+  visual inspection and standard Cargo checks. See `docs/visuals.md`.
+
+- [x] **AH-029 — Expire grouped demo cards individually.**
+  Give each selected grouped card its own preview timeout; retain the remaining
+  cards until they expire or are dismissed. Hide the window only after the last
+  card, then begin the configured quiet interval. Use the queued lifetime for
+  countdowns and fades, including demo waits. Acceptance: a controlled-time
+  three-card regression, repeat/navigation checks, one visual pass and Cargo checks.
+  See `docs/demo.md`.
+
+- [x] **AH-030 — Identify the originating Codex session.**
+  Show `Codex: <stored thread name>` in resident and transient cards, falling back
+  to a short session ID when unavailable. Resolve only supported read-only metadata
+  in the background, without delaying hooks or restarting card lifetimes. Bound
+  cache/queues and isolate concurrent sessions. Acceptance: protocol, cache and
+  native rendering checks, one visual inspection, and standard Cargo verification.
+  See `docs/session-source.md`; automatic sidebar captions may have no stored name.
+
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop
@@ -254,6 +302,13 @@ An implementation alone is not evidence of Windows visual acceptance.
   examples and document manual migration. Verified with process tests under
   Unicode/spaced paths, concurrent creation, preservation and failures, and
   standard Cargo checks. See `docs/configuration.md`.
+
+- [ ] **AH-034 — Show usage levels in a dynamic tray icon.**
+  Render a compact visual indication of usage levels in the tray icon and update
+  it as usage changes. Keep the levels distinguishable at native tray sizes and
+  make unavailable/stale data explicit.
+  Acceptance: representative usage levels and unavailable/stale states are
+  visually checked; updates and Explorer restart restore the current icon.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
