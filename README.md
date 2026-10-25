@@ -125,6 +125,9 @@ With `click_to_dismiss = false`, only the explicit Dismiss button closes it by m
 Cards are informational: dismissal never answers an agent request. Finite events
 show remaining whole seconds at the top right; persistent waits have no countdown.
 Set `[events.NAME] color = "#RRGGBB"` to change an event's left accent stripe.
+Set `[notifications] background_color = "#RRGGBB"` for all card backgrounds
+(default `#1C232D`). Optional `[events.NAME] background_color` and `[usage]
+background_color` override it for individual card types.
 See [pet state overrides](docs/pets.md#per-event-state-overrides) for animation settings.
 Persistent waits can be switched away from. The queue holds 64 entries, ordered by priority and then arrival.
 Higher-priority overflow evicts the oldest lowest-priority entry; other overflow

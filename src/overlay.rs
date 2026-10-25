@@ -16,6 +16,7 @@ pub(crate) struct CardText<'a> {
     pub navigation: bool,
     pub dismiss_button: bool,
     pub color: crate::config::Color,
+    pub background_color: crate::config::Color,
 }
 pub(crate) struct Surface {
     dc: HDC,
@@ -144,6 +145,7 @@ impl Surface {
                 navigation: false,
                 dismiss_button: false,
                 color: crate::config::Color([101, 220, 178]),
+                background_color: crate::config::Notifications::default().background_color,
             },
         )
     }
@@ -201,6 +203,7 @@ impl Surface {
             navigation,
             dismiss_button,
             color,
+            background_color,
         } = content;
         // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
         // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
@@ -208,6 +211,12 @@ impl Surface {
             let (surface, bits) = Self::allocate(width, height)?;
             let dc = surface.dc;
             let pixels = std::slice::from_raw_parts_mut(bits, (width * height * 4) as usize);
+            let background = [
+                background_color.0[2],
+                background_color.0[1],
+                background_color.0[0],
+                242,
+            ];
             let radius = (18.0 * scale) as i32;
             for y in 0..height {
                 for x in 0..width {
@@ -216,7 +225,7 @@ impl Surface {
                     let inside = (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2);
                     let i = ((y * width + x) * 4) as usize;
                     pixels[i..i + 4].copy_from_slice(if inside {
-                        &[45, 35, 28, 242]
+                        &background
                     } else {
                         &[0, 0, 0, 0]
                     });
@@ -328,6 +337,7 @@ impl Surface {
         source: &str,
         text_left: i32,
         scale: f64,
+        background_color: crate::config::Color,
     ) -> Result<Self, String> {
         let heading = Self::card(
             self.width,
@@ -340,6 +350,7 @@ impl Surface {
                 navigation: false,
                 dismiss_button: false,
                 color: crate::config::Color([0, 0, 0]),
+                background_color,
             },
         )?;
         let (surface, bits) = Self::allocate(self.width, self.height)?;
@@ -493,6 +504,7 @@ struct State {
     frame_durations: Vec<u64>,
     looping: bool,
     notifications: crate::config::Notifications,
+    background_color: crate::config::Color,
     placement: (i32, i32, i32, i32),
     start: Instant,
     duration: u64,
@@ -553,6 +565,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                                     &source,
                                     state.text_left,
                                     state.notifications.scale,
+                                    state.background_color,
                                 )
                             })
                             .collect::<Result<Vec<_>, _>>();
@@ -699,6 +712,7 @@ fn show_with_source(
                     navigation: false,
                     dismiss_button: controls.dismiss_button,
                     color: config.event_color(event.kind),
+                    background_color: config.event_background_color(event.kind),
                 },
             )
         };
@@ -750,6 +764,7 @@ fn show_with_source(
         let placement =
             crate::placement::current(&config.notifications, (width, height), surfaces.len())?;
         let mut state = Box::new(State {
+            background_color: config.event_background_color(event.kind),
             surfaces,
             frame_durations,
             looping,
@@ -848,7 +863,12 @@ mod card_tests {
         )
         .unwrap();
         let updated = card
-            .with_heading("Codex: Проверка aHerald", 228, 1.0)
+            .with_heading(
+                "Codex: Проверка aHerald",
+                228,
+                1.0,
+                crate::config::Notifications::default().background_color,
+            )
             .unwrap();
         // SAFETY: both owned DIBs contain width * height BGRA pixels.
         unsafe {
@@ -962,6 +982,137 @@ mod card_tests {
     }
     use crate::animation::PreparedFrame;
     #[test]
+    #[ignore = "native background color comparison; closes after 60 seconds"]
+    fn manual_background_color_preview() {
+        use super::*;
+        use std::time::Duration;
+        unsafe extern "system" fn preview_proc(
+            hwnd: HWND,
+            message: u32,
+            wp: WPARAM,
+            lp: LPARAM,
+        ) -> LRESULT {
+            unsafe { DefWindowProcW(hwnd, message, wp, lp) }
+        }
+        let config = Config::parse("[notifications]\nbackground_color='#203C30'\n[events.error]\nbackground_color='#482838'\n[usage]\nbackground_color='#243C58'", std::path::Path::new(".")).unwrap();
+        let cards = [
+            (
+                "Global background",
+                config.event_background_color(crate::events::Kind::TurnComplete),
+            ),
+            (
+                "Event override",
+                config.event_background_color(crate::events::Kind::Error),
+            ),
+            ("Usage override", config.usage_background_color()),
+        ]
+        .into_iter()
+        .map(|(source, background_color)| {
+            Surface::card(
+                320,
+                110,
+                1.0,
+                22,
+                CardText {
+                    source,
+                    label: "Custom card background",
+                    navigation: false,
+                    dismiss_button: false,
+                    color: crate::config::Color([65, 210, 140]),
+                    background_color,
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+        // SAFETY: the window, DC and native card surfaces stay on this test thread.
+        unsafe {
+            let module = GetModuleHandleW(None).unwrap();
+            let class = w!("aHerald.BackgroundPreview");
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(preview_proc),
+                hInstance: module.into(),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            assert_ne!(RegisterClassW(&wc), 0);
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                class,
+                w!("AH-035: global / event / usage backgrounds"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                100,
+                100,
+                1040,
+                210,
+                None,
+                None,
+                Some(module.into()),
+                None,
+            )
+            .unwrap();
+            let window = Window(hwnd);
+            let end = Instant::now() + Duration::from_secs(60);
+            let mut message = MSG::default();
+            while Instant::now() < end && IsWindow(Some(hwnd)).as_bool() {
+                while PeekMessageW(&mut message, Some(hwnd), 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                if !IsWindow(Some(hwnd)).as_bool() {
+                    break;
+                }
+                let dc = GetDC(Some(hwnd));
+                for (index, card) in cards.iter().enumerate() {
+                    BitBlt(
+                        dc,
+                        10 + index as i32 * 330,
+                        20,
+                        320,
+                        110,
+                        Some(card.dc),
+                        0,
+                        0,
+                        SRCCOPY,
+                    )
+                    .unwrap();
+                }
+                ReleaseDC(Some(hwnd), dc);
+                std::thread::park_timeout(Duration::from_millis(25));
+            }
+            drop(window);
+            UnregisterClassW(class, Some(module.into())).unwrap();
+        }
+    }
+    #[test]
+    fn custom_background_renders_premultiplied_pixels_and_survives_heading_updates() {
+        let background_color = crate::config::Color([16, 32, 48]);
+        let card = Surface::card(
+            320,
+            110,
+            1.0,
+            22,
+            super::CardText {
+                source: "Codex",
+                label: "Error",
+                navigation: false,
+                dismiss_button: false,
+                color: crate::config::Color([245, 85, 100]),
+                background_color,
+            },
+        )
+        .unwrap();
+        let updated = card.with_heading("New", 22, 1.0, background_color).unwrap();
+        for surface in [&card, &updated] {
+            // SAFETY: each surface owns a live 320x110 BGRA DIB.
+            let pixels = unsafe { std::slice::from_raw_parts(surface.pixels, 320 * 110 * 4) };
+            assert_eq!(&pixels[(90 * 320 + 100) * 4..][..4], &[46, 30, 15, 242]);
+            assert_eq!(&pixels[(25 * 320 + 150) * 4..][..4], &[46, 30, 15, 242]);
+            assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+            assert_eq!(&pixels[(55 * 320 + 2) * 4..][..4], &[95, 81, 233, 242]);
+        }
+    }
+    #[test]
     fn controls_accent_and_countdown_render_real_pixels_in_their_regions() {
         let make = |navigation, dismiss_button| {
             Surface::card(
@@ -975,6 +1126,7 @@ mod card_tests {
                     navigation,
                     dismiss_button,
                     color: crate::config::Color([16, 32, 48]),
+                    background_color: crate::config::Notifications::default().background_color,
                 },
             )
             .unwrap()

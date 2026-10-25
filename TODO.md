@@ -312,6 +312,15 @@ An implementation alone is not evidence of Windows visual acceptance.
   restoring the current icon after shell deletion. Standard Cargo checks and the
   Windows x64 release build passed. See `docs/tray-usage.md` for evidence and limits.
 
+- [x] **AH-035 — Configure card background colors.**
+  Add global `[notifications] background_color` with the existing #1C232D default.
+  Optional `[events.NAME] background_color` and `[usage] background_color` override
+  it by card type; omitted overrides inherit the global setting. Accept #RRGGBB
+  as for accent color, preserving card opacity, rounded transparency and artwork.
+  Verified: parsing/inheritance and native rendered pixels pass functional tests;
+  inherited event, overridden event and usage backgrounds were visually checked.
+  Standard Cargo checks and Windows x64 release build passed. See `docs/card-controls.md`.
+
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,

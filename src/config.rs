@@ -89,12 +89,12 @@ impl TryFrom<String> for Color {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         let bytes = value.as_bytes();
         if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
-            return Err("event color must be #RRGGBB".into());
+            return Err("color must be #RRGGBB".into());
         }
         let mut rgb = [0; 3];
         for (index, channel) in rgb.iter_mut().enumerate() {
             *channel = u8::from_str_radix(&value[1 + index * 2..3 + index * 2], 16)
-                .map_err(|_| "invalid event color")?;
+                .map_err(|_| "invalid color")?;
         }
         Ok(Self(rgb))
     }
@@ -132,6 +132,7 @@ impl Default for Resident {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Notifications {
+    pub background_color: Color,
     pub visual: Visual,
     pub pet: Option<PathBuf>,
     pub pet_animations: BTreeMap<String, PetAnimation>,
@@ -148,6 +149,7 @@ pub struct Notifications {
 impl Default for Notifications {
     fn default() -> Self {
         Self {
+            background_color: Color([28, 35, 45]),
             visual: Visual::Auto,
             enabled: true,
             position: "center".into(),
@@ -182,6 +184,7 @@ impl Default for Sounds {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EventConfig {
+    pub background_color: Option<Color>,
     pub visual: EventVisual,
     pub enabled: bool,
     pub animation: Option<PathBuf>,
@@ -193,6 +196,7 @@ pub struct EventConfig {
 impl Default for EventConfig {
     fn default() -> Self {
         Self {
+            background_color: None,
             visual: EventVisual::Inherit,
             enabled: true,
             animation: None,
@@ -237,6 +241,7 @@ impl Default for Codex {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Usage {
+    pub background_color: Option<Color>,
     pub enabled: bool,
     pub refresh_interval_sec: u64,
     pub display: UsageDisplay,
@@ -251,6 +256,7 @@ pub enum UsageDisplay {
 impl Default for Usage {
     fn default() -> Self {
         Self {
+            background_color: None,
             enabled: false,
             refresh_interval_sec: 300,
             display: UsageDisplay::Remain,
@@ -258,6 +264,18 @@ impl Default for Usage {
     }
 }
 impl Config {
+    pub fn event_background_color(&self, kind: crate::events::Kind) -> Color {
+        self.events[kind.name()]
+            .background_color
+            .unwrap_or(self.notifications.background_color)
+    }
+
+    pub fn usage_background_color(&self) -> Color {
+        self.usage
+            .background_color
+            .unwrap_or(self.notifications.background_color)
+    }
+
     pub fn event_color(&self, kind: crate::events::Kind) -> Color {
         use crate::events::Kind;
         self.events[kind.name()].color.unwrap_or(Color(match kind {

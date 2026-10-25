@@ -2,6 +2,40 @@ use aherald::{cli::Cli, config::Config};
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn background_colors_accept_all_three_scopes_and_reject_invalid_hex() {
+    let dir = PathBuf::from(".");
+    assert!(Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[usage]\nbackground_color='#506070'", &dir).is_ok());
+    for scope in ["notifications", "events.error", "usage"] {
+        for invalid in ["red", "#12345", "#gg0000", "#11223344"] {
+            let text = format!("[{scope}]\nbackground_color='{invalid}'");
+            assert!(Config::parse(&text, &dir).is_err(), "{text}");
+        }
+    }
+}
+
+#[test]
+fn background_colors_inherit_global_unless_overridden() {
+    use aherald::events::Kind;
+    let defaults = Config::default();
+    assert_eq!(defaults.event_background_color(Kind::Error).0, [28, 35, 45]);
+    assert_eq!(defaults.usage_background_color().0, [28, 35, 45]);
+    let config = Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[usage]\nbackground_color='#506070'", &PathBuf::from(".")).unwrap();
+    assert_eq!(config.event_background_color(Kind::Error).0, [48, 64, 80]);
+    assert_eq!(
+        config.event_background_color(Kind::TurnComplete).0,
+        [16, 32, 48]
+    );
+    assert_eq!(config.usage_background_color().0, [80, 96, 112]);
+    let inherited = Config::parse(
+        "[notifications]\nbackground_color='#102030'",
+        &PathBuf::from("."),
+    )
+    .unwrap();
+    assert_eq!(inherited.usage_background_color().0, [16, 32, 48]);
+    assert_eq!(config.event_color(Kind::Error).0, [245, 85, 100]);
+}
+
+#[test]
 fn visual_selection_validates_scope_and_custom_paths() {
     for text in [
         "[notifications]\nvisual='auto'",

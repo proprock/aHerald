@@ -222,6 +222,7 @@ impl Ui {
                     navigation: controls.navigation,
                     dismiss_button: controls.dismiss_button,
                     color: self.config.event_color(entry.event.kind),
+                    background_color: self.config.event_background_color(entry.event.kind),
                 },
             )?;
             self.durations = vec![1000];
@@ -343,6 +344,7 @@ impl Ui {
                     navigation: controls.navigation,
                     dismiss_button: false,
                     color: crate::config::Color([80, 165, 250]),
+                    background_color: self.config.usage_background_color(),
                 },
             )?);
         }
