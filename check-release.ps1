@@ -1,5 +1,5 @@
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot '../target/x86_64-pc-windows-msvc/release/aherald.exe')
+    [string]$Executable = (Join-Path $PSScriptRoot 'target/x86_64-pc-windows-msvc/release/aherald.exe')
 )
 $ErrorActionPreference = 'Stop'
 $tool = Get-Command llvm-readobj -ErrorAction Stop

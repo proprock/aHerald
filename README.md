@@ -21,6 +21,14 @@ configuration links the MSVC CRT statically; no redistributable, GUI framework,
 or language runtime needs to accompany it. Windows system DLLs are still required.
 Keep `assets/` external and copy it with the example configuration when desired.
 
+Developer utilities live in the repository root:
+
+- `build.rs` automatically copies bundled assets beside the executable during Cargo builds.
+- `generate_assets.rs` regenerates bundled PNG/WAV assets and animation settings with
+  `cargo run --example generate_assets`, overwriting the corresponding files in `assets/`.
+- `check-release.ps1` inspects the release executable's architecture, GUI subsystem,
+  and CRT imports. Run `.\check-release.ps1` after building; it requires `llvm-readobj`.
+
 ## Run without Codex
 
 ```powershell
