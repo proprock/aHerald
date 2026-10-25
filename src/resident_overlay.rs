@@ -55,6 +55,8 @@ struct Ui {
     usage_text: String,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
+    demo: Option<crate::demo::Demo>,
+    countdown: Option<(usize, u64, Surface)>,
 }
 impl Ui {
     fn now(&self) -> u64 {
@@ -88,6 +90,9 @@ impl Ui {
                 .lock()
                 .map_err(|_| "resident state unavailable")?;
             let paused = state.paused;
+            if let Some(demo) = &mut self.demo {
+                demo.tick(now, paused, &mut state.queue);
+            }
             state.queue.tick(now, paused);
             (
                 state.queue.selected().cloned(),
@@ -149,7 +154,14 @@ impl Ui {
                 loaded = true;
             }
         }
+        let controls = crate::card::Card::new(
+            entry.event.source.label(),
+            index,
+            count,
+            self.config.notifications.click_to_dismiss,
+        );
         if changed || loaded || self.layout_count != count {
+            self.countdown = None;
             self.layout_count = count;
             self.placement = None;
             let pad = (18.0 * self.scale) as i32;
@@ -172,16 +184,18 @@ impl Ui {
             } else {
                 (22.0 * self.scale) as i32
             };
-            let source = format!("{} [{}/{}]", entry.event.source.label(), index + 1, count);
+            let source = &controls.heading;
             let card = Surface::card(
                 self.width,
                 self.height,
                 self.scale,
                 self.text_left,
                 CardText {
-                    source: &source,
+                    source,
                     label: entry.event.kind.label(),
-                    navigation: true,
+                    navigation: controls.navigation,
+                    dismiss_button: controls.dismiss_button,
+                    color: self.config.event_color(entry.event.kind),
                 },
             )?;
             self.durations = vec![1000];
@@ -210,16 +224,10 @@ impl Ui {
             } else {
                 vec![card]
             };
-            let title: Vec<u16> = format!(
-                "{} - {} [{}/{}]",
-                entry.event.source.label(),
-                entry.event.kind.label(),
-                index + 1,
-                count
-            )
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
+            let title: Vec<u16> = format!("{} - {}", source, entry.event.kind.label(),)
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
             unsafe {
                 SetWindowTextW(hwnd, PCWSTR(title.as_ptr()))
                     .map_err(|_| "cannot update event title")?;
@@ -230,9 +238,10 @@ impl Ui {
             self.looping,
             now.saturating_sub(self.animation_start),
         );
+        let display_duration = entry.display_duration(self.config.notifications.fade_out_ms);
         let alpha = crate::notification::presentation(
             entry.visible_ms,
-            self.config.events[entry.event.kind.name()].duration_ms,
+            display_duration,
             self.config.notifications.fade_in_ms,
             self.config.notifications.fade_out_ms,
             None,
@@ -250,7 +259,29 @@ impl Ui {
                 p
             }
         };
-        self.display_size = self.surfaces[frame].present_placed(hwnd, placement, alpha)?;
+        let surface = if let Some(seconds) =
+            crate::card::remaining_seconds(display_duration, entry.visible_ms)
+        {
+            if self
+                .countdown
+                .as_ref()
+                .is_none_or(|(f, s, _)| *f != frame || *s != seconds)
+            {
+                self.countdown = Some((
+                    frame,
+                    seconds,
+                    self.surfaces[frame].with_countdown(seconds, self.scale)?,
+                ));
+            }
+            &self
+                .countdown
+                .as_ref()
+                .ok_or("missing countdown surface")?
+                .2
+        } else {
+            &self.surfaces[frame]
+        };
+        self.display_size = surface.present_placed(hwnd, placement, alpha)?;
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
@@ -273,15 +304,17 @@ impl Ui {
         } else {
             let x = (lp.0 as u16) as i16 as i32 * self.width / self.display_size.0.max(1);
             let y = ((lp.0 >> 16) as u16) as i16 as i32 * self.height / self.display_size.1.max(1);
-            if y >= self.height - (36.0 * self.scale) as i32 && x >= self.text_left {
-                let span = (self.width - (18.0 * self.scale) as i32 - self.text_left) / 3;
-                match (x - self.text_left) / span.max(1) {
-                    0 => state.queue.next(-1),
-                    1 => state.queue.next(1),
-                    _ => state.queue.dismiss(),
-                }
-            } else if self.config.notifications.click_to_dismiss {
-                state.queue.dismiss();
+            let controls = crate::card::Card::new(
+                "",
+                state.queue.selected_index(),
+                state.queue.items().len(),
+                self.config.notifications.click_to_dismiss,
+            );
+            match controls.hit_test(self.width, self.height, self.scale, x, y) {
+                Some(crate::card::Action::Previous) => state.queue.next(-1),
+                Some(crate::card::Action::Next) => state.queue.next(1),
+                Some(crate::card::Action::Dismiss) => state.queue.dismiss(),
+                None => {}
             }
         }
     }
@@ -466,6 +499,18 @@ pub fn run(
     config_path: std::path::PathBuf,
     usage: crate::usage_service::Service,
 ) -> Result<(), String> {
+    run_preview(config, shared, stop, start, config_path, usage, None)
+}
+
+pub(super) fn run_preview(
+    config: Config,
+    shared: Arc<Mutex<Shared>>,
+    stop: Arc<AtomicBool>,
+    start: Instant,
+    config_path: std::path::PathBuf,
+    usage: crate::usage_service::Service,
+    demo: Option<crate::demo::Demo>,
+) -> Result<(), String> {
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
@@ -482,16 +527,9 @@ pub fn run(
                 Ok((id, event)) => {
                     let art =
                         cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
-                            crate::pet::for_event(&assets, &event)
+                            crate::artwork::prepared_for_event(&assets, &event)
                                 .ok()
                                 .flatten()
-                                .and_then(|a| {
-                                    a.prepare(
-                                        scale,
-                                        assets.notifications.interpolation == "bilinear",
-                                    )
-                                    .ok()
-                                })
                         });
                     let mut result = (id, art);
                     loop {
@@ -545,6 +583,8 @@ pub fn run(
         usage_text: String::new(),
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
+        demo,
+        countdown: None,
     });
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;
@@ -562,7 +602,11 @@ pub fn run(
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class,
-            w!("aHerald resident"),
+            if ui.demo.is_some() {
+                w!("aHerald demo")
+            } else {
+                w!("aHerald resident")
+            },
             WS_POPUP,
             0,
             0,

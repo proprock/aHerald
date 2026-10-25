@@ -21,6 +21,132 @@ struct Search {
 }
 
 #[test]
+fn demo_is_independent_nonactivating_and_stops_its_workers() {
+    demo_window(false);
+}
+
+#[test]
+#[ignore = "interactive demo visual check; closes after one scenario cycle"]
+fn preview_demo() {
+    demo_window(true);
+}
+
+fn demo_window(preview: bool) {
+    struct DemoChild(std::process::Child, PathBuf);
+    impl Drop for DemoChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+            let _ = std::fs::remove_file(&self.1);
+        }
+    }
+    let path =
+        std::env::temp_dir().join(format!("aherald-demo-native-{}.toml", std::process::id()));
+    std::fs::write(&path, "[general]\nmode='resident'\n[sounds]\nenabled=false\n[usage]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n").unwrap();
+    if preview {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let source = std::env::var_os("AHERALD_PREVIEW_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("examples/resources.toml"));
+        let text = std::fs::read_to_string(source).unwrap();
+        let text = text.replace(
+            "../assets",
+            &root.join("assets").to_string_lossy().replace('\\', "/"),
+        );
+        std::fs::write(&path, text).unwrap();
+    }
+    let mut demo = DemoChild(
+        std::process::Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--demo", "1", "--config"])
+            .arg(&path)
+            .spawn()
+            .unwrap(),
+        path,
+    );
+    let mut search = Search {
+        pid: demo.0.id(),
+        window: HWND::default(),
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while search.window.is_invalid() && Instant::now() < deadline {
+        unsafe {
+            let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut Search as isize));
+        }
+        assert!(
+            demo.0.try_wait().unwrap().is_none(),
+            "demo exited before showing a card"
+        );
+        std::thread::yield_now();
+    }
+    assert!(!search.window.is_invalid(), "demo did not show a card");
+    if preview {
+        // Expose only this test window to desktop capture's taskbar inventory.
+        unsafe {
+            let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(
+                search.window,
+                GWL_EXSTYLE,
+                ((style & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0) as isize,
+            );
+            let _ = ShowWindow(search.window, SW_HIDE);
+            let _ = ShowWindow(search.window, SW_SHOWNOACTIVATE);
+        }
+        let deadline = Instant::now() + Duration::from_secs(45);
+        let mut seen = std::collections::BTreeSet::new();
+        while Instant::now() < deadline && demo.0.try_wait().unwrap().is_none() {
+            let mut title = [0u16; 256];
+            let length = unsafe { GetWindowTextW(search.window, &mut title) };
+            let title = String::from_utf16_lossy(&title[..length as usize]);
+            if !title.is_empty() {
+                seen.insert(title);
+            }
+            if seen.len() >= 6 && !unsafe { IsWindowVisible(search.window).as_bool() } {
+                break;
+            }
+            std::thread::park_timeout(Duration::from_millis(100));
+        }
+        if demo.0.try_wait().unwrap().is_some() {
+            return;
+        }
+    }
+    unsafe {
+        let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
+        let required = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+        if !preview {
+            assert_eq!(style & required.0, required.0);
+        }
+        assert_ne!(GetForegroundWindow(), search.window);
+        let mut title = [0u16; 80];
+        let len = GetWindowTextW(search.window, &mut title);
+        if !preview {
+            assert_eq!(
+                String::from_utf16_lossy(&title[..len as usize]),
+                "aHerald demo - Turn complete"
+            );
+        }
+    }
+    // A running ordinary resident may exist, but it must never be this demo.
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_aherald"))
+        .arg("--status")
+        .output()
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_ne!(status["pid"].as_u64(), Some(demo.0.id() as u64));
+    unsafe {
+        PostMessageW(Some(search.window), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = demo.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "demo did not stop its workers");
+        std::thread::yield_now();
+    }
+}
+
+#[test]
 #[ignore = "interactive placement preview; click the card to finish"]
 fn preview_placement() {
     let path = std::env::temp_dir().join(format!(

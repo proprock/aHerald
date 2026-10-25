@@ -1,15 +1,17 @@
 //! Native notification engine and its independently testable domain logic.
 
 pub mod app_server;
+pub mod card;
 pub mod cli;
 pub mod config;
+pub mod demo;
 pub mod usage;
 pub mod usage_service;
 
 pub const NAME: &str = "aHerald";
 
 pub fn help() -> &'static str {
-    "aHerald — native Windows notification companion\nUsage: aherald [--hook | --event EVENT | --status | --quit] [--resident | --transient] [--config PATH]\nUse --resident to run the local notification service; --status and --quit control it. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
+    "aHerald — native Windows notification companion\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit] [--resident | --transient] [--config PATH]\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
 }
 pub mod animation;
 pub mod artwork;

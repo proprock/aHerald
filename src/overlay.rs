@@ -14,6 +14,8 @@ pub(crate) struct CardText<'a> {
     pub source: &'a str,
     pub label: &'a str,
     pub navigation: bool,
+    pub dismiss_button: bool,
+    pub color: crate::config::Color,
 }
 pub(crate) struct Surface {
     dc: HDC,
@@ -122,6 +124,7 @@ impl Surface {
         }
         Ok(surface)
     }
+    #[cfg(test)]
     fn text(
         width: i32,
         height: i32,
@@ -139,6 +142,8 @@ impl Surface {
                 source,
                 label,
                 navigation: false,
+                dismiss_button: false,
+                color: crate::config::Color([101, 220, 178]),
             },
         )
     }
@@ -153,6 +158,8 @@ impl Surface {
             source,
             label,
             navigation,
+            dismiss_button,
+            color,
         } = content;
         // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
         // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
@@ -173,7 +180,7 @@ impl Surface {
                         &[0, 0, 0, 0]
                     });
                     if inside && x < (5.0 * scale) as i32 {
-                        pixels[i..i + 3].copy_from_slice(&[178, 220, 101]);
+                        pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
                     }
                 }
             }
@@ -199,36 +206,62 @@ impl Surface {
             let old_font = SelectObject(dc, font.0.into());
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, COLORREF(0x00f5f5f5));
-            let mut text: Vec<u16> = format!("{source}\n{label}").encode_utf16().collect();
+            let mut text: Vec<u16> = source.encode_utf16().collect();
             let mut rect = RECT {
                 left: text_left,
                 top: ((height - (64.0 * scale) as i32) / 2).max(0),
-                right: width - (18.0 * scale) as i32,
+                right: width - (82.0 * scale) as i32,
                 bottom: height,
             };
-            DrawTextW(
-                dc,
-                &mut text,
-                &mut rect,
-                DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
-            );
-            if navigation {
-                let span = (width - (18.0 * scale) as i32 - text_left) / 3;
-                for (index, label) in ["Prev", "Next", "Dismiss"].iter().enumerate() {
-                    let mut footer: Vec<u16> = label.encode_utf16().collect();
-                    let mut area = RECT {
-                        left: text_left + span * index as i32,
-                        top: height - (34.0 * scale) as i32,
-                        right: text_left + span * (index as i32 + 1),
-                        bottom: height - (10.0 * scale) as i32,
-                    };
-                    DrawTextW(
-                        dc,
-                        &mut footer,
-                        &mut area,
-                        DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
-                    );
-                }
+            if !text.is_empty() {
+                DrawTextW(
+                    dc,
+                    &mut text,
+                    &mut rect,
+                    DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+            }
+            rect.top += (26.0 * scale) as i32;
+            rect.right = width - (18.0 * scale) as i32;
+            rect.bottom = height
+                - (if navigation || dismiss_button {
+                    36.0
+                } else {
+                    10.0
+                } * scale) as i32;
+            let mut text: Vec<u16> = label.encode_utf16().collect();
+            if !text.is_empty() {
+                DrawTextW(
+                    dc,
+                    &mut text,
+                    &mut rect,
+                    DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
+                );
+            }
+            let controls = crate::card::Card {
+                heading: source.into(),
+                navigation,
+                dismiss_button,
+            };
+            for (action, r) in controls.buttons(width, height, scale) {
+                let label = match action {
+                    crate::card::Action::Previous => "<",
+                    crate::card::Action::Next => ">",
+                    crate::card::Action::Dismiss => "Dismiss",
+                };
+                let mut footer: Vec<u16> = label.encode_utf16().collect();
+                let mut area = RECT {
+                    left: r.left,
+                    top: r.top,
+                    right: r.right,
+                    bottom: r.bottom,
+                };
+                DrawTextW(
+                    dc,
+                    &mut footer,
+                    &mut area,
+                    DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
+                );
             }
             SelectObject(dc, old_font);
             let _ = GdiFlush();
@@ -244,6 +277,61 @@ impl Surface {
             }
             Ok(surface)
         }
+    }
+    pub(crate) fn with_countdown(&self, seconds: u64, scale: f64) -> Result<Self, String> {
+        let (surface, bits) = Self::allocate(self.width, self.height)?;
+        // SAFETY: both DIBs own exactly width * height * four bytes; only this owned DC
+        // is drawn to, and the font selection is restored before its RAII destruction.
+        unsafe {
+            let len = self.width as usize * self.height as usize * 4;
+            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
+            let font = Font(CreateFontW(
+                -(16.0 * scale) as i32,
+                0,
+                0,
+                0,
+                500,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                w!("Segoe UI"),
+            ));
+            if font.0.is_invalid() {
+                return Err("cannot create countdown font".into());
+            }
+            let old = SelectObject(surface.dc, font.0.into());
+            SetBkMode(surface.dc, TRANSPARENT);
+            SetTextColor(surface.dc, COLORREF(0x00f5f5f5));
+            let mut text: Vec<u16> = format!("{seconds}s").encode_utf16().collect();
+            let mut area = RECT {
+                left: self.width - (80.0 * scale) as i32,
+                top: (16.0 * scale) as i32,
+                right: self.width - (18.0 * scale) as i32,
+                bottom: (40.0 * scale) as i32,
+            };
+            DrawTextW(
+                surface.dc,
+                &mut text,
+                &mut area,
+                DT_RIGHT | DT_NOPREFIX | DT_SINGLELINE,
+            );
+            SelectObject(surface.dc, old);
+            let _ = GdiFlush();
+            for pixel in std::slice::from_raw_parts_mut(bits, len)
+                .as_chunks_mut::<4>()
+                .0
+            {
+                if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
+                    pixel[3] = 255;
+                }
+            }
+        }
+        Ok(surface)
     }
     pub(crate) fn present_placed(
         &self,
@@ -326,7 +414,8 @@ struct State {
     duration: u64,
     fade_in: u64,
     fade_out: u64,
-    click: bool,
+    controls: crate::card::Card,
+    countdown: Option<(usize, u64, Surface)>,
     dismissed: Option<u64>,
     failed: bool,
 }
@@ -374,7 +463,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         state.placement = p;
                     }
                     let elapsed = state.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    if message == WM_LBUTTONUP && state.click && state.dismissed.is_none() {
+                    let x = (lp.0 as u16) as i16 as i32 * state.surfaces[0].width
+                        / state.placement.2.max(1);
+                    let y = ((lp.0 >> 16) as u16) as i16 as i32 * state.surfaces[0].height
+                        / state.placement.3.max(1);
+                    if message == WM_LBUTTONUP
+                        && state.dismissed.is_none()
+                        && state.controls.hit_test(
+                            state.surfaces[0].width,
+                            state.surfaces[0].height,
+                            state.notifications.scale,
+                            x,
+                            y,
+                        ) == Some(crate::card::Action::Dismiss)
+                    {
                         state.dismissed = Some(elapsed);
                     }
                     let (alpha, done) = super::presentation(
@@ -386,16 +488,42 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     );
                     if done {
                         let _ = DestroyWindow(hwnd);
-                    } else if state.surfaces[crate::animation::frame_index(
-                        &state.frame_durations,
-                        state.looping,
-                        elapsed,
-                    )]
-                    .present_placed(hwnd, state.placement, alpha)
-                    .is_err()
-                    {
-                        state.failed = true;
-                        let _ = DestroyWindow(hwnd);
+                    } else {
+                        let frame = crate::animation::frame_index(
+                            &state.frame_durations,
+                            state.looping,
+                            elapsed,
+                        );
+                        let result = (|| {
+                            let surface = if let Some(seconds) =
+                                crate::card::remaining_seconds(state.duration, elapsed)
+                            {
+                                if state
+                                    .countdown
+                                    .as_ref()
+                                    .is_none_or(|(f, s, _)| *f != frame || *s != seconds)
+                                {
+                                    state.countdown = Some((
+                                        frame,
+                                        seconds,
+                                        state.surfaces[frame]
+                                            .with_countdown(seconds, state.notifications.scale)?,
+                                    ));
+                                }
+                                &state
+                                    .countdown
+                                    .as_ref()
+                                    .ok_or("missing countdown surface")?
+                                    .2
+                            } else {
+                                &state.surfaces[frame]
+                            };
+                            surface.present_placed(hwnd, state.placement, alpha)
+                        })();
+                        if result.is_err() {
+                            state.failed = true;
+                            let _ = DestroyWindow(hwnd);
+                        }
                     }
                     return LRESULT(0);
                 }
@@ -414,18 +542,30 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = event.kind.label();
         let source = event.source.label();
+        let controls = crate::card::Card::new(source, 0, 1, config.notifications.click_to_dismiss);
+        let make_card = |width, height, text_left| {
+            Surface::card(
+                width,
+                height,
+                scale,
+                text_left,
+                CardText {
+                    source,
+                    label,
+                    navigation: false,
+                    dismiss_button: controls.dismiss_button,
+                    color: config.event_color(event.kind),
+                },
+            )
+        };
         let assets = config.clone();
         let asset_event = event.clone();
-        let bilinear = config.notifications.interpolation == "bilinear";
-        let prepared = std::thread::spawn(move || {
-            crate::pet::for_event(&assets, &asset_event)?
-                .map(|animation| animation.prepare(scale, bilinear))
-                .transpose()
-        })
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .flatten();
+        let prepared =
+            std::thread::spawn(move || crate::artwork::prepared_for_event(&assets, &asset_event))
+                .join()
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
         let mut surfaces = Vec::new();
         let mut frame_durations = vec![1000];
         let mut looping = false;
@@ -437,8 +577,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             let height = fallback_height.max(art_height + padding * 2);
             let bytes = width as u64 * height as u64 * 4 * animation.frames.len() as u64;
             if !animation.frames.is_empty() && bytes <= crate::animation::MAX_BYTES {
-                let card =
-                    Surface::text(width, height, scale, source, label, art_width + padding * 2)?;
+                let card = make_card(width, height, art_width + padding * 2)?;
                 let composed = animation
                     .frames
                     .iter()
@@ -454,12 +593,9 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             }
         }
         if surfaces.is_empty() {
-            surfaces.push(Surface::text(
+            surfaces.push(make_card(
                 fallback_width,
                 fallback_height,
-                scale,
-                source,
-                label,
                 (22.0 * scale) as i32,
             )?);
         }
@@ -477,7 +613,8 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             duration: config.events[event.kind.name()].duration_ms,
             fade_in: config.notifications.fade_in_ms,
             fade_out: config.notifications.fade_out_ms,
-            click: config.notifications.click_to_dismiss,
+            controls,
+            countdown: None,
             dismissed: None,
             failed: false,
         });
@@ -549,6 +686,68 @@ mod card_tests {
     use super::Surface;
     use crate::animation::PreparedFrame;
     #[test]
+    fn controls_accent_and_countdown_render_real_pixels_in_their_regions() {
+        let make = |navigation, dismiss_button| {
+            Surface::card(
+                320,
+                110,
+                1.0,
+                22,
+                super::CardText {
+                    source: "Codex",
+                    label: "Turn complete",
+                    navigation,
+                    dismiss_button,
+                    color: crate::config::Color([16, 32, 48]),
+                },
+            )
+            .unwrap()
+        };
+        let single = make(false, false);
+        let multiple = make(true, false);
+        let explicit = make(false, true);
+        // SAFETY: every surface owns a 320x110 BGRA DIB and lives through inspection.
+        let pixels = |surface: &Surface| unsafe {
+            std::slice::from_raw_parts(surface.pixels, 320 * 110 * 4).to_vec()
+        };
+        let base = pixels(&single);
+        let region = |data: &[u8], left: usize, top: usize, right: usize, bottom: usize| {
+            (top..bottom)
+                .flat_map(|y| (left..right).map(move |x| (y * 320 + x) * 4))
+                .filter(|i| data[*i] > 180 && data[*i + 1] > 180 && data[*i + 2] > 180)
+                .count()
+        };
+        assert_eq!(&base[(55 * 320 + 2) * 4..][..4], &[46, 30, 15, 242]);
+        assert_eq!(region(&base, 215, 78, 303, 101), 0);
+        assert!(region(&pixels(&multiple), 215, 78, 303, 101) > 10);
+        assert!(region(&pixels(&explicit), 205, 78, 303, 101) > 40);
+        let mut previous = base.clone();
+        for second in [3, 2, 1] {
+            let timed = pixels(&single.with_countdown(second, 1.0).unwrap());
+            assert!(region(&timed, 240, 16, 303, 40) > 20);
+            assert_ne!(timed, previous);
+            for y in 40..110 {
+                assert_eq!(
+                    &timed[y * 320 * 4..(y + 1) * 320 * 4],
+                    &base[y * 320 * 4..(y + 1) * 320 * 4]
+                );
+            }
+            assert!(
+                timed
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| p[..3].iter().all(|c| *c <= p[3]))
+            );
+            previous = timed;
+        }
+        assert_eq!(
+            pixels(&single),
+            base,
+            "badges must not modify the cached base card"
+        );
+    }
+    #[test]
     fn repeated_card_rendering_and_dpi_resize_release_native_resources() {
         if std::env::var_os("AHERALD_RESOURCE_HELPER").is_none() {
             let child = std::process::Command::new(std::env::current_exe().unwrap())
@@ -602,6 +801,7 @@ mod card_tests {
             );
             let cycle = || {
                 let card = Surface::text(320, 110, 1.0, "Codex", "Error", 22).unwrap();
+                let card = card.with_countdown(3, 1.0).unwrap();
                 for width in [320, 480, 320] {
                     card.present_placed(window.0, (0, 0, width, 110), 255)
                         .unwrap();

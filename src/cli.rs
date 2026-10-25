@@ -6,14 +6,32 @@ pub struct Cli {
     pub mode: Option<String>,
     pub event: Option<String>,
     pub config: Option<PathBuf>,
+    pub demo_pause_sec: Option<u64>,
 }
 
 impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut cli = Self::default();
-        let mut args = args.into_iter();
+        let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--demo" => {
+                    if cli.operation.replace("demo".into()).is_some() {
+                        return Err("conflicting explicit operations".into());
+                    }
+                    let seconds = if args.peek().is_some_and(|s| !s.starts_with("--")) {
+                        args.next()
+                            .ok_or("missing demo pause")?
+                            .parse::<u64>()
+                            .map_err(|_| "demo pause must be a positive whole number of seconds")?
+                    } else {
+                        3
+                    };
+                    if !(1..=86_400).contains(&seconds) {
+                        return Err("demo pause must be 1..86400 seconds".into());
+                    }
+                    cli.demo_pause_sec = Some(seconds);
+                }
                 "--hook" | "--status" | "--quit" | "--help" => {
                     if cli.operation.replace(arg[2..].to_owned()).is_some() {
                         return Err("conflicting explicit operations".into());
@@ -43,8 +61,10 @@ impl Cli {
                 _ => return Err("unknown argument".into()),
             }
         }
-        if matches!(cli.operation.as_deref(), Some("status" | "quit" | "help"))
-            && cli.mode.is_some()
+        if matches!(
+            cli.operation.as_deref(),
+            Some("status" | "quit" | "help" | "demo")
+        ) && cli.mode.is_some()
         {
             return Err("operation does not accept a mode".into());
         }
