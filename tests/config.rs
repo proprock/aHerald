@@ -2,6 +2,34 @@ use aherald::{cli::Cli, config::Config};
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn tray_graph_defaults_and_validates_modes() {
+    use aherald::config::TrayGraph;
+    let dir = PathBuf::from(".");
+    for text in ["", "[tray]"] {
+        assert_eq!(
+            Config::parse(text, &dir).unwrap().tray.graph,
+            TrayGraph::Auto
+        );
+    }
+    for (name, mode) in [
+        ("auto", TrayGraph::Auto),
+        ("both", TrayGraph::Both),
+        ("claude", TrayGraph::Claude),
+        ("codex", TrayGraph::Codex),
+    ] {
+        let text = format!("[tray]\ngraph='{name}'");
+        assert_eq!(Config::parse(&text, &dir).unwrap().tray.graph, mode);
+    }
+    for text in [
+        "[tray]\ngraph='unknown'",
+        "[tray]\ngraph=1",
+        "[tray]\nunknown=true",
+    ] {
+        assert!(Config::parse(text, &dir).is_err(), "{text}");
+    }
+}
+
+#[test]
 fn background_colors_accept_all_three_scopes_and_reject_invalid_hex() {
     let dir = PathBuf::from(".");
     assert!(Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[codex.usage]\nbackground_color='#506070'", &dir).is_ok());

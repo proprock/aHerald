@@ -349,6 +349,18 @@ An implementation alone is not evidence of Windows visual acceptance.
   forced refresh on opening details. Remaining: confirm the tray
   tooltip/menu/card with both agents enabled.
 
+- [x] **AH-039 — Select tray graph agents.**
+  Add `[tray] graph = "auto" | "both" | "claude" | "codex"`, default auto.
+  Auto shows the agent with the lowest remaining percentage across 5h/week;
+  ties prefer Codex, disabled/no-data agents are excluded, missing windows stay gray.
+  Both splits each window's bar by width: Claude left, Codex right, independent
+  full-height fills and fixed positions. Exclusive modes never fall back.
+  Preserve display modes, colors, cached values, DPI sizing and icon reuse/restore.
+  Acceptance: config/selection/raster/native tests, four-mode visual preview at
+  16/20/24/32 px, isolated Explorer restoration and standard Cargo checks pass.
+  Graph selection does not enable polling or change menu/card behavior.
+  Verified on Windows 11 build 22621 with synthetic data; see `docs/tray-usage.md`.
+
 - [ ] **AH-038 — Claude follow-ups (deferred).**
   Click-to-activate and session names for Claude; `SubagentStop`/`SessionEnd`; a
   statusLine-based quota fallback (`rate_limits` in statusLine JSON, no token needed);

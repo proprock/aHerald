@@ -23,6 +23,190 @@ const YELLOW: [u8; 4] = [0, 165, 216, 255];
 const RED: [u8; 4] = [68, 68, 224, 255];
 const GRAY: [u8; 4] = [133, 133, 133, 255];
 
+fn graph(
+    codex: &View,
+    claude: &View,
+    mode: aherald::config::TrayGraph,
+    display: UsageDisplay,
+) -> Levels {
+    Levels::from_views(codex, Some(claude), mode, display)
+}
+
+#[test]
+fn auto_selects_whole_agent_by_worst_remaining_window_and_updates() {
+    use aherald::config::TrayGraph::*;
+    let codex = view(Some(20.), Some(90.));
+    let mut claude = view(Some(85.), Some(30.));
+    for display in [UsageDisplay::Remain, UsageDisplay::Used] {
+        assert_eq!(
+            graph(&codex, &claude, Auto, display),
+            Levels::from_view(&codex, display)
+        );
+    }
+    claude = view(Some(95.), Some(30.));
+    assert_eq!(
+        graph(&codex, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&claude, UsageDisplay::Remain)
+    );
+    claude.error = Some("refresh failed".into());
+    assert_eq!(
+        graph(&codex, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&claude, UsageDisplay::Remain)
+    );
+    claude = view(Some(90.), Some(20.));
+    assert_eq!(
+        graph(&codex, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&codex, UsageDisplay::Remain)
+    );
+}
+
+#[test]
+fn auto_ignores_disabled_missing_and_invalid_data_but_keeps_partial_windows() {
+    use aherald::config::TrayGraph::*;
+    let codex = view(Some(20.), Some(30.));
+    let mut claude = view(Some(100.), None);
+    assert_eq!(
+        graph(&codex, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&claude, UsageDisplay::Remain)
+    );
+    claude.enabled = false;
+    assert_eq!(
+        graph(&codex, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&codex, UsageDisplay::Remain)
+    );
+    for invalid in [
+        None,
+        Some(-1.),
+        Some(101.),
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+    ] {
+        claude = view(None, None);
+        claude
+            .snapshot
+            .as_mut()
+            .unwrap()
+            .buckets
+            .get_mut("codex")
+            .unwrap()
+            .primary
+            .as_mut()
+            .unwrap()
+            .used_percent = invalid;
+        assert_eq!(
+            graph(&codex, &claude, Auto, UsageDisplay::Remain),
+            Levels::from_view(&codex, UsageDisplay::Remain)
+        );
+    }
+    let empty = View::new(true, Duration::ZERO);
+    let claude = view(Some(90.), None);
+    assert_eq!(
+        graph(&empty, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&claude, UsageDisplay::Remain)
+    );
+    let mut disabled = codex.clone();
+    disabled.enabled = false;
+    assert_eq!(
+        graph(&disabled, &claude, Auto, UsageDisplay::Remain),
+        Levels::from_view(&claude, UsageDisplay::Remain)
+    );
+    assert_eq!(
+        graph(&empty, &empty, Auto, UsageDisplay::Remain),
+        Levels::from_view(&empty, UsageDisplay::Remain)
+    );
+    assert_eq!(
+        Levels::from_views(&codex, None, Auto, UsageDisplay::Remain),
+        Levels::from_view(&codex, UsageDisplay::Remain)
+    );
+}
+
+#[test]
+fn exclusive_graphs_never_fall_back_to_another_agent() {
+    use aherald::config::TrayGraph::*;
+    let codex = view(Some(20.), Some(30.));
+    let claude = view(Some(90.), None);
+    let empty = View::new(false, Duration::ZERO);
+    for display in [UsageDisplay::Remain, UsageDisplay::Used] {
+        assert_eq!(
+            graph(&codex, &claude, Codex, display),
+            Levels::from_view(&codex, display)
+        );
+        assert_eq!(
+            graph(&codex, &claude, Claude, display),
+            Levels::from_view(&claude, display)
+        );
+        assert_eq!(
+            graph(&empty, &claude, Codex, display),
+            Levels::from_view(&empty, display)
+        );
+        assert_eq!(
+            Levels::from_views(&codex, None, Claude, display),
+            Levels::from_view(&empty, display)
+        );
+    }
+}
+
+#[test]
+fn both_splits_each_window_into_claude_then_codex_at_every_size() {
+    use aherald::config::TrayGraph::Both;
+    let codex = view(Some(80.), Some(0.));
+    let claude = view(Some(0.), Some(50.));
+    for size in [8u32, 16, 20, 24, 32, 48, 64, 256] {
+        let margin = ((size + 8) / 16).max(1);
+        let gap = ((size + 4) / 8).max(1);
+        let space = size - 2 * margin - gap;
+        for display in [UsageDisplay::Remain, UsageDisplay::Used] {
+            let pixels = graph(&codex, &claude, Both, display).render(size).unwrap();
+            for (window, colors) in [[GREEN, RED], [YELLOW, GREEN]].into_iter().enumerate() {
+                let i = window as u32;
+                let left = margin + i * space / 2 + i * gap;
+                let width = (i + 1) * space / 2 - i * space / 2;
+                for (agent, color) in colors.into_iter().enumerate() {
+                    let x = left + if agent == 0 { 0 } else { width / 2 };
+                    assert_eq!(
+                        pixel(
+                            &pixels,
+                            size as usize,
+                            x as usize,
+                            (size - margin - 1) as usize
+                        ),
+                        color
+                    );
+                }
+            }
+            assert_eq!(pixel(&pixels, size as usize, 0, 0), [0; 4]);
+        }
+    }
+    let remain = graph(&codex, &claude, Both, UsageDisplay::Remain)
+        .render(16)
+        .unwrap();
+    let used = graph(&codex, &claude, Both, UsageDisplay::Used)
+        .render(16)
+        .unwrap();
+    assert_eq!(pixel(&remain, 16, 1, 1), GREEN);
+    assert_ne!(pixel(&used, 16, 1, 1), GREEN);
+    assert_ne!(pixel(&remain, 16, 4, 1), RED);
+    assert_ne!(pixel(&remain, 16, 4, 5), RED);
+    assert_eq!(pixel(&used, 16, 4, 5), RED);
+    assert_eq!(pixel(&used, 16, 4, 14), RED);
+    assert_eq!(pixel(&remain, 16, 8, 8), [0; 4]);
+    let missing = Levels::from_views(&codex, None, Both, UsageDisplay::Remain)
+        .render(16)
+        .unwrap();
+    assert_eq!(pixel(&missing, 16, 1, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 4, 14), RED);
+    assert_eq!(pixel(&missing, 16, 9, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 12, 1), GREEN);
+    let mut disabled = codex.clone();
+    disabled.enabled = false;
+    let missing = graph(&disabled, &claude, Both, UsageDisplay::Remain)
+        .render(16)
+        .unwrap();
+    assert_eq!(pixel(&missing, 16, 1, 1), GREEN);
+    assert_eq!(pixel(&missing, 16, 4, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 12, 1), GRAY);
+}
+
 #[test]
 fn bars_keep_primary_left_secondary_right_and_thresholds_use_remaining() {
     for (used, expected) in [

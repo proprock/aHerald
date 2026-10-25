@@ -1,5 +1,10 @@
 use super::*;
-use crate::{config::UsageDisplay, tray_usage::Levels, usage::Snapshot, usage_service::View};
+use crate::{
+    config::{TrayGraph, UsageDisplay},
+    tray_usage::Levels,
+    usage::Snapshot,
+    usage_service::View,
+};
 use std::time::Duration;
 use windows::Win32::Graphics::Gdi::*;
 
@@ -7,6 +12,55 @@ fn levels(used: f64) -> Levels {
     let mut view = View::new(true, Duration::from_secs(300));
     view.snapshot=Some(Snapshot::parse(serde_json::json!({"rateLimits":{"primary":{"usedPercent":used},"secondary":{"usedPercent":90}}})).unwrap());
     Levels::from_view(&view, UsageDisplay::Remain)
+}
+
+fn graph_levels(graph: TrayGraph, display: UsageDisplay) -> Levels {
+    let mut codex = View::new(true, Duration::from_secs(300));
+    codex.snapshot = Some(
+        Snapshot::parse(serde_json::json!({"rateLimitsByLimitId":{"codex":{
+            "primary":{"usedPercent":80},"secondary":{"usedPercent":0}
+        }}}))
+        .unwrap(),
+    );
+    let mut claude = View::new(true, Duration::from_secs(300));
+    claude.snapshot = Some(
+        Snapshot::parse(serde_json::json!({"rateLimitsByLimitId":{"claude":{
+            "primary":{"usedPercent":0},"secondary":{"usedPercent":50}
+        }}}))
+        .unwrap(),
+    );
+    Levels::from_views(&codex, Some(&claude), graph, display)
+}
+
+#[test]
+fn split_native_icon_preserves_four_colors_and_reuses_and_restores_handle() {
+    let mut icon = Icon::new(HWND::default()).unwrap();
+    let levels = graph_levels(TrayGraph::Both, UsageDisplay::Remain);
+    assert!(icon.set_levels(levels.clone(), 16).unwrap());
+    let current = icon.data.hIcon;
+    assert!(!icon.set_levels(levels, 16).unwrap());
+    assert_eq!(icon.data.hIcon, current);
+    let mut info = ICONINFO::default();
+    // SAFETY: the icon stays owned; bitmap copies and the compatible DC are released below.
+    unsafe {
+        GetIconInfo(current, &mut info).unwrap();
+        let dc = CreateCompatibleDC(None);
+        assert!(!dc.is_invalid());
+        let old = SelectObject(dc, info.hbmColor.into());
+        for (x, color) in [(1, 0x55b422), (4, 0x4444e0), (9, 0x00a5d8), (12, 0x55b422)] {
+            assert_eq!(GetPixel(dc, x, 14), COLORREF(color));
+        }
+        SelectObject(dc, old);
+        let _ = DeleteDC(dc);
+        let _ = DeleteObject(info.hbmColor.into());
+        let _ = DeleteObject(info.hbmMask.into());
+    }
+    icon.restore();
+    assert_eq!(icon.data.hIcon, current);
+    assert!(
+        icon.set_levels(graph_levels(TrayGraph::Claude, UsageDisplay::Remain), 16)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -92,7 +146,7 @@ fn manual_dynamic_tray_preview() {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class,
-            w!("AH-034: 16 / 20 / 24 / 32 px - remain and used"),
+            w!("Tray graph: auto / both / claude / codex; 16 / 20 / 24 / 32 px; remain + used"),
             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
             120,
             120,
@@ -111,28 +165,24 @@ fn manual_dynamic_tray_preview() {
             CreateSolidBrush(COLORREF(0xf3f3f3)),
             CreateSolidBrush(COLORREF(0x202020)),
         ];
-        let mut view = View::new(true, Duration::from_secs(300));
         let mut images = Vec::new();
-        for (row, (primary, secondary)) in [
-            (Some(20.), Some(55.)),
-            (Some(85.), None),
-            (Some(100.), Some(0.)),
-            (Some(40.), Some(80.)),
+        for (row, graph) in [
+            TrayGraph::Auto,
+            TrayGraph::Both,
+            TrayGraph::Claude,
+            TrayGraph::Codex,
         ]
         .into_iter()
         .enumerate()
         {
-            view.snapshot=Some(Snapshot::parse(serde_json::json!({"rateLimits":{"primary":{"usedPercent":primary},"secondary":{"usedPercent":secondary}}})).unwrap());
             for (column, size) in [16, 20, 24, 32].into_iter().enumerate() {
                 for (mode, display) in [UsageDisplay::Remain, UsageDisplay::Used]
                     .into_iter()
                     .enumerate()
                 {
-                    let image = NativeIcon::new(
-                        &Levels::from_view(&view, display).render(size).unwrap(),
-                        size,
-                    )
-                    .unwrap();
+                    let image =
+                        NativeIcon::new(&graph_levels(graph, display).render(size).unwrap(), size)
+                            .unwrap();
                     let x = 20 + column as i32 * 170 + mode as i32 * 70;
                     let y = 30 + row as i32 * 76;
                     for (background, brush) in brushes.iter().enumerate() {
@@ -162,7 +212,7 @@ fn manual_dynamic_tray_preview() {
             }
         }
         ReleaseDC(Some(hwnd), dc);
-        let end = std::time::Instant::now() + Duration::from_secs(60);
+        let end = std::time::Instant::now() + Duration::from_secs(180);
         let mut message = MSG::default();
         while std::time::Instant::now() < end && IsWindow(Some(hwnd)).as_bool() {
             while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
@@ -213,7 +263,8 @@ fn explorer_restore_keeps_current_dynamic_image() {
             .unwrap(),
         );
         let mut icon = Icon::new(window.0).unwrap();
-        icon.set_levels(levels(90.0), 16).unwrap();
+        icon.set_levels(graph_levels(TrayGraph::Both, UsageDisplay::Remain), 16)
+            .unwrap();
         let current = icon.data.hIcon;
         let raster = icon.raster.clone();
         let identity = NOTIFYICONIDENTIFIER {

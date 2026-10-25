@@ -104,13 +104,6 @@ impl Ui {
             _ => self.usage.refresh(),
         }
     }
-    /// The tray icon bars follow Codex unless Claude is the only enabled agent.
-    fn icon_view(&self) -> crate::usage_service::View {
-        match &self.claude {
-            Some(claude) if !self.codex_shown() => claude.view(),
-            _ => self.usage.view(),
-        }
-    }
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
@@ -126,8 +119,10 @@ impl Ui {
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
             let tooltip = self.compact("\n");
-            let levels = crate::tray_usage::Levels::from_view(
-                &self.icon_view(),
+            let levels = crate::tray_usage::Levels::from_views(
+                &self.usage.view(),
+                self.claude.as_ref().map(|c| c.view()).as_ref(),
+                self.config.tray.graph,
                 self.config.codex.usage.display,
             );
             if let Some(tray) = &mut self.tray {

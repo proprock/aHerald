@@ -43,7 +43,23 @@ cards are discarded. Repeated restart strips internal handoff arguments.
 ## Dynamic tray icon (AH-034)
 
 Two vertical columns show primary/5h on the left and secondary/week on the right.
-The Codex bucket is preferred, with the first available bucket as fallback.
+`[tray] graph = "auto"` is the default, including when the section is absent:
+
+- `auto`: take each enabled agent's lowest valid remaining percentage across 5h
+  and week, then show both windows of the agent with the lower result. Ties prefer
+  Codex. An agent without valid data does not participate; no data means gray bars.
+  A missing window of the selected agent remains gray.
+- `both`: split each column by width, Claude on the left and Codex on the right,
+  with independent full-height scales. Both agents retain their positions even
+  when disabled or unavailable. There is no extra gap within a column.
+- `claude` / `codex`: show only the selected agent in two full-width columns.
+  Disabled or missing data stays gray without falling back to the other agent.
+
+The setting affects only the icon; it does not enable usage polling or change
+menu/card selection. Enable each agent's usage separately. Unknown graph values
+are rejected. Restart the resident after editing configuration. Auto selection
+always compares remaining percentages, including when display is `used`.
+The Codex snapshot prefers its Codex bucket, with the first available bucket as fallback.
 Fill follows `[codex.usage] display`: remaining quota by default, consumed quota for
 `used`. Color always uses remaining quota: greater than 60% green, greater than
 20% yellow, otherwise red. A missing, invalid or disabled value is solid gray.
@@ -72,6 +88,29 @@ The isolated Explorer registration test is
 `cargo test --lib tray::native_tests::explorer_restore_keeps_current_dynamic_image -- --ignored --nocapture`.
 These checks use synthetic data; an actual Explorer process restart, moving the
 taskbar between different-DPI monitors and Windows 10 were not exercised.
+
+### Graph mode verification (2026-10-25)
+
+On Windows 11 build 22621, functional tests cover config defaults/validation,
+auto selection and ties, partial/invalid/disabled data, cached values after errors,
+selection changes, exclusive modes and split pixels at 8/16/20/24/32/48/64/256 px.
+Native tests verify the four colors in a real HICON, unchanged-handle reuse and
+switching back to a single-agent graph. The isolated Explorer delete/re-add check
+also passed with the split icon, retaining its image and releasing it on shutdown.
+
+The native DrawIconEx preview was visually inspected with rows in order
+auto/both/claude/codex, columns 16/20/24/32 px, remain/used pairs and light/dark
+backgrounds. The split bars, independent fills and padding were visible at all
+four sizes. The preview closes after 180 seconds or when its window is closed.
+All data was synthetic; no live Codex/Claude protocol or account check was needed.
+Formatting, Clippy with warnings denied, all-target tests and the Windows x64
+MSVC release build passed. Portable-config tests also verify the updated embedded
+default. Actual Explorer restart, cross-monitor DPI changes and Windows 10 remain
+outside this check.
+One repeat run during release compilation exceeded the existing 3-second
+PowerShell hook-test deadline; the focused test passed after compilation ended.
+A subsequent sandbox run hit an EnumWindows failure in the existing restart test;
+that test and the final full all-target run passed outside the sandbox.
 
 ## Card and restart verification (2026-10-25)
 
