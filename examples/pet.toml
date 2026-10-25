@@ -4,9 +4,18 @@
 scale = 1.0
 interpolation = 'bilinear'
 
-# Codex hooks use this artwork; --event demos use agents.demo or notifications.pet.
+# Codex hooks and --demo use this artwork; --event uses agents.demo or notifications.pet.
 [agents.codex]
 pet = '../characters/becky--natewanggg/pet.json'
+
+# Override the automatically selected state for this agent's events.
+# Shared defaults can instead use [notifications.pet_animations].
+[agents.codex.pet_animations]
+turn_complete = 'jumping'
+permission_required = 'review'
+input_required = 'waiting'
+error = 'failed'
+interrupted = 'idle'
 
 # Optional: retain the default sound settings or set your own WAV per event.
 [sounds]

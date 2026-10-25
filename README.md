@@ -30,11 +30,20 @@ Keep `assets/` external and copy it with the example configuration when desired.
 
 Click the notification to dismiss it. `turn_complete`, `error`, and `interrupted`
 expire after three seconds by default. `permission_required` and `input_required`
-remain until clicked; dismissal never answers an agent request. A missing animation
-uses a text card. A missing sound or audio device leaves visuals usable.
+remain until clicked; dismissal never answers an agent request. Standard animations
+load automatically from `assets` beside `aherald.exe`; Cargo stages that directory
+when building. Keep it beside the executable when distributing or moving the app.
+Failed pet/custom artwork falls back to the event's standard animation, then text
+if that resource is also unavailable. A missing sound/audio device leaves visuals usable.
 
-`examples/config.toml` lists settings; `examples/resources.toml` references the
-original bundled animations and sounds. Paths are relative to the configuration,
+[`aHerald.example.toml`](aHerald.example.toml) is the complete configuration reference,
+with built-in defaults, comments for every setting, accepted values and optional
+artwork/state overrides. Copy it and edit it for your setup. `examples/resources.toml`
+is a separate demo preset with scale 3 and configured sounds, not the defaults.
+See [the examples directory guide](examples/README.md) for the remaining files.
+See [artwork selection](docs/visuals.md) for builtin, full-pet and hybrid setups,
+including migration of existing custom animation paths.
+Paths are relative to the configuration,
 not the working directory. The default config is `%APPDATA%\aHerald\config.toml`;
 a missing default file uses built-in defaults. An explicitly missing/invalid file
 is an error. No user configuration or startup entries are installed automatically.
@@ -42,6 +51,36 @@ is an error. No user configuration or startup entries are installed automaticall
 Explicit `--transient` or `--resident` overrides configured mode. Input-wait
 monitoring is unsupported for unrelated Codex sessions; usage polling awaits
 Milestone 4. Enabling those settings reports limits without stopping notifications.
+
+## Configuration demo
+
+```powershell
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --demo
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --demo 3 --config .\examples\resources.toml
+```
+
+`--demo [SECONDS]` loops through all enabled signals, then a group of signals for
+trying navigation and the event count. The pause **between** scenarios is
+three seconds by default; whole seconds from 1 to 86400 are accepted. Each scenario
+lasts at least three seconds, or the longest configured event duration plus fade-out.
+Persistent waits automatically clear at the end of their scenario. Finite events
+still expire at their configured duration; short events may leave the card hidden
+for the rest of that scenario. Click dismissal does not end the loop.
+
+The demo loads the default configuration or `--config`, retaining event enablement,
+artwork overrides, sounds/volume, fades, placement and scale. Cards are labelled
+`aHerald demo`; artwork uses `agents.demo`, then `agents.codex` when available,
+then the shared pet. Disabled events are skipped; disabling all events is an error.
+Disabled visuals or sounds stay disabled. Use the tray to try pause, sound/visual
+switches and usage details (real usage is queried only when enabled in the config).
+Exit from this demo's tray to stop the cycle. Pause freezes the cycle as well.
+
+The demo runs independently of the normal resident, without resident IPC or hook
+installation, and does not save runtime switches. `--status`/`--quit` address the
+normal resident; stop the demo through its tray. `--demo` cannot be combined with
+other operations or `--resident`/`--transient`. Restart it after editing configuration
+or replacing assets to preview the changes.
+See [demo verification and limitations](docs/demo.md).
 
 ## Resident mode and tray
 
@@ -59,9 +98,15 @@ subsequent deliveries do not reload or replace it. No autostart is installed.
 `--status` and `--quit` address the current user's current logon and do not start
 an absent service. Status reports PID, queued count, pause, sound and visual state.
 
-The single card shows the selected event number/count and Prev/Next/Dismiss.
-Clicking its body dismisses only that event. Persistent waits can be switched
-away from. The queue holds 64 entries, ordered by priority and then arrival.
+With multiple events, the card shows the selected number/count and bottom-right
+`<` / `>` buttons. These controls disappear for a single event. Clicking anywhere
+else dismisses only the selected event; navigation clicks keep it queued.
+With `click_to_dismiss = false`, only the explicit Dismiss button closes it by mouse.
+Cards are informational: dismissal never answers an agent request. Finite events
+show remaining whole seconds at the top right; persistent waits have no countdown.
+Set `[events.NAME] color = "#RRGGBB"` to change an event's left accent stripe.
+See [pet state overrides](docs/pets.md#per-event-state-overrides) for animation settings.
+Persistent waits can be switched away from. The queue holds 64 entries, ordered by priority and then arrival.
 Higher-priority overflow evicts the oldest lowest-priority entry; other overflow
 is rejected. Matching event identity is deduplicated without merging unrelated
 sessions; visible time accumulates only while an event is selected.
@@ -89,7 +134,7 @@ serialized. Exit also closes open information windows and releases owned resourc
 The icon is restored on `TaskbarCreated` and retried if Explorer is absent.
 
 Resident artwork is cached by agent/signal in a 16-entry, 32 MiB LRU, including
-text fallback for invalid resources. Restart the resident after replacing assets.
+builtin/text recovery for invalid resources. Restart the resident after replacing assets.
 The IPC worker writes fixed operational codes to `aherald.log` beside the config,
 controlled by `general.logging` (default `warn`; `off` disables it). It keeps one
 64 KiB file and one 64 KiB backup, `aherald.previous.log`. Logs contain timestamps,
@@ -111,7 +156,9 @@ The card always shows the event source and signal text. Use `agents.codex.pet`
 to point to a downloaded local `pet.json`; its PNG/WebP sprite sheet animates beside
 the text. `notifications.pet` supplies an optional shared default. Standard v1/v2 packages are
 supported. See [pet setup and format limits](docs/pets.md) and `examples/pet.toml`.
-A per-event `animation` overrides agent and shared pets. No installer commands run from
+In auto mode, configuring a pet replaces builtin artwork for all inherited events.
+Use an event's `visual` for explicit builtin/pet/custom exceptions; `animation` is
+used only with `visual = 'custom'`. No installer commands run from
 configuration; runtime playback needs neither npm nor Codex.
 
 ## Hooks and limits

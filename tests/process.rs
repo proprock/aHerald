@@ -44,7 +44,7 @@ fn missing_executable_and_invalid_event_fail_safely() {
     assert!(
         deliver(
             &PathBuf::from("missing-ah-executable.exe"),
-            &PathBuf::from("examples/config.toml"),
+            &PathBuf::from("aHerald.example.toml"),
             &Event::demo("error").unwrap()
         )
         .is_err()
@@ -54,7 +54,7 @@ fn missing_executable_and_invalid_event_fail_safely() {
     assert!(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
-            &PathBuf::from("examples/config.toml"),
+            &PathBuf::from("aHerald.example.toml"),
             &event
         )
         .is_err()
