@@ -1,5 +1,6 @@
 //! Native notification engine and its independently testable domain logic.
 
+pub mod activation;
 pub mod app_server;
 pub mod card;
 pub mod cli;

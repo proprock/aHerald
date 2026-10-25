@@ -233,6 +233,17 @@ An implementation alone is not evidence of Windows visual acceptance.
   Verified with domain/native lifecycle tests, synthetic visual inspection of
   details and queue navigation, and standard Cargo checks. See `docs/tray-usage.md`.
 
+- [x] **AH-032 — Switch to the agent application on notification click.**
+  Configure `[notifications] activate_agent_on_click = true` by default.
+  Body click opens `codex://threads/<thread-id>` with validated, encoded identity;
+  missing identity or shell failure tries an existing Codex window. Dismissal
+  remains controlled independently by `click_to_dismiss`. Arrows and Dismiss
+  never activate; demo and usage stay isolated. Resident and transient share the
+  activation adapter. Failures retain card behavior and record a fixed diagnostic.
+  Verified with focused/native tests, standard Cargo checks, and user-confirmed
+  transition from a transient test card to the correct chat. See
+  `docs/notification-click.md` for versions and manual-check limitations.
+
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,

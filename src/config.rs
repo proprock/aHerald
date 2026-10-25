@@ -16,6 +16,8 @@ pub const EVENT_NAMES: [&str; 5] = [
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    #[serde(skip)]
+    pub diagnostic_directory: PathBuf,
     pub general: General,
     pub resident: Resident,
     pub notifications: Notifications,
@@ -28,6 +30,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            diagnostic_directory: PathBuf::from("."),
             general: General::default(),
             resident: Resident::default(),
             notifications: Notifications::default(),
@@ -139,6 +142,7 @@ pub struct Notifications {
     pub fade_in_ms: u64,
     pub fade_out_ms: u64,
     pub click_to_dismiss: bool,
+    pub activate_agent_on_click: bool,
     pub interpolation: String,
 }
 impl Default for Notifications {
@@ -152,6 +156,7 @@ impl Default for Notifications {
             fade_in_ms: 150,
             fade_out_ms: 300,
             click_to_dismiss: true,
+            activate_agent_on_click: true,
             interpolation: "nearest".into(),
             pet: None,
             pet_animations: BTreeMap::new(),
@@ -275,6 +280,7 @@ impl Config {
             .try_into()
             .map_err(|_| "invalid configuration fields")?;
         config.validate()?;
+        config.diagnostic_directory = directory.to_owned();
         for (name, default) in Self::default().events {
             let has_duration = value
                 .get("events")

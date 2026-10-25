@@ -504,6 +504,9 @@ struct State {
     failed: bool,
     source_labels: crate::session_source::Service,
     event: Event,
+    activation: crate::activation::Worker,
+    log_directory: std::path::PathBuf,
+    log_level: String,
     text_left: i32,
 }
 struct Window(HWND);
@@ -586,6 +589,21 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         / state.placement.2.max(1);
                     let y = ((lp.0 >> 16) as u16) as i16 as i32 * state.surfaces[0].height
                         / state.placement.3.max(1);
+                    if message == WM_LBUTTONUP && state.dismissed.is_none() {
+                        state.activation.submit(
+                            &state.event,
+                            state.notifications.activate_agent_on_click,
+                            state.controls.body_hit_test(
+                                state.surfaces[0].width,
+                                state.surfaces[0].height,
+                                state.notifications.scale,
+                                x,
+                                y,
+                            ),
+                            &state.log_directory,
+                            &state.log_level,
+                        );
+                    }
                     if message == WM_LBUTTONUP
                         && state.dismissed.is_none()
                         && state.controls.hit_test(
@@ -747,6 +765,9 @@ fn show_with_source(
             failed: false,
             source_labels,
             event: event.clone(),
+            activation: crate::activation::Worker::default(),
+            log_directory: config.diagnostic_directory.clone(),
+            log_level: config.general.logging.clone(),
             text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;

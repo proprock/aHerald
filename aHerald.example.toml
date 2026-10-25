@@ -43,6 +43,8 @@ fade_out_ms = 300
 # Dismiss the selected card by clicking its body; default true (no Dismiss button).
 # false keeps an explicit Dismiss button. Navigation clicks never dismiss events.
 click_to_dismiss = true
+# Open the Codex chat on body click; independent of dismissal.
+activate_agent_on_click = true
 # Artwork resize filter: "nearest" (default) or "bilinear".
 interpolation = "nearest"
 # Shared local pet.json path; default absent (use builtin artwork in auto mode).

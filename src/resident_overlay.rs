@@ -51,6 +51,7 @@ struct Ui {
     usage: crate::usage_service::Service,
     usage_next: u64,
     usage_window: bool,
+    activation: crate::activation::Worker,
     usage_text: String,
     usage_page: usize,
     usage_surface: Option<Surface>,
@@ -376,6 +377,17 @@ impl Ui {
                 state.queue.items().len(),
                 self.usage_window || self.config.notifications.click_to_dismiss,
             );
+            if let Some(entry) = state.queue.selected() {
+                self.activation.submit(
+                    &entry.event,
+                    self.config.notifications.activate_agent_on_click,
+                    controls.body_hit_test(self.width, self.height, self.scale, x, y),
+                    self.config_path
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new(".")),
+                    &self.config.general.logging,
+                );
+            }
             match controls.hit_test(self.width, self.height, self.scale, x, y) {
                 Some(crate::card::Action::Previous) => state.queue.next(-1),
                 Some(crate::card::Action::Next) => state.queue.next(1),
@@ -657,6 +669,7 @@ pub(super) fn run_preview(
         usage,
         usage_next: 0,
         usage_window: false,
+        activation: crate::activation::Worker::default(),
         usage_text: String::new(),
         usage_page: 0,
         usage_surface: None,
