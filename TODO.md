@@ -340,7 +340,9 @@ An implementation alone is not evidence of Windows visual acceptance.
   status and driver behavior are tested with fakes (no network). Live check on
   2026-10-25 (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
   `five_hour`/`seven_day` `{utilization, resets_at}` as assumed (a stale token gave 401).
-  Tested with Claude Code 2.1.310. Remaining: confirm the tray
+  Tested with Claude Code 2.1.310. Manually confirmed 2026-10-25: separate Claude menu
+  line (alphabetical before Codex), details card with plan, 5h/Week, Extra usage and Spend,
+  forced refresh on opening details. Remaining: confirm the tray
   tooltip/menu/card with both agents enabled.
 
 - [ ] **AH-038 — Claude follow-ups (deferred).**

@@ -32,6 +32,8 @@ pub struct Bucket {
     pub credits: Option<Credits>,
     pub plan_type: Option<String>,
     pub rate_limit_reached_type: Option<String>,
+    /// Pre-formatted extra lines for agents whose data is not Codex-shaped (Claude).
+    pub details: Option<Vec<String>>,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

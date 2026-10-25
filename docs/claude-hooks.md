@@ -44,7 +44,11 @@ Hooks carry no quota. With `[claude.usage] enabled = true`, the resident polls
 using the access token from `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), every
 300 s or more. `five_hour` and `seven_day` `utilization` (percent) and `resets_at` (ISO 8601)
 feed the same tray tooltip, menu line and usage card as Codex; the tray icon bars follow Codex
-unless Claude is the only enabled agent. An expired token shows "open Claude Code to refresh"
+unless Claude is the only enabled agent. The details card mirrors the Codex layout: `Claude plan: <subscriptionType from the credentials
+file>`, `5h` and `Week` lines, `Extra usage: enabled|disabled, limit: <used>/<monthly> <currency>`
+from `extra_usage` (minor units scaled by `decimal_places`) and `Spend: enabled|disabled,
+<used>/<limit> <currency>` from `spend`; missing values show `—`. Reset credits and
+"ordinary usage allowed" have no counterpart in the endpoint and are omitted. An expired token shows "open Claude Code to refresh"
 because aHerald never refreshes or writes tokens. This endpoint and its response are undocumented
 and unverified against a live session; other tools (for example rate-tray) use the same source.
 An alternative without tokens is the statusLine `rate_limits` field (tracked in AH-038).

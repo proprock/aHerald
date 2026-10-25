@@ -55,6 +55,8 @@ struct Ui {
     activation: crate::activation::Worker,
     usage_text: String,
     usage_page: usize,
+    /// Which agent the usage card describes: Claude when true, otherwise Codex.
+    usage_claude: bool,
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
@@ -71,23 +73,36 @@ impl Ui {
     fn compact(&self, separator: &str) -> String {
         let display = self.config.codex.usage.display;
         let mut parts = Vec::new();
-        if self.codex_shown() {
-            parts.push(self.usage.compact(display));
-        }
+        // Alphabetical by agent name, matching the tray menu.
         if let Some(claude) = &self.claude {
             parts.push(claude.compact(display));
         }
+        if self.codex_shown() {
+            parts.push(self.usage.compact(display));
+        }
         parts.join(separator)
     }
+    /// Tray menu lines; each agent's line opens only that agent's details.
+    fn menu_lines(&self) -> (Option<String>, Option<String>) {
+        let display = self.config.codex.usage.display;
+        (
+            self.codex_shown().then(|| self.usage.compact(display)),
+            self.claude.as_ref().map(|c| c.compact(display)),
+        )
+    }
+    /// Details of the agent chosen from the menu.
     fn card_text(&self) -> String {
-        let mut parts = Vec::new();
-        if self.codex_shown() {
-            parts.push(self.usage.card_text());
+        match &self.claude {
+            Some(claude) if self.usage_claude => claude.card_text(),
+            _ => self.usage.card_text(),
         }
-        if let Some(claude) = &self.claude {
-            parts.push(claude.card_text());
+    }
+    /// Details are opened on demand, so ask the chosen agent for fresh data.
+    fn refresh_selected(&self) {
+        match &self.claude {
+            Some(claude) if self.usage_claude => claude.refresh(),
+            _ => self.usage.refresh(),
         }
-        parts.join("\n\n")
     }
     /// The tray icon bars follow Codex unless Claude is the only enabled agent.
     fn icon_view(&self) -> crate::usage_service::View {
@@ -476,12 +491,18 @@ impl Ui {
                     Err(error) => eprintln!("aHerald: {error}"),
                 });
             }
-            SUMMARY => {
+            SUMMARY | CLAUDE_SUMMARY => {
+                let claude = command == CLAUDE_SUMMARY;
                 if let Ok(mut state) = self.shared.lock() {
-                    if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                    // The same line closes its open card; the other line switches agents.
+                    if state.queue.selected().is_some_and(|e| e.is_usage())
+                        && self.usage_claude == claude
+                    {
                         state.queue.dismiss();
                     } else {
                         state.queue.show_usage();
+                        self.usage_claude = claude;
+                        self.refresh_selected();
                     }
                 }
                 self.usage_page = 0;
@@ -528,11 +549,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 {
                     let menu = {
                         let ui = &*p;
+                        let (codex, claude) = ui.menu_lines();
                         crate::tray::Menu::new(
                             ui.config.sounds.enabled,
                             ui.config.notifications.enabled,
                             ui.shared.lock().ok().is_some_and(|s| s.paused),
-                            &ui.compact(" | "),
+                            codex.as_deref(),
+                            claude.as_deref(),
                         )
                     };
                     if let Ok(menu) = menu {
@@ -726,6 +749,7 @@ pub(super) fn run_preview(
         activation: crate::activation::Worker::default(),
         usage_text: String::new(),
         usage_page: 0,
+        usage_claude: false,
         usage_surface: None,
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,

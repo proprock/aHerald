@@ -8,6 +8,11 @@ Countdowns show whole days and remaining whole hours from one day onward
 (`1d 0h`, `6d 11h`), H:MM below a day, and minutes below an hour. Below a day,
 positive times round up to a minute; expired reset times show `0 min`.
 
+With `[claude.usage] enabled = true`, a separate `Claude remain: …` line follows the Codex
+line; each line opens only its own agent's details, and clicking the other line switches
+the card. Opening details forces an immediate refresh for that agent (throttled to one
+request per 5 s). With only Claude usage enabled the Codex line is hidden.
+
 Clicking the summary creates/selects one persistent card in the same queue and
 window as agent notifications. It opens beside the tray even with event visuals
 disabled or paused. Incoming events remain queued, retaining their own visible

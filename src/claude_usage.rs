@@ -26,6 +26,8 @@ pub fn snapshot_from_response(body: &[u8]) -> Result<Value, Error> {
     struct Wire {
         five_hour: Option<Window>,
         seven_day: Option<Window>,
+        extra_usage: Option<Value>,
+        spend: Option<Value>,
     }
     let wire: Wire = serde_json::from_slice(body).map_err(|_| Error::Malformed)?;
     if wire.five_hour.is_none() && wire.seven_day.is_none() {
@@ -40,11 +42,135 @@ pub fn snapshot_from_response(body: &[u8]) -> Result<Value, Error> {
             })
         })
     };
+    let details: Vec<String> = [
+        wire.extra_usage.as_ref().and_then(extra_usage_line),
+        wire.spend.as_ref().and_then(spend_line),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     Ok(json!({"rateLimits": {
         "limitId": "claude",
         "primary": window(wire.five_hour, FIVE_HOUR_MINS),
         "secondary": window(wire.seven_day, SEVEN_DAY_MINS),
+        "details": (!details.is_empty()).then_some(details),
     }}))
+}
+
+/// Formats an amount in minor units (`1234`, exponent 2 -> `12.34`).
+fn money(minor: i64, exponent: u32) -> String {
+    let exponent = exponent.min(6);
+    let scale = 10_i64.pow(exponent);
+    let sign = if minor < 0 { "-" } else { "" };
+    let abs = minor.unsigned_abs();
+    if exponent == 0 {
+        return format!("{sign}{abs}");
+    }
+    let scale = scale as u64;
+    format!(
+        "{sign}{}.{:0width$}",
+        abs / scale,
+        abs % scale,
+        width = exponent as usize
+    )
+}
+
+/// A bare number is minor units; a `{amount_minor, currency, exponent}` object carries its own.
+fn amount(value: Option<&Value>, default_exponent: u32) -> Option<(String, Option<String>)> {
+    let value = value?;
+    let (minor, exponent, currency) = if let Some(minor) = value.as_i64() {
+        (minor, default_exponent, None)
+    } else {
+        (
+            value.get("amount_minor")?.as_i64()?,
+            value
+                .get("exponent")
+                .and_then(Value::as_u64)
+                .map_or(default_exponent, |e| e.min(6) as u32),
+            value
+                .get("currency")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        )
+    };
+    Some((money(minor, exponent), currency))
+}
+
+fn state(enabled: Option<bool>) -> &'static str {
+    if enabled == Some(true) {
+        "enabled"
+    } else {
+        "disabled"
+    }
+}
+
+fn currency_suffix(currency: Option<&str>) -> String {
+    currency
+        .filter(|c| c.len() <= 8 && c.chars().all(|ch| ch.is_ascii_alphabetic()))
+        .map(|c| format!(" {c}"))
+        .unwrap_or_default()
+}
+
+fn extra_usage_line(extra: &Value) -> Option<String> {
+    extra.as_object()?;
+    let places = extra
+        .get("decimal_places")
+        .and_then(Value::as_u64)
+        .map_or(2, |p| p.min(6) as u32);
+    let used = amount(extra.get("used_credits"), places).map(|a| a.0);
+    let limit = amount(extra.get("monthly_limit"), places).map(|a| a.0);
+    let currency = extra.get("currency").and_then(Value::as_str);
+    Some(format!(
+        "Extra usage: {}, limit: {}/{}{}",
+        state(extra.get("is_enabled").and_then(Value::as_bool)),
+        used.as_deref().unwrap_or("—"),
+        limit.as_deref().unwrap_or("—"),
+        currency_suffix(currency)
+    ))
+}
+
+fn spend_line(spend: &Value) -> Option<String> {
+    spend.as_object()?;
+    let used = amount(spend.get("used"), 2);
+    let limit = amount(spend.get("limit"), 2);
+    let currency = used
+        .as_ref()
+        .and_then(|a| a.1.as_deref())
+        .or_else(|| limit.as_ref().and_then(|a| a.1.as_deref()));
+    Some(format!(
+        "Spend: {}, {}/{}{}",
+        state(spend.get("enabled").and_then(Value::as_bool)),
+        used.as_ref().map_or("—", |a| a.0.as_str()),
+        limit.as_ref().map_or("—", |a| a.0.as_str()),
+        currency_suffix(currency)
+    ))
+}
+
+/// Adds the subscription plan (for example `pro`) to a snapshot built by `snapshot_from_response`.
+pub fn with_plan(mut value: Value, plan: Option<&str>) -> Value {
+    if let Some(plan) = plan {
+        value["rateLimits"]["planType"] = json!(plan);
+    }
+    value
+}
+
+/// Reads only the non-secret `subscriptionType` label from the credentials file contents.
+pub fn subscription_type(json: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Oauth {
+        subscription_type: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct File {
+        claude_ai_oauth: Option<Oauth>,
+    }
+    serde_json::from_slice::<File>(json)
+        .ok()?
+        .claude_ai_oauth?
+        .subscription_type
+        .filter(|p| !p.is_empty() && p.len() <= 32 && p.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
 /// Parses `YYYY-MM-DDTHH:MM:SS[.fraction](Z|+HH:MM|-HH:MM)` into Unix seconds.
@@ -207,7 +333,10 @@ pub fn fetch_live() -> Result<Value, Error> {
     if let Some(error) = status_error(status) {
         return Err(error);
     }
-    snapshot_from_response(&body)
+    Ok(with_plan(
+        snapshot_from_response(&body)?,
+        subscription_type(&bytes).as_deref(),
+    ))
 }
 
 #[cfg(test)]
@@ -247,6 +376,71 @@ mod tests {
         assert_eq!(five.used_percent, Some(10.0));
         assert_eq!(five.resets_at, iso_to_unix("2026-10-26T00:59:59Z"));
         assert_eq!(bucket.secondary.as_ref().unwrap().used_percent, Some(11.0));
+    }
+
+    #[test]
+    fn details_card_follows_the_codex_template() {
+        let body = br#"{"five_hour":{"utilization":8,"resets_at":"2026-10-25T17:50:00+00:00"},
+            "seven_day":{"utilization":14,"resets_at":"2026-11-01T07:31:00+00:00"},
+            "extra_usage":{"is_enabled":false,"monthly_limit":null}}"#;
+        let value = with_plan(snapshot_from_response(body).unwrap(), Some("pro"));
+        let mut view =
+            crate::usage_service::View::labeled("Claude", true, Duration::from_secs(300));
+        view.snapshot = Some(Snapshot::parse(value).unwrap());
+        let unix = iso_to_unix("2026-10-25T15:25:00Z").unwrap();
+        let text = view.card_text(Duration::ZERO, unix);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "Claude plan: pro");
+        assert!(lines[1].starts_with("5h: 8% used / 2:25"), "{}", lines[1]);
+        assert!(lines[2].starts_with("Week: 14% used / "), "{}", lines[2]);
+        assert_eq!(lines[3], "Extra usage: disabled, limit: —/—");
+        assert!(!text.contains("Spend:"), "absent spend block is omitted");
+    }
+
+    #[test]
+    fn extra_usage_and_spend_lines_show_amounts_with_currency() {
+        let body = br#"{"five_hour":{"utilization":1,"resets_at":null},
+            "extra_usage":{"is_enabled":true,"monthly_limit":5000,"used_credits":1234,
+                           "currency":"USD","decimal_places":2},
+            "spend":{"enabled":true,"used":{"amount_minor":250,"currency":"USD","exponent":2},
+                     "limit":{"amount_minor":10000,"currency":"USD","exponent":2}}}"#;
+        let snapshot = Snapshot::parse(snapshot_from_response(body).unwrap()).unwrap();
+        assert_eq!(
+            snapshot.buckets["claude"].details.as_deref().unwrap(),
+            [
+                "Extra usage: enabled, limit: 12.34/50.00 USD",
+                "Spend: enabled, 2.50/100.00 USD"
+            ]
+        );
+    }
+
+    #[test]
+    fn live_spend_with_zero_used_and_no_limit() {
+        let body = br#"{"five_hour":{"utilization":1,"resets_at":null},
+            "extra_usage":{"is_enabled":false,"monthly_limit":null,"used_credits":null,"currency":null},
+            "spend":{"used":{"amount_minor":0,"currency":"USD","exponent":2},"limit":null,"enabled":false}}"#;
+        let snapshot = Snapshot::parse(snapshot_from_response(body).unwrap()).unwrap();
+        assert_eq!(
+            snapshot.buckets["claude"].details.as_deref().unwrap(),
+            [
+                "Extra usage: disabled, limit: —/—",
+                "Spend: disabled, 0.00/— USD"
+            ]
+        );
+    }
+
+    #[test]
+    fn subscription_type_comes_from_credentials_without_the_token() {
+        let file = |plan: &str| {
+            format!(r#"{{"claudeAiOauth":{{"accessToken":"tok","subscriptionType":{plan}}}}}"#)
+        };
+        assert_eq!(
+            subscription_type(file("\"max\"").as_bytes()).as_deref(),
+            Some("max")
+        );
+        for bad in [file("null"), file("\"a b\""), file("\"\""), "{".into()] {
+            assert_eq!(subscription_type(bad.as_bytes()), None, "{bad}");
+        }
     }
 
     #[test]

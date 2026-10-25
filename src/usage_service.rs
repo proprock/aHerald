@@ -115,7 +115,14 @@ impl View {
     }
     /// Two-window card for agents without Codex's credit and reset-credit details.
     fn simple_card_text(&self, now: Duration, unix: i64) -> String {
-        let mut text = format!("{} usage\n", self.label);
+        let plan = self
+            .bucket()
+            .and_then(|b| b.plan_type.as_deref())
+            .map(clean);
+        let mut text = match plan {
+            Some(plan) => format!("{} plan: {plan}\n", self.label),
+            None => format!("{} usage\n", self.label),
+        };
         if let Some(bucket) = self.bucket() {
             for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
                 let percent = window
@@ -131,6 +138,10 @@ impl View {
                         .and_then(short_reset_text)
                         .unwrap_or_else(|| "—".into())
                 ));
+            }
+            for line in bucket.details.iter().flatten() {
+                text.push_str(&clean(line));
+                text.push('\n');
             }
         }
         let status = self.status(now);
