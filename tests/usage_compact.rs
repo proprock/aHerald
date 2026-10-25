@@ -9,7 +9,7 @@ use std::time::Duration;
 fn view() -> View {
     let mut v = View::new(true, Duration::from_secs(300));
     v.updated = Some(Duration::ZERO);
-    v.snapshot = Some(Snapshot::parse(json!({"rateLimits":{"primary":{"usedPercent":75,"resetsAt":10300},"secondary":{"usedPercent":90,"resetsAt":519400}}})).unwrap());
+    v.snapshot = Some(Snapshot::parse(json!({"rateLimits":{"primary":{"usedPercent":75,"resetsAt":10300},"secondary":{"usedPercent":90,"resetsAt":559000}}})).unwrap());
     v
 }
 #[test]
@@ -17,11 +17,11 @@ fn compact_modes_and_countdowns() {
     assert_eq!(Config::default().usage.display, UsageDisplay::Remain);
     assert_eq!(
         view().compact(Duration::ZERO, 1000, UsageDisplay::Remain),
-        "Codex remain: 5h 25% / 2:35, week 10% / 6d"
+        "Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h"
     );
     assert_eq!(
         view().compact(Duration::ZERO, 1000, UsageDisplay::Used),
-        "Codex used: 5h 75% / 2:35, week 90% / 6d"
+        "Codex used: 5h 75% / 2:35, 7d 90% / 6d 11h"
     );
     assert!(Config::parse("[usage]\ndisplay = 'invalid'", std::path::Path::new(".")).is_err());
 }
@@ -35,7 +35,13 @@ fn countdown_boundaries_and_persistent_values() {
         (3599, "60 min"),
         (3600, "1:00"),
         (86399, "24:00"),
-        (86400, "1d"),
+        (86400, "1d 0h"),
+        (86401, "1d 0h"),
+        (89999, "1d 0h"),
+        (90000, "1d 1h"),
+        (172799, "1d 23h"),
+        (172800, "2d 0h"),
+        (558000, "6d 11h"),
     ] {
         assert_eq!(
             aherald::usage_service::countdown(Some(1000 + seconds), 1000),

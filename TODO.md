@@ -270,8 +270,8 @@ An implementation alone is not evidence of Windows visual acceptance.
   repeated notifications do not leak handles, GDI objects, threads, or memory.
 
 - [x] **AH-031 — Simplify the tray menu and compact usage summary.**
-  Show `Codex: 5h 25% / 2:35, week 10% / 6d`; configure `[usage] display`
-  as `remain` (default) or `used`. Use days, H:MM below one day, and minutes
+  Show `Codex: 5h 25% / 2:35, 7d 10% / 6d 11h`; configure `[usage] display`
+  as `remain` (default) or `used`. Use days and whole hours, H:MM below one day, and minutes
   below one hour, with explicit missing values and retained last received values. Remove Refresh usage and
   the separate Usage details action. The summary adds one persistent usage card
   to the shared notification queue beside the tray: plan, both windows, local

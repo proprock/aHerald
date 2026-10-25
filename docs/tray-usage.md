@@ -1,10 +1,12 @@
 # Tray usage and restart
 
-The first menu item displays `Codex remain: 5h 25% / 2:35, week 10% / 6d`.
+The first menu item displays `Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h`.
 `[usage] display = "remain"` is the default; `"used"` selects consumed percentages.
 Unknown values use an em dash. Disabled, loading and unavailable states are
-explicit. Last received values stay current regardless of age or refresh errors. Countdown units are whole days, H:MM below a day, and minutes below an
-hour. Positive times round up to a minute; expired reset times show `0 min`.
+explicit. Last received values stay current regardless of age or refresh errors.
+Countdowns show whole days and remaining whole hours from one day onward
+(`1d 0h`, `6d 11h`), H:MM below a day, and minutes below an hour. Below a day,
+positive times round up to a minute; expired reset times show `0 min`.
 
 Clicking the summary creates/selects one persistent card in the same queue and
 window as agent notifications. It opens beside the tray even with event visuals

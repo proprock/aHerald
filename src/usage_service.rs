@@ -99,7 +99,7 @@ impl View {
             format!(" ({status})")
         };
         format!(
-            "Codex {display_name}: 5h {}, week {}{suffix}",
+            "Codex {display_name}: 5h {}, 7d {}{suffix}",
             value(bucket.primary.as_ref()),
             value(bucket.secondary.as_ref())
         )
@@ -316,7 +316,7 @@ pub fn countdown(reset: Option<i64>, now: i64) -> String {
     };
     let seconds = reset.saturating_sub(now).max(0) as u64;
     if seconds >= 86400 {
-        format!("{}d", seconds / 86400)
+        format!("{}d {}h", seconds / 86400, seconds % 86400 / 3600)
     } else if seconds >= 3600 {
         let minutes = seconds.div_ceil(60);
         format!("{}:{:02}", minutes / 60, minutes % 60)
