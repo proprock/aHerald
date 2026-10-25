@@ -210,8 +210,10 @@ An implementation alone is not evidence of Windows visual acceptance.
   Keep overlays in the work area and handle monitor removal, negative desktop
   coordinates, DPI changes, and scaling. Acceptance: manual multi-monitor and
   mixed-DPI checks pass without focus theft or screen-wide flashing.
+  Implementation and automated checks committed; manual multi-monitor/mixed-DPI
+  acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
 
-- [ ] **AH-021 — Harden resources and recovery.** Depends on AH-016, AH-019, AH-020.
+- [x] **AH-021 — Harden resources and recovery.** Depends on AH-016, AH-019, AH-020.
   Add bounded resident asset caching and operational logging with no credentials,
   full conversation content, or sensitive tool arguments. Exercise queue floods,
   duplicate storms, malformed assets, resident crashes, broken IPC, and unavailable

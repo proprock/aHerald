@@ -104,3 +104,11 @@ fn pipe_recovers_after_stalled_disconnected_and_malformed_clients() {
         ));
     }
 }
+#[cfg(windows)]
+#[test]
+fn idle_listener_poll_is_not_an_operational_failure() {
+    let scope =
+        aherald::local::Scope::current(&format!("idle-log-{}", std::process::id())).unwrap();
+    let server = scope.create_pipe().unwrap();
+    assert!(server.serve_once(|_| panic!("no client connected")).is_ok());
+}

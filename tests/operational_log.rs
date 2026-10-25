@@ -1,0 +1,33 @@
+use aherald::operational_log::{Log, MAX_LOG_BYTES, Record};
+#[test]
+fn fixed_records_honor_levels_rotate_and_recover_from_unwritable_paths() {
+    let root = std::env::temp_dir().join(format!("aherald-log-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut log = Log::new(&root, "off");
+    log.record(Record::IpcFailure).unwrap();
+    assert!(!root.join("aherald.log").exists());
+    let mut log = Log::new(&root, "warn");
+    log.record(Record::Started).unwrap();
+    assert!(!root.join("aherald.log").exists());
+    for _ in 0..6000 {
+        log.record(Record::IpcFailure).unwrap();
+    }
+    for name in ["aherald.log", "aherald.previous.log"] {
+        let bytes = std::fs::read(root.join(name)).unwrap();
+        assert!(bytes.len() <= MAX_LOG_BYTES as usize);
+        assert!(
+            String::from_utf8(bytes)
+                .unwrap()
+                .lines()
+                .all(|line| line.split_once(' ').unwrap().1 == "warn ipc_failure")
+        );
+    }
+    drop(log);
+    let blocked = root.join("blocked");
+    std::fs::write(&blocked, b"file").unwrap();
+    let mut broken = Log::new(&blocked, "warn");
+    assert!(broken.record(Record::IpcFailure).is_err());
+    std::fs::remove_file(&blocked).unwrap();
+    assert!(broken.record(Record::IpcFailure).is_ok());
+    std::fs::remove_dir_all(root).unwrap();
+}

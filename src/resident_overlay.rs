@@ -21,7 +21,7 @@ use windows::{
     },
     core::{PCWSTR, w},
 };
-type RenderResult = (u64, Option<PreparedAnimation>);
+type RenderResult = (u64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
@@ -34,7 +34,7 @@ struct Ui {
     looping: bool,
     selection: Option<u64>,
     layout_count: usize,
-    art: Option<PreparedAnimation>,
+    art: Option<Arc<PreparedAnimation>>,
     start: Instant,
     animation_start: u64,
     pending: bool,
@@ -475,15 +475,23 @@ pub fn run(
     let assets = config.clone();
     let done = stop.clone();
     let worker = std::thread::spawn(move || {
+        let mut cache =
+            crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
         while !done.load(Ordering::Acquire) {
             match jobs_rx.recv_timeout(std::time::Duration::from_millis(30)) {
                 Ok((id, event)) => {
-                    let art = crate::pet::for_event(&assets, &event)
-                        .ok()
-                        .flatten()
-                        .and_then(|a| {
-                            a.prepare(scale, assets.notifications.interpolation == "bilinear")
+                    let art =
+                        cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
+                            crate::pet::for_event(&assets, &event)
                                 .ok()
+                                .flatten()
+                                .and_then(|a| {
+                                    a.prepare(
+                                        scale,
+                                        assets.notifications.interpolation == "bilinear",
+                                    )
+                                    .ok()
+                                })
                         });
                     let mut result = (id, art);
                     loop {

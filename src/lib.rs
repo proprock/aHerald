@@ -17,9 +17,11 @@ pub mod audio;
 mod detached;
 pub mod events;
 pub mod notification;
+pub mod operational_log;
 pub mod pet;
 pub mod placement;
 pub mod process;
+pub mod resource_cache;
 
 #[cfg(windows)]
 pub mod local;

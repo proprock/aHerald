@@ -549,6 +549,114 @@ mod card_tests {
     use super::Surface;
     use crate::animation::PreparedFrame;
     #[test]
+    fn repeated_card_rendering_and_dpi_resize_release_native_resources() {
+        if std::env::var_os("AHERALD_RESOURCE_HELPER").is_none() {
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources"])
+                .env("AHERALD_RESOURCE_HELPER", "1").spawn().unwrap();
+            struct Owned(std::process::Child);
+            impl Drop for Owned {
+                fn drop(&mut self) {
+                    let _ = self.0.kill();
+                    let _ = self.0.wait();
+                }
+            }
+            let mut child = Owned(child);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    assert!(status.success());
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "resource cycle helper timed out"
+                );
+                std::thread::yield_now();
+            }
+            return;
+        }
+        use windows::{
+            Win32::{Graphics::Gdi::GdiFlush, System::Threading::*, UI::WindowsAndMessaging::*},
+            core::w,
+        };
+        // SAFETY: this isolated test owns the window and every DIB and destroys them
+        // on the same thread. Sampling excludes other test processes.
+        unsafe {
+            let window = super::Window(
+                CreateWindowExW(
+                    WS_EX_LAYERED | WS_EX_NOACTIVATE,
+                    w!("STATIC"),
+                    w!("resource test"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    1,
+                    1,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            );
+            let cycle = || {
+                let card = Surface::text(320, 110, 1.0, "Codex", "Error", 22).unwrap();
+                for width in [320, 480, 320] {
+                    card.present_placed(window.0, (0, 0, width, 110), 255)
+                        .unwrap();
+                }
+            };
+            cycle();
+            let _ = GdiFlush();
+            let before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+            let mut handles = 0;
+            GetProcessHandleCount(GetCurrentProcess(), &mut handles).unwrap();
+            let memory = || {
+                let mut info = APP_MEMORY_INFORMATION::default();
+                GetProcessInformation(
+                    GetCurrentProcess(),
+                    ProcessAppMemoryInfo,
+                    &mut info as *mut _ as *mut _,
+                    std::mem::size_of_val(&info) as u32,
+                )
+                .unwrap();
+                info.PrivateCommitUsage
+            };
+            let threads = || {
+                use windows::Win32::System::Diagnostics::ToolHelp::*;
+                let snapshot =
+                    crate::local::Handle(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap());
+                let mut entry = PROCESSENTRY32W {
+                    dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+                    ..Default::default()
+                };
+                Process32FirstW(snapshot.0, &mut entry).unwrap();
+                loop {
+                    if entry.th32ProcessID == GetCurrentProcessId() {
+                        break entry.cntThreads;
+                    }
+                    Process32NextW(snapshot.0, &mut entry).unwrap();
+                }
+            };
+            let before_memory = memory();
+            let before_threads = threads();
+            for _ in 0..200 {
+                cycle();
+            }
+            let _ = GdiFlush();
+            assert_eq!(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), before);
+            let mut after = 0;
+            GetProcessHandleCount(GetCurrentProcess(), &mut after).unwrap();
+            assert_eq!(after, handles);
+            assert_eq!(threads(), before_threads);
+            assert!(
+                memory() <= before_memory + 8 * 1024 * 1024,
+                "repeated rendering grew private commit by more than 8 MiB"
+            );
+        }
+    }
+    #[test]
     fn artwork_blends_inside_the_card_without_replacing_source_or_signal_text() {
         let card = Surface::text(530, 244, 1.0, "Codex", "Permission required", 228).unwrap();
         let frame = PreparedFrame {
