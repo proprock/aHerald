@@ -8,6 +8,137 @@ use std::{
         atomic::{AtomicU32, Ordering},
     },
 };
+
+#[test]
+fn visual_sources_cover_defaults_full_pet_and_both_hybrid_directions() {
+    use aherald::{artwork, events::Event};
+    let fixture = Fixture::new();
+    let builtin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let resolve = |text: &str, event: &Event| {
+        let config = Config::parse(text, &fixture.0).unwrap();
+        artwork::resolve(&config, event, &builtin).unwrap().unwrap()
+    };
+    for kind in [
+        "turn_complete",
+        "permission_required",
+        "input_required",
+        "error",
+        "interrupted",
+    ] {
+        let event = Event::demo(kind).unwrap();
+        assert_eq!(resolve("", &event).frames[0].dimensions(), (64, 64));
+        assert_eq!(
+            resolve("[notifications]\npet='pet.json'", &event).frames[0].dimensions(),
+            (192, 208)
+        );
+    }
+    let event = Event::demo("error").unwrap();
+    assert_eq!(
+        resolve(
+            "[notifications]\npet='pet.json'\n[events.error]\nanimation='missing'",
+            &event
+        )
+        .frames[0]
+            .dimensions(),
+        (192, 208),
+        "an old animation path cannot silently override a pet"
+    );
+    assert_eq!(
+        resolve(
+            "[notifications]\npet='pet.json'\n[events.error]\nvisual='builtin'",
+            &event
+        )
+        .frames[0]
+            .dimensions(),
+        (64, 64)
+    );
+    assert_eq!(
+        resolve(
+            "[notifications]\nvisual='builtin'\npet='pet.json'\n[events.error]\nvisual='pet'",
+            &event
+        )
+        .frames[0]
+            .dimensions(),
+        (192, 208)
+    );
+    assert_eq!(
+        resolve("[notifications]\nvisual='builtin'\npet='pet.json'", &event).frames[0].dimensions(),
+        (64, 64)
+    );
+    let custom = format!(
+        "[notifications]\npet='pet.json'\n[events.error]\nvisual='custom'\nanimation='{}'",
+        builtin.join("turn_complete").display()
+    );
+    let selected = resolve(&custom, &event);
+    let expected = aherald::animation::Animation::load(&builtin.join("turn_complete")).unwrap();
+    assert_eq!(
+        selected.frames, expected.frames,
+        "custom selection must load that event's explicit path"
+    );
+}
+
+#[test]
+fn unavailable_artwork_recovers_to_builtin_then_text() {
+    use aherald::{artwork, events::Event};
+    let fixture = Fixture::new();
+    let builtin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let event = Event::demo("error").unwrap();
+    for text in [
+        "[notifications]\npet='missing.json'",
+        "[events.error]\nvisual='pet'",
+        "[events.error]\nvisual='custom'\nanimation='missing'",
+    ] {
+        let config = Config::parse(text, &fixture.0).unwrap();
+        assert_eq!(
+            artwork::resolve(&config, &event, &builtin)
+                .unwrap()
+                .unwrap()
+                .frames[0]
+                .dimensions(),
+            (64, 64)
+        );
+        assert!(
+            artwork::resolve(&config, &event, &fixture.0.join("missing-assets"))
+                .unwrap()
+                .is_none()
+        );
+    }
+    let config = Config::default();
+    assert!(
+        artwork::resolve(&config, &event, &fixture.0.join("missing-assets"))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn custom_artwork_that_exceeds_scaled_limits_recovers_to_builtin() {
+    let fixture = Fixture::new();
+    RgbaImage::new(1024, 1024)
+        .save(fixture.0.join("large.png"))
+        .unwrap();
+    fs::write(
+        fixture.0.join("animation.toml"),
+        "type='spritesheet'\nimage='large.png'\nframe_width=1024\nframe_height=1024\nframes=1",
+    )
+    .unwrap();
+    let config = Config::parse(
+        "[notifications]\nscale=4.0\n[events.error]\nvisual='custom'\nanimation='.'",
+        &fixture.0,
+    )
+    .unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let event = aherald::events::Event::demo("error").unwrap();
+    let prepared = aherald::artwork::prepare(&config, &event, &root)
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.frames[0].width, 256);
+    assert!(
+        aherald::artwork::prepare(&config, &event, &fixture.0.join("missing"))
+            .unwrap()
+            .is_none()
+    );
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -41,6 +172,51 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn configured_pet_states_override_defaults_and_stay_agent_scoped() {
+    use aherald::events::{Event, Source};
+    let fixture = Fixture::new();
+    let config = Config::parse(
+        "[notifications]\npet='pet.json'\n[notifications.pet_animations]\nturn_complete='failed'\n[agents.codex]\npet='pet.json'\n[agents.codex.pet_animations]\nturn_complete='waiting'",
+        &fixture.0,
+    ).unwrap();
+    let mut event = Event::demo("turn_complete").unwrap();
+    let shared = pet::for_event(&config, &event).unwrap().unwrap();
+    assert_eq!(shared.frames.len(), 8);
+    assert_eq!(shared.frames[0].get_pixel(0, 0).0, [5, 0, 80, 255]);
+    event.source = Source::CodexHook;
+    let agent = pet::for_event(&config, &event).unwrap().unwrap();
+    assert_eq!(agent.frames.len(), 6);
+    assert_eq!(agent.frames[0].get_pixel(0, 0).0, [6, 0, 80, 255]);
+    assert_eq!(agent.durations_ms, [150, 150, 150, 150, 150, 260]);
+}
+
+#[test]
+fn all_standard_pet_states_can_be_selected_by_event() {
+    use aherald::events::Event;
+    let fixture = Fixture::new();
+    for (state, row, count, last_ms) in [
+        ("running-right", 1, 8, 220),
+        ("running-left", 2, 8, 220),
+        ("jumping", 4, 5, 280),
+        ("running", 7, 6, 220),
+    ] {
+        let config = Config::parse(
+            &format!(
+                "[notifications]\npet='pet.json'\n[notifications.pet_animations]\nerror='{state}'"
+            ),
+            &fixture.0,
+        )
+        .unwrap();
+        let animation = pet::for_event(&config, &Event::demo("error").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(animation.frames.len(), count);
+        assert_eq!(animation.frames[0].get_pixel(0, 0).0, [row, 0, 80, 255]);
+        assert_eq!(animation.durations_ms.last(), Some(&last_ms));
     }
 }
 #[test]
@@ -144,7 +320,7 @@ fn atlas_size_metadata_limits_and_custom_tracks_are_checked() {
     assert!(fixture.load(Kind::Error).is_err());
 }
 #[test]
-fn explicit_event_animation_overrides_pet_and_missing_pet_reaches_fallback() {
+fn custom_requires_explicit_selection_and_missing_pet_reaches_text_without_builtins() {
     let fixture = Fixture::new();
     let mut config = Config::default();
     assert!(
@@ -163,9 +339,20 @@ fn explicit_event_animation_overrides_pet_and_missing_pet_reaches_fallback() {
         5
     );
     config.notifications.pet = Some(fixture.0.join("missing.json"));
-    assert!(pet::for_notification(&config, Kind::Error).is_err());
+    assert!(
+        pet::for_notification(&config, Kind::Error)
+            .unwrap()
+            .is_none()
+    );
     config.events.get_mut("error").unwrap().animation =
         Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));
+    assert!(
+        pet::for_notification(&config, Kind::Error)
+            .unwrap()
+            .is_none(),
+        "unused custom paths do not select artwork"
+    );
+    config.events.get_mut("error").unwrap().visual = aherald::config::EventVisual::Custom;
     assert_eq!(
         pet::for_notification(&config, Kind::Error)
             .unwrap()
@@ -287,9 +474,10 @@ fn agent_pet_settings_resolve_relative_paths_and_select_only_the_event_source() 
     event.source = Source::CodexHook;
     assert!(pet::for_event(&config, &event).unwrap().is_some());
     config.agents.get_mut("codex").unwrap().pet = Some(fixture.0.join("missing.json"));
-    assert!(pet::for_event(&config, &event).is_err());
+    assert!(pet::for_event(&config, &event).unwrap().is_none());
     config.events.get_mut("error").unwrap().animation =
         Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));
+    config.events.get_mut("error").unwrap().visual = aherald::config::EventVisual::Custom;
     assert_eq!(
         pet::for_event(&config, &event).unwrap().unwrap().frames[0].dimensions(),
         (64, 64)

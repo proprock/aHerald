@@ -1,7 +1,7 @@
 //! Adapter for the standard Codex pet atlas; it reads assets, never installer commands.
 use crate::{
     animation::{Animation, MAX_BYTES},
-    config::Config,
+    config::{Config, PetAnimation},
     events::Kind,
 };
 use image::{ImageFormat, ImageReader, imageops};
@@ -41,6 +41,18 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
 }
 /// Load only the event's occupied cells, avoiding blank cells and scaling unrelated states.
 pub fn load(manifest: &Path, kind: Kind) -> Result<Animation, String> {
+    load_state(manifest, default_state(kind))
+}
+fn default_state(kind: Kind) -> PetAnimation {
+    match kind {
+        Kind::TurnComplete => PetAnimation::Waving,
+        Kind::PermissionRequired => PetAnimation::Review,
+        Kind::InputRequired => PetAnimation::Waiting,
+        Kind::Error => PetAnimation::Failed,
+        Kind::Interrupted => PetAnimation::Idle,
+    }
+}
+fn load_state(manifest: &Path, state: PetAnimation) -> Result<Animation, String> {
     let bytes = read_bounded(manifest, 16 * 1024)?;
     let meta: Manifest = serde_json::from_slice(&bytes).map_err(|_| "invalid pet.json")?;
     let rows = match meta.sprite_version_number {
@@ -105,12 +117,16 @@ pub fn load(manifest: &Path, kind: Kind) -> Result<Animation, String> {
         .map_err(|_| "invalid or oversized pet image")?
         .to_rgba8();
     // aHerald loops the selected notification state. It does not reproduce Codex's chat activity runtime.
-    let (row, durations_ms) = match kind {
-        Kind::TurnComplete => (3, vec![140, 140, 140, 280]),
-        Kind::PermissionRequired => (8, vec![150, 150, 150, 150, 150, 280]),
-        Kind::InputRequired => (6, vec![150, 150, 150, 150, 150, 260]),
-        Kind::Error => (5, vec![140, 140, 140, 140, 140, 140, 140, 240]),
-        Kind::Interrupted => (0, vec![1680, 660, 660, 840, 840, 1920]),
+    let (row, durations_ms) = match state {
+        PetAnimation::RunningRight => (1, vec![120, 120, 120, 120, 120, 120, 120, 220]),
+        PetAnimation::RunningLeft => (2, vec![120, 120, 120, 120, 120, 120, 120, 220]),
+        PetAnimation::Waving => (3, vec![140, 140, 140, 280]),
+        PetAnimation::Jumping => (4, vec![140, 140, 140, 140, 280]),
+        PetAnimation::Running => (7, vec![120, 120, 120, 120, 120, 220]),
+        PetAnimation::Review => (8, vec![150, 150, 150, 150, 150, 280]),
+        PetAnimation::Waiting => (6, vec![150, 150, 150, 150, 150, 260]),
+        PetAnimation::Failed => (5, vec![140, 140, 140, 140, 140, 140, 140, 240]),
+        PetAnimation::Idle => (0, vec![1680, 660, 660, 840, 840, 1920]),
     };
     let frames = (0..durations_ms.len())
         .map(|column| {
@@ -123,21 +139,10 @@ pub fn load(manifest: &Path, kind: Kind) -> Result<Animation, String> {
         looping: true,
     })
 }
-/// Explicit per-event animation overrides the shared pet; invalid assets reach the text fallback.
+/// Resolve demo-source artwork using the shared visual selection policy.
 pub fn for_notification(config: &Config, kind: Kind) -> Result<Option<Animation>, String> {
-    if let Some(path) = config
-        .events
-        .get(kind.name())
-        .and_then(|event| event.animation.as_deref())
-    {
-        return Animation::load(path).map(Some);
-    }
-    config
-        .notifications
-        .pet
-        .as_deref()
-        .map(|path| load(path, kind))
-        .transpose()
+    let event = crate::events::Event::demo(kind.name())?;
+    for_event(config, &event)
 }
 
 /// Select artwork for an event source.
@@ -145,17 +150,23 @@ pub fn for_event(
     config: &Config,
     event: &crate::events::Event,
 ) -> Result<Option<Animation>, String> {
-    let explicit = config
-        .events
-        .get(event.kind.name())
-        .and_then(|e| e.animation.as_ref());
-    if explicit.is_none()
-        && let Some(path) = config
-            .agents
-            .get(event.source.agent_key())
-            .and_then(|a| a.pet.as_deref())
-    {
-        return load(path, event.kind).map(Some);
-    }
-    for_notification(config, event.kind)
+    crate::artwork::for_event(config, event)
+}
+
+/// Decode only the selected agent/shared pet. Source fallback belongs to artwork.
+pub(crate) fn selected(
+    config: &Config,
+    event: &crate::events::Event,
+) -> Result<Option<Animation>, String> {
+    let agent = config.agents.get(event.source.agent_key());
+    let state = agent
+        .and_then(|a| a.pet_animations.get(event.kind.name()))
+        .or_else(|| config.notifications.pet_animations.get(event.kind.name()))
+        .copied()
+        .unwrap_or_else(|| default_state(event.kind));
+    agent
+        .and_then(|a| a.pet.as_deref())
+        .or(config.notifications.pet.as_deref())
+        .map(|path| load_state(path, state))
+        .transpose()
 }

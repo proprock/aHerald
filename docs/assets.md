@@ -1,6 +1,6 @@
 # External animation format
 
-Set an event's `animation` to a directory, relative to the configuration file.
+Set an event's `visual = "custom"` and `animation` to a directory, relative to the configuration file.
 The directory contains `animation.toml` and PNG images. Assets remain external.
 
 ```toml
@@ -25,7 +25,8 @@ PNG dimension, 16 MiB per PNG file, 32 MiB decoded frames and 32 MiB scaled fram
 2048 pixels per scaled dimension, metadata 16 KiB, FPS 1–120, durations 1–60000 ms.
 Nearest-neighbor and premultiplied-alpha bilinear interpolation are supported.
 Decoding/scaling runs on a worker before the GUI message loop. Rendering uses
-prepared premultiplied BGRA surfaces. Missing/corrupt/oversized assets use text.
+prepared premultiplied BGRA surfaces. Missing/corrupt artwork falls back to the
+event's builtin animation, then text. See [source selection](visuals.md).
 
 ## Sound format and scheduling
 
