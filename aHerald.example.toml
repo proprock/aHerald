@@ -195,5 +195,7 @@ input_monitoring = false
 # Read-only usage polling in resident/demo mode; default false. Requires codex.exe
 # on PATH and an existing sign-in; usage failures leave event notifications working.
 enabled = false
-# Automatic refresh interval in seconds: 10..86400; default 300. Tray can refresh now.
+# Automatic refresh interval in seconds: 10..86400; default 300.
 refresh_interval_sec = 300
+# Compact tray percentage: "remain" (default) or "used".
+display = "remain"

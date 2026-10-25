@@ -38,4 +38,8 @@ pub mod resident;
 pub mod queue;
 
 #[cfg(windows)]
+pub mod restart;
+#[cfg(windows)]
+pub mod shell;
+#[cfg(windows)]
 pub mod tray;

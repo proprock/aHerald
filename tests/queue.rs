@@ -101,3 +101,30 @@ fn identity_dedup_and_dismissed_history_are_bounded_by_time() {
     assert!(q.push(unknown.clone(), 0, 0));
     assert!(q.push(unknown, 1, 0));
 }
+
+#[test]
+fn usage_is_one_persistent_queue_entry_and_dismissal_selects_next_message() {
+    let mut q = aherald::queue::Queue::new(2, 5000);
+    q.show_usage();
+    q.show_usage();
+    assert_eq!(q.items().len(), 1);
+    assert!(q.selected().unwrap().is_usage());
+    assert!(q.push(
+        aherald::events::Event::demo("permission_required").unwrap(),
+        0,
+        1000
+    ));
+    q.tick(0, false);
+    q.tick(50_000, false);
+    assert!(q.selected().unwrap().is_usage());
+    assert_eq!(q.items().len(), 2);
+    q.next(1);
+    assert!(!q.selected().unwrap().is_usage());
+    q.next(-1);
+    assert!(q.selected().unwrap().is_usage());
+    q.dismiss();
+    assert!(!q.selected().unwrap().is_usage());
+    assert_eq!(q.items().len(), 1);
+    q.show_usage();
+    assert!(q.selected().unwrap().is_usage());
+}

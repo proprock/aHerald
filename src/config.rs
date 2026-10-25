@@ -234,12 +234,21 @@ impl Default for Codex {
 pub struct Usage {
     pub enabled: bool,
     pub refresh_interval_sec: u64,
+    pub display: UsageDisplay,
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageDisplay {
+    Used,
+    #[default]
+    Remain,
 }
 impl Default for Usage {
     fn default() -> Self {
         Self {
             enabled: false,
             refresh_interval_sec: 300,
+            display: UsageDisplay::Remain,
         }
     }
 }

@@ -11,7 +11,16 @@ fn main() {
     }
 }
 
-fn run(args: Vec<String>) -> Result<(), String> {
+fn run(mut args: Vec<String>) -> Result<(), String> {
+    if args.first().map(String::as_str) == Some("--restart-child") {
+        let pid = args
+            .get(1)
+            .ok_or("missing restart parent")?
+            .parse::<u32>()
+            .map_err(|_| "invalid restart parent")?;
+        aherald::restart::wait_for_parent(pid)?;
+        args.drain(..2);
+    }
     if args.first().map(String::as_str) == Some("--resident-child") {
         if args.len() != 4 || args[2] != "--config" {
             return Err("invalid resident invocation".into());

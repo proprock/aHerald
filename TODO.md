@@ -220,6 +220,19 @@ An implementation alone is not evidence of Windows visual acceptance.
   Codex. Acceptance: limits and recovery behavior are documented and tested;
   repeated notifications do not leak handles, GDI objects, threads, or memory.
 
+- [x] **AH-031 — Simplify the tray menu and compact usage summary.**
+  Show `Codex: 5h 25% / 2:35, week 10% / 6d`; configure `[usage] display`
+  as `remain` (default) or `used`. Use days, H:MM below one day, and minutes
+  below one hour, with explicit missing/stale states. Remove Refresh usage and
+  the separate Usage details action. The summary adds one persistent usage card
+  to the shared notification queue beside the tray: plan, both windows, local
+  minute-precision reset dates, workspace credits and all reset credits. Queue
+  arrows switch cards; mouse wheel pages long details; body click dismisses only
+  the usage card. Open configuration through its Windows association, falling
+  back to Notepad. Restart gracefully replaces the process and reloads settings.
+  Verified with domain/native lifecycle tests, synthetic visual inspection of
+  details and queue navigation, and standard Cargo checks. See `docs/tray-usage.md`.
+
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,

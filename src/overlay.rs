@@ -147,6 +147,47 @@ impl Surface {
             },
         )
     }
+    pub(crate) fn body_height(width: i32, scale: f64, label: &str) -> Result<i32, String> {
+        let (surface, _) = Self::allocate(1, 1)?;
+        // SAFETY: the temporary DC and selected font remain alive through measurement.
+        unsafe {
+            let font = Font(CreateFontW(
+                -(18.0 * scale) as i32,
+                0,
+                0,
+                0,
+                500,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                w!("Segoe UI"),
+            ));
+            if font.0.is_invalid() {
+                return Err("cannot create measurement font".into());
+            }
+            let old = SelectObject(surface.dc, font.0.into());
+            let mut text: Vec<u16> = label.encode_utf16().collect();
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: width,
+                bottom: 0,
+            };
+            DrawTextW(
+                surface.dc,
+                &mut text,
+                &mut rect,
+                DT_LEFT | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT,
+            );
+            SelectObject(surface.dc, old);
+            Ok(rect.bottom.max((18.0 * scale) as i32))
+        }
+    }
     pub(crate) fn card(
         width: i32,
         height: i32,
@@ -209,7 +250,11 @@ impl Surface {
             let mut text: Vec<u16> = source.encode_utf16().collect();
             let mut rect = RECT {
                 left: text_left,
-                top: ((height - (64.0 * scale) as i32) / 2).max(0),
+                top: if label.contains('\n') {
+                    (18.0 * scale) as i32
+                } else {
+                    ((height - (64.0 * scale) as i32) / 2).max(0)
+                },
                 right: width - (82.0 * scale) as i32,
                 bottom: height,
             };
