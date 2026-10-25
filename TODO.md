@@ -325,18 +325,22 @@ An implementation alone is not evidence of Windows visual acceptance.
   `Agent` enum (`src/agent.rs`), `--hook --agent claude`, `[claude] hooks_enabled`,
   mapping of `Notification`/`Stop`/`StopFailure`/`PermissionRequest` per
   `docs/claude-hooks.md`; the hook never answers Claude Code. Automated tests pass.
-  Remaining: capture sanitized payloads from a live Claude Code session (StopFailure
-  fields were only partly documented) and run the manual overlay check.
+  Live check 2026-10-25 (Claude Code 2.1.310, `claude -p` with a temporary `--settings`
+  hook): the `Stop` payload matched the documented fields (`hook_event_name`,
+  `session_id`, plus extras that are ignored); `aherald --hook --agent claude --resident`
+  exited 0 with empty stdout.
+  Remaining: capture `Notification`/`StopFailure`/`PermissionRequest` payloads
+  (need an interactive session) and run the manual overlay check.
 
 - [ ] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
-  `[claude_usage] enabled` (default false, interval 300..86400 s) polls the undocumented
+  `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
   `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
   in `.credentials.json`. Agreed exception to the token-reading rule (see AGENTS.md):
   token used only for that call, never logged, stored or refreshed. Parsing, credential,
   status and driver behavior are tested with fakes (no network). Live check on
   2026-10-25 (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
   `five_hour`/`seven_day` `{utilization, resets_at}` as assumed (a stale token gave 401).
-  Remaining: record the Claude Code version tested and confirm the tray
+  Tested with Claude Code 2.1.310. Remaining: confirm the tray
   tooltip/menu/card with both agents enabled.
 
 - [ ] **AH-038 — Claude follow-ups (deferred).**

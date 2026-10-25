@@ -243,14 +243,14 @@ impl View {
             ));
         }
         if !self.enabled {
-            text.push_str("Set [usage] enabled = true and restart.");
+            text.push_str("Set [codex.usage] enabled = true and restart.");
         }
         text
     }
     pub fn details(&self, now: Duration) -> String {
         let mut text = format!("{} usage: {}\r\n", self.label, self.status(now));
         if !self.enabled {
-            text.push_str("Set [usage] enabled = true and restart the resident.\r\n");
+            text.push_str("Set [codex.usage] enabled = true and restart the resident.\r\n");
         }
         if let Some(error) = &self.error {
             text.push_str(&format!("{error}\r\n"));

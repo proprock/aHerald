@@ -172,6 +172,7 @@ fn periodic_refresh_reuses_one_connection_and_disabled_service_never_connects() 
     assert!(service.summary().contains("disabled"));
     assert_eq!(
         aherald::config::Config::default()
+            .codex
             .usage
             .refresh_interval_sec,
         300

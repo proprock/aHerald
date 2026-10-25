@@ -66,10 +66,10 @@ struct Ui {
 impl Ui {
     /// Codex usage is shown unless only Claude usage is enabled.
     fn codex_shown(&self) -> bool {
-        self.config.usage.enabled || self.claude.is_none()
+        self.config.codex.usage.enabled || self.claude.is_none()
     }
     fn compact(&self, separator: &str) -> String {
-        let display = self.config.usage.display;
+        let display = self.config.codex.usage.display;
         let mut parts = Vec::new();
         if self.codex_shown() {
             parts.push(self.usage.compact(display));
@@ -111,8 +111,10 @@ impl Ui {
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
             let tooltip = self.compact("\n");
-            let levels =
-                crate::tray_usage::Levels::from_view(&self.icon_view(), self.config.usage.display);
+            let levels = crate::tray_usage::Levels::from_view(
+                &self.icon_view(),
+                self.config.codex.usage.display,
+            );
             if let Some(tray) = &mut self.tray {
                 tray.tooltip(&tooltip);
                 if let Err(error) = tray.usage(levels) {
@@ -622,12 +624,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         DefWindowProcW(hwnd, msg, wp, lp)
     }
 }
-/// Claude quota polling is opt-in via `[claude_usage] enabled`.
+/// Claude quota polling is opt-in via `[claude.usage] enabled`.
 fn claude_usage(config: &Config) -> Option<crate::usage_service::Service> {
-    config.claude_usage.enabled.then(|| {
+    config.claude.usage.enabled.then(|| {
         crate::usage_service::Service::claude(
             true,
-            std::time::Duration::from_secs(config.claude_usage.refresh_interval_sec),
+            std::time::Duration::from_secs(config.claude.usage.refresh_interval_sec),
         )
     })
 }

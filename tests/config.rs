@@ -4,7 +4,7 @@ use std::{fs, path::PathBuf, process::Command};
 #[test]
 fn background_colors_accept_all_three_scopes_and_reject_invalid_hex() {
     let dir = PathBuf::from(".");
-    assert!(Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[usage]\nbackground_color='#506070'", &dir).is_ok());
+    assert!(Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[codex.usage]\nbackground_color='#506070'", &dir).is_ok());
     for scope in ["notifications", "events.error", "usage"] {
         for invalid in ["red", "#12345", "#gg0000", "#11223344"] {
             let text = format!("[{scope}]\nbackground_color='{invalid}'");
@@ -18,19 +18,22 @@ fn claude_sections_default_safely_and_validate() {
     let dir = PathBuf::from(".");
     let defaults = Config::parse("", &dir).unwrap();
     assert!(defaults.claude.hooks_enabled);
-    assert!(!defaults.claude_usage.enabled, "token use is opt-in");
-    assert_eq!(defaults.claude_usage.refresh_interval_sec, 300);
+    assert!(!defaults.claude.usage.enabled, "token use is opt-in");
+    assert_eq!(defaults.claude.usage.refresh_interval_sec, 300);
     assert!(
         Config::parse(
-            "[claude_usage]\nenabled=true\nrefresh_interval_sec=600",
+            "[claude.usage]\nenabled=true\nrefresh_interval_sec=600",
             &dir
         )
         .is_ok()
     );
     for bad in [
-        "[claude_usage]\nrefresh_interval_sec=299",
-        "[claude_usage]\nunknown=1",
+        "[claude.usage]\nrefresh_interval_sec=299",
+        "[claude.usage]\nunknown=1",
         "[claude]\nunknown=1",
+        // Former top-level names are rejected, not migrated.
+        "[claude_usage]\nenabled=true",
+        "[usage]\nenabled=true",
     ] {
         assert!(Config::parse(bad, &dir).is_err(), "{bad}");
     }
@@ -42,7 +45,7 @@ fn background_colors_inherit_global_unless_overridden() {
     let defaults = Config::default();
     assert_eq!(defaults.event_background_color(Kind::Error).0, [28, 35, 45]);
     assert_eq!(defaults.usage_background_color().0, [28, 35, 45]);
-    let config = Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[usage]\nbackground_color='#506070'", &PathBuf::from(".")).unwrap();
+    let config = Config::parse("[notifications]\nbackground_color='#102030'\n[events.error]\nbackground_color='#304050'\n[codex.usage]\nbackground_color='#506070'", &PathBuf::from(".")).unwrap();
     assert_eq!(config.event_background_color(Kind::Error).0, [48, 64, 80]);
     assert_eq!(
         config.event_background_color(Kind::TurnComplete).0,
@@ -126,7 +129,11 @@ fn defaults_paths_and_mode_override() {
         "transient"
     );
     assert_eq!(
-        Config::parse("", &dir).unwrap().usage.refresh_interval_sec,
+        Config::parse("", &dir)
+            .unwrap()
+            .codex
+            .usage
+            .refresh_interval_sec,
         300
     );
 }
@@ -139,7 +146,7 @@ fn invalid_configuration_is_rejected() {
         "[notifications]\nscale=nan",
         "[notifications]\nscale=0.0",
         "[events.error]\nduration_ms=-1",
-        "[usage]\nrefresh_interval_sec=0",
+        "[codex.usage]\nrefresh_interval_sec=0",
         "[general]\nmode='other'",
         "[events.unknown]\nenabled=true",
         "[resident]\nauto_start=true",

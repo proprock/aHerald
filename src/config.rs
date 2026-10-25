@@ -26,8 +26,6 @@ pub struct Config {
     pub agents: BTreeMap<String, AgentAssets>,
     pub codex: Codex,
     pub claude: Claude,
-    pub claude_usage: ClaudeUsage,
-    pub usage: Usage,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -39,8 +37,6 @@ impl Default for Config {
             sounds: Sounds::default(),
             codex: Codex::default(),
             claude: Claude::default(),
-            claude_usage: ClaudeUsage::default(),
-            usage: Usage::default(),
             agents: BTreeMap::new(),
             events: EVENT_NAMES
                 .into_iter()
@@ -247,11 +243,13 @@ impl Default for ClaudeUsage {
 #[serde(default, deny_unknown_fields)]
 pub struct Claude {
     pub hooks_enabled: bool,
+    pub usage: ClaudeUsage,
 }
 impl Default for Claude {
     fn default() -> Self {
         Self {
             hooks_enabled: true,
+            usage: ClaudeUsage::default(),
         }
     }
 }
@@ -260,12 +258,14 @@ impl Default for Claude {
 pub struct Codex {
     pub hooks_enabled: bool,
     pub input_monitoring: bool,
+    pub usage: Usage,
 }
 impl Default for Codex {
     fn default() -> Self {
         Self {
             hooks_enabled: true,
             input_monitoring: false,
+            usage: Usage::default(),
         }
     }
 }
@@ -302,7 +302,8 @@ impl Config {
     }
 
     pub fn usage_background_color(&self) -> Color {
-        self.usage
+        self.codex
+            .usage
             .background_color
             .unwrap_or(self.notifications.background_color)
     }
@@ -404,9 +405,9 @@ impl Config {
             || !["nearest", "bilinear"].contains(&n.interpolation.as_str())
             || !self.sounds.volume.is_finite()
             || !(0.0..=1.0).contains(&self.sounds.volume)
-            || !(10..=86_400).contains(&self.usage.refresh_interval_sec)
+            || !(10..=86_400).contains(&self.codex.usage.refresh_interval_sec)
             // The endpoint is undocumented; stay polite (rate-tray also spaces requests >= 300 s).
-            || !(300..=86_400).contains(&self.claude_usage.refresh_interval_sec)
+            || !(300..=86_400).contains(&self.claude.usage.refresh_interval_sec)
             || self.events.iter().any(|(name, event)| {
                 !EVENT_NAMES.contains(&name.as_str())
                     || event.duration_ms > 86_400_000

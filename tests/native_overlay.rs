@@ -42,7 +42,7 @@ fn demo_window(preview: bool) {
     }
     let path =
         std::env::temp_dir().join(format!("aherald-demo-native-{}.toml", std::process::id()));
-    std::fs::write(&path, "[general]\nmode='resident'\n[sounds]\nenabled=false\n[usage]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n").unwrap();
+    std::fs::write(&path, "[general]\nmode='resident'\n[sounds]\nenabled=false\n[codex.usage]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n").unwrap();
     if preview {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let source = std::env::var_os("AHERALD_PREVIEW_CONFIG")

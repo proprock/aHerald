@@ -25,7 +25,7 @@ Set `color = '#RRGGBB'` under `[events.NAME]` for the accent stripe. Defaults:
 completion `#41D28C`, permission `#FAB437`, input `#50A5FA`, error `#F55564`,
 interruption `#B482F0`. This does not recolor external sprites.
 Set `[notifications] background_color = '#RRGGBB'` for the shared card background
-(default `#1C232D`). An optional `background_color` in `[events.NAME]` or `[usage]`
+(default `#1C232D`). An optional `background_color` in `[events.NAME]` or `[codex.usage]`
 overrides it for that card type; omitted values inherit the global setting.
 The existing card opacity, transparent rounded corners, accent stripe and sprite
 colors are preserved. This applies in resident, transient and demo modes, including

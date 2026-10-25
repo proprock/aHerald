@@ -39,7 +39,7 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 ## Quota (opt-in)
 
-Hooks carry no quota. With `[claude_usage] enabled = true`, the resident polls
+Hooks carry no quota. With `[claude.usage] enabled = true`, the resident polls
 `GET https://api.anthropic.com/api/oauth/usage` (WinHTTP, header `anthropic-beta: oauth-2025-04-20`)
 using the access token from `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), every
 300 s or more. `five_hour` and `seven_day` `utilization` (percent) and `resets_at` (ISO 8601)

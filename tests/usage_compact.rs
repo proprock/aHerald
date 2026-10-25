@@ -14,7 +14,7 @@ fn view() -> View {
 }
 #[test]
 fn compact_modes_and_countdowns() {
-    assert_eq!(Config::default().usage.display, UsageDisplay::Remain);
+    assert_eq!(Config::default().codex.usage.display, UsageDisplay::Remain);
     assert_eq!(
         view().compact(Duration::ZERO, 1000, UsageDisplay::Remain),
         "Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h"
@@ -23,7 +23,13 @@ fn compact_modes_and_countdowns() {
         view().compact(Duration::ZERO, 1000, UsageDisplay::Used),
         "Codex used: 5h 75% / 2:35, 7d 90% / 6d 11h"
     );
-    assert!(Config::parse("[usage]\ndisplay = 'invalid'", std::path::Path::new(".")).is_err());
+    assert!(
+        Config::parse(
+            "[codex.usage]\ndisplay = 'invalid'",
+            std::path::Path::new(".")
+        )
+        .is_err()
+    );
 }
 #[test]
 fn countdown_boundaries_and_persistent_values() {
