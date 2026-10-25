@@ -79,6 +79,13 @@ impl Ui {
             self.usage_next = now.saturating_add(1000);
             if let Some(tray) = &mut self.tray {
                 tray.tooltip(&self.usage.compact(self.config.usage.display));
+                let levels = crate::tray_usage::Levels::from_view(
+                    &self.usage.view(),
+                    self.config.usage.display,
+                );
+                if let Err(error) = tray.usage(levels) {
+                    eprintln!("aHerald: {error}");
+                }
             }
             if self.usage_window {
                 let text = self.usage.card_text();

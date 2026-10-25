@@ -205,7 +205,7 @@ An implementation alone is not evidence of Windows visual acceptance.
 - [x] **AH-019 — Present usage independently of notifications.** Depends on AH-012, AH-018.
   Show compact tray usage and a native details window for all available buckets.
   Use local reset times, default 300-second refresh, manual refresh, and explicit
-  stale/unavailable states. Acceptance: usage failure leaves notifications working,
+  cached values and unavailable states. Acceptance: usage failure leaves notifications working,
   polling is bounded/backed off, and no session data goes to third parties.
 
 ## Milestone 5 — Polish and portable release
@@ -272,7 +272,7 @@ An implementation alone is not evidence of Windows visual acceptance.
 - [x] **AH-031 — Simplify the tray menu and compact usage summary.**
   Show `Codex: 5h 25% / 2:35, week 10% / 6d`; configure `[usage] display`
   as `remain` (default) or `used`. Use days, H:MM below one day, and minutes
-  below one hour, with explicit missing/stale states. Remove Refresh usage and
+  below one hour, with explicit missing values and retained last received values. Remove Refresh usage and
   the separate Usage details action. The summary adds one persistent usage card
   to the shared notification queue beside the tray: plan, both windows, local
   minute-precision reset dates, workspace credits and all reset credits. Queue
@@ -303,12 +303,14 @@ An implementation alone is not evidence of Windows visual acceptance.
   Unicode/spaced paths, concurrent creation, preservation and failures, and
   standard Cargo checks. See `docs/configuration.md`.
 
-- [ ] **AH-034 — Show usage levels in a dynamic tray icon.**
-  Render a compact visual indication of usage levels in the tray icon and update
-  it as usage changes. Keep the levels distinguishable at native tray sizes and
-  make unavailable/stale data explicit.
-  Acceptance: representative usage levels and unavailable/stale states are
-  visually checked; updates and Explorer restart restore the current icon.
+- [x] **AH-034 — Show usage levels in a dynamic tray icon.**
+  Two columns show primary/5h and secondary/week. Fill follows usage.display;
+  remaining quota sets green (>60%), yellow (>20%) or red, with unavailable gray.
+  Last received values remain current throughout the icon, tooltip, menu and card;
+  age and refresh errors remain in details. Native sizes 16/20/24/32 were visually
+  checked. Tests verify updates, pixel/handle reuse, TaskbarCreated recovery and
+  restoring the current icon after shell deletion. Standard Cargo checks and the
+  Windows x64 release build passed. See `docs/tray-usage.md` for evidence and limits.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV

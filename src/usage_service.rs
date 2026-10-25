@@ -30,24 +30,19 @@ impl View {
             enabled,
         }
     }
-    fn status(&self, now: Duration) -> &'static str {
+    fn status(&self, _now: Duration) -> &'static str {
         if !self.enabled {
             "disabled"
-        } else if self.snapshot.is_some()
-            && (self.error.is_some()
-                || self
-                    .updated
-                    .is_some_and(|t| now.saturating_sub(t) >= self.interval))
+        } else if self
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| !s.buckets.is_empty())
         {
-            "stale"
-        } else if self.error.is_some()
-            || self.snapshot.as_ref().is_some_and(|s| s.buckets.is_empty())
-        {
-            "unavailable"
-        } else if self.snapshot.is_none() {
-            "loading"
-        } else {
             "current"
+        } else if self.error.is_some() || self.snapshot.is_some() {
+            "unavailable"
+        } else {
+            "loading"
         }
     }
     pub fn summary(&self, now: Duration) -> String {
@@ -190,6 +185,9 @@ impl View {
         let status = self.status(now);
         if status != "current" {
             text.push_str(&format!("Status: {status}\n"));
+        }
+        if let Some(error) = &self.error {
+            text.push_str(&format!("Last refresh: {}\n", clean(error)));
         }
         if let Some(updated) = self.updated {
             text.push_str(&format!(

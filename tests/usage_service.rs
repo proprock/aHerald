@@ -51,7 +51,7 @@ fn polling_manual_refresh_failure_and_recovery_are_bounded() {
         driver
             .view
             .summary(Duration::from_secs(5))
-            .contains("stale")
+            .contains("current")
     );
     assert!(
         !driver
@@ -76,7 +76,7 @@ fn polling_manual_refresh_failure_and_recovery_are_bounded() {
         driver
             .view
             .summary(Duration::from_secs(316))
-            .contains("stale")
+            .contains("current")
     );
 }
 #[test]

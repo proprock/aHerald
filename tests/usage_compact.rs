@@ -26,7 +26,7 @@ fn compact_modes_and_countdowns() {
     assert!(Config::parse("[usage]\ndisplay = 'invalid'", std::path::Path::new(".")).is_err());
 }
 #[test]
-fn countdown_boundaries_missing_and_stale() {
+fn countdown_boundaries_and_persistent_values() {
     for (seconds, expected) in [
         (0, "0 min"),
         (1, "1 min"),
@@ -47,7 +47,7 @@ fn countdown_boundaries_missing_and_stale() {
     assert!(
         view()
             .compact(Duration::from_secs(300), 1000, UsageDisplay::Remain)
-            .contains("stale")
+            .contains("Codex remain: 5h 25%")
     );
     assert!(
         View::new(false, Duration::from_secs(300))

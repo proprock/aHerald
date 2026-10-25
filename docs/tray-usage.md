@@ -2,8 +2,8 @@
 
 The first menu item displays `Codex remain: 5h 25% / 2:35, week 10% / 6d`.
 `[usage] display = "remain"` is the default; `"used"` selects consumed percentages.
-Unknown values use an em dash. Disabled, loading, unavailable and stale data are
-explicit. Countdown units are whole days, H:MM below a day, and minutes below an
+Unknown values use an em dash. Disabled, loading and unavailable states are
+explicit. Last received values stay current regardless of age or refresh errors. Countdown units are whole days, H:MM below a day, and minutes below an
 hour. Positive times round up to a minute; expired reset times show `0 min`.
 
 Clicking the summary creates/selects one persistent card in the same queue and
@@ -18,8 +18,8 @@ be supplied through hook or IPC JSON and never opens an agent application.
 The card includes the plan and all buckets, both limit windows with explicitly
 labelled used percentages, short local reset dates (`YYYY-MM-DD HH:MM`), workspace
 credits, ordinary-usage availability and all available reset credits with expiry.
-Dates use Windows timezone/DST conversion. Last-update age and stale/unavailable
-states remain visible. Long details wrap and page with the mouse wheel; arrow
+Dates use Windows timezone/DST conversion. Last-update age, the latest refresh
+error and unavailable fields remain visible. Long details wrap and page with the mouse wheel; arrow
 buttons always navigate the shared notification queue. No account mutations are
 available. Polling remains automatic at `refresh_interval_sec`.
 
@@ -33,10 +33,43 @@ process to exit, including worker and singleton cleanup, then reuses the origina
 mode and configuration arguments. Runtime Sound/Visual/Pause overrides and queued
 cards are discarded. Repeated restart strips internal handoff arguments.
 
-## Verification (2026-10-25)
+## Dynamic tray icon (AH-034)
+
+Two vertical columns show primary/5h on the left and secondary/week on the right.
+The Codex bucket is preferred, with the first available bucket as fallback.
+Fill follows `[usage] display`: remaining quota by default, consumed quota for
+`used`. Color always uses remaining quota: greater than 60% green, greater than
+20% yellow, otherwise red. A missing, invalid or disabled value is solid gray.
+A zero level keeps a one-pixel colored baseline so it remains distinguishable
+from unavailable data. The unfilled track is dark gray, with transparent padding
+and a transparent gap between columns.
+
+The icon uses the taskbar's DPI and Windows small-icon metric (normally 16 pixels
+at 96 DPI). Usage updates are checked with the existing one-second presentation
+refresh; unchanged pixels reuse the native icon. Replaced icon and temporary GDI
+resources are released. `TaskbarCreated` restores the latest icon, with retry
+while Explorer is unavailable. A failed refresh preserves known levels in the
+icon, tooltip, menu and card; age and error remain diagnostic details.
+
+Verification on Windows 11 build 22621.4317: formatting, Clippy, all-target tests
+and the Windows x64 MSVC release build passed. Functional tests cover threshold
+boundaries, both fill modes, malformed/missing data, cached values and raster
+sizes. Native tests inspect actual HICON dimensions/colors, handle reuse and
+invalid-update preservation. The resident TaskbarCreated test and an isolated
+delete/re-add test verify restoration of the current icon and shutdown cleanup.
+
+A native DrawIconEx preview was visually inspected at 16, 20, 24 and 32 pixels
+on light and dark backgrounds in both display modes. Reproduce with
+`cargo test --lib tray::native_tests::manual_dynamic_tray_preview -- --ignored --nocapture`.
+The isolated Explorer registration test is
+`cargo test --lib tray::native_tests::explorer_restore_keeps_current_dynamic_image -- --ignored --nocapture`.
+These checks use synthetic data; an actual Explorer process restart, moving the
+taskbar between different-DPI monitors and Windows 10 were not exercised.
+
+## Card and restart verification (2026-10-25)
 
 Cargo formatting, Clippy, all-target tests and Windows x64 release build were run.
-Coverage includes controlled-time formatting boundaries, unknown/stale data,
+Coverage includes controlled-time formatting boundaries, unknown and cached data,
 every credit remaining reachable, Unicode wrapping, native shared-window behavior,
 queue preservation, and an isolated process restart with a spaced configuration
 path, changed PID, reloaded settings and singleton ownership.

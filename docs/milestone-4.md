@@ -75,6 +75,11 @@ Windows 11 Pro 22621; five focused usage tests passed. Windows 10 is untested.
 
 ## AH-019 — Independent background usage and native presentation
 
+Historical evidence below describes AH-019 as originally implemented. AH-031
+later moved details into the shared card, and AH-034 removed age-based stale
+states everywhere: last received values remain current, with age and errors in
+details. See [current tray behavior](tray-usage.md).
+
 Usage stays opt-in (`[usage] enabled = true`) and resident-only. The refresh
 interval defaults to 300 seconds. A dedicated worker owns the connection and
 never takes the notification queue lock or blocks the GUI on Codex I/O. Manual
