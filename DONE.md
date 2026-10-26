@@ -285,6 +285,20 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   inherited event, overridden event and usage backgrounds were visually checked.
   Standard Cargo checks and Windows x64 release build passed. See `docs/card-controls.md`.
 
+- [x] **AH-036 — Claude Code hook notifications.**
+  `Agent` enum (`src/agent.rs`), `--hook --agent claude`, `[claude] hooks_enabled`,
+  mapping of `Notification`/`Stop`/`StopFailure`/`PermissionRequest` per
+  `docs/claude-hooks.md`; the hook never answers Claude Code. Automated tests pass.
+  Live checks (Claude Code, 2026-10-25 and 2026-10-26, interactive session with project
+  hooks and `--setting-sources project`): `PermissionRequest`, `Notification`
+  (`permission_prompt`, `idle_prompt`) and `Stop` payloads matched the documented
+  fields; permission required and turn complete cards appeared, the permission card was
+  cleared by `Stop`, and the hook exited 0 with empty stdout. `PermissionRequest` and
+  `permission_prompt` arrived 6 s apart and showed two cards; fixed so an unresolved
+  Claude card absorbs repeats (`claude_notification_arriving_seconds_after_permission_request_joins_the_pending_card`
+  in tests/queue.rs, red before the fix). After the fix one card was observed.
+  Not observed live: `StopFailure` (follow-up AH-054).
+
 - [x] **AH-039 — Select tray graph agents.**
   Add `[tray] graph = "auto" | "both" | "claude" | "codex"`, default auto.
   Auto shows the agent with the lowest remaining percentage across 5h/week;

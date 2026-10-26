@@ -3,7 +3,7 @@
 Source: <https://code.claude.com/docs/en/hooks> (read 2026-10-25). Live captures on 2026-10-26
 (interactive Claude Code): `PermissionRequest`, `Notification` with `notification_type =
 permission_prompt` and `Stop` carried `hook_event_name` and `session_id` and no turn id, as
-documented. `idle_prompt` and `StopFailure` are still unobserved; verify against your installed version.
+documented. `idle_prompt` arrived about a minute after `Stop`; `StopFailure` is still unobserved; verify against your installed version.
 `PermissionRequest` and the `permission_prompt` notification arrived 6 s apart for one prompt.
 
 ## Setup (manual)

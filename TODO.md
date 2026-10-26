@@ -46,20 +46,14 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   Implementation and automated checks committed; manual multi-monitor/mixed-DPI
   acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
 
-- [ ] **AH-036 — Claude Code hook notifications.**
-  `Agent` enum (`src/agent.rs`), `--hook --agent claude`, `[claude] hooks_enabled`,
-  mapping of `Notification`/`Stop`/`StopFailure`/`PermissionRequest` per
-  `docs/claude-hooks.md`; the hook never answers Claude Code. Automated tests pass.
-  Live check 2026-10-25 (Claude Code 2.1.310, `claude -p` with a temporary `--settings`
-  hook): the `Stop` payload matched the documented fields (`hook_event_name`,
-  `session_id`, plus extras that are ignored); `aherald --hook --agent claude --resident`
-  exited 0 with empty stdout.
-  Live check 2026-10-26 (interactive session): `PermissionRequest`, `Notification`
-  (`permission_prompt`) and `Stop` payloads matched the doc; cards for permission
-  required and turn complete appeared. The pair arrived 6 s apart and showed two cards;
-  fixed by letting an unresolved Claude card absorb repeats (`tests/queue.rs`).
-  Remaining: capture `idle_prompt` (not seen after 60 s of waiting) and `StopFailure`
-  payloads, and recheck that the permission pair now shows one card with the fixed build.
+- [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
+  Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
+  pending cards) is covered by automated tests, but no live payload exists. A bad model
+  name and an invalid `ANTHROPIC_API_KEY` with `claude -p` fail before a turn starts and
+  fire no hook (2026-10-26). Try an interactive session that hits a real API error
+  (for example a rate limit) with the capture hook, then compare the fields (`error`)
+  with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
+  fields, or the doc records the difference and the mapping is adjusted test-first.
 
 - [ ] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
   `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
