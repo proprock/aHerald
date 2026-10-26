@@ -510,8 +510,20 @@ An implementation alone is not evidence of Windows visual acceptance.
   existing timeout; IPC security and race tests and standard Cargo checks pass.
   Source: `audit-20261026.md` E3.
 
-- [ ] **AH-047 — Fix small resident and transient edge cases.**
-  The resident marks an event as sounded before checking for a free audio slot, so a
+- [x] **AH-047 — Fix small resident and transient edge cases.**
+  Done (decisions agreed with the user): the sound slot loss was already fixed by
+  `Queue::take_unannounced(room)` (covered in tests/queue.rs), so no change;
+  `[resident] tray_enabled` was removed from the config, the example and INFO.md
+  (a file that still sets it is now rejected as an unknown key; no compatibility is
+  kept, there are no external users); `overlay::register_class` accepts an existing
+  class; simultaneous transient cards stack (`placement::stack`: downward, upward for
+  `bottom_right`) by looking at visible `aHerald.Overlay` windows, with placement
+  serialized across hook processes by a named mutex held until the card is shown.
+  Tests: `stacking::*` in tests/placement.rs, `simultaneous_transient_cards_do_not_overlap`
+  in tests/native_overlay.rs (3 real cards), `class_tests` in src/overlay.rs (no red
+  phase observed: the helper is new). Not covered: the two-process race at the mutex
+  timeout (500 ms). Each transient card still starts its own `codex app-server` for
+  the session name. Original brief: The resident marks an event as sounded before checking for a free audio slot, so a
   fifth simultaneous sound is lost. `[resident] tray_enabled` is parsed and
   documented but has no effect; decide with the user whether to implement or
   deprecate it, keeping existing configuration files loadable. Transient window

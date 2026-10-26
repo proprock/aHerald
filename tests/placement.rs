@@ -43,3 +43,67 @@ fn oversized_cards_fit_without_clipping_or_leaving_the_work_area() {
         (75, 10, 25, 100)
     );
 }
+
+mod stacking {
+    use aherald::placement::{Area, stack};
+    const AREA: Area = Area {
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 600,
+    };
+    fn card(x: i32, y: i32) -> Area {
+        Area {
+            left: x,
+            top: y,
+            right: x + 300,
+            bottom: y + 100,
+        }
+    }
+
+    #[test]
+    fn free_spot_is_kept() {
+        assert_eq!(
+            stack((350, 24, 300, 100), AREA, &[], "top_center", 8),
+            (350, 24)
+        );
+        // A card elsewhere on screen does not push this one.
+        assert_eq!(
+            stack((350, 24, 300, 100), AREA, &[card(0, 400)], "top_center", 8),
+            (350, 24)
+        );
+    }
+
+    #[test]
+    fn top_anchored_cards_stack_downward_past_every_occupied_card() {
+        let occupied = [card(350, 132), card(350, 24)];
+        assert_eq!(
+            stack((350, 24, 300, 100), AREA, &occupied, "top_center", 8),
+            (350, 240)
+        );
+    }
+
+    #[test]
+    fn bottom_right_cards_stack_upward() {
+        let occupied = [card(676, 476)];
+        assert_eq!(
+            stack((676, 476, 300, 100), AREA, &occupied, "bottom_right", 8),
+            (676, 368)
+        );
+    }
+
+    #[test]
+    fn a_full_work_area_falls_back_to_the_base_spot() {
+        let occupied = [
+            card(350, 24),
+            card(350, 132),
+            card(350, 240),
+            card(350, 348),
+            card(350, 456),
+        ];
+        assert_eq!(
+            stack((350, 24, 300, 100), AREA, &occupied, "top_center", 8),
+            (350, 24)
+        );
+    }
+}

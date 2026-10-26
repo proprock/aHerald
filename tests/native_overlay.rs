@@ -322,3 +322,42 @@ fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
     }
     panic!("sound-only child created an indefinite GUI or blocked on missing WAV");
 }
+
+#[test]
+fn simultaneous_transient_cards_do_not_overlap() {
+    let path = std::env::temp_dir().join(format!("aherald-stack-{}.toml", std::process::id()));
+    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
+    let event = Event::demo("permission_required").unwrap();
+    let children: Vec<_> = (0..3)
+        .map(|_| Owned(deliver(&exe, &path, &event).unwrap()))
+        .collect();
+    let mut rects = Vec::new();
+    for child in &children {
+        let mut search = Search {
+            pid: child.0.id(),
+            window: HWND::default(),
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while search.window.is_invalid() && Instant::now() < deadline {
+            // SAFETY: the callback receives a live Search for this synchronous enumeration.
+            unsafe {
+                let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut Search as isize));
+            }
+            std::thread::yield_now();
+        }
+        assert!(!search.window.is_invalid(), "no visible native overlay");
+        let mut rect = RECT::default();
+        // SAFETY: the window belongs to an owned child that is still running.
+        unsafe { GetWindowRect(search.window, &mut rect).unwrap() };
+        rects.push(rect);
+    }
+    let _ = std::fs::remove_file(&path);
+    for (i, a) in rects.iter().enumerate() {
+        for b in &rects[i + 1..] {
+            let overlap =
+                a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+            assert!(!overlap, "cards overlap: {a:?} vs {b:?}");
+        }
+    }
+}

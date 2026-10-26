@@ -400,6 +400,7 @@ impl Ui {
                     &self.config.notifications,
                     (self.width, self.height),
                     self.surfaces.len(),
+                    None,
                 )?;
                 self.placement = Some(p);
                 p

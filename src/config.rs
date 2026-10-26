@@ -133,19 +133,10 @@ impl Default for General {
         }
     }
 }
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Resident {
-    pub tray_enabled: bool,
     pub auto_start: bool,
-}
-impl Default for Resident {
-    fn default() -> Self {
-        Self {
-            tray_enabled: true,
-            auto_start: false,
-        }
-    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]

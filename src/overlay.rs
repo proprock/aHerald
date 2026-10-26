@@ -1,5 +1,8 @@
 use crate::{config::Config, events::Event};
-use std::{mem::size_of, time::Instant};
+use std::{
+    mem::size_of,
+    time::{Duration, Instant},
+};
 use windows::{
     Win32::{
         Foundation::*,
@@ -593,6 +596,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                             &state.notifications,
                             (state.surfaces[0].width, state.surfaces[0].height),
                             state.surfaces.len(),
+                            Some(hwnd.0 as isize),
                         )
                     {
                         state.placement = p;
@@ -738,6 +742,44 @@ impl Composition {
     }
 }
 
+/// Registers the transient card class; an existing registration (a second card in the
+/// same process) is reused. Must match `placement::TRANSIENT_CLASS`.
+pub(crate) fn register_class(
+    instance: windows::Win32::Foundation::HINSTANCE,
+) -> Result<windows::core::PCWSTR, String> {
+    let class = w!("aHerald.Overlay");
+    // SAFETY: plain class registration with a static name and this module's window procedure.
+    unsafe {
+        let wc = WNDCLASSW {
+            lpfnWndProc: Some(window_proc),
+            hInstance: instance,
+            lpszClassName: class,
+            hCursor: LoadCursorW(None, IDC_ARROW).map_err(|_| "cannot load cursor")?,
+            ..Default::default()
+        };
+        if RegisterClassW(&wc) == 0
+            && windows::Win32::Foundation::GetLastError()
+                != windows::Win32::Foundation::ERROR_CLASS_ALREADY_EXISTS
+        {
+            return Err("cannot register overlay class".into());
+        }
+    }
+    Ok(class)
+}
+
+/// Serializes card placement across hook processes of this Windows session.
+fn placement_guard() -> Option<crate::local::Ownership> {
+    let scope = crate::local::Scope::current("overlay-placement").ok()?;
+    let deadline = Instant::now() + Duration::from_millis(500);
+    loop {
+        match scope.acquire() {
+            Ok(Some(owner)) => return Some(owner),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            _ => return None,
+        }
+    }
+}
+
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     show_with_source(event, config, crate::session_source::Service::codex())
 }
@@ -786,8 +828,16 @@ fn show_with_source(
         } = Composition::compose(scale, prepared.as_ref(), make_card)?;
         let (width, height) = (surfaces[0].width, surfaces[0].height);
         let position = POINT::default();
-        let placement =
-            crate::placement::current(&config.notifications, (width, height), surfaces.len())?;
+        // Concurrent hook processes pick their spot one at a time; the guard is held
+        // until this card is visible so the next process sees it. A timeout only risks
+        // an overlap, never a missing card.
+        let placing = placement_guard();
+        let placement = crate::placement::current(
+            &config.notifications,
+            (width, height),
+            surfaces.len(),
+            Some(0),
+        )?;
         let mut state = Box::new(State {
             background_color: config.event_background_color(event.kind),
             surfaces,
@@ -811,17 +861,7 @@ fn show_with_source(
             text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;
-        let class = w!("aHerald.Overlay");
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(window_proc),
-            hInstance: instance.into(),
-            lpszClassName: class,
-            hCursor: LoadCursorW(None, IDC_ARROW).map_err(|_| "cannot load cursor")?,
-            ..Default::default()
-        };
-        if RegisterClassW(&wc) == 0 {
-            return Err("cannot register overlay class".into());
-        }
+        let class = register_class(instance.into())?;
         let title: Vec<u16> = format!("{source} - {label}")
             .encode_utf16()
             .chain(Some(0))
@@ -851,6 +891,7 @@ fn show_with_source(
             return Err("cannot start overlay timer".into());
         }
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        drop(placing);
 
         let mut message = MSG::default();
         loop {
@@ -870,6 +911,19 @@ fn show_with_source(
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod class_tests {
+    #[test]
+    fn a_second_card_in_one_process_reuses_the_registered_class() {
+        // SAFETY: the module handle query has no preconditions.
+        let instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }
+            .unwrap()
+            .into();
+        assert!(super::register_class(instance).is_ok());
+        assert!(super::register_class(instance).is_ok());
     }
 }
 
