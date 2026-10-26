@@ -68,17 +68,12 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   forced refresh on opening details. Remaining: confirm the tray
   tooltip/menu/card with both agents enabled.
 
-- [ ] **AH-055 — Claude click-to-activate (split from AH-038).**
-  Depends on AH-036. Implemented and covered by automated tests (policy with a fake agent,
-  Desktop session lookup in temp dirs, ancestor walk, event window field). Desktop: the hook
-  `session_id` is matched to `cliSessionId` in Claude Desktop's session files (only that field
-  is read; user-approved 2026-10-26) and `claude://claude.ai/epitaxy/local_<id>` is opened.
-  Terminal: the hook records the visible console/terminal window of an ancestor process.
-  Lookup against the real session store confirmed 2026-10-26. Remaining manual checks:
-  (1) the Desktop link opens the right session when another session is open (the link format
-  is undocumented); (2) with two Claude CLI sessions in two terminal windows (classic console
-  and Windows Terminal), each card raises its own window, and a minimized window restores.
-  Known limit: in Windows Terminal the window is raised but the tab is not selected.
+- [ ] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
+  Depends on AH-055. Only the classic console host was checked live. With Windows Terminal
+  installed, confirm that a Claude CLI card raises the Windows Terminal window (the hook
+  records the owner of the pseudo-console window), that two terminal windows of different
+  sessions each raise their own window, and that a minimized window restores. Known limit:
+  tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
 
 - [ ] **AH-038 — Claude follow-ups (deferred).**
   Session names for Claude; `SubagentStop`/`SessionEnd`; a
