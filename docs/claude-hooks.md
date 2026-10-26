@@ -33,7 +33,12 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 ## Limitations
 
-- Claude events carry no turn id, so Codex-style duplicate/terminal correlation does not apply.
+- Claude events carry no turn id, so correlation is per `session_id`: `Stop`/`StopFailure`
+  resolves that session's pending permission/input cards (never another session's or
+  Codex's, and even when those events are disabled), and repeated `permission_required`
+  events of one session within `deduplicate_ms` share one card (covers a
+  `PermissionRequest` + `Notification` pair).
+- Every new event plays its sound once, even when a persistent card keeps the selection.
 - Click-to-activate and session names are Codex-only; Claude cards show "Claude".
 - Subagent events (`SubagentStop`) and `SessionEnd` are not covered yet.
 

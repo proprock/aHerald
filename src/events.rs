@@ -93,11 +93,17 @@ pub struct Event {
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
-        self.source == Source::CodexHook
-            && matches!(self.kind, Kind::TurnComplete | Kind::Interrupted)
-            && self.session_id.is_some()
-            && self.turn_id.is_some()
-            && self.validate().is_ok()
+        let turn_ended = match self.source {
+            // Codex ends are correlated by turn.
+            Source::CodexHook => {
+                matches!(self.kind, Kind::TurnComplete | Kind::Interrupted)
+                    && self.turn_id.is_some()
+            }
+            // Claude hooks have no turn id; Stop/StopFailure end the session's turn.
+            Source::ClaudeHook => matches!(self.kind, Kind::TurnComplete | Kind::Error),
+            _ => false,
+        };
+        turn_ended && self.session_id.is_some() && self.validate().is_ok()
     }
     pub fn demo(name: &str) -> Result<Self, String> {
         let kind: Kind = serde_json::from_value(serde_json::Value::String(name.into()))

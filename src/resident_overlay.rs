@@ -39,7 +39,6 @@ struct Ui {
     animation_start: u64,
     pending: bool,
     audio: Vec<std::thread::JoinHandle<()>>,
-    sounded: std::collections::HashSet<u64>,
     text_left: i32,
     width: i32,
     height: i32,
@@ -173,22 +172,22 @@ impl Ui {
             return Ok(());
         };
         self.audio.retain(|job| !job.is_finished());
-        if self.sounded.insert(entry.id)
-            && self.audio.len() < 4
-            && let Some(audio) = crate::audio::start_controlled(
-                &entry.event,
+        // Every new event sounds once, even behind a selected persistent card.
+        let room = 4usize.saturating_sub(self.audio.len());
+        let fresh = self
+            .shared
+            .lock()
+            .map(|mut state| state.queue.take_unannounced(room))
+            .unwrap_or_default();
+        for fresh in fresh {
+            if let Some(audio) = crate::audio::start_controlled(
+                &fresh.event,
                 &self.config,
                 self.audio_cancel.clone(),
-            )
-        {
-            self.audio.push(audio);
+            ) {
+                self.audio.push(audio);
+            }
         }
-        self.sounded.retain(|id| {
-            self.shared
-                .lock()
-                .ok()
-                .is_some_and(|state| state.queue.items().iter().any(|e| e.id == *id))
-        });
         if !self.config.notifications.enabled {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_HIDE);
@@ -728,7 +727,6 @@ pub(super) fn run_preview(
         animation_start: 0,
         pending: false,
         audio: Vec::new(),
-        sounded: std::collections::HashSet::new(),
         text_left: 22,
         width: 320,
         height: 110,

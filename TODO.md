@@ -367,7 +367,11 @@ An implementation alone is not evidence of Windows visual acceptance.
   honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
   Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
 
-- [ ] **AH-040 — Resolve stale Claude pending cards.** Depends on AH-036.
+- [x] **AH-040 — Resolve stale Claude pending cards.** Depends on AH-036.
+  Done: Claude `Stop`/`StopFailure` resolve same-session pending cards; Claude pending
+  events dedupe per session; every new event sounds once (agreed with the user).
+  The live double-fire of `PermissionRequest` + `Notification` is still unobserved;
+  dedup is safe either way. Original brief:
   Claude permission/input cards are persistent and never receive terminal evidence
   (`turn_id` is absent; `is_terminal_evidence` accepts only Codex hooks). They stay
   until dismissed, hold the High-rank selection and silence every later sound; with
