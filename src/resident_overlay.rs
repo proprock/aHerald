@@ -79,6 +79,7 @@ struct Ui {
     countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
     source_heading: String,
+    presenter: crate::presenter::Presenter,
 }
 impl Ui {
     /// Codex usage is shown unless only Claude usage is enabled.
@@ -133,17 +134,31 @@ impl Ui {
         )
         .record(record);
     }
+    /// The window position is stale: place it again and present the next frame.
+    fn relayout(&mut self) {
+        self.placement = None;
+        self.presenter.invalidate();
+    }
+    /// The usage card text, page or size changed: rebuild its surface and layout.
+    fn invalidate_usage(&mut self) {
+        self.usage_surface = None;
+        self.relayout();
+    }
+    fn hide(&mut self, hwnd: HWND) {
+        // SAFETY: hiding this thread's own window.
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+        self.selection = None;
+        self.presenter.invalidate();
+    }
     /// A card that cannot be drawn must not end the resident: hide the window, keep
     /// the queue and retry from scratch on the next wake.
     fn draw(&mut self, hwnd: HWND) {
         if self.draw_now(hwnd).is_err() {
-            self.selection = None;
             self.placement = None;
             self.surfaces.clear();
-            // SAFETY: hiding this thread's own window.
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
-            }
+            self.hide(hwnd);
             if !std::mem::replace(&mut self.render_failed, true) {
                 self.log(crate::operational_log::Record::RenderFailure);
             }
@@ -232,7 +247,7 @@ impl Ui {
                 let text = self.card_text();
                 if text != self.usage_text {
                     self.usage_text = text;
-                    self.usage_surface = None;
+                    self.invalidate_usage();
                 }
             }
         }
@@ -259,17 +274,14 @@ impl Ui {
         }
         if self.usage_window {
             if self.selection != entry.as_ref().map(|e| e.id) {
-                self.usage_surface = None;
+                self.invalidate_usage();
                 self.usage_page = 0;
             }
             self.selection = entry.as_ref().map(|e| e.id);
             return self.draw_usage(hwnd, index, count);
         }
         let Some(entry) = entry.filter(|_| !paused) else {
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
-            }
-            self.selection = None;
+            self.hide(hwnd);
             return Ok(());
         };
         self.audio.retain(|job| !job.is_finished());
@@ -290,10 +302,7 @@ impl Ui {
             }
         }
         if !self.config.notifications.enabled {
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
-            }
-            self.selection = None;
+            self.hide(hwnd);
             return Ok(());
         }
         let changed = self.selection != Some(entry.id);
@@ -333,7 +342,7 @@ impl Ui {
             self.source_heading = controls.heading.clone();
             self.countdown = None;
             self.layout_count = count;
-            self.placement = None;
+            self.relayout();
             let source = &controls.heading;
             let scale = self.scale;
             let config = &self.config;
@@ -376,20 +385,17 @@ impl Ui {
                 let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
             }
         }
-        let frame = crate::animation::frame_index(
-            &self.durations,
-            self.looping,
-            now.saturating_sub(self.animation_start),
-        );
-        let display_duration = entry.display_duration(self.config.notifications.fade_out_ms);
-        let alpha = crate::notification::presentation(
-            entry.visible_ms,
-            display_duration,
-            self.config.notifications.fade_in_ms,
-            self.config.notifications.fade_out_ms,
-            None,
-        )
-        .0;
+        let Some(shown) = self.presenter.next(&crate::presenter::Input {
+            entry: &entry,
+            durations: &self.durations,
+            looping: self.looping,
+            animation_ms: now.saturating_sub(self.animation_start),
+            fade_in_ms: self.config.notifications.fade_in_ms,
+            fade_out_ms: self.config.notifications.fade_out_ms,
+        }) else {
+            return Ok(());
+        };
+        let (frame, alpha) = (shown.frame, shown.alpha);
         let placement = match self.placement {
             Some(p) => p,
             None => {
@@ -406,9 +412,7 @@ impl Ui {
                 p
             }
         };
-        let surface = if let Some(seconds) =
-            crate::card::remaining_seconds(display_duration, entry.visible_ms)
-        {
+        let surface = if let Some(seconds) = shown.seconds {
             if self
                 .countdown
                 .as_ref()
@@ -444,15 +448,16 @@ impl Ui {
         let controls = crate::card::Card::new(heading, index, count, true);
         if self.layout_count != count {
             self.layout_count = count;
-            self.usage_surface = None;
+            self.invalidate_usage();
         }
-        self.width = (760.0 * self.scale) as i32;
-        self.height = Surface::body_height(
-            self.width - (40.0 * self.scale) as i32,
-            self.scale,
-            &pages[self.usage_page],
-        )? + (94.0 * self.scale) as i32;
+        // Measuring needs a DC, DIB and font, so layout is cached with the surface.
         if self.usage_surface.is_none() {
+            self.width = (760.0 * self.scale) as i32;
+            self.height = Surface::body_height(
+                self.width - (40.0 * self.scale) as i32,
+                self.scale,
+                &pages[self.usage_page],
+            )? + (94.0 * self.scale) as i32;
             self.usage_surface = Some(Surface::card(
                 self.width,
                 self.height,
@@ -468,11 +473,22 @@ impl Ui {
                 },
             )?);
         }
-        let placement = self
-            .tray
-            .as_ref()
-            .ok_or("tray unavailable")?
-            .card_placement((self.width, self.height))?;
+        if self.presenter.next_static().is_none() {
+            return Ok(());
+        }
+        // Asking Explorer for the icon rectangle is an RPC: do it once per layout.
+        let placement = match self.placement {
+            Some(p) => p,
+            None => {
+                let p = self
+                    .tray
+                    .as_ref()
+                    .ok_or("tray unavailable")?
+                    .card_placement((self.width, self.height))?;
+                self.placement = Some(p);
+                p
+            }
+        };
         self.display_size = self
             .usage_surface
             .as_ref()
@@ -568,9 +584,8 @@ impl Ui {
                     }
                     self.usage_text = self.card_text();
                     self.usage_page = 0;
-                    self.usage_surface = None;
+                    self.invalidate_usage();
                     self.selection = None;
-                    self.placement = None;
                     return;
                 }
                 let stop = self.stop.clone();
@@ -601,9 +616,8 @@ impl Ui {
                 }
                 self.usage_page = 0;
                 self.usage_text = self.card_text();
-                self.usage_surface = None;
+                self.invalidate_usage();
                 self.selection = None;
-                self.placement = None;
             }
             EXIT => self.stop.store(true, Ordering::Release),
             _ => {}
@@ -627,6 +641,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if let Some(tray) = &mut (*p).tray {
                     tray.restore();
                 }
+                // The tray icon moved with the taskbar: the cached placement is stale.
+                (*p).relayout();
                 return LRESULT(0);
             }
             if msg == crate::tray::CALLBACK {
@@ -678,7 +694,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     ui.usage_page = (ui.usage_page as isize - delta.signum() as isize)
                         .rem_euclid(pages as isize) as usize;
                 }
-                ui.usage_surface = None;
+                ui.invalidate_usage();
                 ui.draw(hwnd);
                 return LRESULT(0);
             }
@@ -713,7 +729,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             {
                 let ui = &mut *p;
                 if matches!(msg, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
-                    ui.placement = None;
+                    ui.relayout();
                 }
                 if ui.now() >= ui.tray_retry {
                     ui.tray_retry = ui.now().saturating_add(5000);
@@ -846,6 +862,7 @@ pub(super) fn run_preview(
         countdown: None,
         source_labels: crate::session_source::Service::codex(),
         source_heading: String::new(),
+        presenter: crate::presenter::Presenter::default(),
     });
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;
