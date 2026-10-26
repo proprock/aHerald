@@ -5,10 +5,10 @@
 //! in `.credentials.json`. The token is read per request, sent only to that host, never logged, kept
 //! in memory only for the call, and never refreshed or written back. The response shape is not a
 //! documented contract: unknown or malformed data becomes an "unavailable" view.
-use crate::app_server::{Error, Transport};
+use crate::{app_server::Error, usage::Snapshot, usage_service::UsageSource};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::{collections::VecDeque, time::Duration};
+use std::time::Duration;
 
 pub const HOST: &str = "api.anthropic.com";
 pub const PATH: &str = "/api/oauth/usage";
@@ -261,46 +261,29 @@ pub fn status_error(status: u16) -> Option<Error> {
         401 | 403 => Some(Error::Service(
             "Claude usage unauthorized (sign in to Claude Code again)",
         )),
-        429 => Some(Error::Service("Claude usage rate limited")),
+        429 => Some(Error::RateLimited("Claude usage rate limited")),
         _ => Some(Error::Service("Claude usage service error")),
     }
 }
 
-/// Speaks just enough of the app-server JSON-RPC shape for `Client`/`Connection`, answering
-/// `account/rateLimits/read` from `fetch` so the shared usage driver serves Claude unchanged.
-pub struct ClaudeTransport<F> {
+/// Claude quota source: one HTTPS request per read, no connection and no pushed updates.
+pub struct ClaudeSource<F> {
     fetch: F,
-    replies: VecDeque<Value>,
 }
-impl<F: FnMut() -> Result<Value, Error>> ClaudeTransport<F> {
+impl<F: FnMut() -> Result<Snapshot, Error>> ClaudeSource<F> {
     pub fn new(fetch: F) -> Self {
-        Self {
-            fetch,
-            replies: VecDeque::new(),
-        }
+        Self { fetch }
     }
 }
-impl<F: FnMut() -> Result<Value, Error>> Transport for ClaudeTransport<F> {
-    fn send(&mut self, value: &Value, _timeout: Duration) -> Result<(), Error> {
-        let Some(id) = value.get("id") else {
-            return Ok(()); // notifications such as `initialized`
-        };
-        let reply = match value["method"].as_str() {
-            Some("initialize") => json!({"id": id, "result": {}}),
-            Some("account/rateLimits/read") => json!({"id": id, "result": (self.fetch)()?}),
-            _ => json!({"id": id, "error": {"code": -32601}}),
-        };
-        self.replies.push_back(reply);
-        Ok(())
-    }
-    fn receive(&mut self, _timeout: Duration) -> Result<Value, Error> {
-        self.replies.pop_front().ok_or(Error::Timeout)
+impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
+    fn read(&mut self, _now: Duration) -> Result<Snapshot, Error> {
+        (self.fetch)()
     }
 }
 
 /// Reads the stored token and queries the live endpoint.
 #[cfg(windows)]
-pub fn fetch_live() -> Result<Value, Error> {
+pub fn fetch_live() -> Result<Snapshot, Error> {
     let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
         .map(std::path::PathBuf::from)
         .or_else(|| {
@@ -333,16 +316,16 @@ pub fn fetch_live() -> Result<Value, Error> {
     if let Some(error) = status_error(status) {
         return Err(error);
     }
-    Ok(with_plan(
+    let value = with_plan(
         snapshot_from_response(&body)?,
         subscription_type(&bytes).as_deref(),
-    ))
+    );
+    Snapshot::parse(value).map_err(Error::Service)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::usage::Snapshot;
 
     #[test]
     fn response_becomes_a_two_window_claude_snapshot() {
@@ -384,8 +367,11 @@ mod tests {
             "seven_day":{"utilization":14,"resets_at":"2026-11-01T07:31:00+00:00"},
             "extra_usage":{"is_enabled":false,"monthly_limit":null}}"#;
         let value = with_plan(snapshot_from_response(body).unwrap(), Some("pro"));
-        let mut view =
-            crate::usage_service::View::labeled("Claude", true, Duration::from_secs(300));
+        let mut view = crate::usage_service::View::for_agent(
+            crate::agent::Agent::Claude,
+            true,
+            Duration::from_secs(300),
+        );
         view.snapshot = Some(Snapshot::parse(value).unwrap());
         let unix = iso_to_unix("2026-10-25T15:25:00Z").unwrap();
         let text = view.card_text(Duration::ZERO, unix);
@@ -500,13 +486,15 @@ mod tests {
     }
 
     #[test]
-    fn shared_driver_serves_claude_through_the_transport() {
-        use crate::usage_service::Driver;
-        let mut driver = Driver::new(Duration::from_secs(300), || {
-            Ok(ClaudeTransport::new(|| {
-                snapshot_from_response(br#"{"five_hour":{"utilization":10,"resets_at":null}}"#)
-            }))
+    fn shared_driver_serves_claude_through_its_source() {
+        use crate::{agent::Agent, usage_service::Driver};
+        let source = ClaudeSource::new(|| {
+            Snapshot::parse(snapshot_from_response(
+                br#"{"five_hour":{"utilization":10,"resets_at":null}}"#,
+            )?)
+            .map_err(Error::Service)
         });
+        let mut driver = Driver::with_source(Agent::Claude, Duration::from_secs(300), source);
         assert!(driver.step(Duration::from_secs(1), true));
         assert!(driver.view.error.is_none());
         assert_eq!(
@@ -521,14 +509,13 @@ mod tests {
 
     #[test]
     fn fetch_failure_becomes_a_view_error_not_a_panic() {
-        use crate::usage_service::Driver;
-        let mut driver = Driver::new(Duration::from_secs(300), || {
-            Ok(ClaudeTransport::new(|| {
-                Err(Error::Service(
-                    "Claude usage unauthorized (sign in to Claude Code again)",
-                ))
-            }))
+        use crate::{agent::Agent, usage_service::Driver};
+        let source = ClaudeSource::new(|| {
+            Err(Error::Service(
+                "Claude usage unauthorized (sign in to Claude Code again)",
+            ))
         });
+        let mut driver = Driver::with_source(Agent::Claude, Duration::from_secs(300), source);
         assert!(driver.step(Duration::from_secs(1), true));
         assert!(driver.view.snapshot.is_none());
         assert!(

@@ -450,7 +450,23 @@ An implementation alone is not evidence of Windows visual acceptance.
   Restart and observes the original resident still serving; standard Cargo checks.
   Source: `audit-20261026.md` E5, A8.
 
-- [ ] **AH-044 — Separate usage sources and slow Claude retries.** Depends on AH-037.
+- [ ] **AH-052 — Finish the usage-source cleanup (split from AH-044).**
+  Depends on AH-044. Remove the test-only `View::summary`/`details`/`brief` path and
+  move its assertions to the shown card text; type `Bucket.details` (for example as
+  structured extra-usage and spend fields) instead of pre-formatted lines; drop the
+  Codex-shaped JSON that `claude_usage::snapshot_from_response` still builds before
+  `Snapshot::parse`. Acceptance: tests assert the card text; no production code is
+  kept only for tests; standard Cargo checks. Source: `audit-20261026.md` A3, A4.
+
+- [x] **AH-044 — Separate usage sources and slow Claude retries.** Depends on AH-037.
+  Done (agreed with the user; the tail is AH-052): `usage_service::UsageSource`
+  (`read`, `listen`, `updates`, `is_live`) is implemented by `CodexSource` (the
+  unchanged `Connection` and rolling updates) and `claude_usage::ClaudeSource` (one
+  typed HTTPS read, no JSON-RPC emulation, no second backoff layer);
+  `View` carries an `Agent`, and card text is chosen by it, not by label. HTTP 429 maps
+  to `Error::RateLimited`, and the driver then waits at least `refresh_interval_sec`
+  (manual refresh included); other failures keep the 10 s..300 s backoff. Fake-clock
+  driver tests cover both; Codex tests and texts are unchanged. Original brief:
   `ClaudeTransport` emulates the Codex JSON-RPC app-server and reshapes HTTP data
   into Codex JSON, which adds pre-formatted `Bucket.details`, a second backoff layer
   and Codex-worded errors for Claude. Introduce a `UsageSource` boundary implemented

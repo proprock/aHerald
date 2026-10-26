@@ -1,5 +1,6 @@
 //! Background quota polling is independent of the notification queue and GUI.
 use crate::{
+    agent::Agent,
     app_server::{Connection, Error, StdioTransport, Transport},
     usage::Snapshot,
 };
@@ -19,32 +20,35 @@ pub struct View {
     pub updated: Option<Duration>,
     pub interval: Duration,
     pub enabled: bool,
-    /// Agent shown in texts; its lowercase form is the preferred bucket key.
-    pub label: &'static str,
+    /// Agent whose usage this is; it selects the texts and the preferred bucket key.
+    pub agent: Agent,
 }
 impl View {
     pub fn new(enabled: bool, interval: Duration) -> Self {
-        Self::labeled("Codex", enabled, interval)
+        Self::for_agent(Agent::Codex, enabled, interval)
     }
-    pub fn labeled(label: &'static str, enabled: bool, interval: Duration) -> Self {
+    pub fn for_agent(agent: Agent, enabled: bool, interval: Duration) -> Self {
         Self {
             snapshot: None,
             error: None,
             updated: None,
             interval,
             enabled,
-            label,
+            agent,
         }
     }
-    fn key(&self) -> String {
-        self.label.to_ascii_lowercase()
+    fn label(&self) -> &'static str {
+        self.agent.label()
+    }
+    fn key(&self) -> &'static str {
+        self.agent.key()
     }
     /// Bucket of this agent, or the first one when the id is unknown.
     pub fn bucket(&self) -> Option<&crate::usage::Bucket> {
         let snapshot = self.snapshot.as_ref()?;
         snapshot
             .buckets
-            .get(&self.key())
+            .get(self.key())
             .or_else(|| snapshot.buckets.values().next())
     }
     fn status(&self, _now: Duration) -> &'static str {
@@ -63,7 +67,7 @@ impl View {
         }
     }
     pub fn summary(&self, now: Duration) -> String {
-        let mut text = format!("{} usage ({})", self.label, self.status(now));
+        let mut text = format!("{} usage ({})", self.label(), self.status(now));
         if let Some(bucket) = self.bucket() {
             for (label, window) in [
                 ("Primary", &bucket.primary),
@@ -86,7 +90,7 @@ impl View {
             crate::config::UsageDisplay::Used => "used",
         };
         let Some(bucket) = self.bucket() else {
-            return format!("{} {display_name}: {status}", self.label);
+            return format!("{} {display_name}: {status}", self.label());
         };
         let value = |window: Option<&crate::usage::Window>| {
             let percent = window
@@ -108,7 +112,7 @@ impl View {
         };
         format!(
             "{} {display_name}: 5h {}, 7d {}{suffix}",
-            self.label,
+            self.label(),
             value(bucket.primary.as_ref()),
             value(bucket.secondary.as_ref())
         )
@@ -120,8 +124,8 @@ impl View {
             .and_then(|b| b.plan_type.as_deref())
             .map(clean);
         let mut text = match plan {
-            Some(plan) => format!("{} plan: {plan}\n", self.label),
-            None => format!("{} usage\n", self.label),
+            Some(plan) => format!("{} plan: {plan}\n", self.label()),
+            None => format!("{} usage\n", self.label()),
         };
         if let Some(bucket) = self.bucket() {
             for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
@@ -160,7 +164,7 @@ impl View {
         text
     }
     pub fn card_text(&self, now: Duration, unix: i64) -> String {
-        if self.label != "Codex" {
+        if self.agent != Agent::Codex {
             return self.simple_card_text(now, unix);
         }
         let mut text = String::new();
@@ -259,7 +263,7 @@ impl View {
         text
     }
     pub fn details(&self, now: Duration) -> String {
-        let mut text = format!("{} usage: {}\r\n", self.label, self.status(now));
+        let mut text = format!("{} usage: {}\r\n", self.label(), self.status(now));
         if !self.enabled {
             text.push_str("Set [codex.usage] enabled = true and restart the resident.\r\n");
         }
@@ -434,21 +438,106 @@ fn reset_text(timestamp: i64) -> Option<String> {
     }
 }
 const LIVE_POLL: Duration = Duration::from_millis(500);
-pub struct Driver<T, F> {
+/// What a provider pushed since the last look.
+#[derive(Default)]
+pub struct Push {
+    pub changed: bool,
+    /// The account changed: the shown snapshot no longer applies.
+    pub reset: bool,
+    /// The pushed data cannot be merged; read a fresh snapshot now.
+    pub refetch: bool,
+}
+/// One provider of quota snapshots. Implementations return typed results; they do
+/// not need to speak any wire protocol of another provider.
+pub trait UsageSource {
+    fn read(&mut self, now: Duration) -> Result<Snapshot, Error>;
+    /// True while a connection stays open and must be polled for pushed updates.
+    fn is_live(&self) -> bool {
+        false
+    }
+    /// Reads pending pushed messages without blocking.
+    fn listen(&mut self, _now: Duration) -> Result<(), Error> {
+        Ok(())
+    }
+    /// Applies pushed updates to the shown snapshot.
+    fn updates(&mut self, _snapshot: &mut Option<Snapshot>) -> Push {
+        Push::default()
+    }
+}
+/// Codex app-server: one owned child connection with rolling updates.
+pub struct CodexSource<T, F> {
     connection: Connection<T, F>,
+}
+impl<T: Transport, F: FnMut() -> Result<T, Error>> CodexSource<T, F> {
+    pub fn new(factory: F) -> Self {
+        Self {
+            connection: Connection::new(factory),
+        }
+    }
+}
+impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T, F> {
+    fn read(&mut self, now: Duration) -> Result<Snapshot, Error> {
+        Snapshot::parse(self.connection.read(now)?).map_err(Error::Service)
+    }
+    fn is_live(&self) -> bool {
+        self.connection.client.is_some()
+    }
+    fn listen(&mut self, now: Duration) -> Result<(), Error> {
+        let Some(client) = &mut self.connection.client else {
+            return Ok(());
+        };
+        match client.poll(Duration::ZERO) {
+            Ok(()) | Err(Error::Timeout) => Ok(()),
+            Err(error) => {
+                self.connection.failed(now);
+                Err(error)
+            }
+        }
+    }
+    fn updates(&mut self, snapshot: &mut Option<Snapshot>) -> Push {
+        let updates = self
+            .connection
+            .client
+            .as_mut()
+            .map(|c| c.take_updates())
+            .unwrap_or_default();
+        let mut push = Push {
+            changed: !updates.is_empty(),
+            ..Push::default()
+        };
+        for update in updates {
+            if update["method"] == "account/updated" {
+                *snapshot = None;
+                push.reset = true;
+                push.refetch = true;
+            } else if let Some(current) = snapshot {
+                if !matches!(current.update(update["params"].clone()), Ok(true)) {
+                    push.refetch = true;
+                }
+            } else {
+                push.refetch = true;
+            }
+        }
+        push
+    }
+}
+pub struct Driver<S> {
+    source: S,
     pub view: View,
     next: Duration,
     allowed: Duration,
     backoff: Duration,
 }
-impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<T, F> {
+impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<CodexSource<T, F>> {
     pub fn new(interval: Duration, factory: F) -> Self {
-        Self::labeled("Codex", interval, factory)
+        Self::with_source(Agent::Codex, interval, CodexSource::new(factory))
     }
-    pub fn labeled(label: &'static str, interval: Duration, factory: F) -> Self {
+}
+impl<S: UsageSource> Driver<S> {
+    pub fn with_source(agent: Agent, interval: Duration, source: S) -> Self {
         Self {
-            connection: Connection::new(factory),
-            view: View::labeled(label, true, interval),
+            source,
+            view: View::for_agent(agent, true, interval),
             next: Duration::ZERO,
             allowed: Duration::ZERO,
             backoff: Duration::from_secs(10),
@@ -458,16 +547,21 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<T, F> {
     /// connection is also polled for pushed updates, so it wakes at least that often.
     pub fn wait(&self, now: Duration) -> Duration {
         let due = self.next.max(self.allowed).saturating_sub(now);
-        let wait = if self.connection.client.is_some() {
+        let wait = if self.source.is_live() {
             due.min(LIVE_POLL)
         } else {
             due
         };
         wait.max(Duration::from_millis(1))
     }
-    fn failure(&mut self, now: Duration, error: String) {
-        self.view.error = Some(error);
-        self.next = now.saturating_add(self.backoff);
+    fn failure(&mut self, now: Duration, error: Error) {
+        // A rate-limited service is asked again no sooner than the refresh interval.
+        let delay = match error {
+            Error::RateLimited(_) => self.backoff.max(self.view.interval),
+            _ => self.backoff,
+        };
+        self.view.error = Some(error.to_string());
+        self.next = now.saturating_add(delay);
         self.allowed = self.next;
         self.backoff = (self.backoff * 2).min(Duration::from_secs(300));
     }
@@ -475,58 +569,36 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<T, F> {
         if now >= self.allowed && (manual || now >= self.next) {
             self.allowed = now.saturating_add(Duration::from_secs(5));
             self.next = now.saturating_add(self.view.interval);
-            match self.connection.read(now) {
-                Ok(value) => match Snapshot::parse(value) {
-                    Ok(snapshot) => {
-                        self.view.snapshot = Some(snapshot);
-                        self.view.updated = Some(now);
-                        self.view.error = None;
-                        self.backoff = Duration::from_secs(10);
-                    }
-                    Err(error) => self.failure(now, error.into()),
-                },
-                Err(error) => self.failure(now, error.to_string()),
+            match self.source.read(now) {
+                Ok(snapshot) => {
+                    self.view.snapshot = Some(snapshot);
+                    self.view.updated = Some(now);
+                    self.view.error = None;
+                    self.backoff = Duration::from_secs(10);
+                }
+                Err(error) => self.failure(now, error),
             }
             self.updates(now);
             return true;
         }
-        if let Some(client) = &mut self.connection.client {
-            match client.poll(Duration::ZERO) {
-                Ok(()) => return self.updates(now),
-                Err(Error::Timeout) => (),
-                Err(error) => {
-                    self.connection.failed(now);
-                    self.failure(now, error.to_string());
-                    return true;
-                }
+        match self.source.listen(now) {
+            Ok(()) => self.updates(now),
+            Err(error) => {
+                self.failure(now, error);
+                true
             }
         }
-        false
     }
     fn updates(&mut self, now: Duration) -> bool {
-        let updates = self
-            .connection
-            .client
-            .as_mut()
-            .map(|c| c.take_updates())
-            .unwrap_or_default();
-        let changed = !updates.is_empty();
-        for update in updates {
-            if update["method"] == "account/updated" {
-                self.view.snapshot = None;
-                self.view.updated = None;
-                self.view.error = None;
-                self.next = now;
-            } else if let Some(snapshot) = &mut self.view.snapshot {
-                match snapshot.update(update["params"].clone()) {
-                    Ok(true) => (),
-                    _ => self.next = now,
-                }
-            } else {
-                self.next = now;
-            }
+        let push = self.source.updates(&mut self.view.snapshot);
+        if push.reset {
+            self.view.updated = None;
+            self.view.error = None;
         }
-        changed
+        if push.refetch {
+            self.next = now;
+        }
+        push.changed
     }
 }
 
@@ -548,16 +620,12 @@ impl Service {
     /// Opt-in Claude quota poller; see `claude_usage` for the data source and its limits.
     #[cfg(windows)]
     pub fn claude(enabled: bool, interval: Duration) -> Self {
-        Self::spawn_labeled(
-            "Claude",
+        Self::spawn_source(
+            Agent::Claude,
             enabled,
             interval,
             Arc::new(AtomicBool::new(false)),
-            || {
-                Ok(crate::claude_usage::ClaudeTransport::new(
-                    crate::claude_usage::fetch_live,
-                ))
-            },
+            || crate::claude_usage::ClaudeSource::new(crate::claude_usage::fetch_live),
         )
     }
     pub fn spawn<T: Transport + Send + 'static, F: FnMut() -> Result<T, Error> + Send + 'static>(
@@ -566,26 +634,26 @@ impl Service {
         stop: Arc<AtomicBool>,
         factory: F,
     ) -> Self {
-        Self::spawn_labeled("Codex", enabled, interval, stop, factory)
+        Self::spawn_source(Agent::Codex, enabled, interval, stop, move || {
+            CodexSource::new(factory)
+        })
     }
-    pub fn spawn_labeled<
-        T: Transport + Send + 'static,
-        F: FnMut() -> Result<T, Error> + Send + 'static,
-    >(
-        label: &'static str,
+    /// The source is built on the worker thread, so it need not be `Send` itself.
+    pub fn spawn_source<S: UsageSource, M: FnOnce() -> S + Send + 'static>(
+        agent: Agent,
         enabled: bool,
         interval: Duration,
         stop: Arc<AtomicBool>,
-        factory: F,
+        make: M,
     ) -> Self {
-        let state = Arc::new(Mutex::new(View::labeled(label, enabled, interval)));
+        let state = Arc::new(Mutex::new(View::for_agent(agent, enabled, interval)));
         let origin = Instant::now();
         let (refresh, rx) = mpsc::sync_channel(1);
         let shared = state.clone();
         let done = stop.clone();
         let worker = enabled.then(|| {
             std::thread::spawn(move || {
-                let mut driver = Driver::labeled(label, interval, factory);
+                let mut driver = Driver::with_source(agent, interval, make());
                 while !done.load(Ordering::Acquire) {
                     let manual = rx.try_recv().is_ok();
                     if driver.step(origin.elapsed(), manual)
