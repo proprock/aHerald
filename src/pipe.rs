@@ -126,18 +126,76 @@ pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Re
     transfer(handle.0, &mut [0x06], true, Instant::now() + IO_TIMEOUT)?;
     Ok(response)
 }
+/// Manual-reset event that wakes a blocked `serve_until`.
+pub struct StopEvent(Handle);
+// SAFETY: an event handle may be signaled and waited on from any thread.
+unsafe impl Send for StopEvent {}
+unsafe impl Sync for StopEvent {}
+impl StopEvent {
+    pub fn new() -> Result<Self, String> {
+        // SAFETY: plain event creation; the handle is owned and closed by `Handle`.
+        unsafe { CreateEventW(None, true, false, None) }
+            .map(|event| Self(Handle(event)))
+            .map_err(error)
+    }
+    pub fn signal(&self) {
+        // SAFETY: the owned event handle is valid for the lifetime of `self`.
+        unsafe {
+            let _ = SetEvent(self.0.0);
+        }
+    }
+}
 impl PipeServer {
+    /// Idle accept poll lets the owner check shutdown; no client failed.
     pub fn serve_once(&self, handler: impl FnOnce(Request) -> Response) -> Result<(), String> {
         match operation(
             self.handle.0,
             Instant::now() + Duration::from_millis(50),
             |ov, _| unsafe { ConnectNamedPipe(self.handle.0, Some(ov)) },
         ) {
-            // An idle accept poll lets the owner check shutdown; no client failed.
             Err(error) if error == "local pipe deadline exceeded" => return Ok(()),
             Err(error) => return Err(error),
             Ok(_) => (),
         }
+        self.serve_connected(handler)
+    }
+    /// Blocks without polling until a client connects (`Ok(true)` after serving it) or
+    /// `stop` is signaled (`Ok(false)`).
+    pub fn serve_until(
+        &self,
+        stop: &StopEvent,
+        handler: impl FnOnce(Request) -> Response,
+    ) -> Result<bool, String> {
+        // SAFETY: the event, OVERLAPPED and handles outlive the pending connect, which
+        // is canceled and drained before returning on the stop path.
+        unsafe {
+            let event = Handle(CreateEventW(None, true, false, None).map_err(error)?);
+            let mut pending = OVERLAPPED {
+                hEvent: event.0,
+                ..Default::default()
+            };
+            match ConnectNamedPipe(self.handle.0, Some(&mut pending)) {
+                Ok(()) => (),
+                Err(e)
+                    if e.code() == windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0) => {}
+                Err(e) if e.code() == windows::core::HRESULT::from_win32(ERROR_IO_PENDING.0) => {
+                    let signaled = WaitForMultipleObjects(&[event.0, stop.0.0], false, INFINITE);
+                    if signaled != WAIT_OBJECT_0 {
+                        let _ = CancelIoEx(self.handle.0, Some(&pending));
+                        let mut count = 0;
+                        let _ = GetOverlappedResult(self.handle.0, &pending, &mut count, true);
+                        return Ok(false);
+                    }
+                    let mut count = 0;
+                    GetOverlappedResult(self.handle.0, &pending, &mut count, false)
+                        .map_err(error)?;
+                }
+                Err(e) => return Err(error(e)),
+            }
+        }
+        self.serve_connected(handler).map(|()| true)
+    }
+    fn serve_connected(&self, handler: impl FnOnce(Request) -> Response) -> Result<(), String> {
         let result = receive(self.handle.0)
             .and_then(|request| send(self.handle.0, &handler(request)))
             .and_then(|()| {

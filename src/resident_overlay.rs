@@ -70,6 +70,8 @@ struct Ui {
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
     render_failed: bool,
+    timer_ms: Option<u32>,
+    tooltip: String,
     demo: Option<crate::demo::Demo>,
     countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
@@ -117,7 +119,62 @@ impl Ui {
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
-    fn draw(&mut self, hwnd: HWND) -> Result<(), String> {
+    /// A card that cannot be drawn must not end the resident: hide the window, keep
+    /// the queue and retry from scratch on the next wake.
+    fn draw(&mut self, hwnd: HWND) {
+        if self.draw_now(hwnd).is_err() {
+            self.selection = None;
+            self.placement = None;
+            self.surfaces.clear();
+            // SAFETY: hiding this thread's own window.
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
+            if !std::mem::replace(&mut self.render_failed, true) {
+                let _ = crate::operational_log::Log::new(
+                    &self.config.diagnostic_directory,
+                    &self.config.general.logging,
+                )
+                .record(crate::operational_log::Record::RenderFailure);
+            }
+        } else {
+            self.render_failed = false;
+        }
+        self.schedule(hwnd);
+    }
+    /// The 16 ms timer runs only while a card is visible or a timed card is counting
+    /// down; otherwise IPC posts `WAKE`. Enabled usage polling keeps a slow housekeeping
+    /// timer for the tray tooltip and icon.
+    fn schedule(&mut self, hwnd: HWND) {
+        let counting = self
+            .shared
+            .lock()
+            .is_ok_and(|s| !s.paused && s.queue.selected().is_some_and(|e| e.duration > 0));
+        let wanted =
+            if self.demo.is_some() || counting || unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                Some(16)
+            } else if self.config.codex.usage.enabled || self.claude.is_some() {
+                Some(15_000)
+            } else {
+                None
+            };
+        if wanted == self.timer_ms {
+            return;
+        }
+        // SAFETY: the timer belongs to this GUI thread's window.
+        unsafe {
+            match wanted {
+                Some(ms) => {
+                    let _ = SetTimer(Some(hwnd), 1, ms, None);
+                }
+                None => {
+                    let _ = KillTimer(Some(hwnd), 1);
+                }
+            }
+        }
+        self.timer_ms = wanted;
+    }
+    fn draw_now(&mut self, hwnd: HWND) -> Result<(), String> {
         if self.stop.load(Ordering::Acquire) {
             self.tray.take();
             unsafe {
@@ -136,7 +193,10 @@ impl Ui {
                 self.config.codex.usage.display,
             );
             if let Some(tray) = &mut self.tray {
-                tray.tooltip(&tooltip);
+                if tooltip != self.tooltip {
+                    tray.tooltip(&tooltip);
+                    self.tooltip = tooltip;
+                }
                 if let Err(error) = tray.usage(levels) {
                     eprintln!("aHerald: {error}");
                 }
@@ -431,7 +491,7 @@ impl Ui {
             }
         }
     }
-    fn command(&mut self, _hwnd: HWND, command: usize) {
+    fn command(&mut self, hwnd: HWND, command: usize) {
         use crate::tray::*;
         match command {
             SOUND | VISUAL | PAUSE => {
@@ -463,8 +523,13 @@ impl Ui {
             }
             RESTART => {
                 let stop = self.stop.clone();
+                let window = hwnd.0 as isize;
                 std::thread::spawn(move || match crate::restart::launch() {
-                    Ok(()) => stop.store(true, Ordering::Release),
+                    Ok(()) => {
+                        stop.store(true, Ordering::Release);
+                        // No timer runs while idle: wake the window so it sees the stop.
+                        crate::resident::wake(window);
+                    }
                     Err(error) => eprintln!("aHerald: {error}"),
                 });
             }
@@ -543,10 +608,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         if let Some(tray) = &ui.tray {
                             tray.focus();
                         }
-                        if let Err(error) = ui.draw(hwnd) {
-                            ui.error = Some(error);
-                            ui.stop.store(true, Ordering::Release);
-                        }
+                        ui.draw(hwnd);
                     }
                 }
                 return LRESULT(0);
@@ -565,19 +627,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         .rem_euclid(pages as isize) as usize;
                 }
                 ui.usage_surface = None;
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
             if msg == WM_COMMAND {
                 let ui = &mut *p;
                 ui.command(hwnd, wp.0 & 0xffff);
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
         }
@@ -594,7 +650,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);
             }
-            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN | WM_DISPLAYCHANGE | WM_DPICHANGED
+            WM_TIMER
+            | crate::resident::WAKE
+            | WM_LBUTTONUP
+            | WM_KEYDOWN
+            | WM_DISPLAYCHANGE
+            | WM_DPICHANGED
             | WM_SETTINGCHANGE
                 if !p.is_null() =>
             {
@@ -611,23 +672,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
                     ui.input(msg, wp, lp);
                 }
-                // A card that cannot be drawn must not end the resident: hide the
-                // window, keep the queue and retry from scratch on the next tick.
-                if ui.draw(hwnd).is_err() {
-                    ui.selection = None;
-                    ui.placement = None;
-                    ui.surfaces.clear();
-                    let _ = ShowWindow(hwnd, SW_HIDE);
-                    if !std::mem::replace(&mut ui.render_failed, true) {
-                        let _ = crate::operational_log::Log::new(
-                            &ui.config.diagnostic_directory,
-                            &ui.config.general.logging,
-                        )
-                        .record(crate::operational_log::Record::RenderFailure);
-                    }
-                } else {
-                    ui.render_failed = false;
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
             _ => {}
@@ -741,6 +786,8 @@ pub(super) fn run_preview(
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
         render_failed: false,
+        timer_ms: None,
+        tooltip: String::new(),
         demo,
         countdown: None,
         source_labels: crate::session_source::Service::codex(),
@@ -756,7 +803,8 @@ pub(super) fn run_preview(
             hCursor: LoadCursorW(None, IDC_ARROW).map_err(|_| "cannot load cursor")?,
             ..Default::default()
         };
-        if RegisterClassW(&wc) == 0 {
+        // A second run in one process (in-process tests) finds the class registered.
+        if RegisterClassW(&wc) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
             return Err("cannot register resident window".into());
         }
         let hwnd = CreateWindowExW(
@@ -785,11 +833,12 @@ pub(super) fn run_preview(
                 return Err(error);
             }
         }
-        if SetTimer(Some(hwnd), 1, 16, None) == 0 {
-            ui.tray.take();
-            let _ = DestroyWindow(hwnd);
-            return Err("cannot start resident timer".into());
+        if let Ok(mut state) = ui.shared.lock() {
+            state.window = hwnd.0 as isize;
         }
+        // The first draw also arms or skips the timer; events queued before the window
+        // existed are picked up here.
+        let _ = PostMessageW(Some(hwnd), crate::resident::WAKE, WPARAM(0), LPARAM(0));
         let mut msg = MSG::default();
         loop {
             let code = GetMessageW(&mut msg, None, 0, 0).0;

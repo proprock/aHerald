@@ -433,6 +433,7 @@ fn reset_text(timestamp: i64) -> Option<String> {
         Some(format!("{timestamp} (Unix UTC)"))
     }
 }
+const LIVE_POLL: Duration = Duration::from_millis(500);
 pub struct Driver<T, F> {
     connection: Connection<T, F>,
     pub view: View,
@@ -452,6 +453,17 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> Driver<T, F> {
             allowed: Duration::ZERO,
             backoff: Duration::from_secs(10),
         }
+    }
+    /// How long the worker may sleep before `step` can have work. A live app-server
+    /// connection is also polled for pushed updates, so it wakes at least that often.
+    pub fn wait(&self, now: Duration) -> Duration {
+        let due = self.next.max(self.allowed).saturating_sub(now);
+        let wait = if self.connection.client.is_some() {
+            due.min(LIVE_POLL)
+        } else {
+            due
+        };
+        wait.max(Duration::from_millis(1))
     }
     fn failure(&mut self, now: Duration, error: String) {
         self.view.error = Some(error);
@@ -582,7 +594,7 @@ impl Service {
                         *state = driver.view.clone();
                     }
                     // Wake immediately on a refresh, with no busy waiting and a bounded mailbox.
-                    match rx.recv_timeout(Duration::from_millis(50)) {
+                    match rx.recv_timeout(driver.wait(origin.elapsed())) {
                         Ok(()) => {
                             if driver.step(origin.elapsed(), true)
                                 && let Ok(mut state) = shared.lock()

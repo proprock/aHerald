@@ -401,7 +401,24 @@ An implementation alone is not evidence of Windows visual acceptance.
   a text card; native rendering and leak tests and standard Cargo checks pass.
   Source: `audit-20261026.md` E2, A1.
 
-- [ ] **AH-042 — Wake the resident only for pending work.** Depends on AH-041.
+- [ ] **AH-051 — Pure card presenter and reentrancy-safe Ui (split from AH-042).**
+  Depends on AH-042. Move "which card, frame, alpha and sounds now" into a pure
+  presenter driven by queue state and a controlled clock, leaving `Ui` a thin Win32
+  adapter; stop the window procedure from borrowing `Ui` while `draw` holds it across
+  reentrant `ShowWindow`/`SetWindowTextW`. Present a static card only when frame,
+  alpha, countdown second or placement changes; cache usage-card layout and tray
+  placement while the card is open. Acceptance: presenter unit tests; lifecycle, tray
+  and leak tests; standard Cargo checks. Source: `audit-20261026.md` A6, E7, P2.
+
+- [x] **AH-042 — Wake the resident only for pending work.** Depends on AH-041.
+  Done (part 1, agreed with the user; the rest is AH-051): `serve_until` waits on
+  overlapped accept plus a stop event; IPC posts `WAKE` to the window; the 16 ms timer
+  runs only while a card is visible or a timed card counts down (a 15 s housekeeping
+  timer remains only while usage polling is enabled, so the tray tooltip/icon may lag
+  by up to 15 s when idle); `Driver::wait` lets the usage worker sleep to its deadline
+  (a live app-server connection is still polled every 500 ms for pushed updates);
+  tooltip text is applied only on change. A test counts `WM_TIMER` deliveries on the
+  idle GUI thread. Original brief:
   An idle resident wakes about 100 times per second: the 16 ms GUI timer, the 50 ms
   pipe accept poll with a new event per attempt, and the 50 ms usage worker loop per
   enabled agent. Post new IPC events to the window, run the timer only while a card

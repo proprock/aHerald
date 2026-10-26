@@ -178,3 +178,36 @@ fn periodic_refresh_reuses_one_connection_and_disabled_service_never_connects() 
         300
     );
 }
+
+#[test]
+fn idle_worker_sleeps_until_its_next_deadline() {
+    let mut failing = Driver::new(Duration::from_secs(300), || {
+        Err::<Mock, _>(Error::Unavailable)
+    });
+    failing.step(Duration::ZERO, false);
+    assert_eq!(failing.wait(Duration::ZERO), Duration::from_secs(10));
+    assert_eq!(failing.wait(Duration::from_secs(4)), Duration::from_secs(6));
+    failing.step(Duration::from_secs(10), false);
+    assert_eq!(
+        failing.wait(Duration::from_secs(10)),
+        Duration::from_secs(20),
+        "backoff doubles"
+    );
+    // Never zero, so an overdue deadline cannot spin.
+    assert!(failing.wait(Duration::from_secs(3600)) >= Duration::from_millis(1));
+}
+
+#[test]
+fn live_connection_is_polled_for_updates_without_a_busy_loop() {
+    let mut driver = Driver::new(Duration::from_secs(300), || {
+        Ok(Mock {
+            incoming: VecDeque::from([
+                Ok(json!({"id":1,"result":{}})),
+                Ok(json!({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":25}}}})),
+            ]),
+        })
+    });
+    driver.step(Duration::ZERO, false);
+    let wait = driver.wait(Duration::ZERO);
+    assert!(wait >= Duration::from_millis(100) && wait <= Duration::from_secs(1));
+}

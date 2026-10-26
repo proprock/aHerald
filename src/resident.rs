@@ -77,6 +77,24 @@ pub struct Shared {
     pub paused: bool,
     pub sounds: bool,
     pub visuals: bool,
+    /// Raw handle of the resident window (0 until created); IPC posts `WAKE` to it.
+    pub window: isize,
+}
+/// Posted to the resident window when IPC changed the queue or requested shutdown.
+pub const WAKE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
+pub(crate) fn wake(window: isize) {
+    use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::PostMessageW};
+    if window != 0 {
+        // SAFETY: posting to a stale or destroyed handle fails harmlessly.
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(window as *mut std::ffi::c_void)),
+                WAKE,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
 }
 #[path = "resident_overlay.rs"]
 mod overlay;
@@ -94,6 +112,7 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         paused: false,
         sounds: config.sounds.enabled,
         visuals: config.notifications.enabled,
+        window: 0,
     }));
     let usage = crate::usage_service::Service::codex(
         config.codex.usage.enabled,
@@ -133,10 +152,13 @@ fn run_with_usage(
         paused: false,
         sounds: config.sounds.enabled,
         visuals: config.notifications.enabled,
+        window: 0,
     }));
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let state = shared.clone();
     let shutdown = stop.clone();
+    let stop_event = Arc::new(pipe::StopEvent::new()?);
+    let listener_stop = stop_event.clone();
     let settings = config.clone();
     let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
     let listener = std::thread::spawn(move || {
@@ -152,7 +174,7 @@ fn run_with_usage(
         let _ = ready_tx.send(Ok(()));
         let _ = log.record(Record::Started);
         while !shutdown.load(Ordering::Acquire) {
-            let result = server.serve_once(|request| {
+            let result = server.serve_until(&listener_stop, |request| {
                 let Ok(mut state) = state.lock() else {
                     return Response::Rejected;
                 };
@@ -166,6 +188,7 @@ fn run_with_usage(
                     },
                     Request::Quit => {
                         shutdown.store(true, Ordering::Release);
+                        wake(state.window);
                         Response::Bye
                     }
                     Request::Event { event } => {
@@ -180,6 +203,7 @@ fn run_with_usage(
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
                         let duplicate = state.queue.is_duplicate(&event, now)
                             || state.queue.is_obsolete(&event);
+                        let window = state.window;
                         if state.queue.push(
                             event,
                             now,
@@ -193,6 +217,7 @@ fn run_with_usage(
                         ) || duplicate
                             || resolved > 0
                         {
+                            wake(window);
                             Response::Accepted
                         } else {
                             drop(state);
@@ -213,6 +238,7 @@ fn run_with_usage(
         .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
     if let Err(error) = startup {
         stop.store(true, Ordering::Release);
+        stop_event.signal();
         let _ = listener.join();
         return Err(error);
     }
@@ -225,6 +251,7 @@ fn run_with_usage(
         usage(),
     );
     stop.store(true, Ordering::Release);
+    stop_event.signal();
     let _ = listener.join();
     result
 }
@@ -486,5 +513,102 @@ mod usage_preview {
         })
         .unwrap();
         opener.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use windows::Win32::{
+        Foundation::*, System::Threading::GetCurrentThreadId, UI::WindowsAndMessaging::*,
+    };
+    static TIMERS: AtomicUsize = AtomicUsize::new(0);
+    unsafe extern "system" fn count(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+        // SAFETY: for WH_GETMESSAGE with code >= 0, `lp` points to the retrieved MSG.
+        unsafe {
+            if code >= 0 && (*(lp.0 as *const MSG)).message == WM_TIMER {
+                TIMERS.fetch_add(1, Ordering::SeqCst);
+            }
+            CallNextHookEx(None, code, wp, lp)
+        }
+    }
+    fn resident_window(thread_id: u32) -> HWND {
+        unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
+            unsafe {
+                let mut text = [0u16; 64];
+                let n = GetClassNameW(hwnd, &mut text);
+                if String::from_utf16_lossy(&text[..n as usize]) == "aHerald.Resident" {
+                    *(param.0 as *mut HWND) = hwnd;
+                }
+                true.into()
+            }
+        }
+        let mut window = HWND::default();
+        unsafe {
+            let _ = EnumThreadWindows(
+                thread_id,
+                Some(find),
+                LPARAM(&mut window as *mut _ as isize),
+            );
+        }
+        window
+    }
+    #[test]
+    fn idle_resident_has_no_periodic_wakeups_and_shows_a_forwarded_event_promptly() {
+        let scope = Scope::current(&format!("idle-wakeups-{}", std::process::id())).unwrap();
+        let thread_scope = scope.clone();
+        let mut config = Config::default();
+        config.sounds.enabled = false;
+        let (thread_tx, thread_rx) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            thread_tx.send(unsafe { GetCurrentThreadId() }).unwrap();
+            run_with_usage(thread_scope, config, Path::new("idle-test.toml"), || {
+                crate::usage_service::Service::codex(false, Duration::from_secs(300))
+            })
+        });
+        let thread_id = thread_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let window = loop {
+            let window = resident_window(thread_id);
+            if !window.is_invalid()
+                && pipe::request(&scope, &Request::Status, Duration::from_millis(50)).is_ok()
+            {
+                break window;
+            }
+            assert!(Instant::now() < deadline, "resident did not start");
+        };
+        let hook =
+            unsafe { SetWindowsHookExW(WH_GETMESSAGE, Some(count), None, thread_id) }.unwrap();
+        // Let startup settle, then observe a quiet period.
+        std::thread::sleep(Duration::from_millis(200));
+        TIMERS.store(0, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(600));
+        let idle_timers = TIMERS.load(Ordering::SeqCst);
+        assert!(matches!(
+            pipe::request(
+                &scope,
+                &Request::Event {
+                    event: Event::demo("permission_required").unwrap()
+                },
+                Duration::from_millis(500)
+            )
+            .unwrap(),
+            Response::Accepted
+        ));
+        let shown = Instant::now();
+        while !unsafe { IsWindowVisible(window) }.as_bool() {
+            assert!(
+                shown.elapsed() < Duration::from_secs(1),
+                "event not shown promptly"
+            );
+            std::thread::yield_now();
+        }
+        unsafe {
+            let _ = UnhookWindowsHookEx(hook);
+        }
+        let _ = pipe::request(&scope, &Request::Quit, Duration::from_millis(500));
+        worker.join().unwrap().unwrap();
+        assert_eq!(idle_timers, 0, "an idle resident must not run a timer");
     }
 }
