@@ -480,7 +480,12 @@ An implementation alone is not evidence of Windows visual acceptance.
   A4, E4.
 
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
-  WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
+  Implemented and tested; left open only for the manual system-proxy check (steps in
+  `docs/claude-hooks.md`, "Manual checks"), which was not run. Done: redirect policy
+  "never" plus 3xx mapped to "Claude usage request redirected (refused)", proven by a
+  loopback test where a 302 gets exactly one request; `AUTOMATIC_PROXY`; `Wiped`
+  buffers for the credentials file, token and headers (copies made by the parser,
+  std or WinHTTP are not covered). Original brief: WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
   ignores system and PAC proxies. Disable redirects so the bearer token reaches only
   `api.anthropic.com` and report 3xx as a sanitized service error; switch to
   `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`. Clear header buffers holding the token after

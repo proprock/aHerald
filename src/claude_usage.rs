@@ -262,6 +262,8 @@ pub fn status_error(status: u16) -> Option<Error> {
             "Claude usage unauthorized (sign in to Claude Code again)",
         )),
         429 => Some(Error::RateLimited("Claude usage rate limited")),
+        // Redirects are never followed, so the token cannot leave the usage host.
+        300..=399 => Some(Error::Service("Claude usage request redirected (refused)")),
         _ => Some(Error::Service("Claude usage service error")),
     }
 }
@@ -290,35 +292,37 @@ pub fn fetch_live() -> Result<Snapshot, Error> {
             std::env::var_os("USERPROFILE").map(|p| std::path::Path::new(&p).join(".claude"))
         })
         .ok_or(Error::Service("Claude credentials unavailable"))?;
-    let mut bytes = Vec::new();
+    // The credentials file, the token and the request headers are zeroed when dropped.
+    let mut bytes = crate::https::Wiped(Vec::new());
     {
         use std::io::Read;
         std::fs::File::open(dir.join(".credentials.json"))
-            .and_then(|f| f.take(65_536).read_to_end(&mut bytes))
+            .and_then(|f| f.take(65_536).read_to_end(&mut bytes.0))
             .map_err(|_| Error::Service("Claude credentials unavailable"))?;
     }
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let token = access_token(&bytes, now_ms).map_err(|e| {
+    let token = crate::https::Wiped(access_token(&bytes.0, now_ms).map_err(|e| {
         Error::Service(match e {
             CredentialError::Missing => "Claude credentials unavailable",
             CredentialError::Expired => "Claude token expired (open Claude Code to refresh)",
         })
-    })?;
-    let headers = format!(
-        "Authorization: Bearer {token}\r\nanthropic-beta: oauth-2025-04-20\r\nAccept: application/json\r\n"
-    );
+    })?);
+    let headers = crate::https::Wiped(format!(
+        "Authorization: Bearer {}\r\nanthropic-beta: oauth-2025-04-20\r\nAccept: application/json\r\n",
+        token.0
+    ));
     let (status, body) =
-        crate::https::get(HOST, PATH, &headers, crate::app_server::REQUEST_TIMEOUT)
+        crate::https::get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
             .map_err(|_| Error::Service("Claude usage request failed"))?;
     if let Some(error) = status_error(status) {
         return Err(error);
     }
     let value = with_plan(
         snapshot_from_response(&body)?,
-        subscription_type(&bytes).as_deref(),
+        subscription_type(&bytes.0).as_deref(),
     );
     Snapshot::parse(value).map_err(Error::Service)
 }
@@ -479,10 +483,16 @@ mod tests {
     #[test]
     fn http_statuses_map_to_sanitized_errors() {
         assert_eq!(status_error(200), None);
-        for status in [401, 403, 429, 500] {
+        for status in [301, 302, 307, 308, 401, 403, 429, 500] {
             let text = status_error(status).unwrap().to_string();
             assert!(text.starts_with("Claude"), "{text}");
         }
+        assert!(
+            status_error(302)
+                .unwrap()
+                .to_string()
+                .contains("redirected")
+        );
     }
 
     #[test]

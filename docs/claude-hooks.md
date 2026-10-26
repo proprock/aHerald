@@ -57,3 +57,19 @@ from `extra_usage` (minor units scaled by `decimal_places`) and `Spend: enabled|
 because aHerald never refreshes or writes tokens. This endpoint and its response are undocumented
 and unverified against a live session; other tools (for example rate-tray) use the same source.
 An alternative without tokens is the statusLine `rate_limits` field (tracked in AH-038).
+
+Request safety: redirects are never followed (WinHTTP redirect policy "never"), so the
+token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected
+(refused)". Proxy settings come from the system (WinHTTP automatic proxy: Windows proxy
+settings, WPAD and PAC). After HTTP 429 the next request waits at least
+`refresh_interval_sec`, manual refresh included. aHerald zeroes the buffers it owns that
+hold the token (file contents, token, request headers) after the request; copies made by
+the JSON parser, the standard library or WinHTTP are not covered.
+
+Manual checks (not automated): (1) with `[claude.usage] enabled = true` behind a system
+proxy or PAC (Settings > Network > Proxy), restart the resident and confirm the usage card
+shows `5h`/`Week` values instead of "Claude usage request failed"; (2) to see the
+redirect refusal against a real server, point a hosts entry or test proxy at a 302
+response for `/api/oauth/usage` and confirm the card shows the "redirected (refused)"
+message and the target receives no follow-up request. The loopback redirect behavior is
+covered by the automated `https` test.
