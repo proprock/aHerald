@@ -487,3 +487,15 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `Snapshot` directly (no Codex-shaped JSON, `snapshot_from_response`/`with_plan` gone).
   Codex card text is unchanged. Note: the dropped `details` view also showed reset-credit
   `granted` times and full-length reset timestamps, which the card never did.
+
+- [x] **AH-051 — Pure card presenter and P2 redraw limits (split from AH-042).** Depends on AH-042.
+  Done (part 1, agreed with the user; the reentrancy half is AH-057): `presenter::Presenter`
+  turns the selected queue entry, animation clock and fade settings into `Shown`
+  (frame, alpha, countdown second) and reports a card only when that differs from what is
+  on screen; `Ui` presents and calls `ShowWindow` only then. The usage card measures its
+  height and asks Explorer for the tray rectangle once per layout, not every 16 ms, and
+  the cached placement is dropped on display, DPI, setting and taskbar changes.
+  `tests/presenter.rs` covers once-only static cards, countdown seconds, animation frames,
+  fade alpha and invalidation. Not covered by an automated test: the present-call count
+  of the live window. Original brief: see TODO.md history; source `audit-20261026.md`
+  A6, E7, P2.
