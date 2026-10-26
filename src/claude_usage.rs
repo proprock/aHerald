@@ -5,9 +5,13 @@
 //! in `.credentials.json`. The token is read per request, sent only to that host, never logged, kept
 //! in memory only for the call, and never refreshed or written back. The response shape is not a
 //! documented contract: unknown or malformed data becomes an "unavailable" view.
-use crate::{app_server::Error, usage::Snapshot, usage_service::UsageSource};
+use crate::{
+    app_server::Error,
+    usage::{Allowance, Bucket, Snapshot},
+    usage_service::UsageSource,
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::time::Duration;
 
 pub const HOST: &str = "api.anthropic.com";
@@ -15,8 +19,8 @@ pub const PATH: &str = "/api/oauth/usage";
 const FIVE_HOUR_MINS: i64 = 300;
 const SEVEN_DAY_MINS: i64 = 7 * 24 * 60;
 
-/// Converts the usage response into the Codex-shaped snapshot `usage::Snapshot` understands.
-pub fn snapshot_from_response(body: &[u8]) -> Result<Value, Error> {
+/// Converts the usage response (and the optional plan label) into a one-bucket snapshot.
+pub fn parse_response(body: &[u8], plan: Option<&str>) -> Result<Snapshot, Error> {
     #[derive(Deserialize)]
     struct Window {
         utilization: Option<f64>,
@@ -34,27 +38,22 @@ pub fn snapshot_from_response(body: &[u8]) -> Result<Value, Error> {
         return Err(Error::Malformed);
     }
     let window = |w: Option<Window>, mins: i64| {
-        w.map(|w| {
-            json!({
-                "usedPercent": w.utilization,
-                "windowDurationMins": mins,
-                "resetsAt": w.resets_at.as_deref().and_then(iso_to_unix),
-            })
+        w.map(|w| crate::usage::Window {
+            used_percent: w.utilization,
+            window_duration_mins: Some(mins),
+            resets_at: w.resets_at.as_deref().and_then(iso_to_unix),
         })
     };
-    let details: Vec<String> = [
-        wire.extra_usage.as_ref().and_then(extra_usage_line),
-        wire.spend.as_ref().and_then(spend_line),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    Ok(json!({"rateLimits": {
-        "limitId": "claude",
-        "primary": window(wire.five_hour, FIVE_HOUR_MINS),
-        "secondary": window(wire.seven_day, SEVEN_DAY_MINS),
-        "details": (!details.is_empty()).then_some(details),
-    }}))
+    let bucket = Bucket {
+        limit_id: Some("claude".into()),
+        primary: window(wire.five_hour, FIVE_HOUR_MINS),
+        secondary: window(wire.seven_day, SEVEN_DAY_MINS),
+        plan_type: plan.map(str::to_owned),
+        extra_usage: wire.extra_usage.as_ref().and_then(extra_usage),
+        spend: wire.spend.as_ref().and_then(spend),
+        ..Bucket::default()
+    };
+    Snapshot::single("claude", bucket).map_err(Error::Service)
 }
 
 /// Formats an amount in minor units (`1234`, exponent 2 -> `12.34`).
@@ -96,40 +95,28 @@ fn amount(value: Option<&Value>, default_exponent: u32) -> Option<(String, Optio
     Some((money(minor, exponent), currency))
 }
 
-fn state(enabled: Option<bool>) -> &'static str {
-    if enabled == Some(true) {
-        "enabled"
-    } else {
-        "disabled"
-    }
-}
-
-fn currency_suffix(currency: Option<&str>) -> String {
+/// Keeps a currency code only when it is a short alphabetic string such as `USD`.
+fn currency_code(currency: Option<&str>) -> Option<String> {
     currency
         .filter(|c| c.len() <= 8 && c.chars().all(|ch| ch.is_ascii_alphabetic()))
-        .map(|c| format!(" {c}"))
-        .unwrap_or_default()
+        .map(str::to_owned)
 }
 
-fn extra_usage_line(extra: &Value) -> Option<String> {
+fn extra_usage(extra: &Value) -> Option<Allowance> {
     extra.as_object()?;
     let places = extra
         .get("decimal_places")
         .and_then(Value::as_u64)
         .map_or(2, |p| p.min(6) as u32);
-    let used = amount(extra.get("used_credits"), places).map(|a| a.0);
-    let limit = amount(extra.get("monthly_limit"), places).map(|a| a.0);
-    let currency = extra.get("currency").and_then(Value::as_str);
-    Some(format!(
-        "Extra usage: {}, limit: {}/{}{}",
-        state(extra.get("is_enabled").and_then(Value::as_bool)),
-        used.as_deref().unwrap_or("—"),
-        limit.as_deref().unwrap_or("—"),
-        currency_suffix(currency)
-    ))
+    Some(Allowance {
+        enabled: extra.get("is_enabled").and_then(Value::as_bool),
+        used: amount(extra.get("used_credits"), places).map(|a| a.0),
+        limit: amount(extra.get("monthly_limit"), places).map(|a| a.0),
+        currency: currency_code(extra.get("currency").and_then(Value::as_str)),
+    })
 }
 
-fn spend_line(spend: &Value) -> Option<String> {
+fn spend(spend: &Value) -> Option<Allowance> {
     spend.as_object()?;
     let used = amount(spend.get("used"), 2);
     let limit = amount(spend.get("limit"), 2);
@@ -137,21 +124,12 @@ fn spend_line(spend: &Value) -> Option<String> {
         .as_ref()
         .and_then(|a| a.1.as_deref())
         .or_else(|| limit.as_ref().and_then(|a| a.1.as_deref()));
-    Some(format!(
-        "Spend: {}, {}/{}{}",
-        state(spend.get("enabled").and_then(Value::as_bool)),
-        used.as_ref().map_or("—", |a| a.0.as_str()),
-        limit.as_ref().map_or("—", |a| a.0.as_str()),
-        currency_suffix(currency)
-    ))
-}
-
-/// Adds the subscription plan (for example `pro`) to a snapshot built by `snapshot_from_response`.
-pub fn with_plan(mut value: Value, plan: Option<&str>) -> Value {
-    if let Some(plan) = plan {
-        value["rateLimits"]["planType"] = json!(plan);
-    }
-    value
+    Some(Allowance {
+        enabled: spend.get("enabled").and_then(Value::as_bool),
+        currency: currency_code(currency),
+        used: used.map(|a| a.0),
+        limit: limit.map(|a| a.0),
+    })
 }
 
 /// Reads only the non-secret `subscriptionType` label from the credentials file contents.
@@ -320,11 +298,7 @@ pub fn fetch_live() -> Result<Snapshot, Error> {
     if let Some(error) = status_error(status) {
         return Err(error);
     }
-    let value = with_plan(
-        snapshot_from_response(&body)?,
-        subscription_type(&bytes.0).as_deref(),
-    );
-    Snapshot::parse(value).map_err(Error::Service)
+    parse_response(&body, subscription_type(&bytes.0).as_deref())
 }
 
 #[cfg(test)]
@@ -333,12 +307,12 @@ mod tests {
 
     #[test]
     fn response_becomes_a_two_window_claude_snapshot() {
-        let value = snapshot_from_response(
+        let snapshot = parse_response(
             br#"{"five_hour":{"utilization":23.5,"resets_at":"2026-10-25T10:00:00.5+00:00"},
                  "seven_day":{"utilization":41,"resets_at":null},"extra":{"x":1}}"#,
+            None,
         )
         .unwrap();
-        let snapshot = Snapshot::parse(value).unwrap();
         let bucket = &snapshot.buckets["claude"];
         let (five, seven) = (
             bucket.primary.as_ref().unwrap(),
@@ -357,7 +331,7 @@ mod tests {
         let body = br#"{"five_hour":{"utilization":10.0,"resets_at":"2026-10-26T00:59:59.931298+00:00","limit_dollars":null,"used_dollars":null,"remaining_dollars":null,"locked_reason":null},
             "seven_day":{"utilization":11.0,"resets_at":"2026-10-31T09:59:59.931317+00:00","limit_dollars":null,"used_dollars":null,"remaining_dollars":null,"locked_reason":null},
             "seven_day_opus":null,"extra_usage":{"is_enabled":false},"limits":[{"kind":"session","percent":10}]}"#;
-        let snapshot = Snapshot::parse(snapshot_from_response(body).unwrap()).unwrap();
+        let snapshot = parse_response(body, None).unwrap();
         let bucket = &snapshot.buckets["claude"];
         let five = bucket.primary.as_ref().unwrap();
         assert_eq!(five.used_percent, Some(10.0));
@@ -370,13 +344,13 @@ mod tests {
         let body = br#"{"five_hour":{"utilization":8,"resets_at":"2026-10-25T17:50:00+00:00"},
             "seven_day":{"utilization":14,"resets_at":"2026-11-01T07:31:00+00:00"},
             "extra_usage":{"is_enabled":false,"monthly_limit":null}}"#;
-        let value = with_plan(snapshot_from_response(body).unwrap(), Some("pro"));
+        let snapshot = parse_response(body, Some("pro")).unwrap();
         let mut view = crate::usage_service::View::for_agent(
             crate::agent::Agent::Claude,
             true,
             Duration::from_secs(300),
         );
-        view.snapshot = Some(Snapshot::parse(value).unwrap());
+        view.snapshot = Some(snapshot);
         let unix = iso_to_unix("2026-10-25T15:25:00Z").unwrap();
         let text = view.card_text(Duration::ZERO, unix);
         let lines: Vec<&str> = text.lines().collect();
@@ -394,14 +368,23 @@ mod tests {
                            "currency":"USD","decimal_places":2},
             "spend":{"enabled":true,"used":{"amount_minor":250,"currency":"USD","exponent":2},
                      "limit":{"amount_minor":10000,"currency":"USD","exponent":2}}}"#;
-        let snapshot = Snapshot::parse(snapshot_from_response(body).unwrap()).unwrap();
-        assert_eq!(
-            snapshot.buckets["claude"].details.as_deref().unwrap(),
-            [
-                "Extra usage: enabled, limit: 12.34/50.00 USD",
-                "Spend: enabled, 2.50/100.00 USD"
-            ]
+        let text = card(body);
+        assert!(
+            text.contains("Extra usage: enabled, limit: 12.34/50.00 USD\n"),
+            "{text}"
         );
+        assert!(text.contains("Spend: enabled, 2.50/100.00 USD\n"), "{text}");
+    }
+
+    /// Card text a Claude view shows for a response body.
+    fn card(body: &[u8]) -> String {
+        let mut view = crate::usage_service::View::for_agent(
+            crate::agent::Agent::Claude,
+            true,
+            Duration::from_secs(300),
+        );
+        view.snapshot = Some(parse_response(body, None).unwrap());
+        view.card_text(Duration::ZERO, 0)
     }
 
     #[test]
@@ -409,14 +392,12 @@ mod tests {
         let body = br#"{"five_hour":{"utilization":1,"resets_at":null},
             "extra_usage":{"is_enabled":false,"monthly_limit":null,"used_credits":null,"currency":null},
             "spend":{"used":{"amount_minor":0,"currency":"USD","exponent":2},"limit":null,"enabled":false}}"#;
-        let snapshot = Snapshot::parse(snapshot_from_response(body).unwrap()).unwrap();
-        assert_eq!(
-            snapshot.buckets["claude"].details.as_deref().unwrap(),
-            [
-                "Extra usage: disabled, limit: —/—",
-                "Spend: disabled, 0.00/— USD"
-            ]
+        let text = card(body);
+        assert!(
+            text.contains("Extra usage: disabled, limit: —/—\n"),
+            "{text}"
         );
+        assert!(text.contains("Spend: disabled, 0.00/— USD\n"), "{text}");
     }
 
     #[test]
@@ -436,7 +417,7 @@ mod tests {
     #[test]
     fn unusable_responses_are_malformed() {
         for body in [&b"{"[..], b"[]", b"{}", br#"{"five_hour":"x"}"#] {
-            assert_eq!(snapshot_from_response(body), Err(Error::Malformed));
+            assert_eq!(parse_response(body, None).unwrap_err(), Error::Malformed);
         }
     }
 
@@ -499,10 +480,10 @@ mod tests {
     fn shared_driver_serves_claude_through_its_source() {
         use crate::{agent::Agent, usage_service::Driver};
         let source = ClaudeSource::new(|| {
-            Snapshot::parse(snapshot_from_response(
+            parse_response(
                 br#"{"five_hour":{"utilization":10,"resets_at":null}}"#,
-            )?)
-            .map_err(Error::Service)
+                None,
+            )
         });
         let mut driver = Driver::with_source(Agent::Claude, Duration::from_secs(300), source);
         assert!(driver.step(Duration::from_secs(1), true));

@@ -32,8 +32,19 @@ pub struct Bucket {
     pub credits: Option<Credits>,
     pub plan_type: Option<String>,
     pub rate_limit_reached_type: Option<String>,
-    /// Pre-formatted extra lines for agents whose data is not Codex-shaped (Claude).
-    pub details: Option<Vec<String>>,
+    /// Claude's optional pay-as-you-go blocks; absent for Codex.
+    pub extra_usage: Option<Allowance>,
+    pub spend: Option<Allowance>,
+}
+/// A spending allowance with amounts already converted to decimal strings (`12.34`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Allowance {
+    pub enabled: Option<bool>,
+    pub used: Option<String>,
+    pub limit: Option<String>,
+    /// Short alphabetic code such as `USD`; anything else is dropped before it gets here.
+    pub currency: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +70,14 @@ pub struct Snapshot {
     pub reset_credits: Option<ResetCredits>,
 }
 impl Snapshot {
+    /// A snapshot of one already-typed bucket, validated like parsed data.
+    pub fn single(id: &str, bucket: Bucket) -> Result<Self, &'static str> {
+        validate_bucket(&bucket)?;
+        Ok(Self {
+            buckets: BTreeMap::from([(id.to_owned(), bucket)]),
+            ..Self::default()
+        })
+    }
     pub fn parse(value: Value) -> Result<Self, &'static str> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]

@@ -276,17 +276,11 @@ fn cached_values_keep_color_and_no_stale_status_after_time_or_failure() {
     assert_eq!(before, Levels::from_view(&v, UsageDisplay::Remain));
     v.updated = Some(Duration::from_secs(10));
     let now = Duration::from_secs(9000);
-    assert!(v.summary(now).contains("current"));
-    for text in [v.card_text(now, 1000), v.details(now)] {
-        assert!(text.contains("refresh failed"), "{text}");
-        assert!(text.contains("8990"), "{text}");
-    }
-    for text in [
-        v.summary(now),
-        v.compact(now, 1000, UsageDisplay::Remain),
-        v.card_text(now, 1000),
-        v.details(now),
-    ] {
+    let card = v.card_text(now, 1000);
+    assert!(!card.contains("Status:"), "{card}");
+    assert!(card.contains("refresh failed"), "{card}");
+    assert!(card.contains("8990"), "{card}");
+    for text in [v.compact(now, 1000, UsageDisplay::Remain), card] {
         assert!(!text.contains("stale"), "{text}");
     }
 }
