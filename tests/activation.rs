@@ -9,8 +9,22 @@ struct Fake {
     calls: Vec<String>,
     fail_open: bool,
     fail_window: bool,
+    fail_focus: bool,
+    desktop: Option<String>,
 }
 impl Agent for Fake {
+    fn desktop_session(&mut self, cli_session_id: &str) -> Option<String> {
+        self.calls.push(format!("lookup {cli_session_id}"));
+        self.desktop.clone()
+    }
+    fn focus_window(&mut self, window: u64) -> Result<(), String> {
+        self.calls.push(format!("focus {window}"));
+        if self.fail_focus {
+            Err("no focus".into())
+        } else {
+            Ok(())
+        }
+    }
     fn open_thread(&mut self, url: &str) -> Result<(), String> {
         self.calls.push(url.into());
         if self.fail_open {
@@ -50,6 +64,67 @@ fn click_policy_encodes_one_component_and_falls_back_without_commands() {
     }
     a.fail_window = true;
     assert!(click(&event(None), true, true, &mut a).is_err());
+}
+fn claude(id: Option<&str>, window: Option<u64>) -> Event {
+    let mut e = event(id);
+    e.source = Source::ClaudeHook;
+    e.window = window;
+    e
+}
+#[test]
+fn claude_desktop_session_opens_its_own_link() {
+    let mut a = Fake {
+        desktop: Some("local_826ea403-af74-43f1-9bf3-dfcc05dc531d".into()),
+        ..Fake::default()
+    };
+    click(&claude(Some("cli-1"), None), true, true, &mut a).unwrap();
+    assert_eq!(
+        a.calls,
+        [
+            "lookup cli-1",
+            "claude://claude.ai/epitaxy/local_826ea403-af74-43f1-9bf3-dfcc05dc531d"
+        ]
+    );
+    // A failed link falls back to the Desktop window, never to a terminal window.
+    a.calls.clear();
+    a.fail_open = true;
+    click(&claude(Some("cli-1"), Some(9)), true, true, &mut a).unwrap();
+    assert_eq!(a.calls.last().unwrap(), "window");
+    assert!(!a.calls.iter().any(|c| c.starts_with("focus")));
+}
+#[test]
+fn claude_desktop_ids_that_are_not_plain_local_ids_never_become_links() {
+    for bad in ["local_x/../y", "other_1", "local_a b", "local_%41", ""] {
+        let mut a = Fake {
+            desktop: Some(bad.into()),
+            ..Fake::default()
+        };
+        assert!(click(&claude(Some("cli-1"), None), true, true, &mut a).is_err());
+        assert!(!a.calls.iter().any(|c| c.starts_with("claude://")));
+    }
+}
+#[test]
+fn claude_terminal_session_focuses_its_recorded_window() {
+    let mut a = Fake::default();
+    click(&claude(Some("cli-2"), Some(4242)), true, true, &mut a).unwrap();
+    assert_eq!(a.calls, ["lookup cli-2", "focus 4242"]);
+    a.fail_focus = true;
+    assert!(click(&claude(Some("cli-2"), Some(4242)), true, true, &mut a).is_err());
+    // Without a recorded window or a Desktop session nothing is guessed.
+    let mut a = Fake::default();
+    assert!(click(&claude(Some("cli-3"), None), true, true, &mut a).is_err());
+    assert!(!a.calls.contains(&"window".to_owned()));
+    a.calls.clear();
+    // An invalid identity skips the Desktop lookup but keeps the recorded window.
+    click(&claude(Some("bad\nid"), Some(5)), true, true, &mut a).unwrap();
+    assert_eq!(a.calls, ["focus 5"]);
+}
+#[test]
+fn claude_clicks_respect_the_same_switches() {
+    let mut a = Fake::default();
+    click(&claude(Some("s"), Some(1)), false, true, &mut a).unwrap();
+    click(&claude(Some("s"), Some(1)), true, false, &mut a).unwrap();
+    assert!(a.calls.is_empty());
 }
 #[test]
 fn option_demo_usage_and_controls_never_activate() {

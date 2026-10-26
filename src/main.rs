@@ -113,9 +113,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {
-        if let Some(event) = hook_event
+        if let Some(mut event) = hook_event
             && cli.hook_agent().hooks_enabled(&config)
         {
+            if event.source == aherald::events::Source::ClaudeHook {
+                event.window = aherald::console_window::current();
+            }
             dispatch(&event, &config, &path, cli.selected_mode(&config))?;
         }
         return Ok(());

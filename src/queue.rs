@@ -209,6 +209,7 @@ impl Queue {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            window: None,
         };
         self.items.push(Entry {
             id: self.sequence,

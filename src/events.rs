@@ -90,6 +90,10 @@ pub struct Event {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// Terminal window that hosts the session (Claude only), recorded by the hook process.
+    /// Untrusted: re-checked against an executable allowlist before it is activated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<u64>,
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
@@ -115,9 +119,13 @@ impl Event {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            window: None,
         })
     }
     pub fn validate(&self) -> Result<(), String> {
+        if self.window == Some(0) {
+            return Err("invalid event window".into());
+        }
         for id in [
             &self.session_id,
             &self.turn_id,
@@ -164,6 +172,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         } else {
             None
         },
+        window: None,
     };
     event.validate()?;
     Ok(Some(event))

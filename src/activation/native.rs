@@ -6,66 +6,125 @@ use crate::{
 use std::{path::Path, sync::mpsc, thread::JoinHandle};
 use windows::Win32::{Foundation::*, System::Threading::*, UI::WindowsAndMessaging::*};
 
-struct Codex;
-impl Agent for Codex {
-    fn open_thread(&mut self, url: &str) -> Result<(), String> {
-        crate::shell::open(std::ffi::OsStr::new(url)).map_err(|_| "agent_link_failed".into())
-    }
-    fn activate_window(&mut self) -> Result<(), String> {
-        let mut found = HWND::default();
-        // SAFETY: callback runs synchronously; its output remains valid throughout enumeration.
-        unsafe {
-            let _ = EnumWindows(Some(find), LPARAM((&mut found as *mut HWND) as isize));
-        }
-        if found.is_invalid() {
-            return Err("agent_window_unavailable".into());
-        }
-        // SAFETY: a visible top-level window was found in this desktop; OS validates its lifetime.
-        unsafe {
-            if IsIconic(found).as_bool() {
-                let _ = ShowWindow(found, SW_RESTORE);
-            }
-            if SetForegroundWindow(found).as_bool() {
-                Ok(())
-            } else {
-                Err("agent_activation_failed".into())
-            }
-        }
-    }
+fn open_link(url: &str) -> Result<(), String> {
+    crate::shell::open(std::ffi::OsStr::new(url)).map_err(|_| "agent_link_failed".into())
 }
-unsafe extern "system" fn find(hwnd: HWND, data: LPARAM) -> windows::core::BOOL {
-    // SAFETY: handles are checked by Win32; path buffer and output pointer live for the call.
+/// Lowercased full image path of the process that owns `hwnd`.
+fn window_image(hwnd: HWND) -> Option<String> {
+    // SAFETY: handles are checked by Win32; path buffer lives for the call.
     unsafe {
-        if !IsWindowVisible(hwnd).as_bool() {
-            return true.into();
-        }
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-            return true.into();
-        };
-        let process = crate::local::Handle(process);
+        let process =
+            crate::local::Handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?);
         let mut path = vec![0u16; 32768];
         let mut size = path.len() as u32;
-        if QueryFullProcessImageNameW(
+        QueryFullProcessImageNameW(
             process.0,
             PROCESS_NAME_WIN32,
             windows::core::PWSTR(path.as_mut_ptr()),
             &mut size,
         )
-        .is_err()
-        {
-            return true.into();
+        .ok()?;
+        Some(String::from_utf16_lossy(&path[..size as usize]).to_ascii_lowercase())
+    }
+}
+fn raise(hwnd: HWND) -> Result<(), String> {
+    // SAFETY: the window was validated by the caller; the OS validates its lifetime.
+    unsafe {
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
         }
-        let path = String::from_utf16_lossy(&path[..size as usize]).to_ascii_lowercase();
-        // The packaged Windows Codex app currently uses ChatGPT.exe. Never match ChatGPT by title alone.
-        let supported = path.ends_with("\\codex.exe")
-            || (path.ends_with("\\chatgpt.exe") && path.contains("\\windowsapps\\openai.codex_"));
-        if supported {
-            *(data.0 as *mut HWND) = hwnd;
-            false.into()
+        if SetForegroundWindow(hwnd).as_bool() {
+            Ok(())
         } else {
-            true.into()
+            Err("agent_activation_failed".into())
+        }
+    }
+}
+struct Search {
+    supported: fn(&str) -> bool,
+    found: HWND,
+}
+/// Raises the first visible top-level window whose executable path satisfies `supported`.
+fn activate_matching(supported: fn(&str) -> bool) -> Result<(), String> {
+    let mut search = Search {
+        supported,
+        found: HWND::default(),
+    };
+    // SAFETY: callback runs synchronously; `search` outlives the enumeration.
+    unsafe {
+        let _ = EnumWindows(Some(find), LPARAM((&mut search as *mut Search) as isize));
+    }
+    if search.found.is_invalid() {
+        return Err("agent_window_unavailable".into());
+    }
+    raise(search.found)
+}
+unsafe extern "system" fn find(hwnd: HWND, data: LPARAM) -> windows::core::BOOL {
+    // SAFETY: `data` points to the live `Search` of the enclosing `activate_matching` call.
+    unsafe {
+        let search = &mut *(data.0 as *mut Search);
+        if IsWindowVisible(hwnd).as_bool()
+            && window_image(hwnd).is_some_and(|path| (search.supported)(&path))
+        {
+            search.found = hwnd;
+            return false.into();
+        }
+        true.into()
+    }
+}
+
+struct Codex;
+impl Agent for Codex {
+    fn open_thread(&mut self, url: &str) -> Result<(), String> {
+        open_link(url)
+    }
+    fn activate_window(&mut self) -> Result<(), String> {
+        // The packaged Windows Codex app currently uses ChatGPT.exe. Never match ChatGPT by title alone.
+        activate_matching(|path| {
+            path.ends_with("\\codex.exe")
+                || (path.ends_with("\\chatgpt.exe")
+                    && path.contains("\\windowsapps\\openai.codex_"))
+        })
+    }
+}
+
+struct Claude;
+impl Agent for Claude {
+    fn open_thread(&mut self, url: &str) -> Result<(), String> {
+        open_link(url)
+    }
+    fn activate_window(&mut self) -> Result<(), String> {
+        // Claude Desktop (Store package); the CLI's claude.exe never owns a visible window.
+        activate_matching(|path| {
+            path.ends_with("\\claude.exe") && path.contains("\\windowsapps\\claude_")
+        })
+    }
+    fn desktop_session(&mut self, cli_session_id: &str) -> Option<String> {
+        let base = std::env::var_os("LOCALAPPDATA")?;
+        super::claude_desktop::session_roots(Path::new(&base))
+            .iter()
+            .find_map(|root| super::claude_desktop::local_session_id(root, cli_session_id))
+    }
+    fn focus_window(&mut self, window: u64) -> Result<(), String> {
+        let hwnd = HWND(window as usize as *mut std::ffi::c_void);
+        // The handle came over IPC: accept only a live, visible window of a terminal host.
+        // SAFETY: IsWindow/IsWindowVisible accept any handle value.
+        let live = unsafe { IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() };
+        let terminal = window_image(hwnd).is_some_and(|path| {
+            [
+                "\\conhost.exe",
+                "\\openconsole.exe",
+                "\\windowsterminal.exe",
+            ]
+            .iter()
+            .any(|name| path.ends_with(name))
+        });
+        if live && terminal {
+            raise(hwnd)
+        } else {
+            Err("agent_window_unavailable".into())
         }
     }
 }
@@ -85,7 +144,7 @@ impl Worker {
         directory: &Path,
         level: &str,
     ) {
-        if !enabled || !body || event.source != Source::CodexHook {
+        if !enabled || !body || event.source.agent().is_none() {
             return;
         }
         if self.sender.is_none() {
@@ -97,7 +156,12 @@ impl Worker {
                 .spawn(move || {
                     let mut log = Log::new(&log_directory, &log_level);
                     for event in rx {
-                        if click(&event, true, true, &mut Codex).is_err() {
+                        let result = if event.source == Source::CodexHook {
+                            click(&event, true, true, &mut Codex)
+                        } else {
+                            click(&event, true, true, &mut Claude)
+                        };
+                        if result.is_err() {
                             let _ = log.record(Record::AgentActivationFailure);
                         }
                     }
