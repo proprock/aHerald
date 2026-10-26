@@ -69,3 +69,11 @@ impl Presenter {
         self.last = None;
     }
 }
+
+/// Sounds that may play at once; further events wait unannounced in the queue.
+pub const MAX_SOUNDS: usize = 4;
+
+/// How many new sounds may start while `playing` are still running.
+pub fn sound_slots(playing: usize) -> usize {
+    MAX_SOUNDS.saturating_sub(playing)
+}

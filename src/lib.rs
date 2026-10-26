@@ -35,6 +35,7 @@ pub mod pet;
 pub mod placement;
 pub mod presenter;
 pub mod process;
+pub mod reentry;
 pub mod resource_cache;
 
 #[cfg(windows)]
