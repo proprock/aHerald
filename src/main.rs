@@ -11,6 +11,16 @@ fn main() {
     }
 }
 
+/// Fixed operational code beside the configuration; the configuration itself may be
+/// unreadable, so its log level cannot be consulted.
+fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
+    let directory = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    let _ = aherald::operational_log::Log::new(directory, "warn").record(record);
+}
+
 fn run(mut args: Vec<String>) -> Result<(), String> {
     if args.first().map(String::as_str) == Some("--restart-child") {
         let pid = args
@@ -25,12 +35,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         if args.len() != 4 || args[2] != "--config" {
             return Err("invalid resident invocation".into());
         }
+        use aherald::operational_log::Record;
         let path = std::path::Path::new(&args[3]);
-        return aherald::resident::run(
-            aherald::local::Scope::current(&args[1])?,
-            aherald::config::Config::load(path, true)?,
-            path,
-        );
+        let config = aherald::config::Config::load(path, true)
+            .inspect_err(|_| log_code(path, Record::InvalidConfiguration))?;
+        return aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path)
+            .inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
     }
     if args.first().map(String::as_str) == Some("--display-child") {
         if args.len() != 3 || args[1] != "--config" {
@@ -85,7 +95,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     } else {
         None
     };
-    let config = aherald::config::Config::load(&path, cli.config.is_some())?;
+    let config = aherald::config::Config::load(&path, cli.config.is_some()).inspect_err(|_| {
+        log_code(
+            &path,
+            aherald::operational_log::Record::InvalidConfiguration,
+        )
+    })?;
     if let Some(pause_sec) = cli.demo_pause_sec {
         return aherald::resident::run_demo(config, &path, pause_sec);
     }

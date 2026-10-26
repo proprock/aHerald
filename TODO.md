@@ -434,7 +434,11 @@ An implementation alone is not evidence of Windows visual acceptance.
   event; lifecycle, tray and leak tests and standard Cargo checks pass.
   Source: `audit-20261026.md` P1, P2, A6, E7.
 
-- [ ] **AH-043 — Report configuration errors and guard Restart.**
+- [x] **AH-043 — Report configuration errors and guard Restart.**
+  Done: `invalid configuration: <table.key> <reason>` messages without values (see
+  `docs/configuration.md`); tray Restart validates first and shows the error on the
+  details card; fixed log codes for invalid configuration, render fallback/failure,
+  resident startup failure and usage failure. Original brief:
   Parsing reports only "invalid configuration fields" and validation one generic
   message; the resident and Restart run without a console, so errors vanish and an
   invalid file makes Restart exit silently. Name the failing field and reason

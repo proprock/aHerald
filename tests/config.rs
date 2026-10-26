@@ -239,3 +239,51 @@ fn partial_wait_configuration_keeps_indefinite_duration() {
     .unwrap();
     assert_eq!(config.events["permission_required"].duration_ms, 0);
 }
+
+#[test]
+fn invalid_configuration_names_the_field_and_reason_without_echoing_values() {
+    let dir = PathBuf::from(".");
+    let cases = [
+        ("[notifications]\nscale = 99", "notifications.scale", "99"),
+        (
+            "[notifications]\nscale = \"SECRETVALUE\"",
+            "notifications.scale",
+            "SECRETVALUE",
+        ),
+        ("[general]\nbogus = true", "general.bogus", "true"),
+        (
+            "[general]\nmode = \"SECRETMODE\"",
+            "general.mode",
+            "SECRETMODE",
+        ),
+        (
+            "[events.turn_complete]\nduration_ms = 987654321987",
+            "events.turn_complete.duration_ms",
+            "987654321987",
+        ),
+        (
+            "[resident]\nauto_start = true",
+            "resident.auto_start",
+            "true",
+        ),
+        ("[events.nope]\nenabled = true", "events.nope", "nope\""),
+        (
+            "[claude.usage]\nrefresh_interval_sec = 60",
+            "claude.usage.refresh_interval_sec",
+            "= 60",
+        ),
+        (
+            "[tray]\ngraph = \"SECRETGRAPH\"",
+            "tray.graph",
+            "SECRETGRAPH",
+        ),
+    ];
+    for (text, field, secret) in cases {
+        let error = Config::parse(text, &dir).unwrap_err();
+        assert!(error.contains(field), "{text}: {error}");
+        assert!(!error.contains(secret), "{text} echoed a value: {error}");
+    }
+    let error = Config::parse("[notifications\nSECRETLINE", &dir).unwrap_err();
+    assert!(error.contains("line 1"), "{error}");
+    assert!(!error.contains("SECRETLINE"), "{error}");
+}

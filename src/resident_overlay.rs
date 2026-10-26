@@ -72,6 +72,9 @@ struct Ui {
     render_failed: bool,
     timer_ms: Option<u32>,
     tooltip: String,
+    /// Replaces the usage card text, e.g. a refused Restart; cleared when the card closes.
+    notice: Option<String>,
+    usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
     countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
@@ -104,6 +107,9 @@ impl Ui {
     }
     /// Details of the agent chosen from the menu.
     fn card_text(&self) -> String {
+        if let Some(notice) = &self.notice {
+            return notice.clone();
+        }
         match &self.claude {
             Some(claude) if self.usage_claude => claude.card_text(),
             _ => self.usage.card_text(),
@@ -119,6 +125,14 @@ impl Ui {
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
+    /// Fixed operational codes only; never payloads or external error text.
+    fn log(&self, record: crate::operational_log::Record) {
+        let _ = crate::operational_log::Log::new(
+            &self.config.diagnostic_directory,
+            &self.config.general.logging,
+        )
+        .record(record);
+    }
     /// A card that cannot be drawn must not end the resident: hide the window, keep
     /// the queue and retry from scratch on the next wake.
     fn draw(&mut self, hwnd: HWND) {
@@ -131,11 +145,7 @@ impl Ui {
                 let _ = ShowWindow(hwnd, SW_HIDE);
             }
             if !std::mem::replace(&mut self.render_failed, true) {
-                let _ = crate::operational_log::Log::new(
-                    &self.config.diagnostic_directory,
-                    &self.config.general.logging,
-                )
-                .record(crate::operational_log::Record::RenderFailure);
+                self.log(crate::operational_log::Record::RenderFailure);
             }
         } else {
             self.render_failed = false;
@@ -185,6 +195,23 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
+            // One log line per failing episode, never per poll.
+            let failing = [
+                self.codex_shown() && self.usage.view().error.is_some(),
+                self.claude
+                    .as_ref()
+                    .is_some_and(|c| c.view().error.is_some()),
+            ];
+            for (was, now) in self.usage_failing.iter_mut().zip(failing) {
+                if now && !*was {
+                    let _ = crate::operational_log::Log::new(
+                        &self.config.diagnostic_directory,
+                        &self.config.general.logging,
+                    )
+                    .record(crate::operational_log::Record::UsageFailure);
+                }
+                *was = now;
+            }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
                 &self.usage.view(),
@@ -227,6 +254,9 @@ impl Ui {
             )
         };
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
+        if !self.usage_window {
+            self.notice = None;
+        }
         if self.usage_window {
             if self.selection != entry.as_ref().map(|e| e.id) {
                 self.usage_surface = None;
@@ -331,6 +361,9 @@ impl Ui {
             self.width = composed.surfaces[0].width;
             self.height = composed.surfaces[0].height;
             self.text_left = composed.text_left;
+            if composed.degraded {
+                self.log(crate::operational_log::Record::RenderFallback);
+            }
             self.durations = composed.durations;
             self.looping = composed.looping;
             self.surfaces = composed.surfaces;
@@ -522,6 +555,23 @@ impl Ui {
                 });
             }
             RESTART => {
+                // A replacement that cannot load its configuration would exit silently
+                // and leave no resident: validate first and keep this one running.
+                if let Err(error) = Config::load(&self.config_path, true) {
+                    self.log(crate::operational_log::Record::InvalidConfiguration);
+                    self.notice = Some(format!(
+                        "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                    ));
+                    if let Ok(mut state) = self.shared.lock() {
+                        state.queue.show_usage();
+                    }
+                    self.usage_text = self.card_text();
+                    self.usage_page = 0;
+                    self.usage_surface = None;
+                    self.selection = None;
+                    self.placement = None;
+                    return;
+                }
                 let stop = self.stop.clone();
                 let window = hwnd.0 as isize;
                 std::thread::spawn(move || match crate::restart::launch() {
@@ -534,6 +584,7 @@ impl Ui {
                 });
             }
             SUMMARY | CLAUDE_SUMMARY => {
+                self.notice = None;
                 let claude = command == CLAUDE_SUMMARY;
                 if let Ok(mut state) = self.shared.lock() {
                     // The same line closes its open card; the other line switches agents.
@@ -788,6 +839,8 @@ pub(super) fn run_preview(
         render_failed: false,
         timer_ms: None,
         tooltip: String::new(),
+        notice: None,
+        usage_failing: [false; 2],
         demo,
         countdown: None,
         source_labels: crate::session_source::Service::codex(),

@@ -690,6 +690,8 @@ pub(crate) struct Composition {
     pub durations: Vec<u64>,
     pub looping: bool,
     pub text_left: i32,
+    /// Artwork was available but the text card was used instead.
+    pub degraded: bool,
 }
 impl Composition {
     /// Sizes the card by the largest artwork frame and composes every frame. Artwork
@@ -721,6 +723,7 @@ impl Composition {
                     durations: art.durations_ms.clone(),
                     looping: art.looping,
                     text_left: art_width + padding * 2,
+                    degraded: false,
                 });
             }
         }
@@ -730,6 +733,7 @@ impl Composition {
             durations: vec![1000],
             looping: false,
             text_left,
+            degraded: art.is_some_and(|a| !a.frames.is_empty()),
         })
     }
 }
@@ -778,6 +782,7 @@ fn show_with_source(
             durations: frame_durations,
             looping,
             text_left,
+            ..
         } = Composition::compose(scale, prepared.as_ref(), make_card)?;
         let (width, height) = (surfaces[0].width, surfaces[0].height);
         let position = POINT::default();
@@ -911,6 +916,7 @@ mod composition_tests {
             (c.surfaces.len(), c.surfaces[0].width, c.text_left),
             (1, 320, 22)
         );
+        assert!(c.degraded, "a fallback with artwork available is reported");
     }
     #[test]
     fn missing_artwork_uses_text_card_and_text_failure_is_an_error() {

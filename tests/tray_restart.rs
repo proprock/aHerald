@@ -115,3 +115,81 @@ fn restart_changes_pid_reloads_config_and_preserves_isolated_namespace() {
         "replacement must own the singleton"
     );
 }
+
+#[test]
+fn restart_with_invalid_configuration_keeps_the_resident_serving_and_reports_the_error() {
+    let scope = Scope::current(&format!("restart-invalid-{}", std::process::id())).unwrap();
+    let root = std::env::temp_dir().join(&scope.namespace);
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[notifications]\nenabled=false\n[sounds]\nenabled=false",
+    )
+    .unwrap();
+    struct Cleanup(Scope, std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+    let _cleanup = Cleanup(scope.clone(), root);
+    let Response::Status { pid: old, .. } = aherald::resident::ensure(
+        std::path::Path::new(env!("CARGO_BIN_EXE_aherald")),
+        &config,
+        &scope,
+    )
+    .unwrap() else {
+        panic!()
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let hwnd = loop {
+        let h = window(old);
+        if !h.is_invalid() {
+            break h;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    };
+    let restart = || unsafe {
+        PostMessageW(
+            Some(hwnd),
+            WM_COMMAND,
+            WPARAM(aherald::tray::RESTART),
+            LPARAM(0),
+        )
+        .unwrap();
+    };
+    std::fs::write(&config, "[notifications]\nscale = 99").unwrap();
+    restart();
+    // The error card is shown even though event visuals are disabled.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        assert!(Instant::now() < deadline, "restart error was not shown");
+        std::thread::yield_now();
+    }
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(),
+        Response::Status { pid, .. } if pid == old
+    ));
+    assert!(!window(old).is_invalid());
+    // Once the file is fixed, Restart works again.
+    std::fs::write(&config, "[sounds]\nenabled=false").unwrap();
+    restart();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(Response::Status { pid, .. }) =
+            pipe::request(&scope, &Request::Status, Duration::from_millis(100))
+            && pid != old
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "restart did not publish a replacement"
+        );
+        std::thread::yield_now();
+    }
+}
