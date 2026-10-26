@@ -499,3 +499,15 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   fade alpha and invalidation. Not covered by an automated test: the present-call count
   of the live window. Original brief: see TODO.md history; source `audit-20261026.md`
   A6, E7, P2.
+
+- [x] **AH-057 — Reentrancy-safe resident Ui (split from AH-051).** Depends on AH-051.
+  The resident window now owns `Ui` behind a `reentry::Gate`: the procedure borrows it
+  only when no handler is active, so messages that `ShowWindow`/`SetWindowTextW` send
+  during `draw` are kept (identical ones merged, backlog capped at 64) and handled after
+  it, and the tray popup menu's nested loop runs with the gate open. The tray
+  `TaskbarCreated` id lives outside `Ui`. `presenter::sound_slots`/`MAX_SOUNDS` replace the
+  inline 4-sound cap. Tests: `tests/reentry.rs` (gate), `sound_slots_cap_concurrent_playback`,
+  and a debug-build native test that sends a message mid-draw (`aherald.fault` = `reenter`).
+  Limit: aliasing undefined behavior is not observable at run time, so the native test
+  proves the deferral path stays alive, not the absence of aliasing. Source:
+  `audit-20261026.md` E7, A6.

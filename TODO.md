@@ -68,15 +68,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
   Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
 
-- [ ] **AH-057 — Reentrancy-safe resident Ui (split from AH-051).**
-  Depends on AH-051. Stop the resident window procedure from forming `&mut Ui` while
-  `draw` already holds one across the reentrant `ShowWindow`/`SetWindowTextW`: either touch
-  `Ui` only for an explicit message list, or split tray state from drawing state (the
-  transient procedure in `overlay.rs` already documents its workaround). Also move the
-  sound selection (`take_unannounced`, the 4-sound cap) out of `Ui::draw_now` into the
-  presenter. Acceptance: a test that sends reentrant messages during `draw`; lifecycle,
-  tray and leak tests; standard Cargo checks. Source: `audit-20261026.md` E7, A6.
-
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
