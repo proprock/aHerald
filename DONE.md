@@ -457,3 +457,15 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   a card raised its terminal window; two Desktop sessions answered with a delay produced two
   cards, and each click switched to its own session. Not verified: Windows Terminal and two
   terminal windows (tracked in AH-056).
+
+- [x] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
+  `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
+  `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
+  in `.credentials.json`. Agreed exception to the token-reading rule (see AGENTS.md):
+  token used only for that call, never logged, stored or refreshed. Parsing, credential,
+  status and driver behavior are tested with fakes (no network). Live check 2026-10-25
+  (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
+  `five_hour`/`seven_day` `{utilization, resets_at}`; a stale token gave 401. Tested with
+  Claude Code 2.1.310. Manual 2026-10-25/27: separate Claude menu line, details card with
+  plan, 5h/Week, Extra usage and Spend, forced refresh on opening details, and tray
+  tooltip/menu/card with both agents enabled.

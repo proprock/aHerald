@@ -55,19 +55,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
-  `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
-  `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
-  in `.credentials.json`. Agreed exception to the token-reading rule (see AGENTS.md):
-  token used only for that call, never logged, stored or refreshed. Parsing, credential,
-  status and driver behavior are tested with fakes (no network). Live check on
-  2026-10-25 (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
-  `five_hour`/`seven_day` `{utilization, resets_at}` as assumed (a stale token gave 401).
-  Tested with Claude Code 2.1.310. Manually confirmed 2026-10-25: separate Claude menu
-  line (alphabetical before Codex), details card with plan, 5h/Week, Extra usage and Spend,
-  forced refresh on opening details. Remaining: confirm the tray
-  tooltip/menu/card with both agents enabled.
-
 - [ ] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
   Depends on AH-055. Only the classic console host was checked live. With Windows Terminal
   installed, confirm that a Claude CLI card raises the Windows Terminal window (the hook
@@ -100,7 +87,9 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
 
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
-  `docs/claude-hooks.md`, "Manual checks"), which was not run. Done: redirect policy
+  `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
+  machine had no proxy (`netsh winhttp` direct, `ProxyEnable=0`, no PAC), and direct
+  access works. Needs a machine with a manual or PAC proxy. Done: redirect policy
   "never" plus 3xx mapped to "Claude usage request redirected (refused)", proven by a
   loopback test where a 302 gets exactly one request; `AUTOMATIC_PROXY`; `Wiped`
   buffers for the credentials file, token and headers (copies made by the parser,
