@@ -54,8 +54,12 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   hook): the `Stop` payload matched the documented fields (`hook_event_name`,
   `session_id`, plus extras that are ignored); `aherald --hook --agent claude --resident`
   exited 0 with empty stdout.
-  Remaining: capture `Notification`/`StopFailure`/`PermissionRequest` payloads
-  (need an interactive session) and run the manual overlay check.
+  Live check 2026-10-26 (interactive session): `PermissionRequest`, `Notification`
+  (`permission_prompt`) and `Stop` payloads matched the doc; cards for permission
+  required and turn complete appeared. The pair arrived 6 s apart and showed two cards;
+  fixed by letting an unresolved Claude card absorb repeats (`tests/queue.rs`).
+  Remaining: capture `idle_prompt` (not seen after 60 s of waiting) and `StopFailure`
+  payloads, and recheck that the permission pair now shows one card with the fixed build.
 
 - [ ] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
   `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
@@ -141,6 +145,14 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   test-only helpers only where tests need them. Acceptance: configuration format and
   behavior are unchanged; invalid values still fail validation; standard Cargo
   checks. Source: `audit-20261026.md` A2, A5, A7.
+
+- [ ] **AH-053 — Test the transient placement mutex timeout race (split from AH-047).**
+  Depends on AH-047. Transient cards serialize placement with a named mutex held until
+  the card is shown, with a 500 ms wait. No test covers two hook processes where the
+  second hits that timeout. Add one that holds the mutex past the timeout and asserts
+  the waiting process still shows its card (or degrades as designed) without hanging
+  or leaking the handle. Acceptance: the test fails if the timeout path blocks or
+  drops the card; standard Cargo checks.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
