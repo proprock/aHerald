@@ -494,8 +494,13 @@ An implementation alone is not evidence of Windows visual acceptance.
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
-- [ ] **AH-046 — Accept concurrent hook bursts.** Depends on AH-010.
-  The resident pipe has one instance; busy clients retry with 10 ms sleeps, the
+- [x] **AH-046 — Accept concurrent hook bursts.** Depends on AH-010.
+  Done: `sixteen_concurrent_hooks_reach_one_resident_exactly_once` (tests/resident.rs)
+  starts 16 `resident::forward` calls together against a cold resident; all succeed
+  and one resident queues all 16. No event was lost in 28 runs at 16 hooks or 8 runs at
+  48, so the server (single pipe instance, `ensure` before send) is unchanged; the
+  test guards it, and `WaitNamedPipeW` or several instances stay the fallback if a
+  slower machine loses events. Original brief: The resident pipe has one instance; busy clients retry with 10 ms sleeps, the
   status probe allows 30 ms and the event 150 ms, and each forward makes two round
   trips. Parallel subagent hooks may start extra residents or drop notifications
   while the hook still reports success. First add a test that forwards 16 hook
