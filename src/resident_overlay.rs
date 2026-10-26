@@ -2,7 +2,7 @@
 use crate::{
     animation::PreparedAnimation,
     config::Config,
-    notification::overlay::{CardText, Surface},
+    notification::overlay::{CardText, Composition, Surface},
     resident::Shared,
 };
 use std::{
@@ -21,6 +21,16 @@ use windows::{
     },
     core::{PCWSTR, w},
 };
+/// Debug builds only: lets native tests inject a render failure by writing its name
+/// to `aherald.fault` beside the configuration (isolated per resident instance).
+#[cfg(debug_assertions)]
+fn fault(directory: &std::path::Path, name: &str) -> bool {
+    std::fs::read_to_string(directory.join("aherald.fault")).is_ok_and(|v| v.trim() == name)
+}
+#[cfg(not(debug_assertions))]
+fn fault(_: &std::path::Path, _: &str) -> bool {
+    false
+}
 type RenderResult = (u64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
@@ -59,6 +69,7 @@ struct Ui {
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
+    render_failed: bool,
     demo: Option<crate::demo::Demo>,
     countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
@@ -233,74 +244,43 @@ impl Ui {
             self.countdown = None;
             self.layout_count = count;
             self.placement = None;
-            let pad = (18.0 * self.scale) as i32;
-            let aw = self
-                .art
-                .as_ref()
-                .and_then(|a| a.frames.first())
-                .map(|f| f.width as i32)
-                .unwrap_or(0);
-            let ah = self
-                .art
-                .as_ref()
-                .and_then(|a| a.frames.first())
-                .map(|f| f.height as i32)
-                .unwrap_or(0);
-            self.width = (320.0 * self.scale) as i32 + if aw > 0 { aw + pad } else { 0 };
-            self.height = ((110.0 * self.scale) as i32).max(ah + if ah > 0 { pad * 2 } else { 0 });
-            self.text_left = if aw > 0 {
-                aw + pad * 2
-            } else {
-                (22.0 * self.scale) as i32
-            };
             let source = &controls.heading;
-            let card = Surface::card(
-                self.width,
-                self.height,
-                self.scale,
-                self.text_left,
-                CardText {
-                    source,
-                    label: entry.event.kind.label(),
-                    navigation: controls.navigation,
-                    dismiss_button: controls.dismiss_button,
-                    color: self.config.event_color(entry.event.kind),
-                    background_color: self.config.event_background_color(entry.event.kind),
-                },
-            )?;
-            self.durations = vec![1000];
-            self.looping = false;
-            let bytes = self.width as u64
-                * self.height as u64
-                * 4
-                * self.art.as_ref().map(|a| a.frames.len()).unwrap_or(1) as u64;
-            let composed = self
-                .art
-                .as_ref()
-                .filter(|_| bytes <= crate::animation::MAX_BYTES)
-                .map(|a| {
-                    a.frames
-                        .iter()
-                        .map(|f| card.with_artwork(f, pad, (self.height - f.height as i32) / 2))
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .transpose()?;
-            self.surfaces = if let Some(frames) = composed.filter(|f| !f.is_empty()) {
-                if let Some(a) = &self.art {
-                    self.durations = a.durations_ms.clone();
-                    self.looping = a.looping;
+            let scale = self.scale;
+            let config = &self.config;
+            let kind = entry.event.kind;
+            let composed = Composition::compose(scale, self.art.as_deref(), |w, h, left| {
+                // Debug-build fault injection: artwork-sized cards fail to build.
+                if fault(&config.diagnostic_directory, "compose") && left != (22.0 * scale) as i32 {
+                    return Err("injected composition failure".into());
                 }
-                frames
-            } else {
-                vec![card]
-            };
+                Surface::card(
+                    w,
+                    h,
+                    scale,
+                    left,
+                    CardText {
+                        source,
+                        label: kind.label(),
+                        navigation: controls.navigation,
+                        dismiss_button: controls.dismiss_button,
+                        color: config.event_color(kind),
+                        background_color: config.event_background_color(kind),
+                    },
+                )
+            })?;
+            self.width = composed.surfaces[0].width;
+            self.height = composed.surfaces[0].height;
+            self.text_left = composed.text_left;
+            self.durations = composed.durations;
+            self.looping = composed.looping;
+            self.surfaces = composed.surfaces;
             let title: Vec<u16> = format!("{} - {}", source, entry.event.kind.label(),)
                 .encode_utf16()
                 .chain(Some(0))
                 .collect();
+            // The title is informational; a failure must not stop the card.
             unsafe {
-                SetWindowTextW(hwnd, PCWSTR(title.as_ptr()))
-                    .map_err(|_| "cannot update event title")?;
+                let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
             }
         }
         let frame = crate::animation::frame_index(
@@ -320,6 +300,9 @@ impl Ui {
         let placement = match self.placement {
             Some(p) => p,
             None => {
+                if fault(&self.config.diagnostic_directory, "placement") {
+                    return Err("injected placement failure".into());
+                }
                 let p = crate::placement::current(
                     &self.config.notifications,
                     (self.width, self.height),
@@ -628,11 +611,22 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
                     ui.input(msg, wp, lp);
                 }
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                    ui.tray.take();
-                    let _ = DestroyWindow(hwnd);
+                // A card that cannot be drawn must not end the resident: hide the
+                // window, keep the queue and retry from scratch on the next tick.
+                if ui.draw(hwnd).is_err() {
+                    ui.selection = None;
+                    ui.placement = None;
+                    ui.surfaces.clear();
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                    if !std::mem::replace(&mut ui.render_failed, true) {
+                        let _ = crate::operational_log::Log::new(
+                            &ui.config.diagnostic_directory,
+                            &ui.config.general.logging,
+                        )
+                        .record(crate::operational_log::Record::RenderFailure);
+                    }
+                } else {
+                    ui.render_failed = false;
                 }
                 return LRESULT(0);
             }
@@ -746,6 +740,7 @@ pub(super) fn run_preview(
         usage_surface: None,
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
+        render_failed: false,
         demo,
         countdown: None,
         source_labels: crate::session_source::Service::codex(),

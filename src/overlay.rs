@@ -684,6 +684,56 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
     }
 }
 
+/// Card frames shared by the transient and resident windows.
+pub(crate) struct Composition {
+    pub surfaces: Vec<Surface>,
+    pub durations: Vec<u64>,
+    pub looping: bool,
+    pub text_left: i32,
+}
+impl Composition {
+    /// Sizes the card by the largest artwork frame and composes every frame. Artwork
+    /// over the byte budget or any composition failure falls back to the plain text
+    /// card; only a failing text card is an error.
+    pub(crate) fn compose(
+        scale: f64,
+        art: Option<&crate::animation::PreparedAnimation>,
+        make_card: impl Fn(i32, i32, i32) -> Result<Surface, String>,
+    ) -> Result<Self, String> {
+        let (base_width, base_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
+        if let Some(art) = art.filter(|a| !a.frames.is_empty()) {
+            let padding = (18.0 * scale) as i32;
+            let art_width = art.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
+            let art_height = art.frames.iter().map(|f| f.height).max().unwrap_or(0) as i32;
+            let width = base_width + art_width + padding;
+            let height = base_height.max(art_height + padding * 2);
+            let bytes = width as u64 * height as u64 * 4 * art.frames.len() as u64;
+            if bytes <= crate::animation::MAX_BYTES
+                && let Ok(card) = make_card(width, height, art_width + padding * 2)
+                && let Ok(surfaces) = art
+                    .frames
+                    .iter()
+                    .map(|f| card.with_artwork(f, padding, (height - f.height as i32) / 2))
+                    .collect::<Result<Vec<_>, _>>()
+            {
+                return Ok(Self {
+                    surfaces,
+                    durations: art.durations_ms.clone(),
+                    looping: art.looping,
+                    text_left: art_width + padding * 2,
+                });
+            }
+        }
+        let text_left = (22.0 * scale) as i32;
+        Ok(Self {
+            surfaces: vec![make_card(base_width, base_height, text_left)?],
+            durations: vec![1000],
+            looping: false,
+            text_left,
+        })
+    }
+}
+
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     show_with_source(event, config, crate::session_source::Service::codex())
 }
@@ -696,7 +746,6 @@ fn show_with_source(
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let scale = config.notifications.scale;
-        let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = event.kind.label();
         let source = source_labels.label(event);
         let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
@@ -724,41 +773,12 @@ fn show_with_source(
                 .ok()
                 .and_then(Result::ok)
                 .flatten();
-        let mut surfaces = Vec::new();
-        let mut frame_durations = vec![1000];
-        let mut looping = false;
-        let mut text_left = (22.0 * scale) as i32;
-        if let Some(animation) = prepared {
-            let padding = (18.0 * scale) as i32;
-            let art_width = animation.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
-            let art_height = animation.frames.iter().map(|f| f.height).max().unwrap_or(0) as i32;
-            let width = fallback_width + art_width + padding;
-            let height = fallback_height.max(art_height + padding * 2);
-            let bytes = width as u64 * height as u64 * 4 * animation.frames.len() as u64;
-            if !animation.frames.is_empty() && bytes <= crate::animation::MAX_BYTES {
-                let card = make_card(width, height, art_width + padding * 2)?;
-                let composed = animation
-                    .frames
-                    .iter()
-                    .map(|frame| {
-                        card.with_artwork(frame, padding, (height - frame.height as i32) / 2)
-                    })
-                    .collect::<Result<Vec<_>, _>>();
-                if let Ok(frames) = composed {
-                    text_left = art_width + padding * 2;
-                    surfaces = frames;
-                    frame_durations = animation.durations_ms;
-                    looping = animation.looping;
-                }
-            }
-        }
-        if surfaces.is_empty() {
-            surfaces.push(make_card(
-                fallback_width,
-                fallback_height,
-                (22.0 * scale) as i32,
-            )?);
-        }
+        let Composition {
+            surfaces,
+            durations: frame_durations,
+            looping,
+            text_left,
+        } = Composition::compose(scale, prepared.as_ref(), make_card)?;
         let (width, height) = (surfaces[0].width, surfaces[0].height);
         let position = POINT::default();
         let placement =
@@ -845,6 +865,58 @@ fn show_with_source(
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod composition_tests {
+    use super::{Composition, Surface};
+    use crate::animation::{PreparedAnimation, PreparedFrame};
+    fn frame(width: u32, height: u32) -> PreparedFrame {
+        PreparedFrame {
+            width,
+            height,
+            bgra: vec![255; (width * height * 4) as usize],
+        }
+    }
+    fn art(sizes: &[(u32, u32)]) -> PreparedAnimation {
+        PreparedAnimation {
+            frames: sizes.iter().map(|&(w, h)| frame(w, h)).collect(),
+            durations_ms: vec![40; sizes.len()],
+            looping: true,
+        }
+    }
+    fn card(width: i32, height: i32, left: i32) -> Result<Surface, String> {
+        Surface::text(width, height, 1.0, "Codex", "Turn complete", left)
+    }
+    #[test]
+    fn card_is_sized_by_the_largest_frame() {
+        let c = Composition::compose(1.0, Some(&art(&[(40, 40), (64, 150)])), card).unwrap();
+        assert_eq!(c.surfaces.len(), 2);
+        assert!(c.surfaces.iter().all(|s| (s.width, s.height) == (402, 186)));
+        assert_eq!((c.text_left, c.looping), (100, true));
+        assert_eq!(c.durations, [40, 40]);
+    }
+    #[test]
+    fn failing_card_or_artwork_falls_back_to_one_text_card() {
+        let wide = |w: i32, h: i32, l: i32| {
+            if w > 320 {
+                Err("injected".into())
+            } else {
+                card(w, h, l)
+            }
+        };
+        let c = Composition::compose(1.0, Some(&art(&[(40, 40)])), wide).unwrap();
+        assert_eq!(
+            (c.surfaces.len(), c.surfaces[0].width, c.text_left),
+            (1, 320, 22)
+        );
+    }
+    #[test]
+    fn missing_artwork_uses_text_card_and_text_failure_is_an_error() {
+        let c = Composition::compose(1.0, None, card).unwrap();
+        assert_eq!(c.surfaces.len(), 1);
+        assert!(Composition::compose(1.0, None, |_, _, _| Err("boom".into())).is_err());
     }
 }
 

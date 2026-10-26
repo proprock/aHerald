@@ -12,6 +12,7 @@ pub enum Record {
     IpcFailure,
     QueueRejected,
     AgentActivationFailure,
+    RenderFailure,
 }
 impl Record {
     fn message(&self) -> (u8, &'static str) {
@@ -21,6 +22,7 @@ impl Record {
             Self::IpcFailure => (2, "warn ipc_failure"),
             Self::AgentActivationFailure => (2, "warn agent_activation_failed"),
             Self::QueueRejected => (2, "warn queue_rejected"),
+            Self::RenderFailure => (2, "warn render_failed"),
         }
     }
 }

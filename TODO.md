@@ -384,7 +384,13 @@ An implementation alone is not evidence of Windows visual acceptance.
   cross-agent isolation, the duplicate pair, and a later sound after a hidden
   persistent card; standard Cargo checks. Source: `audit-20261026.md` E1.
 
-- [ ] **AH-041 — Keep the resident alive on card render failures.** Depends on AH-021.
+- [x] **AH-041 — Keep the resident alive on card render failures.** Depends on AH-021.
+  Done: shared `Composition::compose` (largest frame, byte budget, text fallback) used by
+  both modes; a resident draw failure hides the window, logs `render_failed` once,
+  keeps the queue and retries next tick. Placement failure shows no card until placement
+  succeeds (no fabricated position). Native fault tests use a debug-build-only
+  `aherald.fault` file beside the configuration. Transient already cached countdown
+  frames, set the title and scaled mouse input. Original brief:
   Card, artwork, placement and countdown errors propagate through `Ui::draw` and
   stop the resident, while transient mode falls back to a text card. Extract one
   card composition shared by both modes: size by the largest frame, enforce the
