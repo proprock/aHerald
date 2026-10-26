@@ -136,14 +136,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   behavior are unchanged; invalid values still fail validation; standard Cargo
   checks. Source: `audit-20261026.md` A2, A5, A7.
 
-- [ ] **AH-053 — Test the transient placement mutex timeout race (split from AH-047).**
-  Depends on AH-047. Transient cards serialize placement with a named mutex held until
-  the card is shown, with a 500 ms wait. No test covers two hook processes where the
-  second hits that timeout. Add one that holds the mutex past the timeout and asserts
-  the waiting process still shows its card (or degrades as designed) without hanging
-  or leaking the handle. Acceptance: the test fails if the timeout path blocks or
-  drops the card; standard Cargo checks.
-
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,

@@ -469,3 +469,11 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Claude Code 2.1.310. Manual 2026-10-25/27: separate Claude menu line, details card with
   plan, 5h/Week, Extra usage and Spend, forced refresh on opening details, and tray
   tooltip/menu/card with both agents enabled.
+
+- [x] **AH-053 — Test the transient placement mutex timeout race (split from AH-047).**
+  Depends on AH-047. `tests/native_overlay.rs` holds the session-wide placement mutex from
+  the test process, delivers a transient card and asserts that the card still appears
+  (after the 500 ms wait) while the lock is held, then dismisses it and observes a clean
+  exit. Checked by mutation: a placement wait that never times out makes the test fail
+  with "card missing". Card-showing tests in that file now run one at a time because they
+  share that mutex and screen area.
