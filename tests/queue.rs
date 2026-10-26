@@ -256,3 +256,18 @@ fn announcements_respect_the_limit_and_skip_usage() {
     assert_eq!(q.take_unannounced(2).len(), 1);
     assert!(q.take_unannounced(2).is_empty());
 }
+
+#[test]
+fn time_spent_idle_never_counts_against_a_new_cards_display_time() {
+    // Resident mode ticks every 15 s while idle (usage polling), so the first tick after a
+    // card arrives sees a large gap since the previous tick.
+    let mut q = Queue::new(8, 0);
+    q.tick(0, false);
+    q.tick(15_000, false);
+    assert!(q.push(event(Kind::TurnComplete, "idle-gap"), 22_000, 3000));
+    q.tick(22_010, false);
+    q.tick(25_009, false);
+    assert_eq!(q.items().len(), 1, "card expired before its duration");
+    q.tick(25_010, false);
+    assert!(q.items().is_empty());
+}
