@@ -147,7 +147,12 @@ impl Queue {
         if self.is_obsolete(&event) {
             return false;
         }
-        if self.is_duplicate(&event, now) {
+        // Claude's PermissionRequest and permission_prompt Notification for one prompt can
+        // arrive seconds apart (6 s observed), so an unresolved card absorbs the repeat.
+        let repeats_open_claude_wait = event.source == Source::ClaudeHook
+            && pending(&event)
+            && self.items.iter().any(|e| same(&e.event, &event));
+        if repeats_open_claude_wait || self.is_duplicate(&event, now) {
             for (e, t) in &mut self.history {
                 if same(e, &event) {
                     *t = now;

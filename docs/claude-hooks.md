@@ -1,7 +1,10 @@
 # Claude Code hook adapter
 
-Source: <https://code.claude.com/docs/en/hooks> (read 2026-10-25). Payloads below were taken from the
-documentation, not yet captured from a live Claude Code session; verify against your installed version.
+Source: <https://code.claude.com/docs/en/hooks> (read 2026-10-25). Live captures on 2026-10-26
+(interactive Claude Code): `PermissionRequest`, `Notification` with `notification_type =
+permission_prompt` and `Stop` carried `hook_event_name` and `session_id` and no turn id, as
+documented. `idle_prompt` and `StopFailure` are still unobserved; verify against your installed version.
+`PermissionRequest` and the `permission_prompt` notification arrived 6 s apart for one prompt.
 
 ## Setup (manual)
 
@@ -35,9 +38,10 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 - Claude events carry no turn id, so correlation is per `session_id`: `Stop`/`StopFailure`
   resolves that session's pending permission/input cards (never another session's or
-  Codex's, and even when those events are disabled), and repeated `permission_required`
-  events of one session within `deduplicate_ms` share one card (covers a
-  `PermissionRequest` + `Notification` pair).
+  Codex's, and even when those events are disabled), and a repeated pending event of one
+  session joins that session's unresolved card at any delay (covers the
+  `PermissionRequest` + `Notification` pair, seen 6 s apart). A second prompt in the same
+  session shows a new card only after `Stop`/`StopFailure` or dismissal of the first.
 - Every new event plays its sound once, even when a persistent card keeps the selection.
 - Click-to-activate and session names are Codex-only; Claude cards show "Claude".
 - Subagent events (`SubagentStop`) and `SessionEnd` are not covered yet.
