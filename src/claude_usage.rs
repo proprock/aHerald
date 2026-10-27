@@ -257,6 +257,7 @@ impl<F: FnMut() -> Result<Snapshot, Error>> ClaudeSource<F> {
 }
 impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
     fn read(&mut self, _now: Duration) -> Result<Snapshot, Error> {
+        let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
         (self.fetch)()
     }
 }

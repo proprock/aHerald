@@ -457,6 +457,7 @@ impl Surface {
         Ok((width, height))
     }
     pub(crate) fn present(&self, window: HWND, position: POINT, alpha: u8) -> Result<(), String> {
+        let _timer = crate::perf::span(crate::perf::Span::FramePresent);
         let size = SIZE {
             cx: self.width,
             cy: self.height,
@@ -687,6 +688,8 @@ impl Composition {
         art: Option<std::sync::Arc<crate::animation::PreparedAnimation>>,
         make_card: impl Fn(i32, i32, i32) -> Result<Surface, String>,
     ) -> Result<Self, String> {
+        let _timer = crate::perf::span(crate::perf::Span::CompositionBuild);
+        crate::perf::count(crate::perf::Counter::CompositionRebuild);
         let (base_width, base_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let has_art = art.as_ref().is_some_and(|a| !a.frames.is_empty());
         if let Some(art) = art.as_ref().filter(|a| !a.frames.is_empty()) {
@@ -700,6 +703,7 @@ impl Composition {
                 && let Ok(base) = make_card(width, height, art_width + padding * 2)
                 && let Ok(work) = Surface::allocate(width, height)
             {
+                crate::perf::gauge(crate::perf::Gauge::CompositionBytes, bytes);
                 return Ok(Self {
                     base,
                     work,
@@ -714,6 +718,10 @@ impl Composition {
             }
         }
         let text_left = (22.0 * scale) as i32;
+        crate::perf::gauge(
+            crate::perf::Gauge::CompositionBytes,
+            base_width as u64 * base_height as u64 * 4 * 2,
+        );
         Ok(Self {
             base: make_card(base_width, base_height, text_left)?,
             work: Surface::allocate(base_width, base_height)?,
@@ -742,6 +750,7 @@ impl Composition {
     ) -> Result<&Surface, String> {
         let frame = frame.min(self.frame_count() - 1);
         if self.shown != Some((frame, seconds)) {
+            let _timer = crate::perf::span(crate::perf::Span::FrameRender);
             self.shown = None;
             match &self.art {
                 Some(art) => {

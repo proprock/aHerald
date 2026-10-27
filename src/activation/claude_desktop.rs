@@ -30,6 +30,7 @@ pub fn local_session_id(root: &Path, cli_session_id: &str) -> Option<String> {
         #[serde(rename = "cliSessionId")]
         cli_session_id: Option<String>,
     }
+    let _timer = crate::perf::span(crate::perf::Span::SessionLookup);
     let mut files = Vec::new();
     collect(root, 0, &mut files);
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));

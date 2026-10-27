@@ -74,6 +74,24 @@ fn a_window_is_flushed_by_the_first_sample_after_it_elapses_and_then_starts_over
 }
 
 #[test]
+fn an_idle_thread_closes_an_elapsed_window_without_a_new_sample() {
+    let mut c = Collector::new();
+    let t = Instant::now();
+    feed(&mut c, Span::Placement, &[500], t);
+    let mut out = Vec::new();
+    c.flush_expired(t + WINDOW / 2, &mut out);
+    assert!(out.is_empty(), "the window is still open");
+    c.flush_expired(t + WINDOW, &mut out);
+    assert_eq!(out.len(), 1);
+    c.flush_expired(t + WINDOW * 3, &mut out);
+    assert_eq!(
+        out.len(),
+        1,
+        "nothing is pending, so nothing more is written"
+    );
+}
+
+#[test]
 fn spans_are_reported_separately_and_idle_ones_not_at_all() {
     let mut c = Collector::new();
     let t = Instant::now();

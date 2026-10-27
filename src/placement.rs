@@ -175,6 +175,7 @@ pub(crate) fn current(
     size: (i32, i32),
     avoid_cards: Option<isize>,
 ) -> Result<(i32, i32, i32, i32), String> {
+    let _timer = crate::perf::span(crate::perf::Span::Placement);
     let Target {
         area,
         dpi_scale,

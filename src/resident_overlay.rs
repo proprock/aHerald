@@ -202,6 +202,11 @@ impl Ui {
         if wanted == self.timer_ms {
             return;
         }
+        if wanted != Some(16) {
+            // The animation burst is over; close its performance window now rather than
+            // at the next card.
+            crate::perf::flush();
+        }
         // SAFETY: the timer belongs to this GUI thread's window.
         unsafe {
             match wanted {

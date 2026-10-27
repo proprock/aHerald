@@ -73,6 +73,7 @@ fn console_owner() -> Option<u64> {
 }
 
 fn process_table() -> Option<Vec<(u32, u32)>> {
+    let _timer = crate::perf::span(crate::perf::Span::ProcessScan);
     // SAFETY: the snapshot handle is owned by `Handle`; the entry buffer outlives each call.
     unsafe {
         let snapshot = Handle(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?);

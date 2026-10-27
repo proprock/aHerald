@@ -16,7 +16,6 @@ const SLOW_REPEAT: Duration = Duration::from_secs(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Span {
     IpcHandle,
-    QueueWait,
     ProcessScan,
     SessionLookup,
     ArtworkPrepare,
@@ -28,9 +27,8 @@ pub enum Span {
     AudioLoad,
     ConfigReload,
 }
-const SPANS: [Span; 12] = [
+const SPANS: [Span; 11] = [
     Span::IpcHandle,
-    Span::QueueWait,
     Span::ProcessScan,
     Span::SessionLookup,
     Span::ArtworkPrepare,
@@ -46,7 +44,6 @@ impl Span {
     pub fn name(self) -> &'static str {
         match self {
             Self::IpcHandle => "ipc.handle",
-            Self::QueueWait => "queue.wait",
             Self::ProcessScan => "scan.process",
             Self::SessionLookup => "scan.session",
             Self::ArtworkPrepare => "artwork.prepare",
@@ -65,8 +62,7 @@ impl Span {
             Self::FrameRender | Self::FramePresent => 33,
             Self::IpcHandle | Self::Placement => 50,
             Self::ProcessScan | Self::ConfigReload => 100,
-            Self::QueueWait | Self::CompositionBuild | Self::AudioLoad => 250,
-            Self::SessionLookup => 250,
+            Self::CompositionBuild | Self::AudioLoad | Self::SessionLookup => 250,
             Self::ArtworkPrepare => 500,
             Self::UsagePoll => 5000,
         }
@@ -246,6 +242,15 @@ impl Collector {
             self.flush(out);
         }
     }
+    /// For a thread that has gone quiet: closes a window that has already elapsed.
+    pub fn flush_expired(&mut self, now: Instant, out: &mut Vec<Record>) {
+        if self
+            .window_start
+            .is_some_and(|start| now.duration_since(start) >= WINDOW)
+        {
+            self.flush(out);
+        }
+    }
     /// Emits everything collected so far and starts a new window.
     pub fn flush(&mut self, out: &mut Vec<Record>) {
         self.window_start = None;
@@ -346,6 +351,12 @@ pub fn gauge(gauge: Gauge, value: u64) {
         let now = Instant::now();
         with_local(|c, out| c.gauge(gauge, value, now, out));
     }
+}
+/// Cheap check for loops that wake periodically: writes the pending samples once their
+/// window has elapsed, even if no new sample arrives.
+pub fn tick() {
+    let now = Instant::now();
+    with_local(|c, out| c.flush_expired(now, out));
 }
 /// Writes this thread's pending samples. Call before a thread goes idle or stops: a
 /// window is otherwise only closed by the next sample.

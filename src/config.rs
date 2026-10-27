@@ -488,6 +488,7 @@ impl Config {
         Ok(config)
     }
     pub fn load(path: &Path, explicit: bool) -> Result<Self, String> {
+        let _timer = crate::perf::span(crate::perf::Span::ConfigReload);
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if !explicit && error.kind() == std::io::ErrorKind::NotFound => {

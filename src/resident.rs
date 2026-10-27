@@ -189,7 +189,9 @@ fn run_with_usage(
         let _ = ready_tx.send(Ok(()));
         log(Record::Started);
         while !shutdown.load(Ordering::Acquire) {
+            crate::perf::tick();
             let result = server.serve_until(&listener_stop, |request| {
+                let _timer = crate::perf::span(crate::perf::Span::IpcHandle);
                 let Ok(mut state) = state.lock() else {
                     return Response::Rejected;
                 };
