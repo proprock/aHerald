@@ -487,6 +487,9 @@ impl Surface {
 }
 struct State {
     composition: Composition,
+    /// Configured scale times the DPI scale the card was drawn at.
+    render_scale: f64,
+    config: Config,
     frame_durations: Vec<u64>,
     looping: bool,
     notifications: crate::config::Notifications,
@@ -543,7 +546,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     if source != state.controls.heading {
                         let updated = state.composition.update_heading(
                             &source,
-                            state.notifications.scale,
+                            state.render_scale,
                             state.background_color,
                         );
                         match updated {
@@ -563,15 +566,30 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                             }
                         }
                     }
-                    if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE)
-                        && let Ok(p) = crate::placement::current(
+                    if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
+                        // A monitor with another DPI needs the card drawn again, not stretched.
+                        let wanted = state.notifications.scale
+                            * crate::placement::dpi_scale(&state.notifications);
+                        if (wanted - state.render_scale).abs() > 1e-9
+                            && let Ok(composition) = build_composition(
+                                &state.config,
+                                &state.event,
+                                &state.controls,
+                                wanted,
+                            )
+                        {
+                            state.frame_durations = composition.durations.clone();
+                            state.looping = composition.looping;
+                            state.composition = composition;
+                            state.render_scale = wanted;
+                        }
+                        if let Ok(p) = crate::placement::current(
                             &state.notifications,
                             state.composition.size(),
-                            state.composition.frame_count(),
                             Some(hwnd.0 as isize),
-                        )
-                    {
-                        state.placement = p;
+                        ) {
+                            state.placement = p;
+                        }
                     }
                     let (card_width, card_height) = state.composition.size();
                     let elapsed = state.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -585,7 +603,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                             state.controls.body_hit_test(
                                 card_width,
                                 card_height,
-                                state.notifications.scale,
+                                state.render_scale,
                                 x,
                                 y,
                             ),
@@ -598,7 +616,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         && state.controls.hit_test(
                             card_width,
                             card_height,
-                            state.notifications.scale,
+                            state.render_scale,
                             x,
                             y,
                         ) == Some(crate::card::Action::Dismiss)
@@ -622,11 +640,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         );
                         let result = (|| {
                             let seconds = crate::card::remaining_seconds(state.duration, elapsed);
-                            let surface = state.composition.render(
-                                frame,
-                                seconds,
-                                state.notifications.scale,
-                            )?;
+                            let surface =
+                                state
+                                    .composition
+                                    .render(frame, seconds, state.render_scale)?;
                             surface.present_placed(hwnd, state.placement, alpha)
                         })();
                         if result.is_err() {
@@ -794,6 +811,43 @@ fn placement_guard() -> Option<crate::local::Ownership> {
     }
 }
 
+/// Draws the card for `event` at `scale` (configured scale times the monitor's DPI
+/// scale). Artwork is prepared on a helper thread, as asset decoding stays off the
+/// thread that owns the window.
+fn build_composition(
+    config: &Config,
+    event: &Event,
+    controls: &crate::card::Card,
+    scale: f64,
+) -> Result<Composition, String> {
+    let make_card = |width, height, text_left| {
+        Surface::card(
+            width,
+            height,
+            scale,
+            text_left,
+            CardText {
+                source: &controls.heading,
+                label: event.kind.label(),
+                navigation: false,
+                dismiss_button: controls.dismiss_button,
+                color: config.event_color(event.kind),
+                background_color: config.event_background_color(event.kind),
+            },
+        )
+    };
+    let assets = config.clone();
+    let asset_event = event.clone();
+    let prepared = std::thread::spawn(move || {
+        crate::artwork::prepared_for_event(&assets, &asset_event, scale)
+    })
+    .join()
+    .ok()
+    .and_then(Result::ok)
+    .flatten();
+    Composition::compose(scale, prepared.map(std::sync::Arc::new), make_card)
+}
+
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     show_with_source(event, config, crate::session_source::Service::codex())
 }
@@ -805,36 +859,12 @@ fn show_with_source(
     // SAFETY: all Win32 objects are created/used/destroyed on this thread; boxed State outlives Window.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let scale = config.notifications.scale;
+        // The card is drawn at the DPI of the monitor it will appear on.
+        let scale = config.notifications.scale * crate::placement::dpi_scale(&config.notifications);
         let label = event.kind.label();
         let source = source_labels.label(event);
         let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
-        let make_card = |width, height, text_left| {
-            Surface::card(
-                width,
-                height,
-                scale,
-                text_left,
-                CardText {
-                    source: &source,
-                    label,
-                    navigation: false,
-                    dismiss_button: controls.dismiss_button,
-                    color: config.event_color(event.kind),
-                    background_color: config.event_background_color(event.kind),
-                },
-            )
-        };
-        let assets = config.clone();
-        let asset_event = event.clone();
-        let prepared =
-            std::thread::spawn(move || crate::artwork::prepared_for_event(&assets, &asset_event))
-                .join()
-                .ok()
-                .and_then(Result::ok)
-                .flatten();
-        let composition =
-            Composition::compose(scale, prepared.map(std::sync::Arc::new), make_card)?;
+        let composition = build_composition(config, event, &controls, scale)?;
         let (frame_durations, looping) = (composition.durations.clone(), composition.looping);
         let (width, height) = composition.size();
         let position = POINT::default();
@@ -842,15 +872,12 @@ fn show_with_source(
         // until this card is visible so the next process sees it. A timeout only risks
         // an overlap, never a missing card.
         let placing = placement_guard();
-        let placement = crate::placement::current(
-            &config.notifications,
-            (width, height),
-            composition.frame_count(),
-            Some(0),
-        )?;
+        let placement = crate::placement::current(&config.notifications, (width, height), Some(0))?;
         let mut state = Box::new(State {
             background_color: config.event_background_color(event.kind),
             composition,
+            render_scale: scale,
+            config: config.clone(),
             frame_durations,
             looping,
             notifications: config.notifications.clone(),
@@ -1456,6 +1483,34 @@ mod card_tests {
             );
             let cycle = || {
                 let card = Surface::text(320, 110, 1.0, "Codex", "Error", 22).unwrap();
+                let mut animated = super::Composition::compose(
+                    1.0,
+                    Some(std::sync::Arc::new(crate::animation::PreparedAnimation {
+                        frames: (0..4)
+                            .map(|i| crate::animation::PreparedFrame {
+                                width: 8,
+                                height: 8,
+                                bgra: vec![i; 8 * 8 * 4],
+                            })
+                            .collect(),
+                        durations_ms: vec![40; 4],
+                        looping: true,
+                    })),
+                    |w, h, left| Surface::text(w, h, 1.0, "Codex", "Error", left),
+                )
+                .unwrap();
+                for frame in 0..8 {
+                    animated
+                        .render(frame, Some(3 - frame as u64 % 3), 1.0)
+                        .unwrap();
+                }
+                animated
+                    .update_heading(
+                        "Codex: renamed",
+                        1.0,
+                        crate::config::Notifications::default().background_color,
+                    )
+                    .unwrap();
                 let mut shown = Surface::allocate(320, 110).unwrap();
                 shown.copy_from(&card);
                 shown.draw_countdown(3, 1.0).unwrap();

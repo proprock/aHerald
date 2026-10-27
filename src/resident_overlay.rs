@@ -33,13 +33,14 @@ fn fault(directory: &std::path::Path, name: &str) -> bool {
 fn fault(_: &std::path::Path, _: &str) -> bool {
     false
 }
-type RenderResult = (u64, Option<Arc<PreparedAnimation>>);
+/// Event id, the render scale the artwork was prepared at, and the artwork.
+type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
     config: Config,
     scale: f64,
-    jobs: Option<mpsc::SyncSender<(u64, crate::events::Event)>>,
+    jobs: Option<mpsc::SyncSender<(u64, crate::events::Event, f64)>>,
     results: mpsc::Receiver<RenderResult>,
     composition: Option<Composition>,
     durations: Vec<u64>,
@@ -134,6 +135,20 @@ impl Ui {
             self.config.general.logging,
         )
         .record(record);
+    }
+    /// Redraws everything at the DPI of the monitor the next card will appear on. Cards
+    /// are drawn at that DPI rather than stretched, so a monitor change or a DPI change
+    /// invalidates the composed card, its artwork and the usage card.
+    fn refresh_scale(&mut self, dpi_scale: f64) {
+        let wanted = self.config.notifications.scale * dpi_scale;
+        if (wanted - self.scale).abs() > 1e-9 {
+            self.scale = wanted;
+            self.art = None;
+            self.pending = true;
+            self.composition = None;
+            self.usage_surface = None;
+            self.relayout();
+        }
     }
     /// The window position is stale: place it again and present the next frame.
     fn relayout(&mut self) {
@@ -307,6 +322,9 @@ impl Ui {
             return Ok(());
         }
         let changed = self.selection != Some(entry.id);
+        if changed || self.placement.is_none() {
+            self.refresh_scale(crate::placement::dpi_scale(&self.config.notifications));
+        }
         if changed {
             self.selection = Some(entry.id);
             self.art = None;
@@ -314,18 +332,24 @@ impl Ui {
             self.animation_start = now;
         }
         if self.pending
-            && self
-                .jobs
-                .as_ref()
-                .is_some_and(|tx| tx.try_send((entry.id, entry.event.clone())).is_ok())
+            && self.jobs.as_ref().is_some_and(|tx| {
+                tx.try_send((entry.id, entry.event.clone(), self.scale))
+                    .is_ok()
+            })
         {
             self.pending = false;
         }
         let mut loaded = false;
-        while let Ok((id, art)) = self.results.try_recv() {
-            if Some(id) == self.selection {
+        while let Ok((id, scale, art)) = self.results.try_recv() {
+            if Some(id) != self.selection {
+                continue;
+            }
+            if scale == self.scale {
                 self.art = art;
                 loaded = true;
+            } else {
+                // Prepared for a monitor the card has since left: ask again.
+                self.pending = true;
             }
         }
         let source = self.source_labels.label(&entry.event);
@@ -337,6 +361,7 @@ impl Ui {
         );
         if changed
             || loaded
+            || self.composition.is_none()
             || self.layout_count != count
             || self.source_heading != controls.heading
         {
@@ -408,7 +433,6 @@ impl Ui {
                 let p = crate::placement::current(
                     &self.config.notifications,
                     (self.width, self.height),
-                    self.composition.as_ref().map_or(1, |c| c.frame_count()),
                     None,
                 )?;
                 self.placement = Some(p);
@@ -437,6 +461,10 @@ impl Ui {
         if self.layout_count != count {
             self.layout_count = count;
             self.invalidate_usage();
+        }
+        if self.usage_surface.is_none() || self.placement.is_none() {
+            let dpi = self.tray.as_ref().map_or(1.0, |t| t.card_dpi_scale());
+            self.refresh_scale(dpi);
         }
         // Measuring needs a DC, DIB and font, so layout is cached with the surface.
         if self.usage_surface.is_none() {
@@ -840,23 +868,31 @@ pub(super) fn run_preview(
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
     };
-    let (jobs_tx, jobs_rx) = mpsc::sync_channel::<(u64, crate::events::Event)>(1);
+    let (jobs_tx, jobs_rx) = mpsc::sync_channel::<(u64, crate::events::Event, f64)>(1);
     let (results_tx, results_rx) = mpsc::sync_channel(1);
     let assets = config.clone();
     let done = stop.clone();
     let worker = std::thread::spawn(move || {
-        let mut cache =
-            crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
+        let new_cache =
+            || crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
+        let mut cache = new_cache();
+        // Artwork is prepared for one render scale at a time; another monitor's DPI
+        // starts a fresh cache rather than mixing scales.
+        let mut cached_scale = 0.0;
         while !done.load(Ordering::Acquire) {
             match jobs_rx.recv_timeout(std::time::Duration::from_millis(30)) {
-                Ok((id, event)) => {
+                Ok((id, event, scale)) => {
+                    if scale != cached_scale {
+                        cache = new_cache();
+                        cached_scale = scale;
+                    }
                     let art =
                         cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
-                            crate::artwork::prepared_for_event(&assets, &event)
+                            crate::artwork::prepared_for_event(&assets, &event, scale)
                                 .ok()
                                 .flatten()
                         });
-                    let mut result = (id, art);
+                    let mut result = (id, scale, art);
                     loop {
                         match results_tx.try_send(result) {
                             Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => break,

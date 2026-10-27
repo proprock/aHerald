@@ -7,7 +7,8 @@ pub struct Area {
     pub bottom: i32,
 }
 
-/// Fit the entire card, retaining aspect ratio, into physical work-area pixels.
+/// Fit the entire card, retaining aspect ratio, into physical work-area pixels. The
+/// card is drawn at 96 DPI and enlarged by `dpi_scale`.
 pub fn layout(
     a: Area,
     size: (i32, i32),
@@ -15,9 +16,32 @@ pub fn layout(
     position: Position,
     cursor: (i32, i32),
 ) -> (i32, i32, i32, i32) {
+    place(a, size, dpi_scale, dpi_scale, position, cursor)
+}
+
+/// Like `layout`, for a card already drawn at the monitor's DPI: its pixels are
+/// physical, so it is only ever shrunk (to fit), and `dpi_scale` scales the margins.
+pub fn layout_rendered(
+    a: Area,
+    size: (i32, i32),
+    dpi_scale: f64,
+    position: Position,
+    cursor: (i32, i32),
+) -> (i32, i32, i32, i32) {
+    place(a, size, 1.0, dpi_scale, position, cursor)
+}
+
+fn place(
+    a: Area,
+    size: (i32, i32),
+    zoom: f64,
+    dpi_scale: f64,
+    position: Position,
+    cursor: (i32, i32),
+) -> (i32, i32, i32, i32) {
     let aw = (i64::from(a.right) - i64::from(a.left)).max(1) as f64;
     let ah = (i64::from(a.bottom) - i64::from(a.top)).max(1) as f64;
-    let factor = dpi_scale
+    let factor = zoom
         .min(aw / size.0.max(1) as f64)
         .min(ah / size.1.max(1) as f64);
     let w = (size.0 as f64 * factor).floor().max(1.0) as i32;
@@ -127,15 +151,51 @@ fn transient_cards(exclude: isize) -> Vec<Area> {
     search.found
 }
 
-/// Placement for a card. `avoid_cards` is `Some(own_window)` (0 before the window exists)
-/// to stack clear of other transient cards; the resident's single window passes `None`.
+/// Work area, DPI scale (1.0 at 96 DPI) and cursor position of the monitor that would
+/// show a card now.
+#[cfg(windows)]
+struct Target {
+    area: Area,
+    dpi_scale: f64,
+    cursor: (i32, i32),
+}
+
+/// DPI scale of the monitor a card would be shown on, to draw the card at that DPI.
+#[cfg(windows)]
+pub(crate) fn dpi_scale(config: &crate::config::Notifications) -> f64 {
+    target(config).map_or(1.0, |t| t.dpi_scale)
+}
+
+/// Placement for a card drawn at `dpi_scale(config)`, so its size is in physical pixels.
+/// `avoid_cards` is `Some(own_window)` (0 before the window exists) to stack clear of
+/// other transient cards; the resident's single window passes `None`.
 #[cfg(windows)]
 pub(crate) fn current(
     config: &crate::config::Notifications,
     size: (i32, i32),
-    frames: usize,
     avoid_cards: Option<isize>,
 ) -> Result<(i32, i32, i32, i32), String> {
+    let Target {
+        area,
+        dpi_scale,
+        cursor,
+    } = target(config)?;
+    let (x, y, w, h) = layout_rendered(area, size, dpi_scale, config.position, cursor);
+    let (x, y) = match avoid_cards {
+        Some(own) => stack(
+            (x, y, w, h),
+            area,
+            &transient_cards(own),
+            config.position,
+            8,
+        ),
+        None => (x, y),
+    };
+    Ok((x, y, w, h))
+}
+
+#[cfg(windows)]
+fn target(config: &crate::config::Notifications) -> Result<Target, String> {
     use windows::Win32::{
         Foundation::*,
         Graphics::Gdi::*,
@@ -198,27 +258,10 @@ pub(crate) fn current(
             right: a.right,
             bottom: a.bottom,
         };
-        let (x, y, w, h) = layout(
+        Ok(Target {
             area,
-            size,
-            (dx.max(96) as f64 / 96.0).min(
-                (crate::animation::MAX_BYTES as f64
-                    / (size.0 as f64 * size.1 as f64 * 4.0 * frames.max(1) as f64))
-                    .sqrt(),
-            ),
-            config.position,
-            (cursor.x, cursor.y),
-        );
-        let (x, y) = match avoid_cards {
-            Some(own) => stack(
-                (x, y, w, h),
-                area,
-                &transient_cards(own),
-                config.position,
-                8,
-            ),
-            None => (x, y),
-        };
-        Ok((x, y, w, h))
+            dpi_scale: dx.max(96) as f64 / 96.0,
+            cursor: (cursor.x, cursor.y),
+        })
     }
 }

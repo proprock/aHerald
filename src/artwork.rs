@@ -46,26 +46,43 @@ pub fn prepare(
     event: &Event,
     builtin_root: &Path,
 ) -> Result<Option<crate::animation::PreparedAnimation>, String> {
+    prepare_at(config, event, builtin_root, config.notifications.scale)
+}
+
+/// Prepares artwork at an explicit render scale (the configured scale times the
+/// monitor's DPI scale). Artwork too large to prepare at that scale is prepared at the
+/// configured scale instead, so a high-DPI monitor never costs the picture.
+pub fn prepare_at(
+    config: &Config,
+    event: &Event,
+    builtin_root: &Path,
+    scale: f64,
+) -> Result<Option<crate::animation::PreparedAnimation>, String> {
     let Some(animation) = resolve(config, event, builtin_root)? else {
         return Ok(None);
     };
-    let prepare = |a: Animation| {
-        a.prepare(
-            config.notifications.scale,
-            config.notifications.interpolation == crate::config::Interpolation::Bilinear,
-        )
-        .ok()
+    let bilinear = config.notifications.interpolation == crate::config::Interpolation::Bilinear;
+    let base = config.notifications.scale;
+    // Preparing consumes the animation, so a retry at the configured scale reloads it.
+    let at_base = |load: &dyn Fn() -> Option<Animation>| {
+        (scale > base)
+            .then(|| load().and_then(|a| a.prepare(base, bilinear).ok()))
+            .flatten()
     };
-    Ok(prepare(animation).or_else(|| {
-        Animation::load(&builtin_root.join(event.kind.name()))
-            .ok()
-            .and_then(prepare)
-    }))
+    let selected = || resolve(config, event, builtin_root).ok().flatten();
+    let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
+    Ok(animation
+        .prepare(scale, bilinear)
+        .ok()
+        .or_else(|| at_base(&selected))
+        .or_else(|| builtin().and_then(|a| a.prepare(scale, bilinear).ok()))
+        .or_else(|| at_base(&builtin)))
 }
 
 pub fn prepared_for_event(
     config: &Config,
     event: &Event,
+    scale: f64,
 ) -> Result<Option<crate::animation::PreparedAnimation>, String> {
-    prepare(config, event, &builtin_root()?)
+    prepare_at(config, event, &builtin_root()?, scale)
 }
