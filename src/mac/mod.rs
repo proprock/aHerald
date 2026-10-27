@@ -1,4 +1,5 @@
 //! macOS implementation of the native presentation layer (AH-062).
+pub mod audio;
 pub mod geometry;
 pub mod image;
 pub mod input;
