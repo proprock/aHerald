@@ -23,11 +23,16 @@ payload piped to `--hook`, 10 runs each, wall time including process start:
 All runs exited 0 and printed `{}`. `--quit` returned in 22-53 ms and `--status` then
 reported `{"running":false}`. The latencies are far below the three-second Codex hook timeout.
 
-One anomaly: in the first measurement a resident that was already running (pid not started
-by the script, queue empty) answered every hook with `aHerald: local pipe error (800700e9)`
-on stderr. Hooks still returned in 29-45 ms with exit 0, so delivery degraded safely, but
-the instance was quit by the script and the cause is unknown. It did not recur in three
-later runs with fresh residents. Not investigated further.
+One anomaly, explained: in the first measurement the owner's live resident (installed in
+local appdata, built before the card redesign) answered every hook with `aHerald: local pipe
+error (800700e9)` on stderr, and its log shows ten `ipc_failure` lines. Cause: the new hook
+sends the `folder` event field (92f12fa) and `Event` had `deny_unknown_fields`, so the older
+resident rejected the frame and closed the pipe. Hooks still returned in 29-45 ms with exit
+0, but the events were lost, which is what happens when a hook is upgraded while an older
+resident keeps running. Fixed: `Event` now ignores unknown fields (test
+`an_event_frame_with_a_field_this_build_does_not_know_still_decodes`, red before the
+change). Residents built before this fix still need a restart after an upgrade. The
+measurement script's `--quit` stopped that live resident.
 
 ## Not covered (still open for AH-023)
 

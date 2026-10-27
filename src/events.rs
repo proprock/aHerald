@@ -90,8 +90,9 @@ impl Kind {
         }
     }
 }
+/// Unknown fields are ignored so a resident left running from an older build still accepts
+/// events from a newer hook (the request wrapper stays strict).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Event {
     pub kind: Kind,
     pub source: Source,

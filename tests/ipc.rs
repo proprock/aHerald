@@ -188,3 +188,21 @@ fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
     assert!(idle_for >= Duration::from_millis(250));
     assert!(served);
 }
+
+#[test]
+fn an_event_frame_with_a_field_this_build_does_not_know_still_decodes() {
+    use aherald::{events::Event, ipc::Request};
+    // A hook from a newer build may add event fields; a resident that is still running from
+    // an older build must keep taking its events instead of closing the pipe on them.
+    let event = Event::demo("turn_complete").unwrap();
+    let mut json = serde_json::to_value(Request::Event {
+        event: event.clone(),
+    })
+    .unwrap();
+    json["event"]["added_by_a_newer_build"] = serde_json::json!(true);
+    let frame = ipc::encode(&json).unwrap();
+    match ipc::decode::<Request>(&frame).unwrap() {
+        Request::Event { event: decoded } => assert_eq!(decoded, event),
+        _ => panic!("expected an event request"),
+    }
+}
