@@ -12,7 +12,11 @@ fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
+    // A hook that rejects its arguments exits without reading stdin; the closed pipe is not a failure.
+    match child.stdin.take().unwrap().write_all(input) {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+        result => result.unwrap(),
+    }
     child.wait_with_output().unwrap()
 }
 
