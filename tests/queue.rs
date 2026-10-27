@@ -8,6 +8,29 @@ fn event(kind: Kind, session: &str) -> Event {
     e
 }
 #[test]
+fn flood_and_duplicate_storm_stay_bounded_and_allow_recovery() {
+    let mut queue = Queue::new(64, 60_000);
+    let repeated = event(Kind::PermissionRequired, "duplicate");
+    for i in 0..10_000 {
+        queue.push(repeated.clone(), i, 0);
+        queue.push(event(Kind::Error, &format!("session-{i}")), i, 0);
+        assert!(queue.items().len() <= 64);
+    }
+    assert_eq!(
+        queue
+            .items()
+            .iter()
+            .filter(|e| e.event.session_id.as_deref() == Some("duplicate"))
+            .count(),
+        1
+    );
+    while !queue.items().is_empty() {
+        queue.dismiss();
+    }
+    assert!(queue.push(event(Kind::PermissionRequired, "recovered"), 70_001, 0));
+    assert_eq!(queue.items().len(), 1);
+}
+#[test]
 fn priority_fifo_and_overflow_preserve_unrelated_sessions() {
     let mut q = Queue::new(3, 1000);
     assert!(q.push(event(Kind::Interrupted, "low"), 0, 3000));

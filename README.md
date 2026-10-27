@@ -88,6 +88,23 @@ replayed on resume; at most four pending audio jobs are retained and playback is
 serialized. Exit also closes open information windows and releases owned resources.
 The icon is restored on `TaskbarCreated` and retried if Explorer is absent.
 
+Resident artwork is cached by agent/signal in a 16-entry, 32 MiB LRU, including
+text fallback for invalid resources. Restart the resident after replacing assets.
+The IPC worker writes fixed operational codes to `aherald.log` beside the config,
+controlled by `general.logging` (default `warn`; `off` disables it). It keeps one
+64 KiB file and one 64 KiB backup, `aherald.previous.log`. Logs contain timestamps,
+severity and fixed codes, without payloads, paths, credentials or session IDs.
+An unwritable log directory leaves notification delivery working.
+See [resource limits and recovery evidence](docs/milestone-5.md).
+
+Placement supports `center`, `top_center`, `bottom_right` and `near_cursor` in the
+work area. `notifications.monitor` accepts `primary` or a zero-based numeric
+string (primary first, then Windows device-name order); an unavailable index
+falls back to primary. Numeric selection takes precedence over the cursor;
+`primary` plus `near_cursor` uses the cursor's monitor. Cards fit the work area
+and recalculate on display/DPI/work-area changes. Mixed-DPI and physical monitor
+removal remain unverified; see the Milestone 5 evidence.
+
 ## Codex pet artwork
 
 The card always shows the event source and signal text. Use `agents.codex.pet`
@@ -114,8 +131,9 @@ See [asset formats and sound scheduling](docs/assets.md) and
 manual evidence is Windows 11 build 22621, Rust 1.98.1 MSVC x64. Windows 10,
 mixed-DPI/multiple monitors and display changes remain untested. Icon restoration
 is tested by deleting the test icon and sending the real `TaskbarCreated` message;
-a complete Explorer process restart has not been performed. Explicit numbered-monitor
-selection belongs to AH-020. Each transient event owns its own overlay.
+a complete Explorer process restart has not been performed. Numbered-monitor
+selection is implemented, with physical multi-monitor acceptance still pending.
+Each transient event owns its own overlay.
 
 Original sample resources and source are MIT licensed; see [LICENSE](LICENSE)
 and [asset provenance](assets/README.md). Regenerate the resources using

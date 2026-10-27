@@ -19,6 +19,57 @@ struct Search {
     pid: u32,
     window: HWND,
 }
+
+#[test]
+#[ignore = "interactive placement preview; click the card to finish"]
+fn preview_placement() {
+    let path = std::env::temp_dir().join(format!(
+        "aherald-placement-preview-{}.toml",
+        std::process::id()
+    ));
+    std::fs::write(&path, "[notifications]\nposition='bottom_right'\nscale=1.5\n[events.permission_required]\nduration_ms=0\n[sounds]\nenabled=false").unwrap();
+    let mut child = Owned(
+        deliver(
+            &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
+            &path,
+            &Event::demo("permission_required").unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut search = Search {
+        pid: child.0.id(),
+        window: HWND::default(),
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while search.window.is_invalid() && Instant::now() < deadline {
+        unsafe {
+            let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut _ as isize));
+        }
+        std::thread::yield_now();
+    }
+    assert!(!search.window.is_invalid());
+    unsafe {
+        // Only the preview gets a taskbar entry so desktop inspection can find it.
+        let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
+        SetWindowLongPtrW(
+            search.window,
+            GWL_EXSTYLE,
+            ((style & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0) as isize,
+        );
+        let _ = ShowWindow(search.window, SW_HIDE);
+        let _ = ShowWindow(search.window, SW_SHOWNOACTIVATE);
+    }
+    let deadline = Instant::now() + Duration::from_secs(180);
+    while Instant::now() < deadline {
+        if child.0.try_wait().unwrap().is_some() {
+            let _ = std::fs::remove_file(path);
+            return;
+        }
+        std::thread::park_timeout(Duration::from_millis(50));
+    }
+    let _ = std::fs::remove_file(path);
+    panic!("preview was not dismissed");
+}
 unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
     // SAFETY: EnumWindows runs synchronously; param points to the live Search on its caller stack.
     unsafe {
@@ -63,6 +114,18 @@ fn overlay_is_nonactivating_layered_and_click_dismisses_indefinite_wait() {
         let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
         let required = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
         assert_eq!(style & required.0, required.0);
+        assert_ne!(GetForegroundWindow(), search.window);
+        let mut before = RECT::default();
+        GetWindowRect(search.window, &mut before).unwrap();
+        for message in [WM_DISPLAYCHANGE, WM_DPICHANGED, WM_SETTINGCHANGE] {
+            SendMessageW(search.window, message, Some(WPARAM(0)), Some(LPARAM(0)));
+        }
+        let mut after = RECT::default();
+        GetWindowRect(search.window, &mut after).unwrap();
+        assert_eq!(
+            (before.left, before.top, before.right, before.bottom),
+            (after.left, after.top, after.right, after.bottom)
+        );
         assert_ne!(GetForegroundWindow(), search.window);
         PostMessageW(Some(search.window), WM_LBUTTONUP, WPARAM(0), LPARAM(0)).unwrap();
     }

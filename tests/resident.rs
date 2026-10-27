@@ -7,6 +7,58 @@ use aherald::{
 use std::{path::PathBuf, time::Duration};
 
 #[test]
+fn resident_crash_restarts_and_accepts_fresh_events() {
+    use windows::Win32::{Foundation::*, System::Threading::*};
+    let scope = Scope::current(&format!("resident-crash-{}", std::process::id())).unwrap();
+    let root = std::env::temp_dir().join(&scope.namespace);
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[notifications]\nenabled=false\n[sounds]\nenabled=false",
+    )
+    .unwrap();
+    struct Cleanup(Scope, PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none()
+            {
+                std::thread::yield_now();
+            }
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+    let _cleanup = Cleanup(scope.clone(), root);
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
+    let pid = match resident::ensure(&exe, &config, &scope).unwrap() {
+        Response::Status { pid, .. } => pid,
+        _ => panic!(),
+    };
+    // SAFETY: PID was returned by this test's private resident; the handle is
+    // closed after a bounded wait. No unrelated process is terminated.
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid).unwrap();
+        TerminateProcess(handle, 1).unwrap();
+        let result = WaitForSingleObject(handle, 3000);
+        CloseHandle(handle).unwrap();
+        assert_eq!(result, WAIT_OBJECT_0);
+    }
+    resident::forward(
+        &exe,
+        &config,
+        &scope,
+        &aherald::events::Event::demo("permission_required").unwrap(),
+    )
+    .unwrap();
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(300)).unwrap(),
+        Response::Status { queued: 1, .. }
+    ));
+}
+
+#[test]
 fn disabled_terminal_cards_still_resolve_matching_waits_over_ipc() {
     let root = std::env::temp_dir().join(format!("aherald-resolved-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();

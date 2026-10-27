@@ -128,11 +128,16 @@ pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Re
 }
 impl PipeServer {
     pub fn serve_once(&self, handler: impl FnOnce(Request) -> Response) -> Result<(), String> {
-        operation(
+        match operation(
             self.handle.0,
             Instant::now() + Duration::from_millis(50),
             |ov, _| unsafe { ConnectNamedPipe(self.handle.0, Some(ov)) },
-        )?;
+        ) {
+            // An idle accept poll lets the owner check shutdown; no client failed.
+            Err(error) if error == "local pipe deadline exceeded" => return Ok(()),
+            Err(error) => return Err(error),
+            Ok(_) => (),
+        }
         let result = receive(self.handle.0)
             .and_then(|request| send(self.handle.0, &handler(request)))
             .and_then(|()| {

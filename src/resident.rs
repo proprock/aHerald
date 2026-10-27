@@ -108,7 +108,10 @@ fn run_with_usage(
     let state = shared.clone();
     let shutdown = stop.clone();
     let settings = config.clone();
+    let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
     let listener = std::thread::spawn(move || {
+        use crate::operational_log::{Log, Record};
+        let mut log = Log::new(&log_directory, &settings.general.logging);
         let server = match scope.create_pipe() {
             Ok(s) => s,
             Err(e) => {
@@ -117,8 +120,9 @@ fn run_with_usage(
             }
         };
         let _ = ready_tx.send(Ok(()));
+        let _ = log.record(Record::Started);
         while !shutdown.load(Ordering::Acquire) {
-            let _ = server.serve_once(|request| {
+            let result = server.serve_once(|request| {
                 let Ok(mut state) = state.lock() else {
                     return Response::Rejected;
                 };
@@ -161,12 +165,18 @@ fn run_with_usage(
                         {
                             Response::Accepted
                         } else {
+                            drop(state);
+                            let _ = log.record(Record::QueueRejected);
                             Response::Rejected
                         }
                     }
                 }
             });
+            if result.is_err() {
+                let _ = log.record(Record::IpcFailure);
+            }
         }
+        let _ = log.record(Record::Stopped);
     });
     let startup = ready_rx
         .recv_timeout(Duration::from_secs(1))

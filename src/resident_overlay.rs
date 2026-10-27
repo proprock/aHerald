@@ -16,13 +16,12 @@ use std::{
 use windows::{
     Win32::{
         Foundation::*,
-        Graphics::Gdi::*,
         System::LibraryLoader::GetModuleHandleW,
         UI::{HiDpi::*, WindowsAndMessaging::*},
     },
     core::{PCWSTR, w},
 };
-type RenderResult = (u64, Option<PreparedAnimation>);
+type RenderResult = (u64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
@@ -35,7 +34,7 @@ struct Ui {
     looping: bool,
     selection: Option<u64>,
     layout_count: usize,
-    art: Option<PreparedAnimation>,
+    art: Option<Arc<PreparedAnimation>>,
     start: Instant,
     animation_start: u64,
     pending: bool,
@@ -44,7 +43,8 @@ struct Ui {
     text_left: i32,
     width: i32,
     height: i32,
-    position: POINT,
+    display_size: (i32, i32),
+    placement: Option<(i32, i32, i32, i32)>,
     tray: Option<crate::tray::Icon>,
     tray_retry: u64,
     config_path: std::path::PathBuf,
@@ -151,6 +151,7 @@ impl Ui {
         }
         if changed || loaded || self.layout_count != count {
             self.layout_count = count;
+            self.placement = None;
             let pad = (18.0 * self.scale) as i32;
             let aw = self
                 .art
@@ -223,40 +224,6 @@ impl Ui {
                 SetWindowTextW(hwnd, PCWSTR(title.as_ptr()))
                     .map_err(|_| "cannot update event title")?;
             }
-            let mut cursor = POINT::default();
-            unsafe {
-                let _ = GetCursorPos(&mut cursor);
-            }
-            let point = if self.config.notifications.position == "near_cursor" {
-                cursor
-            } else {
-                POINT::default()
-            };
-            let mut info = MONITORINFO {
-                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                ..Default::default()
-            };
-            unsafe {
-                if !GetMonitorInfoW(MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY), &mut info)
-                    .as_bool()
-                {
-                    return Err("cannot locate monitor".into());
-                }
-            }
-            let a = info.rcWork;
-            let (x, y) = match self.config.notifications.position.as_str() {
-                "top_center" => ((a.left + a.right - self.width) / 2, a.top + 24),
-                "bottom_right" => (a.right - self.width - 24, a.bottom - self.height - 24),
-                "near_cursor" => (cursor.x + 16, cursor.y + 16),
-                _ => (
-                    (a.left + a.right - self.width) / 2,
-                    (a.top + a.bottom - self.height) / 2,
-                ),
-            };
-            self.position = POINT {
-                x: x.clamp(a.left, (a.right - self.width).max(a.left)),
-                y: y.clamp(a.top, (a.bottom - self.height).max(a.top)),
-            };
         }
         let frame = crate::animation::frame_index(
             &self.durations,
@@ -271,7 +238,19 @@ impl Ui {
             None,
         )
         .0;
-        self.surfaces[frame].present(hwnd, self.position, alpha)?;
+        let placement = match self.placement {
+            Some(p) => p,
+            None => {
+                let p = crate::placement::current(
+                    &self.config.notifications,
+                    (self.width, self.height),
+                    self.surfaces.len(),
+                )?;
+                self.placement = Some(p);
+                p
+            }
+        };
+        self.display_size = self.surfaces[frame].present_placed(hwnd, placement, alpha)?;
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
@@ -292,8 +271,8 @@ impl Ui {
                 _ => {}
             }
         } else {
-            let x = (lp.0 as u16) as i16 as i32;
-            let y = ((lp.0 >> 16) as u16) as i16 as i32;
+            let x = (lp.0 as u16) as i16 as i32 * self.width / self.display_size.0.max(1);
+            let y = ((lp.0 >> 16) as u16) as i16 as i32 * self.height / self.display_size.1.max(1);
             if y >= self.height - (36.0 * self.scale) as i32 && x >= self.text_left {
                 let span = (self.width - (18.0 * self.scale) as i32 - self.text_left) / 3;
                 match (x - self.text_left) / span.max(1) {
@@ -449,15 +428,21 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);
             }
-            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN if !p.is_null() => {
+            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN | WM_DISPLAYCHANGE | WM_DPICHANGED
+            | WM_SETTINGCHANGE
+                if !p.is_null() =>
+            {
                 let ui = &mut *p;
+                if matches!(msg, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
+                    ui.placement = None;
+                }
                 if ui.now() >= ui.tray_retry {
                     ui.tray_retry = ui.now().saturating_add(5000);
                     if let Some(tray) = &mut ui.tray {
                         tray.restore();
                     }
                 }
-                if msg != WM_TIMER {
+                if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
                     ui.input(msg, wp, lp);
                 }
                 if let Err(error) = ui.draw(hwnd) {
@@ -483,22 +468,30 @@ pub fn run(
 ) -> Result<(), String> {
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        config.notifications.scale * GetDpiForSystem().max(96) as f64 / 96.0
+        config.notifications.scale
     };
     let (jobs_tx, jobs_rx) = mpsc::sync_channel::<(u64, crate::events::Event)>(1);
     let (results_tx, results_rx) = mpsc::sync_channel(1);
     let assets = config.clone();
     let done = stop.clone();
     let worker = std::thread::spawn(move || {
+        let mut cache =
+            crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
         while !done.load(Ordering::Acquire) {
             match jobs_rx.recv_timeout(std::time::Duration::from_millis(30)) {
                 Ok((id, event)) => {
-                    let art = crate::pet::for_event(&assets, &event)
-                        .ok()
-                        .flatten()
-                        .and_then(|a| {
-                            a.prepare(scale, assets.notifications.interpolation == "bilinear")
+                    let art =
+                        cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
+                            crate::pet::for_event(&assets, &event)
                                 .ok()
+                                .flatten()
+                                .and_then(|a| {
+                                    a.prepare(
+                                        scale,
+                                        assets.notifications.interpolation == "bilinear",
+                                    )
+                                    .ok()
+                                })
                         });
                     let mut result = (id, art);
                     loop {
@@ -540,7 +533,8 @@ pub fn run(
         text_left: 22,
         width: 320,
         height: 110,
-        position: POINT::default(),
+        display_size: (320, 110),
+        placement: None,
         tray: None,
         tray_retry: 0,
         config_path,
