@@ -10,12 +10,17 @@ use windows::{
     core::w,
 };
 
-struct Surface {
+pub(crate) struct CardText<'a> {
+    pub source: &'a str,
+    pub label: &'a str,
+    pub navigation: bool,
+}
+pub(crate) struct Surface {
     dc: HDC,
     bitmap: HBITMAP,
     previous: HGDIOBJ,
-    width: i32,
-    height: i32,
+    pub(crate) width: i32,
+    pub(crate) height: i32,
     pixels: *mut u8,
 }
 impl Drop for Surface {
@@ -80,7 +85,7 @@ impl Surface {
             Ok((surface, bits as *mut u8))
         }
     }
-    fn with_artwork(
+    pub(crate) fn with_artwork(
         &self,
         frame: &crate::animation::PreparedFrame,
         left: i32,
@@ -123,6 +128,30 @@ impl Surface {
         label: &str,
         text_left: i32,
     ) -> Result<Self, String> {
+        Self::card(
+            width,
+            height,
+            scale,
+            text_left,
+            CardText {
+                source,
+                label,
+                navigation: false,
+            },
+        )
+    }
+    pub(crate) fn card(
+        width: i32,
+        height: i32,
+        scale: f64,
+        text_left: i32,
+        content: CardText<'_>,
+    ) -> Result<Self, String> {
+        let CardText {
+            source,
+            label,
+            navigation,
+        } = content;
         // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
         // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
         unsafe {
@@ -181,6 +210,24 @@ impl Surface {
                 &mut rect,
                 DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
             );
+            if navigation {
+                let span = (width - (18.0 * scale) as i32 - text_left) / 3;
+                for (index, label) in ["Prev", "Next", "Dismiss"].iter().enumerate() {
+                    let mut footer: Vec<u16> = label.encode_utf16().collect();
+                    let mut area = RECT {
+                        left: text_left + span * index as i32,
+                        top: height - (34.0 * scale) as i32,
+                        right: text_left + span * (index as i32 + 1),
+                        bottom: height - (10.0 * scale) as i32,
+                    };
+                    DrawTextW(
+                        dc,
+                        &mut footer,
+                        &mut area,
+                        DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
+                    );
+                }
+            }
             SelectObject(dc, old_font);
             let _ = GdiFlush();
             // GDI text writes RGB, but can clear alpha. Restore coverage, then premultiply.
@@ -196,7 +243,7 @@ impl Surface {
             Ok(surface)
         }
     }
-    fn present(&self, window: HWND, position: POINT, alpha: u8) -> Result<(), String> {
+    pub(crate) fn present(&self, window: HWND, position: POINT, alpha: u8) -> Result<(), String> {
         let size = SIZE {
             cx: self.width,
             cy: self.height,

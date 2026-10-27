@@ -1,9 +1,9 @@
 # aHerald
 
-aHerald is a portable native Windows x64 notification companion. Milestone 1
-provides detached visual and sound notifications, external PNG animation/WAV
-resources, validated TOML settings, and bounded Codex hook input. It runs without
-Codex installed. Resident/tray/IPC operation belongs to Milestone 2.
+aHerald is a portable native Windows x64 notification companion. It provides
+detached or resident notifications, external animation/WAV resources, validated
+TOML settings, and bounded Codex hook input. Resident mode adds one event card,
+a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 ## Build and verify
 
@@ -39,9 +39,41 @@ not the working directory. The default config is `%APPDATA%\aHerald\config.toml`
 a missing default file uses built-in defaults. An explicitly missing/invalid file
 is an error. No user configuration or startup entries are installed automatically.
 
-Explicit `--transient` overrides configured mode. `--resident`, `--status`, and
-`--quit` report their later-milestone status. Monitoring and usage polling are not
-implemented yet; enabling those settings does not stop transient notifications.
+Explicit `--transient` or `--resident` overrides configured mode. Monitoring and
+usage polling are not implemented yet; enabling those settings does not stop notifications.
+
+## Resident mode and tray
+
+```powershell
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --resident --event permission_required --config .\examples\resources.toml
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --resident --event input_required --config .\examples\resources.toml
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --status
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --quit
+```
+
+An event starts a detached resident when needed. `--resident` without an event
+runs the service directly. Set `[general] mode = "resident"` to use it for hooks
+as well. The first resident's configuration remains in effect until it exits;
+subsequent deliveries do not reload or replace it. No autostart is installed.
+`--status` and `--quit` address the current user's current logon and do not start
+an absent service. Status reports PID, queued count, pause, sound and visual state.
+
+The single card shows the selected event number/count and Prev/Next/Dismiss.
+Clicking its body dismisses only that event. Persistent waits can be switched
+away from. The queue holds 64 entries, ordered by priority and then arrival.
+Higher-priority overflow evicts the oldest lowest-priority entry; other overflow
+is rejected. Matching event identity is deduplicated without merging unrelated
+sessions; visible time accumulates only while an event is selected.
+
+Click or right-click the aHerald tray icon (possibly under hidden icons) for usage
+summary/details/refresh, sound, visual notifications, pause, configuration location
+and exit. Usage actions explicitly report unavailable until Milestone 4.
+Pause hides the card, cancels audio and freezes display time; incoming events
+continue to be validated and queued. Real terminal-state resolution belongs to
+Milestone 3. Runtime switches are not saved to TOML. Muted/skipped sounds are not
+replayed on resume; at most four pending audio jobs are retained and playback is
+serialized. Exit also closes open information windows and releases owned resources.
+The icon is restored on `TaskbarCreated` and retried if Explorer is absent.
 
 ## Codex pet artwork
 
@@ -63,11 +95,12 @@ Stable real-session integration is a later milestone; all five event types can
 already be exercised with `--event`.
 
 See [asset formats and sound scheduling](docs/assets.md) and
-[verification evidence and limitations](docs/milestone-1.md). Current automated and
+[Milestone 1 evidence](docs/milestone-1.md) and [resident verification](docs/milestone-2.md). Current automated and
 manual evidence is Windows 11 build 22621, Rust 1.98.1 MSVC x64. Windows 10,
-mixed-DPI/multiple monitors, display changes, and Explorer restart remain untested.
-Explicit numbered-monitor selection belongs to AH-020. Each transient event owns
-its own overlay; the single resident overlay/event navigation belongs to Milestone 2.
+mixed-DPI/multiple monitors and display changes remain untested. Icon restoration
+is tested by deleting the test icon and sending the real `TaskbarCreated` message;
+a complete Explorer process restart has not been performed. Explicit numbered-monitor
+selection belongs to AH-020. Each transient event owns its own overlay.
 
 Original sample resources and source are MIT licensed; see [LICENSE](LICENSE)
 and [asset provenance](assets/README.md). Regenerate the resources using
@@ -76,4 +109,17 @@ opt into a real audio-device check with:
 
 ```powershell
 cargo test --lib native_device_completes_original_sample -- --ignored --nocapture
+```
+
+The separate notification-area test requires an interactive Explorer desktop:
+
+```powershell
+cargo test --test tray explorer_notification -- --ignored --nocapture
+```
+
+It removes/restores only its isolated resident's icon and never restarts Explorer.
+For read-only inspection of a manually started resident's window classes/titles:
+
+```powershell
+cargo test --test tray manual_resident -- --ignored --nocapture
 ```

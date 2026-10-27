@@ -119,20 +119,20 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 2 — Resident architecture
 
-- [ ] **AH-009 — Enforce a single resident instance.** Depends on AH-008.
+- [x] **AH-009 — Enforce a single resident instance.** Depends on AH-008.
   Scope a named mutex and named pipe to the current Windows user and logon session.
   Apply appropriate security descriptors and reject remote pipe clients. Require
   no elevation. Acceptance: concurrent starts yield one resident; tests exercise
   ownership, access restrictions, and recovery after process termination.
 
-- [ ] **AH-010 — Implement bounded, versioned IPC and control operations.** Depends on AH-009.
+- [x] **AH-010 — Implement bounded, versioned IPC and control operations.** Depends on AH-009.
   Add framing, validated lengths, acknowledgement, connection/read/write deadlines,
   and bounded retries. Forward hook events, start resident when absent, and implement
   `--status`/`--quit`. Acceptance: round-trip, oversized/malformed messages,
   incompatible versions, broken connections, startup races, and graceful lifecycle
   are tested; no TCP listener exists.
 
-- [ ] **AH-011 — Queue, deduplicate, and switch notification events.** Depends on AH-010.
+- [x] **AH-011 — Queue, deduplicate, and switch notification events.** Depends on AH-010.
   Use a bounded queue with High/Medium/Low priority and FIFO within each priority.
   Show one overlay with count and navigation controls. Persistent waits must not
   prevent presentation of other events; dismissal affects only the selected event.
@@ -141,7 +141,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: simultaneous sessions, persistent events, overflow, repeated delivery,
   switching, priority, and individual dismissal are tested.
 
-- [ ] **AH-012 — Add native tray and graceful shutdown.** Depends on AH-011.
+- [x] **AH-012 — Add native tray and graceful shutdown.** Depends on AH-011.
   Use `Shell_NotifyIconW`; restore the icon after Explorer restarts. Add usage
   summary/details/refresh, sound and visual toggles, pause, configuration location,
   and exit. Pause suppresses presentation/audio while resolution processing

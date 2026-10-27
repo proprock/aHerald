@@ -2,7 +2,7 @@ use crate::{config::Config, events::Event};
 
 #[cfg(windows)]
 #[path = "overlay.rs"]
-mod overlay;
+pub(crate) mod overlay;
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     crate::process::acknowledge()?;
     #[cfg(windows)]
