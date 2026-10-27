@@ -156,6 +156,7 @@ fn owned_stdio_process_exchanges_json_bounds_input_and_is_reaped() {
     use std::process::Command;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::Threading::*;
+    const STARTUP_BOUND: Duration = Duration::from_secs(30);
     fn start(script: &str) -> StdioTransport {
         let mut command = Command::new("powershell.exe");
         command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
@@ -172,7 +173,8 @@ fn owned_stdio_process_exchanges_json_bounds_input_and_is_reaped() {
         )
         .unwrap()
     };
-    let mut client = Client::initialize(transport, Duration::from_secs(5)).unwrap();
+    // Cold PowerShell start-up on a loaded CI runner can exceed 5 s; the bound only caps a hang.
+    let mut client = Client::initialize(transport, STARTUP_BOUND).unwrap();
     assert_eq!(client.read_limits().unwrap(), json!({}));
     drop(client);
     unsafe {
@@ -184,16 +186,10 @@ fn owned_stdio_process_exchanges_json_bounds_input_and_is_reaped() {
         "[Console]::WriteLine(('x' * 262145))",
     ] {
         let mut transport = start(script);
-        assert_eq!(
-            transport.receive(Duration::from_secs(5)),
-            Err(Error::Malformed)
-        );
+        assert_eq!(transport.receive(STARTUP_BOUND), Err(Error::Malformed));
     }
     let mut transport = start("exit");
-    assert_eq!(
-        transport.receive(Duration::from_secs(5)),
-        Err(Error::Disconnected)
-    );
+    assert_eq!(transport.receive(STARTUP_BOUND), Err(Error::Disconnected));
     let mut transport = start("[Console]::ReadLine() | Out-Null");
     assert_eq!(
         transport.receive(Duration::from_millis(20)),
