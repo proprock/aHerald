@@ -328,14 +328,7 @@ fn short_reset_text(timestamp: i64) -> Option<String> {
     reset_text(timestamp).map(|s| s.chars().take(16).collect())
 }
 fn reset_text(timestamp: i64) -> Option<String> {
-    #[cfg(windows)]
-    {
-        crate::usage::local_reset(timestamp)
-    }
-    #[cfg(not(windows))]
-    {
-        Some(format!("{timestamp} (Unix UTC)"))
-    }
+    crate::usage::local_reset(timestamp)
 }
 const LIVE_POLL: Duration = Duration::from_millis(500);
 /// What a provider pushed since the last look.

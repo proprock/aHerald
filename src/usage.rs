@@ -163,6 +163,40 @@ fn merge_available(target: &mut Value, update: &Value) {
     }
 }
 
+/// `YYYY-MM-DD HH:MM:SS (UTC+HH:MM)` for `timestamp` in the local zone, with the offset in
+/// force at that instant; `None` when the platform cannot represent it.
+#[cfg(unix)]
+pub fn local_reset(timestamp: i64) -> Option<String> {
+    unsafe extern "C" {
+        // POSIX; the `libc` crate does not bind it on every target.
+        fn tzset();
+    }
+    let time = libc::time_t::try_from(timestamp).ok()?;
+    // SAFETY: `tm` is plain data that `localtime_r` fills in; `tzset` re-reads the zone so a
+    // changed `TZ` applies.
+    let tm = unsafe {
+        tzset();
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&time, &mut tm).is_null() {
+            return None;
+        }
+        tm
+    };
+    let minutes = i64::from(tm.tm_gmtoff) / 60;
+    Some(format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} (UTC{}{:02}:{:02})",
+        i64::from(tm.tm_year) + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+        if minutes < 0 { "-" } else { "+" },
+        minutes.abs() / 60,
+        minutes.abs() % 60
+    ))
+}
+
 #[cfg(windows)]
 pub fn local_reset(timestamp: i64) -> Option<String> {
     local_reset_in(timestamp, None)
