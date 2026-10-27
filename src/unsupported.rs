@@ -3,11 +3,13 @@
 //!
 //! Every function keeps the signature of its Windows twin and reports `UNSUPPORTED`
 //! (or "nothing found") instead of panicking. IPC, process spawning, HTTPS and the opener
-//! already have Unix implementations (`src/unix/`, AH-061); the resident service with its
-//! overlay and tray arrives with AH-062 (macOS) and AH-068 (Linux).
+//! already have Unix implementations (`src/unix/`, AH-061); the resident service has a macOS
+//! one (`src/mac/`, AH-062) and arrives on Linux with AH-068.
 
+#[cfg(not(target_os = "macos"))]
 pub const UNSUPPORTED: &str = "this platform is not supported yet (Windows only)";
 
+#[cfg(not(target_os = "macos"))]
 pub mod resident {
     use super::UNSUPPORTED;
     use crate::{config::Config, local::Scope};

@@ -72,6 +72,9 @@ pub mod local;
 
 pub mod ipc;
 
+#[cfg(target_os = "macos")]
+pub mod mac;
+
 #[cfg(windows)]
 pub mod resident;
 
@@ -95,5 +98,9 @@ pub mod tray_usage;
 
 #[cfg(not(windows))]
 mod unsupported;
+#[cfg(target_os = "macos")]
+pub use mac::resident;
 #[cfg(not(windows))]
-pub use unsupported::{console_window, resident};
+pub use unsupported::console_window;
+#[cfg(all(not(windows), not(target_os = "macos")))]
+pub use unsupported::resident;

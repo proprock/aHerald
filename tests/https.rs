@@ -1,4 +1,5 @@
 //! Behaviour of the bounded HTTPS GET on every platform, against a loopback HTTP endpoint.
+#![cfg(any(windows, feature = "https-client"))]
 use aherald::https::{HttpError, MAX_BODY, get_at};
 use std::{
     io::{Read, Write},
