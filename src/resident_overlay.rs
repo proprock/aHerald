@@ -48,11 +48,13 @@ struct Ui {
     tray: Option<crate::tray::Icon>,
     tray_retry: u64,
     config_path: std::path::PathBuf,
-    information: HWND,
     usage: crate::usage_service::Service,
     usage_next: u64,
     usage_window: bool,
+    activation: crate::activation::Worker,
     usage_text: String,
+    usage_page: usize,
+    usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
     demo: Option<crate::demo::Demo>,
@@ -76,13 +78,13 @@ impl Ui {
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
             if let Some(tray) = &mut self.tray {
-                tray.tooltip(&self.usage.summary());
+                tray.tooltip(&self.usage.compact(self.config.usage.display));
             }
             if self.usage_window {
-                let text = self.usage.details();
+                let text = self.usage.card_text();
                 if text != self.usage_text {
-                    crate::tray::update_information(self.information, &text);
                     self.usage_text = text;
+                    self.usage_surface = None;
                 }
             }
         }
@@ -103,6 +105,15 @@ impl Ui {
                 paused,
             )
         };
+        self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
+        if self.usage_window {
+            if self.selection != entry.as_ref().map(|e| e.id) {
+                self.usage_surface = None;
+                self.usage_page = 0;
+            }
+            self.selection = entry.as_ref().map(|e| e.id);
+            return self.draw_usage(hwnd, index, count);
+        }
         let Some(entry) = entry.filter(|_| !paused) else {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_HIDE);
@@ -295,6 +306,54 @@ impl Ui {
         }
         Ok(())
     }
+    fn draw_usage(&mut self, hwnd: HWND, index: usize, count: usize) -> Result<(), String> {
+        let (heading, body) = self
+            .usage_text
+            .split_once('\n')
+            .unwrap_or((&self.usage_text, ""));
+        let pages = crate::usage_service::card_pages(body);
+        self.usage_page = self.usage_page.min(pages.len() - 1);
+        let controls = crate::card::Card::new(heading, index, count, true);
+        if self.layout_count != count {
+            self.layout_count = count;
+            self.usage_surface = None;
+        }
+        self.width = (760.0 * self.scale) as i32;
+        self.height = Surface::body_height(
+            self.width - (40.0 * self.scale) as i32,
+            self.scale,
+            &pages[self.usage_page],
+        )? + (94.0 * self.scale) as i32;
+        if self.usage_surface.is_none() {
+            self.usage_surface = Some(Surface::card(
+                self.width,
+                self.height,
+                self.scale,
+                (22.0 * self.scale) as i32,
+                CardText {
+                    source: &controls.heading,
+                    label: &pages[self.usage_page],
+                    navigation: controls.navigation,
+                    dismiss_button: false,
+                    color: crate::config::Color([80, 165, 250]),
+                },
+            )?);
+        }
+        let placement = self
+            .tray
+            .as_ref()
+            .ok_or("tray unavailable")?
+            .card_placement((self.width, self.height))?;
+        self.display_size = self
+            .usage_surface
+            .as_ref()
+            .ok_or("usage surface unavailable")?
+            .present_placed(hwnd, placement, 255)?;
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
+        Ok(())
+    }
     fn input(&mut self, message: u32, wp: WPARAM, lp: LPARAM) {
         let mut state = match self.shared.lock() {
             Ok(s) => s,
@@ -316,8 +375,19 @@ impl Ui {
                 "",
                 state.queue.selected_index(),
                 state.queue.items().len(),
-                self.config.notifications.click_to_dismiss,
+                self.usage_window || self.config.notifications.click_to_dismiss,
             );
+            if let Some(entry) = state.queue.selected() {
+                self.activation.submit(
+                    &entry.event,
+                    self.config.notifications.activate_agent_on_click,
+                    controls.body_hit_test(self.width, self.height, self.scale, x, y),
+                    self.config_path
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new(".")),
+                    &self.config.general.logging,
+                );
+            }
             match controls.hit_test(self.width, self.height, self.scale, x, y) {
                 Some(crate::card::Action::Previous) => state.queue.next(-1),
                 Some(crate::card::Action::Next) => state.queue.next(1),
@@ -326,7 +396,7 @@ impl Ui {
             }
         }
     }
-    fn command(&mut self, hwnd: HWND, command: usize) {
+    fn command(&mut self, _hwnd: HWND, command: usize) {
         use crate::tray::*;
         match command {
             SOUND | VISUAL | PAUSE => {
@@ -348,42 +418,34 @@ impl Ui {
                     }
                 }
             }
-            REFRESH => self.usage.refresh(),
-            SUMMARY | DETAILS | CONFIG => {
-                unsafe {
-                    if IsWindow(Some(self.information)).as_bool() {
-                        let _ = DestroyWindow(self.information);
+            CONFIG => {
+                let path = self.config_path.clone();
+                std::thread::spawn(move || {
+                    if let Err(error) = crate::shell::edit_configuration(&path) {
+                        eprintln!("aHerald: {error}");
+                    }
+                });
+            }
+            RESTART => {
+                let stop = self.stop.clone();
+                std::thread::spawn(move || match crate::restart::launch() {
+                    Ok(()) => stop.store(true, Ordering::Release),
+                    Err(error) => eprintln!("aHerald: {error}"),
+                });
+            }
+            SUMMARY => {
+                if let Ok(mut state) = self.shared.lock() {
+                    if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                        state.queue.dismiss();
+                    } else {
+                        state.queue.show_usage();
                     }
                 }
-                let message = if command == CONFIG {
-                    format!(
-                        "Configuration location:\r\n{}\r\n\r\nRuntime toggles are not saved. Restart to reload edited settings.",
-                        self.config_path.display()
-                    )
-                } else {
-                    self.usage_window = command == DETAILS;
-                    if command == DETAILS {
-                        self.usage.details()
-                    } else {
-                        self.usage.summary()
-                    }
-                };
-                if command == CONFIG {
-                    self.usage_window = false;
-                }
-                self.usage_text = message.clone();
-                match information(
-                    hwnd,
-                    if command == CONFIG {
-                        "aHerald configuration"
-                    } else {
-                        "aHerald usage"
-                    },
-                    &message,
-                ) {
-                    Ok(window) => self.information = window,
-                    Err(error) => self.error = Some(error),
-                }
+                self.usage_page = 0;
+                self.usage_text = self.usage.card_text();
+                self.usage_surface = None;
+                self.selection = None;
+                self.placement = None;
             }
             EXIT => self.stop.store(true, Ordering::Release),
             _ => {}
@@ -427,7 +489,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                             ui.config.sounds.enabled,
                             ui.config.notifications.enabled,
                             ui.shared.lock().ok().is_some_and(|s| s.paused),
-                            &ui.usage.summary().replace("\r\n", "; "),
+                            &ui.usage.compact(ui.config.usage.display),
                         )
                     };
                     if let Ok(menu) = menu {
@@ -443,6 +505,26 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                             ui.stop.store(true, Ordering::Release);
                         }
                     }
+                }
+                return LRESULT(0);
+            }
+            if msg == WM_MOUSEWHEEL && (*p).usage_window {
+                let ui = &mut *p;
+                let body = ui
+                    .usage_text
+                    .split_once('\n')
+                    .map(|(_, body)| body)
+                    .unwrap_or("");
+                let pages = crate::usage_service::card_pages(body).len();
+                let delta = ((wp.0 >> 16) as u16) as i16;
+                if delta != 0 {
+                    ui.usage_page = (ui.usage_page as isize - delta.signum() as isize)
+                        .rem_euclid(pages as isize) as usize;
+                }
+                ui.usage_surface = None;
+                if let Err(error) = ui.draw(hwnd) {
+                    ui.error = Some(error);
+                    ui.stop.store(true, Ordering::Release);
                 }
                 return LRESULT(0);
             }
@@ -584,11 +666,13 @@ pub(super) fn run_preview(
         tray: None,
         tray_retry: 0,
         config_path,
-        information: HWND::default(),
         usage,
         usage_next: 0,
         usage_window: false,
+        activation: crate::activation::Worker::default(),
         usage_text: String::new(),
+        usage_page: 0,
+        usage_surface: None,
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
         demo,

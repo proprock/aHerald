@@ -147,6 +147,47 @@ impl Surface {
             },
         )
     }
+    pub(crate) fn body_height(width: i32, scale: f64, label: &str) -> Result<i32, String> {
+        let (surface, _) = Self::allocate(1, 1)?;
+        // SAFETY: the temporary DC and selected font remain alive through measurement.
+        unsafe {
+            let font = Font(CreateFontW(
+                -(18.0 * scale) as i32,
+                0,
+                0,
+                0,
+                500,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                w!("Segoe UI"),
+            ));
+            if font.0.is_invalid() {
+                return Err("cannot create measurement font".into());
+            }
+            let old = SelectObject(surface.dc, font.0.into());
+            let mut text: Vec<u16> = label.encode_utf16().collect();
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: width,
+                bottom: 0,
+            };
+            DrawTextW(
+                surface.dc,
+                &mut text,
+                &mut rect,
+                DT_LEFT | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT,
+            );
+            SelectObject(surface.dc, old);
+            Ok(rect.bottom.max((18.0 * scale) as i32))
+        }
+    }
     pub(crate) fn card(
         width: i32,
         height: i32,
@@ -209,7 +250,11 @@ impl Surface {
             let mut text: Vec<u16> = source.encode_utf16().collect();
             let mut rect = RECT {
                 left: text_left,
-                top: ((height - (64.0 * scale) as i32) / 2).max(0),
+                top: if label.contains('\n') {
+                    (18.0 * scale) as i32
+                } else {
+                    ((height - (64.0 * scale) as i32) / 2).max(0)
+                },
                 right: width - (82.0 * scale) as i32,
                 bottom: height,
             };
@@ -459,6 +504,9 @@ struct State {
     failed: bool,
     source_labels: crate::session_source::Service,
     event: Event,
+    activation: crate::activation::Worker,
+    log_directory: std::path::PathBuf,
+    log_level: String,
     text_left: i32,
 }
 struct Window(HWND);
@@ -541,6 +589,21 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         / state.placement.2.max(1);
                     let y = ((lp.0 >> 16) as u16) as i16 as i32 * state.surfaces[0].height
                         / state.placement.3.max(1);
+                    if message == WM_LBUTTONUP && state.dismissed.is_none() {
+                        state.activation.submit(
+                            &state.event,
+                            state.notifications.activate_agent_on_click,
+                            state.controls.body_hit_test(
+                                state.surfaces[0].width,
+                                state.surfaces[0].height,
+                                state.notifications.scale,
+                                x,
+                                y,
+                            ),
+                            &state.log_directory,
+                            &state.log_level,
+                        );
+                    }
                     if message == WM_LBUTTONUP
                         && state.dismissed.is_none()
                         && state.controls.hit_test(
@@ -702,6 +765,9 @@ fn show_with_source(
             failed: false,
             source_labels,
             event: event.clone(),
+            activation: crate::activation::Worker::default(),
+            log_directory: config.diagnostic_directory.clone(),
+            log_level: config.general.logging.clone(),
             text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;

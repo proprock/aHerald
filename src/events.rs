@@ -38,18 +38,23 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
+    /// Internal, user-requested usage card; never accepted over hook/IPC JSON.
+    #[serde(skip)]
+    Usage,
     CodexHook,
     Demo,
 }
 impl Source {
     pub fn agent_key(&self) -> &'static str {
         match self {
+            Self::Usage => "usage",
             Self::CodexHook => "codex",
             Self::Demo => "demo",
         }
     }
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Usage => "Codex",
             Self::CodexHook => "Codex",
             Self::Demo => "aHerald demo",
         }

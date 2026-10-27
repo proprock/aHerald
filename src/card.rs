@@ -53,6 +53,17 @@ impl Card {
         }
         buttons
     }
+    /// Body excludes controls, independent of the dismissal setting.
+    pub fn body_hit_test(&self, width: i32, height: i32, scale: f64, x: i32, y: i32) -> bool {
+        x >= 0
+            && y >= 0
+            && x < width
+            && y < height
+            && !self
+                .buttons(width, height, scale)
+                .into_iter()
+                .any(|(_, r)| x >= r.left && x < r.right && y >= r.top && y < r.bottom)
+    }
     pub fn hit_test(&self, width: i32, height: i32, scale: f64, x: i32, y: i32) -> Option<Action> {
         if x < 0 || y < 0 || x >= width || y >= height {
             return None;

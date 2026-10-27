@@ -1,4 +1,5 @@
 //! Rebuild the original MIT-licensed aHerald sample artwork and tones.
+//! Run from the repository root with `cargo run --example generate_assets`.
 use image::{Rgba, RgbaImage};
 use std::{f64::consts::TAU, fs, path::Path};
 fn main() -> Result<(), Box<dyn std::error::Error>> {

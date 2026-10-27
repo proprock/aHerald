@@ -29,10 +29,13 @@ unrelated-session observation is implemented.
 
 ## Manual Windows setup and removal
 
-1. Build/extract `aherald.exe` and prepare `%APPDATA%\aHerald\config.toml`.
+1. Build/extract `aherald.exe`. Prepare `config.toml` beside it, or let the first
+   normal startup create the defaults in a writable installation folder. See
+   [configuration and manual migration](configuration.md).
 2. Copy the event entries in `examples/hooks.windows.json` into your chosen
-   `~/.codex/hooks.json` or a trusted project's `.codex/hooks.json`. Replace both
-   absolute paths. JSON doubles backslashes; PowerShell single quotes preserve
+   `~/.codex/hooks.json` or a trusted project's `.codex/hooks.json`. Replace the executable
+   path. The default configuration needs no `--config` argument. JSON doubles backslashes;
+   PowerShell single quotes preserve
    spaces. A literal apostrophe in a path must be doubled inside the PowerShell
    string. Keep `| Out-String`: PowerShell needs an output consumer to wait for
    this GUI-subsystem executable and collect its hook response. The explicit
@@ -52,7 +55,8 @@ Commands have a three-second Codex timeout; aHerald input and delivery have thei
 own shorter deadlines. The handler returns before the card expires, including
 indefinite cards. The example needs no script execution-policy change. For a
 direct process smoke check, pipe a sanitized fixture into the quoted executable
-with `--hook --transient --config <path>`; this does not test Codex trust or dispatch.
+with `--hook --transient` (add `--config <path>` only for a custom file); this does not
+test Codex trust or dispatch.
 
 To remove integration, delete only the aHerald handler/groups, preserving other
 hooks. Quit the resident with `aherald.exe --quit`, then remove portable files if

@@ -381,38 +381,15 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         SendMessageW(window, WM_COMMAND, Some(WPARAM(202)), Some(LPARAM(0)));
     }
     assert!(unsafe { IsWindowVisible(window) }.as_bool());
-    for command in [101, 102, 204] {
-        unsafe {
-            SendMessageW(window, WM_COMMAND, Some(WPARAM(command)), Some(LPARAM(0)));
-        }
-        let mut found = Found {
-            pid,
-            windows: Vec::new(),
-        };
-        unsafe {
-            EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
-        }
-        let info = found
-            .windows
-            .into_iter()
-            .find(|h| *h != window)
-            .expect("tray action did not show information");
-        let child = unsafe { GetWindow(info, GW_CHILD) }.unwrap();
-        let text = title(child);
-        if command == 204 {
-            assert!(text.contains(&config.to_string_lossy().to_string()));
-        } else {
-            assert!(text.contains("usage") && text.contains("disabled"));
-            if command == 102 {
-                assert!(text.contains("enabled = true"));
-            }
-        }
-        // Leave the modeless information open: Exit must close it without user interaction.
-    }
-    // Refresh queues work and does not replace the current configuration window.
     unsafe {
-        SendMessageW(window, WM_COMMAND, Some(WPARAM(103)), Some(LPARAM(0)));
+        SendMessageW(
+            window,
+            WM_COMMAND,
+            Some(WPARAM(aherald::tray::SUMMARY)),
+            Some(LPARAM(0)),
+        );
     }
+    assert!(unsafe { IsWindowVisible(window) }.as_bool());
     let mut found = Found {
         pid,
         windows: Vec::new(),
@@ -420,11 +397,26 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     unsafe {
         EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
     }
-    let information: Vec<_> = found.windows.into_iter().filter(|h| *h != window).collect();
-    assert_eq!(information.len(), 1);
+    assert_eq!(
+        found.windows,
+        vec![window],
+        "usage must reuse the notification card"
+    );
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
+        Response::Status { queued: 3, .. }
+    ));
+    unsafe {
+        SendMessageW(
+            window,
+            WM_COMMAND,
+            Some(WPARAM(aherald::tray::SUMMARY)),
+            Some(LPARAM(0)),
+        );
+    }
     assert!(
-        title(unsafe { GetWindow(information[0], GW_CHILD) }.unwrap())
-            .contains(&config.to_string_lossy().to_string())
+        title(window).contains("required"),
+        "closing usage restores the selected notification"
     );
     unsafe {
         PostMessageW(Some(window), WM_COMMAND, WPARAM(205), LPARAM(0)).unwrap();

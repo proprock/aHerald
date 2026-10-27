@@ -155,7 +155,7 @@ the full suite subsequently passed without retries or timeout changes.
 Passed: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`,
 `cargo test --all-targets` (42 passed, one audio-device test ignored),
 `cargo build --release --target x86_64-pc-windows-msvc`, and
-`scripts/check-release.ps1` (x64 GUI, static CRT, system DLL imports only).
+`check-release.ps1` (x64 GUI, static CRT, system DLL imports only).
 
 Manual Windows 11 build 22621: a sanitized local PermissionRequest fixture launched
 the native Codex card using the temporary Becky package. The user confirmed seeing

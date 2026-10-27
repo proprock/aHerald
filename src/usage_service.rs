@@ -67,6 +67,141 @@ impl View {
         }
         text
     }
+    pub fn compact(
+        &self,
+        now: Duration,
+        unix: i64,
+        display: crate::config::UsageDisplay,
+    ) -> String {
+        let status = self.status(now);
+        let display_name = match display {
+            crate::config::UsageDisplay::Remain => "remain",
+            crate::config::UsageDisplay::Used => "used",
+        };
+        let Some(bucket) = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.buckets.get("codex").or_else(|| s.buckets.values().next()))
+        else {
+            return format!("Codex {display_name}: {status}");
+        };
+        let value = |window: Option<&crate::usage::Window>| {
+            let percent = window
+                .and_then(|w| match display {
+                    crate::config::UsageDisplay::Used => w.used_percent,
+                    crate::config::UsageDisplay::Remain => w.remaining_percent(),
+                })
+                .map(|v| format!("{v:.0}%"))
+                .unwrap_or_else(|| "—".into());
+            format!(
+                "{percent} / {}",
+                countdown(window.and_then(|w| w.resets_at), unix)
+            )
+        };
+        let suffix = if status == "current" {
+            String::new()
+        } else {
+            format!(" ({status})")
+        };
+        format!(
+            "Codex {display_name}: 5h {}, week {}{suffix}",
+            value(bucket.primary.as_ref()),
+            value(bucket.secondary.as_ref())
+        )
+    }
+    pub fn card_text(&self, now: Duration, unix: i64) -> String {
+        let mut text = String::new();
+        if let Some(snapshot) = &self.snapshot {
+            for (id, bucket) in &snapshot.buckets {
+                let name = if id == "codex" {
+                    "Codex".into()
+                } else {
+                    clean(bucket.limit_name.as_deref().unwrap_or(id))
+                };
+                text.push_str(&format!(
+                    "{name} plan: {}\n",
+                    bucket
+                        .plan_type
+                        .as_deref()
+                        .map(clean)
+                        .unwrap_or_else(|| "—".into())
+                ));
+                for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
+                    let percent = window
+                        .as_ref()
+                        .and_then(|w| w.used_percent)
+                        .map(|v| format!("{v:.0}% used"))
+                        .unwrap_or_else(|| "—".into());
+                    let reset = window.as_ref().and_then(|w| w.resets_at);
+                    text.push_str(&format!(
+                        "{label}: {percent} / {}; reset: {}\n",
+                        countdown(reset, unix),
+                        reset
+                            .and_then(short_reset_text)
+                            .unwrap_or_else(|| "—".into())
+                    ));
+                }
+                if let Some(c) = &bucket.credits {
+                    text.push_str(&format!(
+                        "Workspace credits: available={}, unlimited={}, balance={}\n",
+                        flag(c.has_credits),
+                        flag(c.unlimited),
+                        c.balance
+                            .as_deref()
+                            .map(clean)
+                            .unwrap_or_else(|| "—".into())
+                    ));
+                } else {
+                    text.push_str("Workspace credits: —\n");
+                }
+                if let Some(reached) = &bucket.rate_limit_reached_type {
+                    text.push_str(&format!("Limit state: {}\n", clean(reached)));
+                }
+                text.push('\n');
+            }
+            text.push_str(&format!(
+                "Ordinary usage allowed: {}\n",
+                flag(snapshot.ordinary_usage_allowed)
+            ));
+            if let Some(credits) = &snapshot.reset_credits {
+                text.push_str(&format!(
+                    "Available reset credits: {} (read-only)\n",
+                    credits
+                        .available_count
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "—".into())
+                ));
+                if let Some(rows) = &credits.credits {
+                    for row in rows {
+                        text.push_str(&format!(
+                            "  {}: {}; expires {}\n",
+                            clean(row.title.as_deref().unwrap_or("Reset credit")),
+                            clean(row.status.as_deref().unwrap_or("unavailable")),
+                            row.expires_at
+                                .and_then(short_reset_text)
+                                .unwrap_or_else(|| "—".into())
+                        ));
+                    }
+                }
+            } else {
+                text.push_str("Available reset credits: —\n");
+            }
+        }
+        let status = self.status(now);
+        if status != "current" {
+            text.push_str(&format!("Status: {status}\n"));
+        }
+        if let Some(updated) = self.updated {
+            text.push_str(&format!(
+                "Updated {}s ago",
+                now.saturating_sub(updated).as_secs()
+            ));
+        }
+        if !self.enabled {
+            text.push_str("Set [usage] enabled = true and restart.");
+        }
+        text
+    }
     pub fn details(&self, now: Duration) -> String {
         let mut text = format!("Codex usage: {}\r\n", self.status(now));
         if !self.enabled {
@@ -145,7 +280,7 @@ impl View {
                                 .and_then(reset_text)
                                 .unwrap_or_else(|| "unavailable".into()),
                             row.expires_at
-                                .and_then(reset_text)
+                                .and_then(short_reset_text)
                                 .unwrap_or_else(|| "unavailable".into())
                         ));
                     }
@@ -159,6 +294,43 @@ impl View {
         text.push_str("\r\nReset times use the Windows local timezone.\r\nNotifications run independently of usage. No account mutations are available.");
         text
     }
+}
+/// Preserve all text while fitting a bounded notification card; arrows page through it.
+pub fn card_pages(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        let chars: Vec<char> = line.chars().collect();
+        if chars.is_empty() {
+            lines.push(String::new());
+        }
+        for part in chars.chunks(72) {
+            lines.push(part.iter().collect::<String>());
+        }
+    }
+    if lines.is_empty() {
+        lines.push("Usage unavailable".into());
+    }
+    lines.chunks(12).map(|part| part.join("\n")).collect()
+}
+pub fn countdown(reset: Option<i64>, now: i64) -> String {
+    let Some(reset) = reset else {
+        return "—".into();
+    };
+    let seconds = reset.saturating_sub(now).max(0) as u64;
+    if seconds >= 86400 {
+        format!("{}d", seconds / 86400)
+    } else if seconds >= 3600 {
+        let minutes = seconds.div_ceil(60);
+        format!("{}:{:02}", minutes / 60, minutes % 60)
+    } else {
+        format!("{} min", seconds.div_ceil(60))
+    }
+}
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().min(i64::MAX as u64) as i64)
+        .unwrap_or(0)
 }
 fn clean(value: &str) -> String {
     value
@@ -191,6 +363,9 @@ fn brief(window: Option<&crate::usage::Window>) -> String {
             .map(|m| format!("{m} min"))
             .unwrap_or_else(|| "window unavailable".into())
     )
+}
+fn short_reset_text(timestamp: i64) -> Option<String> {
+    reset_text(timestamp).map(|s| s.chars().take(16).collect())
 }
 fn reset_text(timestamp: i64) -> Option<String> {
     #[cfg(windows)]
@@ -355,6 +530,13 @@ impl Service {
     }
     pub fn summary(&self) -> String {
         self.view().summary(self.origin.elapsed())
+    }
+    pub fn compact(&self, display: crate::config::UsageDisplay) -> String {
+        self.view()
+            .compact(self.origin.elapsed(), unix_now(), display)
+    }
+    pub fn card_text(&self) -> String {
+        self.view().card_text(self.origin.elapsed(), unix_now())
     }
     pub fn details(&self) -> String {
         self.view().details(self.origin.elapsed())

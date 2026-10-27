@@ -16,6 +16,8 @@ pub const EVENT_NAMES: [&str; 5] = [
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    #[serde(skip)]
+    pub diagnostic_directory: PathBuf,
     pub general: General,
     pub resident: Resident,
     pub notifications: Notifications,
@@ -28,6 +30,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            diagnostic_directory: PathBuf::from("."),
             general: General::default(),
             resident: Resident::default(),
             notifications: Notifications::default(),
@@ -139,6 +142,7 @@ pub struct Notifications {
     pub fade_in_ms: u64,
     pub fade_out_ms: u64,
     pub click_to_dismiss: bool,
+    pub activate_agent_on_click: bool,
     pub interpolation: String,
 }
 impl Default for Notifications {
@@ -152,6 +156,7 @@ impl Default for Notifications {
             fade_in_ms: 150,
             fade_out_ms: 300,
             click_to_dismiss: true,
+            activate_agent_on_click: true,
             interpolation: "nearest".into(),
             pet: None,
             pet_animations: BTreeMap::new(),
@@ -234,12 +239,21 @@ impl Default for Codex {
 pub struct Usage {
     pub enabled: bool,
     pub refresh_interval_sec: u64,
+    pub display: UsageDisplay,
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageDisplay {
+    Used,
+    #[default]
+    Remain,
 }
 impl Default for Usage {
     fn default() -> Self {
         Self {
             enabled: false,
             refresh_interval_sec: 300,
+            display: UsageDisplay::Remain,
         }
     }
 }
@@ -255,9 +269,12 @@ impl Config {
         }))
     }
     pub fn default_path() -> Result<PathBuf, String> {
-        std::env::var_os("APPDATA")
-            .map(|base| PathBuf::from(base).join("aHerald/config.toml"))
-            .ok_or("APPDATA is unavailable; use --config".into())
+        let executable =
+            std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
+        executable
+            .parent()
+            .map(|directory| directory.join("config.toml"))
+            .ok_or_else(|| "executable has no parent directory; use --config".into())
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
         let value: toml::Value = toml::from_str(text).map_err(|_| "invalid TOML configuration")?;
@@ -266,6 +283,7 @@ impl Config {
             .try_into()
             .map_err(|_| "invalid configuration fields")?;
         config.validate()?;
+        config.diagnostic_directory = directory.to_owned();
         for (name, default) in Self::default().events {
             let has_duration = value
                 .get("events")
@@ -301,14 +319,16 @@ impl Config {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(error) if !explicit && error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self::default());
+                crate::default_config::create(path)?;
+                File::open(path)
+                    .map_err(|e| format!("cannot open configuration {}: {e}", path.display()))?
             }
-            Err(_) => return Err("cannot open configuration file".into()),
+            Err(e) => return Err(format!("cannot open configuration {}: {e}", path.display())),
         };
         let mut text = String::new();
         file.take(65_537)
             .read_to_string(&mut text)
-            .map_err(|_| "cannot read configuration file")?;
+            .map_err(|e| format!("cannot read configuration {}: {e}", path.display()))?;
         if text.len() > 65_536 {
             return Err("configuration exceeds 64 KiB".into());
         }

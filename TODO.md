@@ -6,7 +6,8 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
 
 ## Agreed decisions
 
-- Default configuration: `%APPDATA%\aHerald\config.toml`; `--config` overrides it.
+- Default configuration: `config.toml` beside `aherald.exe`; no APPDATA lookup.
+  Create a missing default with standard settings; `--config` selects an existing custom file.
 - Support resident and detached transient notifications. A hook must finish
   independently of notification lifetime, animation, monitoring, or usage queries.
 - Use one overlay with a count and controls for switching between events.
@@ -16,6 +17,10 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
   product work. Dismissing the current card never answers an agent request.
 - Supply simple original PNG animations and WAV sounds under MIT; assets remain
   external and replaceable without recompilation.
+- Load builtin animations automatically from `assets` beside the executable.
+  With visual=auto, a configured pet replaces builtin artwork for all inherited
+  events. Explicit event visual choices enable hybrids; animation paths require
+  visual=custom. Failed selected artwork falls back to builtin, then text.
 - Observe input waits only through verified, documented stable interfaces. Do not
   parse unstable transcripts or take control of unrelated sessions. Unsupported
   coverage is explicit and does not block release.
@@ -205,6 +210,50 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 5 — Polish and portable release
 
+- [x] **AH-026 — Preview the current configuration in a looping demo.**
+  Support `--demo [SECONDS]`, with a three-second default pause between scenarios.
+  Cycle enabled event types and a multi-event navigation scenario through the shared
+  native engine; retain configured resources, sounds, position, scale and finite
+  durations. Advance persistent waits automatically. Keep demo events isolated from
+  the resident and allow tray pause/exit. Acceptance: CLI validation, deterministic
+  timing/repetition/disabled-event tests, native lifecycle/isolation tests, visual
+  inspection and standard Cargo checks. No configuration is written.
+  Verified on Windows 11 build 22621 on 2026-10-25; see `docs/demo.md` for
+  commands, manual observations, cold-cache behavior and test limitations.
+
+- [x] **AH-027 — Simplify cards and expose visual event settings.**
+  Hide count/navigation for one event; show bottom-right `<`/`>` for multiple.
+  Dismiss informational cards by body click; retain an explicit Dismiss button
+  only when body dismissal is disabled. Show remaining seconds for finite events.
+  Use configurable per-event accent colors and shared/agent pet state overrides
+  covering all nine standard tracks. Acceptance: behavioral layout/input/timer,
+  configuration and atlas extraction tests, native pixel/lifecycle checks, visual
+  inspection and standard Cargo checks. See `docs/card-controls.md`.
+
+- [x] **AH-028 — Make artwork sources explicit and defaults usable.**
+  Support global auto/builtin/pet and per-event inherit/builtin/pet/custom.
+  Enable full builtin, full pet and both hybrid directions without clearing old
+  animation paths. Stage external builtin resources beside Cargo executables.
+  Recover failed pet/custom assets to builtin, then text. Acceptance: executable
+  source-selection/configuration/fallback tests, native default-resource checks,
+  visual inspection and standard Cargo checks. See `docs/visuals.md`.
+
+- [x] **AH-029 — Expire grouped demo cards individually.**
+  Give each selected grouped card its own preview timeout; retain the remaining
+  cards until they expire or are dismissed. Hide the window only after the last
+  card, then begin the configured quiet interval. Use the queued lifetime for
+  countdowns and fades, including demo waits. Acceptance: a controlled-time
+  three-card regression, repeat/navigation checks, one visual pass and Cargo checks.
+  See `docs/demo.md`.
+
+- [x] **AH-030 — Identify the originating Codex session.**
+  Show `Codex: <stored thread name>` in resident and transient cards, falling back
+  to a short session ID when unavailable. Resolve only supported read-only metadata
+  in the background, without delaying hooks or restarting card lifetimes. Bound
+  cache/queues and isolate concurrent sessions. Acceptance: protocol, cache and
+  native rendering checks, one visual inspection, and standard Cargo verification.
+  See `docs/session-source.md`; automatic sidebar captions may have no stored name.
+
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop
@@ -219,6 +268,47 @@ An implementation alone is not evidence of Windows visual acceptance.
   duplicate storms, malformed assets, resident crashes, broken IPC, and unavailable
   Codex. Acceptance: limits and recovery behavior are documented and tested;
   repeated notifications do not leak handles, GDI objects, threads, or memory.
+
+- [x] **AH-031 — Simplify the tray menu and compact usage summary.**
+  Show `Codex: 5h 25% / 2:35, week 10% / 6d`; configure `[usage] display`
+  as `remain` (default) or `used`. Use days, H:MM below one day, and minutes
+  below one hour, with explicit missing/stale states. Remove Refresh usage and
+  the separate Usage details action. The summary adds one persistent usage card
+  to the shared notification queue beside the tray: plan, both windows, local
+  minute-precision reset dates, workspace credits and all reset credits. Queue
+  arrows switch cards; mouse wheel pages long details; body click dismisses only
+  the usage card. Open configuration through its Windows association, falling
+  back to Notepad. Restart gracefully replaces the process and reloads settings.
+  Verified with domain/native lifecycle tests, synthetic visual inspection of
+  details and queue navigation, and standard Cargo checks. See `docs/tray-usage.md`.
+
+- [x] **AH-032 — Switch to the agent application on notification click.**
+  Configure `[notifications] activate_agent_on_click = true` by default.
+  Body click opens `codex://threads/<thread-id>` with validated, encoded identity;
+  missing identity or shell failure tries an existing Codex window. Dismissal
+  remains controlled independently by `click_to_dismiss`. Arrows and Dismiss
+  never activate; demo and usage stay isolated. Resident and transient share the
+  activation adapter. Failures retain card behavior and record a fixed diagnostic.
+  Verified with focused/native tests, standard Cargo checks, and user-confirmed
+  transition from a transient test card to the correct chat. See
+  `docs/notification-click.md` for versions and manual-check limitations.
+
+- [x] **AH-033 — Default to config.toml beside the executable.**
+  Without `--config`, use `config.toml` beside `aherald.exe`, independently of
+  the working directory. Create an absent standard file with current defaults;
+  preserve existing files. No APPDATA search or automatic migration. Explicit
+  missing custom files remain errors. Resolve resources from the selected file.
+  Report creation errors with target path and reason. Simplify standard hook
+  examples and document manual migration. Verified with process tests under
+  Unicode/spaced paths, concurrent creation, preservation and failures, and
+  standard Cargo checks. See `docs/configuration.md`.
+
+- [ ] **AH-034 — Show usage levels in a dynamic tray icon.**
+  Render a compact visual indication of usage levels in the tray icon and update
+  it as usage changes. Keep the levels distinguishable at native tray sizes and
+  make unavailable/stale data explicit.
+  Acceptance: representative usage levels and unavailable/stale states are
+  visually checked; updates and Explorer restart restore the current icon.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV

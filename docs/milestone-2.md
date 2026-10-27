@@ -130,7 +130,7 @@ References checked 2026-10-24:
 - https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyiconw
 - https://learn.microsoft.com/en-us/windows/win32/shell/notification-area
 
-Passed for AH-012: cargo fmt --all -- --check, cargo clippy --all-targets -- -D warnings, cargo test --all-targets (57 passed, three opt-in tests ignored), cargo build --release --target x86_64-pc-windows-msvc, and scripts/check-release.ps1. The Explorer-icon and manual-window opt-in tests also passed separately in the interactive user session. The release is a 1,723,904-byte x64 Windows GUI executable with system DLL imports and no separately distributed CRT.
+Passed for AH-012: cargo fmt --all -- --check, cargo clippy --all-targets -- -D warnings, cargo test --all-targets (57 passed, three opt-in tests ignored), cargo build --release --target x86_64-pc-windows-msvc, and check-release.ps1. The Explorer-icon and manual-window opt-in tests also passed separately in the interactive user session. The release is a 1,723,904-byte x64 Windows GUI executable with system DLL imports and no separately distributed CRT.
 
 Additional control regression: an invalid notification TOML originally prevented
 --status (and the shared --quit path) from executing. The test failed with that

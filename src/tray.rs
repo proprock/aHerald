@@ -8,8 +8,7 @@ use windows::{
 };
 pub const CALLBACK: u32 = WM_APP + 9;
 pub const SUMMARY: usize = 101;
-pub const DETAILS: usize = 102;
-pub const REFRESH: usize = 103;
+pub const RESTART: usize = 206;
 pub const SOUND: usize = 201;
 pub const VISUAL: usize = 202;
 pub const PAUSE: usize = 203;
@@ -64,6 +63,55 @@ impl Icon {
             Shell_NotifyIconW(NIM_SETVERSION, &self.data).as_bool()
         }
     }
+    pub fn card_placement(&self, size: (i32, i32)) -> Result<(i32, i32, i32, i32), String> {
+        use windows::Win32::{Graphics::Gdi::*, UI::HiDpi::*};
+        // SAFETY: borrowed tray identity and monitor handles are used only during this query.
+        unsafe {
+            let identity = NOTIFYICONIDENTIFIER {
+                cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
+                hWnd: self.data.hWnd,
+                uID: self.data.uID,
+                ..Default::default()
+            };
+            let anchor = Shell_NotifyIconGetRect(&identity).unwrap_or_else(|_| {
+                let mut p = POINT::default();
+                let _ = GetCursorPos(&mut p);
+                RECT {
+                    left: p.x,
+                    top: p.y,
+                    right: p.x,
+                    bottom: p.y,
+                }
+            });
+            let monitor = MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                return Err("cannot locate tray work area".into());
+            }
+            let (mut dx, mut dy) = (96, 96);
+            let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
+            let dpi = dx.max(96) as f64 / 96.0;
+            let a = info.rcWork;
+            Ok(crate::placement::layout(
+                crate::placement::Area {
+                    left: a.left,
+                    top: a.top,
+                    right: a.right,
+                    bottom: a.bottom,
+                },
+                size,
+                dpi,
+                "near_cursor",
+                (
+                    anchor.right - (size.0 as f64 * dpi) as i32 - (16.0 * dpi) as i32,
+                    anchor.top - (size.1 as f64 * dpi) as i32 - (28.0 * dpi) as i32,
+                ),
+            ))
+        }
+    }
     pub fn focus(&self) {
         unsafe {
             let _ = Shell_NotifyIconW(NIM_SETFOCUS, &self.data);
@@ -107,12 +155,11 @@ impl Menu {
         let menu = Self(unsafe { CreatePopupMenu() }.map_err(|_| "cannot create tray menu")?);
         for (id, label, checked) in [
             (SUMMARY, summary, false),
-            (DETAILS, "Usage details", false),
-            (REFRESH, "Refresh usage", false),
             (SOUND, "Sound", sound),
             (VISUAL, "Visual notifications", visual),
             (PAUSE, "Pause notifications", paused),
-            (CONFIG, "Configuration location", false),
+            (CONFIG, "Edit configuration", false),
+            (RESTART, "Restart", false),
             (EXIT, "Exit", false),
         ] {
             let wide: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
@@ -149,125 +196,6 @@ impl Menu {
     }
 }
 
-unsafe extern "system" fn information_proc(
-    hwnd: HWND,
-    msg: u32,
-    wp: WPARAM,
-    lp: LPARAM,
-) -> LRESULT {
-    if msg == WM_SIZE {
-        // SAFETY: the child is owned by this window; bounds are clamped for minimization.
-        unsafe {
-            if let Ok(child) = GetDlgItem(Some(hwnd), 1) {
-                let mut rect = RECT::default();
-                let _ = GetClientRect(hwnd, &mut rect);
-                let _ = MoveWindow(
-                    child,
-                    12,
-                    12,
-                    (rect.right - 24).max(0),
-                    (rect.bottom - 24).max(0),
-                    true,
-                );
-            }
-        }
-    }
-    unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
-}
-pub fn information(owner: HWND, title: &str, text: &str) -> Result<HWND, String> {
-    // A modeless owned window keeps Quit responsive while details are open.
-    unsafe {
-        let module = windows::Win32::System::LibraryLoader::GetModuleHandleW(None)
-            .map_err(|_| "cannot find module")?;
-        let class = w!("aHerald.Information");
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(information_proc),
-            hInstance: module.into(),
-            lpszClassName: class,
-            hCursor: LoadCursorW(None, IDC_ARROW).map_err(|_| "cannot load cursor")?,
-            ..Default::default()
-        };
-        let _ = RegisterClassW(&wc);
-        let title: Vec<u16> = title.encode_utf16().chain(Some(0)).collect();
-        let text: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-        let window = CreateWindowExW(
-            WS_EX_TOOLWINDOW,
-            class,
-            PCWSTR(title.as_ptr()),
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            760,
-            520,
-            Some(owner),
-            None,
-            Some(module.into()),
-            None,
-        )
-        .map_err(|_| "cannot create information window")?;
-        let editor = match CreateWindowExW(
-            WS_EX_CLIENTEDGE,
-            w!("EDIT"),
-            PCWSTR(text.as_ptr()),
-            WS_CHILD
-                | WS_VISIBLE
-                | WS_VSCROLL
-                | WS_TABSTOP
-                | WINDOW_STYLE((ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL) as u32),
-            12,
-            12,
-            720,
-            450,
-            Some(window),
-            // For a child window this slot encodes an integer control ID, never a pointer.
-            Some(HMENU(std::ptr::without_provenance_mut(1))),
-            Some(module.into()),
-            None,
-        ) {
-            Ok(editor) => editor,
-            Err(_) => {
-                let _ = DestroyWindow(window);
-                return Err("cannot create information text".into());
-            }
-        };
-        // The shared system GUI font is borrowed and must not be deleted.
-        let font = windows::Win32::Graphics::Gdi::GetStockObject(
-            windows::Win32::Graphics::Gdi::DEFAULT_GUI_FONT,
-        );
-        SendMessageW(
-            editor,
-            WM_SETFONT,
-            Some(WPARAM(font.0 as usize)),
-            Some(LPARAM(1)),
-        );
-        let _ = ShowWindow(window, SW_SHOWNORMAL);
-        Ok(window)
-    }
-}
-
-pub fn update_information(window: HWND, text: &str) {
-    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-    // SAFETY: IsWindow/GetDlgItem validate the owned modeless window before updating it.
-    unsafe {
-        if IsWindow(Some(window)).as_bool()
-            && let Ok(child) = GetDlgItem(Some(window), 1)
-        {
-            let position = GetScrollPos(child, SB_VERT).clamp(0, u16::MAX as i32);
-            let _ = SetWindowTextW(child, PCWSTR(wide.as_ptr()));
-            // Replacing an edit control's text resets its viewport. Restore the
-            // thumb position so background usage updates do not interrupt reading.
-            SendMessageW(
-                child,
-                WM_VSCROLL,
-                Some(WPARAM(
-                    (position as usize) << 16 | SB_THUMBPOSITION.0 as usize,
-                )),
-                Some(LPARAM(0)),
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +203,7 @@ mod tests {
     fn native_menu_exposes_all_actions_and_current_checkmarks() {
         let menu = Menu::new(false, true, true, "Codex usage (unavailable)").unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 8);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
             assert_eq!(
                 GetMenuState(menu.0, SOUND as u32, MF_BYCOMMAND) & MF_CHECKED.0,
                 0
@@ -290,8 +218,8 @@ mod tests {
             );
             for (id, expected) in [
                 (SUMMARY, "unavailable"),
-                (DETAILS, "Usage details"),
-                (REFRESH, "Refresh usage"),
+                (CONFIG, "Edit configuration"),
+                (RESTART, "Restart"),
             ] {
                 let mut label = [0u16; 128];
                 let n = GetMenuStringW(menu.0, id as u32, Some(&mut label), MF_BYCOMMAND);

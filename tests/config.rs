@@ -119,6 +119,8 @@ fn missing_explicit_configuration_is_an_error() {
     let path = std::env::temp_dir().join(format!("aherald-missing-{}.toml", std::process::id()));
     assert!(Config::load(&path, true).is_err());
     assert!(Config::load(&path, false).is_ok());
+    assert!(path.is_file());
+    fs::remove_file(path).unwrap();
 }
 
 #[test]

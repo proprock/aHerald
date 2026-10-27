@@ -1,6 +1,6 @@
 # aHerald configuration reference. Active settings reproduce built-in defaults.
-# Copy to %APPDATA%\aHerald\config.toml, or pass --config PATH explicitly.
-# This file is not loaded automatically from the repository/application directory.
+# The default config.toml beside aherald.exe is created from this reference if absent.
+# Existing files are preserved. Use --config PATH only for a custom configuration.
 # All paths are relative to this configuration file, not the working directory.
 # Use single-quoted Windows paths; ~ and environment variables are not expanded.
 # Optional paths and override tables are absent by default; uncomment to enable.
@@ -43,6 +43,8 @@ fade_out_ms = 300
 # Dismiss the selected card by clicking its body; default true (no Dismiss button).
 # false keeps an explicit Dismiss button. Navigation clicks never dismiss events.
 click_to_dismiss = true
+# Open the Codex chat on body click; independent of dismissal.
+activate_agent_on_click = true
 # Artwork resize filter: "nearest" (default) or "bilinear".
 interpolation = "nearest"
 # Shared local pet.json path; default absent (use builtin artwork in auto mode).
@@ -195,5 +197,7 @@ input_monitoring = false
 # Read-only usage polling in resident/demo mode; default false. Requires codex.exe
 # on PATH and an existing sign-in; usage failures leave event notifications working.
 enabled = false
-# Automatic refresh interval in seconds: 10..86400; default 300. Tray can refresh now.
+# Automatic refresh interval in seconds: 10..86400; default 300.
 refresh_interval_sec = 300
+# Compact tray percentage: "remain" (default) or "used".
+display = "remain"

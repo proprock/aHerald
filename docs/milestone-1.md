@@ -105,7 +105,7 @@
 - User confirmed seeing/clicking text fallback, seeing the animated sample, and
   hearing a beep after switching sound cards. These are user-reported manual checks.
 - Packaging inspection initially found VCRUNTIME140.dll. Target-specific static CRT
-  linking removes it and the dynamic CRT imports. `scripts/check-release.ps1` passes:
+  linking removes it and the dynamic CRT imports. `check-release.ps1` passes:
   x64 Windows GUI, 1188864 bytes, only Windows system DLL imports. This optional
   packaging check uses llvm-readobj; the application does not need LLVM installed.
 - Tested platform: Windows 11 build 22621, Rust/Cargo 1.98.1 MSVC x64. No installed

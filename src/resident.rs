@@ -327,25 +327,32 @@ mod usage_tests {
             SendMessageW(
                 overlay,
                 WM_COMMAND,
-                Some(WPARAM(crate::tray::DETAILS)),
+                Some(WPARAM(crate::tray::SUMMARY)),
                 Some(LPARAM(0)),
             );
         }
-        let details = window_for(thread_id, "aHerald.Information");
         unsafe {
             assert!(
-                IsWindowVisible(details).as_bool(),
-                "usage details must work while the notification overlay is hidden"
+                IsWindowVisible(overlay).as_bool(),
+                "usage card works even when event visuals are disabled"
             );
-            let child = GetDlgItem(Some(details), 1).unwrap();
-            let mut text = [0u16; 1024];
-            let count = GetWindowTextW(child, &mut text);
-            assert!(String::from_utf16_lossy(&text[..count as usize]).contains("unavailable"));
+            assert!(
+                window_for(thread_id, "aHerald.Information").is_invalid(),
+                "usage must not create a separate details window"
+            );
+            assert_ne!(
+                GetWindowLongW(overlay, GWL_EXSTYLE) as u32 & WS_EX_LAYERED.0,
+                0
+            );
             SendMessageW(
                 overlay,
-                WM_COMMAND,
-                Some(WPARAM(crate::tray::REFRESH)),
-                Some(LPARAM(0)),
+                WM_LBUTTONUP,
+                Some(WPARAM(0)),
+                Some(LPARAM(30 | (60 << 16))),
+            );
+            assert!(
+                !IsWindowVisible(overlay).as_bool(),
+                "body click closes usage card"
             );
         }
         assert!(matches!(
@@ -369,8 +376,115 @@ mod usage_tests {
         ));
         cleanup.1.take().unwrap().join().unwrap().unwrap();
         assert!(
-            !unsafe { IsWindow(Some(details)) }.as_bool(),
+            !unsafe { IsWindow(Some(overlay)) }.as_bool(),
             "quit must close usage details"
         );
+    }
+}
+
+#[cfg(test)]
+mod usage_preview {
+    use super::*;
+    #[test]
+    #[ignore = "interactive synthetic usage card, closes on dismissal or after 180 seconds"]
+    fn manual_usage_card_preview() {
+        use crate::app_server::{Error, Transport};
+        use serde_json::{Value, json};
+        use windows::Win32::{
+            Foundation::*, System::Threading::GetCurrentThreadId, UI::WindowsAndMessaging::*,
+        };
+        struct Mock(Option<Value>);
+        impl Transport for Mock {
+            fn send(&mut self, v: &Value, _: Duration) -> Result<(), Error> {
+                if let Some(id) = v.get("id") {
+                    let now = crate::usage_service::unix_now();
+                    let result = if v["method"] == "account/rateLimits/read" {
+                        json!({"rateLimits":{"planType":"plus","primary":{"usedPercent":8,"resetsAt":now+8700},"secondary":{"usedPercent":14,"resetsAt":now+432000},"credits":{"hasCredits":false,"unlimited":false,"balance":"0"}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":2,"credits":[{"id":"one","title":"Full reset (Weekly + 5 hr)","status":"available","expiresAt":1793296620},{"id":"two","title":"Full reset (Weekly + 5 hr)","status":"available","expiresAt":1793997360}]}})
+                    } else {
+                        json!({})
+                    };
+                    self.0 = Some(json!({"id":id,"result":result}));
+                }
+                Ok(())
+            }
+            fn receive(&mut self, _: Duration) -> Result<Value, Error> {
+                self.0.take().ok_or(Error::Timeout)
+            }
+        }
+        let scope = Scope::current(&format!("usage-preview-{}", std::process::id())).unwrap();
+        let stop_scope = scope.clone();
+        let thread_id = unsafe { GetCurrentThreadId() };
+        let opener = std::thread::spawn(move || {
+            unsafe extern "system" fn find(hwnd: HWND, p: LPARAM) -> windows::core::BOOL {
+                unsafe {
+                    let mut c = [0u16; 64];
+                    let n = GetClassNameW(hwnd, &mut c);
+                    if String::from_utf16_lossy(&c[..n as usize]) == "aHerald.Resident" {
+                        *(p.0 as *mut HWND) = hwnd;
+                    }
+                }
+                true.into()
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let mut hwnd = HWND::default();
+                unsafe {
+                    let _ = EnumThreadWindows(
+                        thread_id,
+                        Some(find),
+                        LPARAM(&mut hwnd as *mut _ as isize),
+                    );
+                }
+                if !hwnd.is_invalid() {
+                    unsafe {
+                        let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+                        SetWindowLongW(
+                            hwnd,
+                            GWL_EXSTYLE,
+                            ((style & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0) as i32,
+                        );
+                        let _ = SendMessageW(
+                            hwnd,
+                            WM_COMMAND,
+                            Some(WPARAM(crate::tray::SUMMARY)),
+                            Some(LPARAM(0)),
+                        );
+                    }
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                std::thread::yield_now();
+            }
+            let _ = pipe::request(
+                &stop_scope,
+                &Request::Event {
+                    event: Event::demo("permission_required").unwrap(),
+                },
+                Duration::from_millis(300),
+            );
+            let deadline = Instant::now() + Duration::from_secs(180);
+            while Instant::now() < deadline {
+                if matches!(
+                    pipe::request(&stop_scope, &Request::Status, Duration::from_millis(100)),
+                    Ok(Response::Status { queued: 0, .. })
+                ) {
+                    break;
+                }
+                std::thread::park_timeout(Duration::from_millis(200));
+            }
+            let _ = pipe::request(&stop_scope, &Request::Quit, Duration::from_millis(300));
+        });
+        let mut config = Config::default();
+        config.sounds.enabled = false;
+        run_with_usage(scope, config, Path::new("usage-preview.toml"), || {
+            crate::usage_service::Service::spawn(
+                true,
+                Duration::from_secs(300),
+                Arc::new(AtomicBool::new(false)),
+                || Ok(Mock(None)),
+            )
+        })
+        .unwrap();
+        opener.join().unwrap();
     }
 }

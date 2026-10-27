@@ -11,6 +11,7 @@ pub enum Record {
     Stopped,
     IpcFailure,
     QueueRejected,
+    AgentActivationFailure,
 }
 impl Record {
     fn message(&self) -> (u8, &'static str) {
@@ -18,6 +19,7 @@ impl Record {
             Self::Started => (3, "info resident_started"),
             Self::Stopped => (3, "info resident_stopped"),
             Self::IpcFailure => (2, "warn ipc_failure"),
+            Self::AgentActivationFailure => (2, "warn agent_activation_failed"),
             Self::QueueRejected => (2, "warn queue_rejected"),
         }
     }

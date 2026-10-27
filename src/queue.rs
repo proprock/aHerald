@@ -9,6 +9,9 @@ pub struct Entry {
     pub visible_ms: u64,
 }
 impl Entry {
+    pub fn is_usage(&self) -> bool {
+        self.event.source == Source::Usage
+    }
     /// The queue lifetime includes fade-out; zero denotes a persistent card.
     pub fn display_duration(&self, fade_out_ms: u64) -> u64 {
         self.duration.saturating_sub(fade_out_ms)
@@ -123,11 +126,12 @@ impl Queue {
             }
             return false;
         }
-        if self.items.len() == self.capacity {
+        if self.items.iter().filter(|e| !e.is_usage()).count() == self.capacity {
             let worst = self
                 .items
                 .iter()
                 .enumerate()
+                .filter(|(_, e)| !e.is_usage())
                 .max_by_key(|(_, e)| (rank(&e.event), std::cmp::Reverse(e.id)))
                 .map(|(i, _)| i)
                 .unwrap_or(0);
@@ -154,6 +158,30 @@ impl Queue {
             self.selected = Some(self.items[0].id);
         }
         true
+    }
+    /// One internal persistent card shares navigation with agent notifications.
+    /// It has a reserved slot so opening usage never evicts an agent event.
+    pub fn show_usage(&mut self) {
+        if let Some(entry) = self.items.iter().find(|e| e.is_usage()) {
+            self.selected = Some(entry.id);
+            return;
+        }
+        self.sequence += 1;
+        let event = Event {
+            source: Source::Usage,
+            kind: Kind::TurnComplete,
+            session_id: None,
+            turn_id: None,
+            request_id: None,
+            agent_id: None,
+        };
+        self.items.push(Entry {
+            id: self.sequence,
+            event,
+            duration: 0,
+            visible_ms: 0,
+        });
+        self.selected = Some(self.sequence);
     }
     pub fn items(&self) -> &[Entry] {
         &self.items

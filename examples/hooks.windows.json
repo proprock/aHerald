@@ -1,8 +1,8 @@
 {
-  "description": "aHerald notification-only hooks; replace paths before manually merging",
+  "description": "aHerald notification-only hooks; replace executable path before manually merging",
   "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident --config 'C:\\Users\\YOUR_USER\\AppData\\Roaming\\aHerald\\config.toml' | Out-String\"", "timeout": 3}]}],
-    "PermissionRequest": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident --config 'C:\\Users\\YOUR_USER\\AppData\\Roaming\\aHerald\\config.toml' | Out-String\"", "timeout": 3}]}],
-    "Interrupt": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident --config 'C:\\Users\\YOUR_USER\\AppData\\Roaming\\aHerald\\config.toml' | Out-String\"", "timeout": 3}]}]
+    "Stop": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident | Out-String\"", "timeout": 3}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident | Out-String\"", "timeout": 3}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --resident | Out-String\"", "timeout": 3}]}]
   }
 }
