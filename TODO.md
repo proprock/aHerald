@@ -181,6 +181,38 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
+- [ ] **AH-077 — Structured log lines and debug performance metrics.**
+  Replace the Unix-seconds line with a local ISO-8601 timestamp (millisecond, UTC offset),
+  fixed-width level and a `component.event key=value` body. Add one process-wide logger
+  (initialized once, atomic level gate) in place of the per-record `Log::new` sites, and
+  a `perf` module: closed set of spans, per-thread aggregation per window (count, mean,
+  standard deviation, min, max, p95 from a log2 histogram), counters, and an immediate
+  `slow` line for single samples over a per-span threshold. Instrument IPC handling and
+  queue wait, process/session scanning, asset cache and artwork preparation, composition
+  build, frame render and present, placement, usage poll, audio load, config reload.
+  Rotation cap 512 KiB at `debug`, 64 KiB otherwise. Lines carry numbers and fixed names
+  only (no payloads, paths, session IDs). Acceptance: tests for format, level gating,
+  rotation, aggregation math (fake clock) and an integration test that a resident at
+  `debug` logs `perf` lines for render and queue spans; docs and AGENTS.md privacy line
+  updated; standard Cargo checks.
+
+- [ ] **AH-078 — GUI-thread stall detector.** Depends on AH-077. Log a `stall` line when the
+  gap between message-loop iterations exceeds 50 ms, with the duration and the last handled
+  message class. Acceptance: a test blocks a fake loop clock and observes the line.
+
+- [ ] **AH-079 — Animation frame-budget report.** Depends on AH-077. Per shown animation log
+  achieved versus target frame rate and the count of late or skipped frames.
+  Acceptance: a fake-clock test with a slow render reports the expected late count.
+
+- [ ] **AH-080 — Periodic resource snapshot at debug.** Depends on AH-077. Every 60 s log
+  working set, GDI and USER handle counts (`GetGuiResources`), thread count and composition
+  bytes. Acceptance: a resident at `debug` writes the line; counts stay flat across repeated
+  events in a resource-cycle test.
+
+- [ ] **AH-081 — `aherald perf-report` subcommand.** Depends on AH-077. Summarize
+  `aherald.log` into a table ranked by total time per span (count, mean, p95, max).
+  Acceptance: a fixture log yields the expected ranked output; unreadable lines are skipped.
+
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and
   starts its own name-lookup child. Decide with the user between skipping the name
