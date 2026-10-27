@@ -125,7 +125,7 @@ See [demo verification and limitations](docs/demo.md).
 ```
 
 `--version` prints `aHerald <version>` and needs no configuration. The tray's
-**About aHerald** item opens a card in the usage-card style with the same version;
+**aHerald v<version>** item (above Sound) opens a card in the usage-card style with the same version;
 choosing it again closes the card.
 
 An event starts a detached resident when needed. `--resident` without an event

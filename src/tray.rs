@@ -210,17 +210,18 @@ impl Menu {
         let usage = [(CLAUDE_SUMMARY, claude), (SUMMARY, codex)]
             .into_iter()
             .filter_map(|(id, text)| text.map(|text| (id, text, false)));
+        let version = format!("aHerald v{}", crate::VERSION);
         let items = [
+            (ABOUT, version.as_str(), false),
             (SOUND, "Sound", sound),
-            (VISUAL, "Visual notifications", visual),
+            (VISUAL, "Pop-up", visual),
             (PAUSE, "Pause notifications", paused),
             (CONFIG, "Edit configuration", false),
             (RESTART, "Restart", false),
-            (ABOUT, "About aHerald", false),
             (EXIT, "Exit", false),
         ];
         for (id, label, checked) in usage.chain(items) {
-            if id == CONFIG || (id == SOUND && (codex.is_some() || claude.is_some())) {
+            if id == CONFIG || id == SOUND {
                 // SAFETY: menu is owned; separators have no command or label.
                 unsafe { AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()) }
                     .map_err(|_| "cannot add tray menu separator")?;
@@ -274,8 +275,8 @@ mod tests {
         .unwrap();
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 11);
-            assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
-            assert_ne!(GetMenuState(menu.0, 6, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_ne!(GetMenuState(menu.0, 3, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_ne!(GetMenuState(menu.0, 7, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             let mut label = [0u16; 128];
             let n = GetMenuStringW(
                 menu.0,
@@ -296,11 +297,13 @@ mod tests {
                 GetMenuState(menu.0, PAUSE as u32, MF_BYCOMMAND) & MF_CHECKED.0,
                 0
             );
+            let version = format!("aHerald v{}", crate::VERSION);
             for (id, expected) in [
                 (SUMMARY, "unavailable"),
+                (VISUAL, "Pop-up"),
                 (CONFIG, "Edit configuration"),
                 (RESTART, "Restart"),
-                (ABOUT, "About aHerald"),
+                (ABOUT, version.as_str()),
             ] {
                 let mut label = [0u16; 128];
                 let n = GetMenuStringW(menu.0, id as u32, Some(&mut label), MF_BYCOMMAND);
@@ -342,19 +345,17 @@ mod tests {
             let menu = Menu::new(true, true, false, codex, claude).unwrap();
             unsafe {
                 let count = GetMenuItemCount(Some(menu.0)) as u32;
-                let sound_position = usage_count + u32::from(usage_count > 0);
+                // The version item closes the usage block, then a separator precedes Sound.
+                let about_position = usage_count;
+                let sound_position = about_position + 2;
+                assert_eq!(GetMenuItemID(menu.0, about_position as i32), ABOUT as u32);
                 assert_eq!(GetMenuItemID(menu.0, sound_position as i32), SOUND as u32);
                 let separators: Vec<_> = (0..count)
                     .filter(|&position| {
                         GetMenuState(menu.0, position, MF_BYPOSITION) & MF_SEPARATOR.0 != 0
                     })
                     .collect();
-                let expected = if usage_count > 0 {
-                    vec![usage_count, sound_position + 3]
-                } else {
-                    vec![3]
-                };
-                assert_eq!(separators, expected);
+                assert_eq!(separators, vec![about_position + 1, sound_position + 3]);
             }
         }
     }
