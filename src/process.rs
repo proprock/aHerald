@@ -1,8 +1,5 @@
-#[cfg(windows)]
 pub use crate::detached::Child;
 use crate::events::Event;
-#[cfg(not(windows))]
-use std::process::{Child, Command, Stdio};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -35,21 +32,6 @@ pub fn deliver(executable: &Path, config: &Path, event: &Event) -> Result<Child,
 }
 
 fn spawn_ready(executable: PathBuf, config: PathBuf, payload: Vec<u8>) -> Result<Child, String> {
-    #[cfg(not(windows))]
-    let mut child = {
-        let mut command = Command::new(executable);
-        command
-            .arg("--display-child")
-            .arg("--config")
-            .arg(config)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        command
-            .spawn()
-            .map_err(|_| "cannot launch notification child")?
-    };
-    #[cfg(windows)]
     let mut child = crate::detached::spawn(
         &executable,
         &[

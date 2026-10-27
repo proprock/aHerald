@@ -10,7 +10,11 @@ mod codex_install;
 pub mod config;
 mod default_config;
 pub mod demo;
+mod http_common;
 #[cfg(windows)]
+pub mod https;
+#[cfg(unix)]
+#[path = "unix/https.rs"]
 pub mod https;
 pub mod session_source;
 pub mod usage;
@@ -41,6 +45,9 @@ pub mod audio;
 pub mod console_window;
 #[cfg(windows)]
 mod detached;
+#[cfg(unix)]
+#[path = "unix/detached.rs"]
+mod detached;
 pub mod events;
 pub mod notification;
 pub mod operational_log;
@@ -58,6 +65,9 @@ pub mod resource_cache;
 
 #[cfg(windows)]
 pub mod local;
+#[cfg(unix)]
+#[path = "unix/local.rs"]
+pub mod local;
 
 pub mod ipc;
 
@@ -65,10 +75,17 @@ pub mod ipc;
 pub mod resident;
 
 pub mod queue;
+mod resident_client;
 
 #[cfg(windows)]
 pub mod restart;
+#[cfg(unix)]
+#[path = "unix/restart.rs"]
+pub mod restart;
 #[cfg(windows)]
+pub mod shell;
+#[cfg(unix)]
+#[path = "unix/shell.rs"]
 pub mod shell;
 #[cfg(windows)]
 pub mod tray;
@@ -78,4 +95,4 @@ pub mod tray_usage;
 #[cfg(not(windows))]
 mod unsupported;
 #[cfg(not(windows))]
-pub use unsupported::{console_window, local, resident, restart};
+pub use unsupported::{console_window, resident};

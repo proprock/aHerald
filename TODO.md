@@ -73,6 +73,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `open`/`xdg-open`; an HTTPS client for usage polling (dependency comparison and user
   approval first). Acceptance: IPC framing/lifecycle, single-instance race and
   rejected-peer tests pass on macOS and Ubuntu; hook returns independently of the resident.
+  Status 2026-10-27: implemented in `src/unix/` (`local`, `pipe`, `detached`, `restart`,
+  `shell`, `https`; `libc` and `ureq` with rustls approved by the user, none of them in
+  the Windows build) and `src/resident_client.rs` (`ensure`/`forward`, now shared).
+  Verified on Windows (fmt, clippy, tests) and on Debian under WSL (clippy
+  `-D warnings`, `cargo test --all-targets`: `tests/unix_ipc.rs`, `tests/unix_hook.rs`,
+  `tests/https.rs` and the unit tests in `src/unix/`). Remaining before this closes: the
+  same run on macOS (the MacBook or CI; ring needs Apple's C toolchain, so it cannot be
+  cross-checked here) and a green CI run on both Unix runners. Not covered yet: the
+  Unix resident loop itself needs an overlay (AH-062, AH-068); proxy behaviour of
+  `ureq` (environment variables only) is unchecked, like the Windows system-proxy item
+  in AH-045.
 
 - [ ] **AH-062 — macOS overlay.** Depends on AH-061.
   Non-activating, transparent, floating `NSPanel` via `objc2`, reusing the portable BGRA
