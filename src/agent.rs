@@ -108,7 +108,9 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         "PermissionRequest" => Kind::PermissionRequired,
         "Notification" => match hook.notification_type.as_deref() {
             Some("permission_prompt") => Kind::PermissionRequired,
-            Some("idle_prompt" | "elicitation_dialog" | "agent_needs_input") => Kind::InputRequired,
+            // `idle_prompt` is Claude's reminder, about a minute after `Stop`, that a finished
+            // turn awaits input; the `Stop` card already announced it.
+            Some("elicitation_dialog" | "agent_needs_input") => Kind::InputRequired,
             _ => return Ok(None),
         },
         _ => return Ok(None),

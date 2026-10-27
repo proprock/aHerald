@@ -144,13 +144,6 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
-  On 2026-10-27 a card of that kind appeared twice for a Windows Terminal session that was
-  idle after its turn ended. Probably an idle `Notification` event; capture the payload
-  (`notification_type`) with the capture hook and compare with `docs/claude-hooks.md`.
-  Acceptance: an idle-after-turn notification no longer produces an input-required card
-  (or the doc records why it must), mapping changed test-first.
-
 - [ ] **AH-075 — Bound the Claude Desktop session scan by recency (found in AH-056).**
   Optional. The lookup reads every `local_*.json` (up to 5000) for sessions that may not be
   Desktop sessions at all; AH-056 only moved it behind the recorded window. Check whether a
