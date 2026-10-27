@@ -178,7 +178,7 @@ fn explicit_event_animation_overrides_pet_and_missing_pet_reaches_fallback() {
 
 #[cfg(windows)]
 #[test]
-fn native_pet_window_renders_webp_and_bad_asset_falls_back_to_text() {
+fn native_pet_window_keeps_source_and_signal_with_or_without_artwork() {
     use aherald::{events::Event, process::deliver};
     use std::time::{Duration, Instant};
     use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
@@ -242,9 +242,15 @@ fn native_pet_window_renders_webp_and_bad_asset_falls_back_to_text() {
             let mut rect = RECT::default();
             GetWindowRect(search.window, &mut rect).unwrap();
             let (w, h) = (rect.right - rect.left, rect.bottom - rect.top);
+            let mut title = [0u16; 128];
+            let len = GetWindowTextW(search.window, &mut title);
+            assert_eq!(
+                String::from_utf16_lossy(&title[..len as usize]),
+                "aHerald demo - Permission required"
+            );
             if valid {
-                assert!(h > w);
-                assert_eq!(w * 208, h * 192);
+                // The new contract reserves text space beside the 192x208 artwork.
+                assert!(w > h * 2, "text space must remain beside the pet");
             } else {
                 assert!(w > h * 2);
             }
@@ -260,4 +266,32 @@ fn native_pet_window_renders_webp_and_bad_asset_falls_back_to_text() {
             std::thread::yield_now();
         }
     }
+}
+
+#[test]
+fn agent_pet_settings_resolve_relative_paths_and_select_only_the_event_source() {
+    use aherald::events::{Event, Source};
+    let fixture = Fixture::new();
+    let config = Config::parse(
+        "[agents.codex]\npet='pet.json'\n[agents.claude]\npet='missing.json'",
+        &fixture.0,
+    )
+    .unwrap();
+    let mut event = Event::demo("error").unwrap();
+    event.source = Source::CodexHook;
+    assert!(pet::for_event(&config, &event).unwrap().is_some());
+    event.source = Source::Demo;
+    assert!(pet::for_event(&config, &event).unwrap().is_none());
+    let mut config = config;
+    config.notifications.pet = Some(fixture.0.join("missing.json"));
+    event.source = Source::CodexHook;
+    assert!(pet::for_event(&config, &event).unwrap().is_some());
+    config.agents.get_mut("codex").unwrap().pet = Some(fixture.0.join("missing.json"));
+    assert!(pet::for_event(&config, &event).is_err());
+    config.events.get_mut("error").unwrap().animation =
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));
+    assert_eq!(
+        pet::for_event(&config, &event).unwrap().unwrap().frames[0].dimensions(),
+        (64, 64)
+    );
 }

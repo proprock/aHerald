@@ -16,6 +16,7 @@ struct Surface {
     previous: HGDIOBJ,
     width: i32,
     height: i32,
+    pixels: *mut u8,
 }
 impl Drop for Surface {
     fn drop(&mut self) {
@@ -71,6 +72,7 @@ impl Surface {
                 previous,
                 width,
                 height,
+                pixels: bits as *mut u8,
             };
             if bits.is_null() || previous.is_invalid() {
                 return Err("cannot select overlay bitmap".into());
@@ -78,15 +80,49 @@ impl Surface {
             Ok((surface, bits as *mut u8))
         }
     }
-    fn image(frame: crate::animation::PreparedFrame) -> Result<Self, String> {
-        let (surface, bits) = Self::allocate(frame.width as i32, frame.height as i32)?;
-        // SAFETY: preparation produces exactly width * height * 4 bytes and the DIB owns that allocation.
+    fn with_artwork(
+        &self,
+        frame: &crate::animation::PreparedFrame,
+        left: i32,
+        top: i32,
+    ) -> Result<Self, String> {
+        if left < 0
+            || top < 0
+            || left as u32 + frame.width > self.width as u32
+            || top as u32 + frame.height > self.height as u32
+            || frame.bgra.len() != frame.width as usize * frame.height as usize * 4
+        {
+            return Err("artwork does not fit notification card".into());
+        }
+        let (surface, bits) = Self::allocate(self.width, self.height)?;
+        // SAFETY: both DIBs own width * height * 4 bytes; checked artwork bounds keep every
+        // access inside the destination. Frames and card pixels are premultiplied BGRA.
         unsafe {
-            std::ptr::copy_nonoverlapping(frame.bgra.as_ptr(), bits, frame.bgra.len());
+            let len = self.width as usize * self.height as usize * 4;
+            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
+            let pixels = std::slice::from_raw_parts_mut(bits, len);
+            for y in 0..frame.height as usize {
+                for x in 0..frame.width as usize {
+                    let src = &frame.bgra[(y * frame.width as usize + x) * 4..][..4];
+                    let offset = ((y + top as usize) * self.width as usize + x + left as usize) * 4;
+                    for c in 0..4 {
+                        pixels[offset + c] = (src[c] as u16
+                            + (pixels[offset + c] as u16 * (255 - src[3] as u16) + 127) / 255)
+                            .min(255) as u8;
+                    }
+                }
+            }
         }
         Ok(surface)
     }
-    fn text(width: i32, height: i32, scale: f64, label: &str) -> Result<Self, String> {
+    fn text(
+        width: i32,
+        height: i32,
+        scale: f64,
+        source: &str,
+        label: &str,
+        text_left: i32,
+    ) -> Result<Self, String> {
         // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
         // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
         unsafe {
@@ -132,10 +168,10 @@ impl Surface {
             let old_font = SelectObject(dc, font.0.into());
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, COLORREF(0x00f5f5f5));
-            let mut text: Vec<u16> = format!("aHerald\n{label}").encode_utf16().collect();
+            let mut text: Vec<u16> = format!("{source}\n{label}").encode_utf16().collect();
             let mut rect = RECT {
-                left: (22.0 * scale) as i32,
-                top: (18.0 * scale) as i32,
+                left: text_left,
+                top: ((height - (64.0 * scale) as i32) / 2).max(0),
                 right: width - (18.0 * scale) as i32,
                 bottom: height,
             };
@@ -275,18 +311,13 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let scale = config.notifications.scale * GetDpiForSystem().max(96) as f64 / 96.0;
         let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
-        let label = match event.kind {
-            crate::events::Kind::TurnComplete => "Turn complete",
-            crate::events::Kind::PermissionRequired => "Permission required",
-            crate::events::Kind::InputRequired => "Input required",
-            crate::events::Kind::Error => "Agent error",
-            crate::events::Kind::Interrupted => "Turn interrupted",
-        };
+        let label = event.kind.label();
+        let source = event.source.label();
         let assets = config.clone();
-        let kind = event.kind;
+        let asset_event = event.clone();
         let bilinear = config.notifications.interpolation == "bilinear";
         let prepared = std::thread::spawn(move || {
-            crate::pet::for_notification(&assets, kind)?
+            crate::pet::for_event(&assets, &asset_event)?
                 .map(|animation| animation.prepare(scale, bilinear))
                 .transpose()
         })
@@ -294,39 +325,43 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         .ok()
         .and_then(Result::ok)
         .flatten();
-        let (surfaces, frame_durations, looping) = if let Some(animation) = prepared {
-            let surfaces = animation
-                .frames
-                .into_iter()
-                .map(Surface::image)
-                .collect::<Result<Vec<_>, _>>();
-            match surfaces {
-                Ok(frames) if !frames.is_empty() => {
-                    (frames, animation.durations_ms, animation.looping)
+        let mut surfaces = Vec::new();
+        let mut frame_durations = vec![1000];
+        let mut looping = false;
+        if let Some(animation) = prepared {
+            let padding = (18.0 * scale) as i32;
+            let art_width = animation.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
+            let art_height = animation.frames.iter().map(|f| f.height).max().unwrap_or(0) as i32;
+            let width = fallback_width + art_width + padding;
+            let height = fallback_height.max(art_height + padding * 2);
+            let bytes = width as u64 * height as u64 * 4 * animation.frames.len() as u64;
+            if !animation.frames.is_empty() && bytes <= crate::animation::MAX_BYTES {
+                let card =
+                    Surface::text(width, height, scale, source, label, art_width + padding * 2)?;
+                let composed = animation
+                    .frames
+                    .iter()
+                    .map(|frame| {
+                        card.with_artwork(frame, padding, (height - frame.height as i32) / 2)
+                    })
+                    .collect::<Result<Vec<_>, _>>();
+                if let Ok(frames) = composed {
+                    surfaces = frames;
+                    frame_durations = animation.durations_ms;
+                    looping = animation.looping;
                 }
-                _ => (
-                    vec![Surface::text(
-                        fallback_width,
-                        fallback_height,
-                        scale,
-                        label,
-                    )?],
-                    vec![1000],
-                    false,
-                ),
             }
-        } else {
-            (
-                vec![Surface::text(
-                    fallback_width,
-                    fallback_height,
-                    scale,
-                    label,
-                )?],
-                vec![1000],
-                false,
-            )
-        };
+        }
+        if surfaces.is_empty() {
+            surfaces.push(Surface::text(
+                fallback_width,
+                fallback_height,
+                scale,
+                source,
+                label,
+                (22.0 * scale) as i32,
+            )?);
+        }
         let (width, height) = (surfaces[0].width, surfaces[0].height);
         let mut cursor = POINT::default();
         let _ = GetCursorPos(&mut cursor);
@@ -382,10 +417,14 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         if RegisterClassW(&wc) == 0 {
             return Err("cannot register overlay class".into());
         }
+        let title: Vec<u16> = format!("{source} - {label}")
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class,
-            w!("aHerald notification"),
+            windows::core::PCWSTR(title.as_ptr()),
             WS_POPUP,
             position.x,
             position.y,
@@ -422,5 +461,46 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod card_tests {
+    use super::Surface;
+    use crate::animation::PreparedFrame;
+    #[test]
+    fn artwork_blends_inside_the_card_without_replacing_source_or_signal_text() {
+        let card = Surface::text(530, 244, 1.0, "Codex", "Permission required", 228).unwrap();
+        let frame = PreparedFrame {
+            width: 192,
+            height: 208,
+            bgra: [0, 0, 128, 128].repeat(192 * 208),
+        };
+        let composed = card.with_artwork(&frame, 18, 18).unwrap();
+        let other = Surface::text(530, 244, 1.0, "aHerald demo", "Turn complete", 228).unwrap();
+        // SAFETY: each owned DIB has exactly width * height pixels and remains live here.
+        unsafe {
+            let base = std::slice::from_raw_parts(card.pixels, 530 * 244 * 4);
+            let result = std::slice::from_raw_parts(composed.pixels, base.len());
+            let different_text = std::slice::from_raw_parts(other.pixels, base.len());
+            let offset = (20 * 530 + 20) * 4;
+            assert_eq!(&result[offset..offset + 4], &[21, 16, 141, 249]);
+            let mut text_changes = 0;
+            for y in 0..244 {
+                let region = (y * 530 + 228) * 4..(y * 530 + 510) * 4;
+                assert_eq!(&base[region.clone()], &result[region.clone()]);
+                text_changes += base[region.clone()]
+                    .iter()
+                    .zip(&different_text[region])
+                    .filter(|(a, b)| a != b)
+                    .count();
+            }
+            assert!(
+                text_changes > 100,
+                "source and signal must render visible text pixels"
+            );
+            assert_eq!(&result[..4], &[0, 0, 0, 0]);
+        }
+        assert!(card.with_artwork(&frame, 400, 18).is_err());
     }
 }

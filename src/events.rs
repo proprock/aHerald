@@ -41,6 +41,31 @@ pub enum Source {
     CodexHook,
     Demo,
 }
+impl Source {
+    pub fn agent_key(&self) -> &'static str {
+        match self {
+            Self::CodexHook => "codex",
+            Self::Demo => "demo",
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::CodexHook => "Codex",
+            Self::Demo => "aHerald demo",
+        }
+    }
+}
+impl Kind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TurnComplete => "Turn complete",
+            Self::PermissionRequired => "Permission required",
+            Self::InputRequired => "Input required",
+            Self::Error => "Agent error",
+            Self::Interrupted => "Turn interrupted",
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
