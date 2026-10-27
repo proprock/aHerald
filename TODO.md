@@ -227,13 +227,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
-- [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
-  Produce a release ZIP containing executable, example configuration, PNG/WAV
-  assets, metadata, license, and instructions. Explain resident/transient modes,
-  CLI, replacement assets, configuration, manual hooks/autostart, uninstall, build
-  commands, and event-source limitations. Acceptance: clean extraction works
-  without administrator privileges or installed GUI runtimes.
-
 - [ ] **AH-023 — Complete release acceptance.** Depends on AH-022.
   Run automated checks, Windows IPC/lifecycle integration tests, and the smoke
   matrix on Windows 10 and 11. Cover topmost/transparency/focus, sound, switching,

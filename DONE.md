@@ -679,3 +679,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   tracked `lastActivityAt`, so `local_session_id` now skips files not modified in the last
   30 days (`MAX_AGE`); `MAX_FILES` still applies. Test: `tests/claude_desktop.rs`
   `sessions_untouched_for_months_are_not_scanned` (mtime set with `File::set_modified`).
+
+- [x] **AH-022 — Package and document the portable application.**
+  Done (2026-10-27, `feature/AH-075` branch): `package-release.ps1`
+  builds `aherald-vX.Y.Z-windows-x64.zip` + `.sha256` (exe, example config, `assets/`,
+  `examples/`, `docs/`, LICENSE, README, CHANGELOG, `START-HERE.md`, `MANIFEST.txt` with
+  per-file SHA-256), then extracts it into a fresh temp folder as a non-administrator and
+  runs `aherald.exe --version` (observed: `aHerald 0.1.0`, 1.29 MB zip). `release.yml` calls
+  the script. `docs/portable.md` covers modes, CLI, configuration, replacing assets, manual
+  hooks and autostart, uninstall, build commands and limits. `check-release.ps1` passes (no
+  separate C runtime). Not verified: the workflow itself has not run on GitHub (not pushed);
+  Windows 10 extraction belongs to AH-023.

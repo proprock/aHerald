@@ -52,18 +52,9 @@ jobs:
         shell: pwsh
         run: ./check-release.ps1
 
-      - name: Assemble the portable archive
+      - name: Assemble the portable archive and verify a clean extraction runs
         shell: pwsh
-        run: |
-          $name = "aherald-$env:RELEASE_TAG-windows-x64"
-          $root = Join-Path $PWD "dist/$name"
-          New-Item -ItemType Directory -Path $root | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/aherald.exe $root
-          Copy-Item aHerald.example.toml, LICENSE, README.md $root
-          Copy-Item assets, examples, docs -Destination $root -Recurse
-          Compress-Archive -Path $root -DestinationPath "dist/$name.zip"
-          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Set-Content -Encoding ascii "dist/$name.zip.sha256"
+        run: ./package-release.ps1 -Tag $env:RELEASE_TAG
 
       - uses: actions/upload-artifact@v7
         with:
