@@ -30,6 +30,11 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Cons
 libc = "0.2"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry", "NSDictionary", "NSValue", "NSObject"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSGraphicsContext", "NSFont", "NSColor", "NSParagraphStyle", "NSStringDrawing", "NSText", "NSAttributedString", "NSFontDescriptor", "NSGraphics", "objc2-core-graphics", "objc2-core-foundation"] }
+
 [profile.release]
 lto = true
 codegen-units = 1
