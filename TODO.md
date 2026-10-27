@@ -83,8 +83,11 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   card, a click closes it, Exit stops the resident. Usage with live quota data was checked against Codex 0.133 from the
   desktop app (95% / 95%, plus plan, matching the app); the CLI is found in
   `/Applications/Codex.app` or `~/Applications` when it is not on `PATH`, and reset times use the
-  local zone. Not verified: Edit configuration and Restart end to end, light/dark menu bar
-  icons, the status item on a second display. Claude usage rows wait for AH-066.
+  local zone. Checked by hand 2026-10-28: Edit configuration opens the file in the default
+  editor; Restart replaces the process (the old one exits, a new pid answers `--status`, the
+  icon disappears and returns). The menu bar icon was also read in dark and light system
+  appearance (the bar keeps the wallpaper tint, the green bars stay readable in both; a light
+  wallpaper was not tried). Not verified: the status item on a second display. Claude usage rows wait for AH-066.
 
 - [ ] **AH-064 — macOS audio.** Depends on AH-061.
   CoreAudio/AudioQueue playback with the serialized-playback gate. Acceptance: no
