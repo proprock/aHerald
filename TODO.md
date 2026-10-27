@@ -173,16 +173,13 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
-- [ ] **AH-048 — Reduce animation memory and sharpen scaled text.** Depends on AH-020, AH-041.
-  Each animation frame keeps a full-card DIB and DC, so long animations exceed the
-  32 MiB budget and silently drop to text, and session-name updates redraw every
-  frame. Compose one base card and blend only the artwork region per frame. Cards
-  render at 96 DPI and scale nearest-neighbor, which makes text blocky at 125–200%.
-  `docs/milestone-5.md` records that choice, so confirm the change with the user,
-  then render at the monitor's effective DPI, rebuild on `WM_DPICHANGED` and keep
-  nearest-neighbor for pixel art only. Acceptance: an animation that exceeded the
-  budget shows artwork within bounded memory; leak tests pass; visual check at
-  100/150/200%; standard Cargo checks. Source: `audit-20261026.md` P3, P4.
+- [ ] **AH-076 — Visual check of native-DPI cards at 100/150/200% (split from AH-048).**
+  Depends on AH-048. Cards are now drawn at the target monitor's DPI. Check on a real
+  display at 100%, 150% and 200%: sharp text, pixel art still crisp (nearest-neighbor),
+  a long animation (more than 64 frames at 530×244) shows its artwork, and the usage
+  card and a transient card redraw when dragged between monitors of different DPI
+  (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
+  Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and
