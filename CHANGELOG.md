@@ -40,6 +40,8 @@ configuration work.
   rustls; none of it is reachable until a Unix overlay exists (AH-061).
 
 ### Changed
+- The card's shapes and text layout moved into the platform-independent
+  `card_paint` module that Windows draws from and macOS will (AH-062).
 - `config.toml` is read from beside `aherald.exe`; there is no APPDATA lookup (AH-033).
 - Usage sections are nested under their agent (`[codex.usage]`, `[claude.usage]`).
 - Cards are drawn at the target monitor's effective DPI (AH-048, AH-076).

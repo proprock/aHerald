@@ -90,6 +90,16 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   rendering; text through CoreText. Handle multiple displays, Retina scale, Spaces and
   full-screen apps. Acceptance: manual check on the M1 MacBook: no focus theft, correct
   transparency, dismissal, event switching, display change.
+  Agreed 2026-10-27: `objc2`, `objc2-app-kit`, `objc2-foundation` only under
+  `cfg(target_os = "macos")`; text drawn with AppKit (`NSString`) into the bitmap, so no
+  CoreText crate; scope is the overlay plus a resident without a tray (tray is AH-063).
+  Step 1 done: `src/card_paint.rs` holds the card's shapes (straight BGRA) and a list of
+  text runs; Windows `Surface::card` now draws those runs with GDI, with unchanged pixels
+  (the existing card tests pass) and new portable tests. Remaining: the AppKit text
+  renderer, the `NSPanel` presenter, the macOS event loop and `resident::run`, and a
+  `cargo check --target aarch64-apple-darwin` seam (ureq/ring does not cross-build here,
+  so make `ureq` an optional feature). None of it can run on this Windows machine, so it
+  should be developed on the MacBook.
 
 - [ ] **AH-063 — macOS tray.** Depends on AH-062.
   `NSStatusItem` and menu parity with Windows (sound, visual, pause, edit configuration,
