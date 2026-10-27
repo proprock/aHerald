@@ -36,6 +36,95 @@ remaining environmental or coverage limitations when completing a milestone.
 An implementation alone is not evidence of Windows visual acceptance.
 Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under new IDs.
 
+## Milestone 5a — macOS and Linux support (first priority)
+
+Agreed scope (2026-10-27): native bindings per OS, no winit or other GUI framework
+(`objc2`/AppKit on macOS; `x11rb` plus D-Bus on Linux). Linux targets X11/XWayland
+first; Wayland is evaluated separately and may ship with reduced features. Live
+verification runs on the user's MacBook Pro M1 (`aarch64-apple-darwin`) and an Ubuntu
+machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Actions)
+covers automated checks only. New direct dependencies need user approval per AGENTS.md.
+AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and this file.
+
+- [ ] **AH-060 — Platform seam, non-Windows build and CI.**
+  Make the library and `main.rs` compile on macOS and Linux with stub platform modules.
+  Define per-OS boundaries for overlay, tray, IPC, audio, activation, process spawn,
+  HTTPS and open-link/open-file. Gate Windows-only tests. Replace hard-coded `\\`,
+  `USERPROFILE` and `LOCALAPPDATA` assumptions with a path helper. Add `.gitattributes`
+  and a GitHub Actions matrix (windows, macos, ubuntu) running fmt, clippy and test.
+  Update the target statement in AGENTS.md, INFO.md, README and this file.
+  Acceptance: the standard checks pass on all three OSes in CI; behavior on Windows
+  is unchanged (existing Windows tests still pass).
+
+- [ ] **AH-061 — Unix common layer (IPC, spawn, HTTPS, open).** Depends on AH-060.
+  Unix-domain-socket IPC in a per-user directory (mode 0600, peer-credential check,
+  no TCP, `flock` single instance); detached child spawn with fd closing; restart;
+  `open`/`xdg-open`; an HTTPS client for usage polling (dependency comparison and user
+  approval first). Acceptance: IPC framing/lifecycle, single-instance race and
+  rejected-peer tests pass on macOS and Ubuntu; hook returns independently of the resident.
+
+- [ ] **AH-062 — macOS overlay.** Depends on AH-061.
+  Non-activating, transparent, floating `NSPanel` via `objc2`, reusing the portable BGRA
+  rendering; text through CoreText. Handle multiple displays, Retina scale, Spaces and
+  full-screen apps. Acceptance: manual check on the M1 MacBook: no focus theft, correct
+  transparency, dismissal, event switching, display change.
+
+- [ ] **AH-063 — macOS tray.** Depends on AH-062.
+  `NSStatusItem` and menu parity with Windows (sound, visual, pause, edit configuration,
+  restart, exit, usage rows). Acceptance: manual menu check on macOS.
+
+- [ ] **AH-064 — macOS audio.** Depends on AH-061.
+  CoreAudio/AudioQueue playback with the serialized-playback gate. Acceptance: no
+  overlapping playback across processes (process test), audible check on macOS.
+
+- [ ] **AH-065 — macOS click-to-activate.** Depends on AH-062.
+  Replace the HWND capture with PID/TTY-based terminal identification and
+  `NSRunningApplication` activation; Codex and Claude Desktop URL schemes; Claude Desktop
+  session lookup under `~/Library/Application Support/Claude` (still `cliSessionId` only).
+  Document Accessibility/Automation prompts. Acceptance: manual check with Terminal,
+  iTerm2 and Claude Desktop; policy tests stay platform-neutral.
+
+- [ ] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
+  Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth
+  item from the Keychain and use it only for the usage endpoint. Needs an explicit
+  AGENTS.md exception (extends AH-037) agreed first. Never log, copy or write back.
+  Acceptance: parsing tests with fixtures; manual check; token never appears in logs.
+
+- [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
+  `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
+  examples, setup and removal steps, release check script. Decide arm64-only versus
+  universal. Signing and notarization are deferred and documented as a limitation.
+  Acceptance: bundle launches on the M1 MacBook; docs list tested macOS and Codex versions.
+
+- [ ] **AH-068 — Linux X11 overlay.** Depends on AH-061.
+  `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
+  Works under XWayland. Acceptance: manual check on Ubuntu (Xorg login and XWayland):
+  transparency, always on top, no focus theft, multi-monitor if available.
+
+- [ ] **AH-069 — Linux tray.** Depends on AH-068.
+  StatusNotifierItem with dbusmenu over D-Bus (dependency approval first); re-register
+  when the watcher restarts. Document that GNOME needs the AppIndicator extension.
+  Acceptance: manual menu check on Ubuntu; watcher-restart check.
+
+- [ ] **AH-070 — Linux audio.** Depends on AH-061.
+  Choose a backend with user approval (PulseAudio/PipeWire-pulse versus ALSA) and keep the
+  serialized-playback gate. Acceptance: no overlapping playback; audible check on Ubuntu.
+
+- [ ] **AH-071 — Linux click-to-activate and path discovery.** Depends on AH-068.
+  `_NET_ACTIVE_WINDOW` activation and terminal-window capture; Codex executable discovery
+  without `.exe`/`.cmd`; Claude and Codex paths through `HOME`/`XDG_*`. Acceptance:
+  manual check on Ubuntu; discovery covered by tests with a fake `PATH`.
+
+- [ ] **AH-072 — Linux packaging, documentation and verification matrix.**
+  Depends on AH-068, AH-069, AH-070. `tar.gz` release (glibc versus musl decision), `.sh`
+  hook examples, setup and removal steps. Acceptance: tested Ubuntu, session type
+  (Xorg/Wayland) and Codex versions recorded; unsupported desktops listed explicitly.
+
+- [ ] **AH-073 — Wayland spike.** Depends on AH-068.
+  Evaluate `wlr-layer-shell` (KDE, wlroots) and the XWayland fallback on GNOME; list
+  degraded features and their cost. Decide with the user whether to implement.
+  Acceptance: written findings with measured behavior on the Ubuntu Wayland session.
+
 ## Milestone 5 — Polish and portable release
 
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
@@ -55,12 +144,17 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
-  Depends on AH-055. Only the classic console host was checked live. With Windows Terminal
-  installed, confirm that a Claude CLI card raises the Windows Terminal window (the hook
-  records the owner of the pseudo-console window), that two terminal windows of different
-  sessions each raise their own window, and that a minimized window restores. Known limit:
-  tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
+- [ ] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
+  On 2026-10-27 a card of that kind appeared twice for a Windows Terminal session that was
+  idle after its turn ended. Probably an idle `Notification` event; capture the payload
+  (`notification_type`) with the capture hook and compare with `docs/claude-hooks.md`.
+  Acceptance: an idle-after-turn notification no longer produces an input-required card
+  (or the doc records why it must), mapping changed test-first.
+
+- [ ] **AH-075 — Bound the Claude Desktop session scan by recency (found in AH-056).**
+  Optional. The lookup reads every `local_*.json` (up to 5000) for sessions that may not be
+  Desktop sessions at all; AH-056 only moved it behind the recorded window. Check whether a
+  session file's mtime follows each turn before limiting the scan to recent files.
 
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in

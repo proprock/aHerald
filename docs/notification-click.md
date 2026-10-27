@@ -32,8 +32,13 @@ Claude Code has no documented link to an existing session, so two sources are co
   `OpenConsole.exe` or `WindowsTerminal.exe`. Only the window is raised: Windows Terminal tabs
   are not selected. While probing, the hook process detaches from its console.
 
+A recorded window is tried first; the Desktop lookup runs only when there is none or the
+window is gone. The lookup reads every session file, so on a cold disk cache (703 files) it
+delayed a terminal click by 6.7 s before this order was chosen (2026-10-27).
+
 With neither a Desktop session nor a recorded window nothing is activated; failure is
-logged the same way as for Codex.
+logged the same way as for Codex. At `debug` level each successful click also records
+`debug agent_activated ms=<n>`, the time from click to the window being raised.
 
 One owned worker with one pending click keeps shell/process queries off the GUI
 thread. Shutdown joins it, including after a transient card is dismissed, so a

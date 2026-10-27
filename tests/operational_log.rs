@@ -1,6 +1,24 @@
 use aherald::config::LogLevel;
 use aherald::operational_log::{Log, MAX_LOG_BYTES, Record};
 #[test]
+fn activation_latency_is_logged_in_milliseconds_only_at_debug_level() {
+    let root = std::env::temp_dir().join(format!("aherald-log-latency-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    Log::new(&root, LogLevel::Info)
+        .record(Record::AgentActivated { millis: 1234 })
+        .unwrap();
+    assert!(!root.join("aherald.log").exists());
+    Log::new(&root, LogLevel::Debug)
+        .record(Record::AgentActivated { millis: 1234 })
+        .unwrap();
+    let text = std::fs::read_to_string(root.join("aherald.log")).unwrap();
+    assert_eq!(
+        text.trim_end().split_once(' ').unwrap().1,
+        "debug agent_activated ms=1234"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+#[test]
 fn fixed_records_honor_levels_rotate_and_recover_from_unwritable_paths() {
     let root = std::env::temp_dir().join(format!("aherald-log-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
