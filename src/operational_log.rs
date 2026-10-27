@@ -131,6 +131,13 @@ pub enum Record {
         name: &'static str,
         value: u64,
     },
+    /// Process-level counters, to see growth over a long-lived resident.
+    Resources {
+        working_set_kb: u64,
+        gdi: u32,
+        user: u32,
+        threads: u32,
+    },
 }
 /// Microseconds as milliseconds with two decimals (`12.34`), without floating point.
 fn millis(micros: u64) -> String {
@@ -180,6 +187,18 @@ impl Record {
             Self::Gauge { name, value } => {
                 (Level::Debug, format!("gauge {name} value={value}").into())
             }
+            Self::Resources {
+                working_set_kb,
+                gdi,
+                user,
+                threads,
+            } => (
+                Level::Debug,
+                format!(
+                    "resources working_set_kb={working_set_kb} gdi={gdi} user={user} threads={threads}"
+                )
+                .into(),
+            ),
             Self::Started => (Level::Info, "resident.started".into()),
             Self::Stopped => (Level::Info, "resident.stopped".into()),
             Self::IpcFailure => (Level::Warn, "ipc.failure".into()),

@@ -188,8 +188,12 @@ fn run_with_usage(
         };
         let _ = ready_tx.send(Ok(()));
         log(Record::Started);
+        let mut snapshot_clock = crate::perf::Every::new(Duration::from_secs(60));
         while !shutdown.load(Ordering::Acquire) {
             crate::perf::tick();
+            if snapshot_clock.due(std::time::Instant::now()) {
+                crate::process_stats::log_snapshot();
+            }
             let result = server.serve_until(&listener_stop, |request| {
                 let _timer = crate::perf::span(crate::perf::Span::IpcHandle);
                 let Ok(mut state) = state.lock() else {

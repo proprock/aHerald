@@ -1,6 +1,6 @@
 use aherald::config::LogLevel;
 use aherald::operational_log::{self, Level, Record};
-use aherald::perf::{self, Collector, Counter, FramePacer, Gauge, Span, WINDOW};
+use aherald::perf::{self, Collector, Counter, Every, FramePacer, Gauge, Span, WINDOW};
 use std::time::{Duration, Instant};
 
 fn texts(records: &[Record]) -> Vec<String> {
@@ -189,6 +189,22 @@ fn frames_the_animation_jumped_over_are_counted_as_skipped() {
     assert_eq!(pacer.present(2, 7, 10), 0);
     assert_eq!(pacer.present(3, 0, 1), 0);
     assert_eq!(pacer.present(3, 0, 1), 0, "a still card never skips");
+}
+
+#[test]
+fn a_periodic_task_is_due_once_per_period_and_never_at_the_start() {
+    let mut every = Every::new(Duration::from_secs(60));
+    let t = Instant::now();
+    let s = Duration::from_secs;
+    assert!(!every.due(t), "the first call only starts the clock");
+    assert!(!every.due(t + s(59)));
+    assert!(every.due(t + s(60)));
+    assert!(!every.due(t + s(61)));
+    assert!(
+        every.due(t + s(130)),
+        "a late caller is not owed the missed periods"
+    );
+    assert!(!every.due(t + s(131)));
 }
 
 #[test]

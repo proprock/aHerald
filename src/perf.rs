@@ -374,6 +374,26 @@ pub fn add(counter: Counter, n: u64) {
     }
 }
 
+/// Fires once per period for a caller that polls: the first call only starts the clock,
+/// and a caller that was away is not owed the periods it missed.
+pub struct Every {
+    period: Duration,
+    last: Option<Instant>,
+}
+impl Every {
+    pub fn new(period: Duration) -> Self {
+        Self { period, last: None }
+    }
+    pub fn due(&mut self, now: Instant) -> bool {
+        let last = *self.last.get_or_insert(now);
+        let due = now.duration_since(last) >= self.period;
+        if due {
+            self.last = Some(now);
+        }
+        due
+    }
+}
+
 /// Spots animation frames that were never shown because the GUI thread was late: the
 /// animation follows the clock, so a late tick jumps ahead by more than one frame.
 #[derive(Default)]
