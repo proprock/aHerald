@@ -473,6 +473,43 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   composition got fast; it now sends a wake after clearing the fault, as the resident
   retries on the next wake. Visual check at 100/150/200% moved to AH-076.
 
+- [x] **AH-077 — Structured log lines and debug performance metrics.**
+  Log lines are `<local ISO-8601 time, ms, UTC offset> <LEVEL> <component.event> [key=number]`
+  through one shared logger with an atomic level gate; rotation cap is 512 KiB at `debug`,
+  64 KiB otherwise. `perf` spans (IPC handling, process scan, Claude Desktop session
+  lookup, artwork preparation, composition build, frame render and present, placement,
+  usage reads, WAV load, configuration load) are aggregated per thread and window into
+  `perf <span> n= avg= sd= min= p95= max=` lines, with cache/composition counters and
+  gauges; a single over-threshold sample is a throttled `WARN slow` line. Tests cover
+  format, gating, rotation, the aggregation math with injected time, and a debug resident
+  that logs only fixed names and numbers. Not done: a queue-wait span (needs queue
+  timestamps; the event-trace option was excluded), so IPC handling is the only
+  receive-side span. Adds `Win32_System_ProcessStatus` to the existing `windows` crate.
+  Automated on Windows 11 build 22621: 301 passed, 0 failed, 14 ignored (two consecutive
+  runs); `fmt`, `clippy -D warnings` and the release build clean. A live-log read and the
+  overhead comparison moved to AH-082.
+
+- [x] **AH-078 — GUI-thread stall detector (from AH-077).** GUI messages are timed per
+  class (`gui.timer`, `gui.wake`, `gui.input`, `gui.other`); a message over 50 ms is a
+  throttled `WARN slow gui.<class>` line. Implemented as per-class spans instead of a
+  gap between loop iterations, because an idle `GetMessage` wait is not a stall.
+
+- [x] **AH-079 — Animation frame-budget report (from AH-077).** `FramePacer` counts the
+  animation frames a card jumped over because a draw came late (`frame.skipped`) next to
+  `frame.presented`; tested with loops, repaints of one frame and new cards. Late-versus-
+  target frame rate was not added: frames are presented at their own cadence, so skipped
+  frames are the faithful measure.
+
+- [x] **AH-080 — Periodic resource snapshot at debug (from AH-077).** Once a minute the
+  resident writes `resources working_set_kb= gdi= user= threads=`; the composition size is
+  the `composition.bytes` gauge. The flat GDI count across repeated redraws is covered by
+  the existing native-resource cycle test.
+
+- [x] **AH-081 — `aherald --perf-report` (from AH-077).** Ranks spans from
+  `aherald.previous.log` and `aherald.log` by total time (samples, total, mean, worst-window
+  p95, max, slow count) and sums counters; unparseable lines are skipped. Tested with a
+  fixture log and through the binary.
+
 - [x] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
   Depends on AH-055. Manual 2026-10-27 (Windows Terminal 1.24.12741.0, Claude CLI): a card
   raised the Windows Terminal window; with two sessions in two windows, each click raised

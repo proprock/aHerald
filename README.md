@@ -167,8 +167,12 @@ Resident artwork is cached by agent/signal in a 16-entry, 32 MiB LRU, including
 builtin/text recovery for invalid resources. Restart the resident after replacing assets.
 The IPC worker writes fixed operational codes to `aherald.log` beside the config,
 controlled by `general.logging` (default `warn`; `off` disables it). It keeps one
-64 KiB file and one 64 KiB backup, `aherald.previous.log`. Logs contain timestamps,
-severity and fixed codes, without payloads, paths, credentials or session IDs.
+64 KiB file and one 64 KiB backup, `aherald.previous.log` (512 KiB each at `debug`).
+Lines look like `2026-10-27T14:03:22.481+03:00 WARN  ipc.failure`: local time,
+severity, a fixed event name and numbers, without payloads, paths, credentials or
+session IDs. At `debug` the log also gets aggregated timings of the hot paths
+(`perf frame.render n=120 avg=0.41ms … p95=0.52ms max=1.90ms`), cache counters and a
+once-a-minute resource line; `aherald --perf-report` ranks them by total time.
 An unwritable log directory leaves notification delivery working.
 See [resource limits and recovery evidence](docs/milestone-5.md).
 

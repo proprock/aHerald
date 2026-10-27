@@ -65,15 +65,36 @@ not a claim that the entire process uses only 32 MiB. PNG input is bounded to
 16 MiB; animation metadata to 16 KiB; pet resources and WAV have their documented
 independent limits. No new dependency or GUI runtime is introduced.
 
-The resident IPC worker writes optional `aherald.log` beside its configuration.
-`general.logging` controls filtering (`off` disables files). Only Unix seconds,
-severity and fixed operational codes are permitted. No API accepts event data,
-paths, remote error strings, account data or credentials. Rotate at 64 KiB into
-one `aherald.previous.log`; at most 128 KiB is retained. Unwritable destinations
-degrade silently without changing hook responses. File operations run on the
-listener, outside the GUI thread and queue lock. Idle accept polls are normal
-success, so an idle resident does not fill the error log. Queue rejection and
-broken/malformed IPC use fixed warning codes; lifecycle start/stop use info.
+The resident writes optional `aherald.log` beside its configuration through one
+process-wide logger (`operational_log::init` / `log`). A line is
+`<local ISO-8601 time with milliseconds and UTC offset> <LEVEL> <component.event> [key=number …]`,
+for example `2026-10-27T14:03:22.481+03:00 WARN  ipc.failure`. `general.logging`
+controls filtering (`off` disables files). Only the timestamp, severity, fixed
+component/event names and numbers are permitted. No API accepts event data, paths,
+remote error strings, account data or credentials. Rotate at 64 KiB (512 KiB at
+`debug`) into one `aherald.previous.log`, so at most twice the cap is retained.
+Unwritable destinations degrade silently without changing hook responses. Idle
+accept polls are normal success, so an idle resident does not fill the error log.
+Queue rejection and broken/malformed IPC use fixed warning codes; lifecycle
+start/stop use info.
+
+At `debug` the log also carries performance data (`src/perf.rs`). Hot paths are
+timed by a closed set of spans (IPC handling, process scan, Claude Desktop session
+lookup, artwork preparation, composition build, frame render and present, placement,
+usage reads, WAV load, configuration load, and GUI messages by class). Samples are
+aggregated per thread and written as one line per span and 5-second window:
+`perf frame.render n=120 avg=0.41ms sd=0.06ms min=0.33ms p95=0.52ms max=1.90ms`
+(p95 comes from a histogram with 1/8-octave buckets, so it is within about 12% and
+never above the maximum). Windows close on the first sample after they elapse, when
+the animation timer stops, from the idle IPC loop, and when a thread ends. Counters
+(`count asset_cache.hit n=18`; cache hit/miss/evict, budget fallback, composition
+rebuilds, frames presented and skipped) and gauges (`gauge composition.bytes`)
+share the window. A single sample over its span's threshold (33 ms for frames, 50 ms
+for GUI messages, 100 ms for scans, …) is a `WARN slow <span> ms=…` line even
+without `debug`, at most once a second per span with `suppressed=` counting the
+rest; a GUI-message span over 50 ms is the stall detector. Once a minute the
+resident adds `resources working_set_kb=… gdi=… user=… threads=…` to expose leaks.
+`aherald --perf-report` ranks the spans in the log files by total time.
 
 Verification includes:
 

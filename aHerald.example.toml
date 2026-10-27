@@ -10,6 +10,7 @@
 # Delivery mode: "transient" (default) or "resident". CLI mode flags take priority.
 mode = "transient"
 # Diagnostic level: "off", "error", "warn" (default), "info", "debug", "trace".
+# "debug" adds timings of hot paths; `aherald --perf-report` summarizes them.
 logging = "warn"
 # Duplicate-event window in milliseconds: 0..60000; default 1500.
 # Also controls repeat-sound suppression when sounds.suppress_repeats is true.
