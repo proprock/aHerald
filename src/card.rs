@@ -5,6 +5,7 @@ pub enum Action {
     Next,
     Dismiss,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Area {
     pub left: i32,
     pub top: i32,

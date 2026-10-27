@@ -4,6 +4,7 @@ pub mod activation;
 pub mod agent;
 pub mod app_server;
 pub mod card;
+pub mod card_paint;
 pub mod claude_usage;
 pub mod cli;
 mod codex_install;

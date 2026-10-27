@@ -13,23 +13,8 @@ use windows::{
     core::w,
 };
 
-/// Everything drawn on a card's base surface.
-pub(crate) struct CardText<'a> {
-    pub heading: &'a crate::card::Heading,
-    /// The event kind, drawn large on one row; with `body` the usage text instead.
-    pub label: &'a str,
-    /// `label` is several lines of body text rather than the event kind.
-    pub body: bool,
-    pub index: usize,
-    pub count: usize,
-    pub dismiss_button: bool,
-    /// Coarse age of the event ("2 min ago"); absent for cards that live seconds.
-    pub age: Option<&'a str>,
-    pub color: crate::config::Color,
-    pub background_color: crate::config::Color,
-    /// Outline of the card and frame of its buttons; absent draws no card outline.
-    pub border: Option<crate::config::Color>,
-}
+pub(crate) use crate::card_paint::CardText;
+use crate::card_paint::{Align, TextRun};
 pub(crate) struct Surface {
     dc: HDC,
     bitmap: HBITMAP,
@@ -96,64 +81,67 @@ fn restore_alpha(pixels: &mut [u8]) {
         }
     }
 }
-/// Draws a button face: a slightly lighter fill with a one-pixel border and rounded
-/// corners, over the card background (BGRA, not yet premultiplied).
-fn draw_button_frame(
-    pixels: &mut [u8],
-    width: i32,
-    area: &crate::card::Area,
-    background: &[u8; 4],
-    border_color: Option<crate::config::Color>,
-    scale: f64,
-) {
-    let lighten =
-        |value: u8, amount: u32| (value as u32 + (255 - value as u32) * amount / 100) as u8;
-    let fill = [
-        lighten(background[0], 8),
-        lighten(background[1], 8),
-        lighten(background[2], 8),
-        255,
-    ];
-    let border = match border_color {
-        Some(c) => [c.0[2], c.0[1], c.0[0], 255],
-        None => [
-            lighten(background[0], 32),
-            lighten(background[1], 32),
-            lighten(background[2], 32),
-            255,
-        ],
+/// The GDI `DrawText` format of a run.
+fn text_format(run: &TextRun) -> DRAW_TEXT_FORMAT {
+    let mut format = DT_NOPREFIX;
+    format |= match run.align {
+        Align::Left => DT_LEFT,
+        Align::Center => DT_CENTER,
+        Align::Right => DT_RIGHT,
     };
-    let (w, h) = (area.right - area.left, area.bottom - area.top);
-    let radius = ((4.0 * scale) as i32).min(w / 2).min(h / 2);
-    let line = (scale.round() as i32).max(1);
-    // Distance of a pixel outside the rounded rectangle (negative inside).
-    let inside = |x: i32, y: i32, inset: i32| {
-        let (left, top) = (inset, inset);
-        let (right, bottom) = (w - inset, h - inset);
-        let r = (radius - inset).max(0);
-        let cx = x.clamp(left + r, right - r - 1);
-        let cy = y.clamp(top + r, bottom - r - 1);
-        x >= left
-            && y >= top
-            && x < right
-            && y < bottom
-            && (x - cx).pow(2) + (y - cy).pow(2) <= r.pow(2)
-    };
-    for y in 0..h {
-        for x in 0..w {
-            let colour = if inside(x, y, line) {
-                &fill
-            } else if inside(x, y, 0) {
-                &border
-            } else {
-                continue;
-            };
-            let i = (((area.top + y) * width + area.left + x) * 4) as usize;
-            if let Some(pixel) = pixels.get_mut(i..i + 4) {
-                pixel.copy_from_slice(colour);
-            }
-        }
+    if run.wrap {
+        format |= DT_WORDBREAK;
+    } else {
+        format |= DT_SINGLELINE;
     }
+    if run.center_vertical {
+        format |= DT_VCENTER;
+    }
+    if run.ellipsis {
+        format |= DT_END_ELLIPSIS;
+    }
+    format
+}
+/// Draws `runs` on the memory DC of a live `Surface`, creating each font size once.
+fn draw_runs(dc: HDC, runs: &[TextRun]) -> Result<(), String> {
+    let mut fonts: Vec<(f64, Font)> = Vec::new();
+    // SAFETY: `dc` is a live memory DC; the original font is selected back below, before
+    // the fonts are deleted.
+    let old_font = unsafe {
+        SetBkMode(dc, TRANSPARENT);
+        SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT))
+    };
+    let result = runs.iter().try_for_each(|run| {
+        let font = match fonts.iter().find(|(size, _)| *size == run.size) {
+            Some((_, font)) => font.0,
+            None => {
+                let font = Font::segoe(run.size).ok_or("cannot create overlay font")?;
+                let handle = font.0;
+                fonts.push((run.size, font));
+                handle
+            }
+        };
+        let mut area = RECT {
+            left: run.area.left,
+            top: run.area.top,
+            right: run.area.right,
+            bottom: run.area.bottom,
+        };
+        // SAFETY: `dc` stays selected into its surface, which outlives this call.
+        unsafe {
+            SelectObject(dc, font.into());
+            SetTextColor(dc, COLORREF(u32::from(run.gray) * 0x0001_0101));
+        }
+        draw_text(dc, &run.text, &mut area, text_format(run));
+        Ok(())
+    });
+    // SAFETY: restores the selection made above; GdiFlush completes pending drawing
+    // into the DIB before the pixels are read again.
+    unsafe {
+        SelectObject(dc, old_font);
+        let _ = GdiFlush();
+    }
+    result
 }
 impl Surface {
     fn byte_len(&self) -> usize {
@@ -310,194 +298,10 @@ impl Surface {
         text_left: i32,
         content: CardText<'_>,
     ) -> Result<Self, String> {
-        let CardText {
-            heading,
-            label,
-            body,
-            index,
-            count,
-            dismiss_button,
-            age,
-            color,
-            background_color,
-            border,
-        } = content;
-        let controls = crate::card::Card {
-            heading: heading.clone(),
-            index,
-            count,
-            navigation: count > 1,
-            dismiss_button,
-            text_left: Some(text_left),
-        };
-        let buttons = controls.buttons(width, height, scale);
+        let painted = crate::card_paint::paint(width, height, scale, text_left, &content);
         let mut surface = Self::allocate(width, height)?;
-        let dc = surface.dc;
-        let pixels = surface.pixels_mut();
-        let background = [
-            background_color.0[2],
-            background_color.0[1],
-            background_color.0[0],
-            242,
-        ];
-        let radius = (18.0 * scale) as i32;
-        let stripe = (8.0 * scale) as i32;
-        for y in 0..height {
-            for x in 0..width {
-                let cx = x.clamp(radius, width - radius - 1);
-                let cy = y.clamp(radius, height - radius - 1);
-                let inside = (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2);
-                let i = ((y * width + x) * 4) as usize;
-                pixels[i..i + 4].copy_from_slice(if inside { &background } else { &[0, 0, 0, 0] });
-                if inside && x < stripe {
-                    pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
-                }
-            }
-        }
-        if let Some(border) = border {
-            let outline = [border.0[2], border.0[1], border.0[0], 255];
-            let line = (scale.round() as i32).max(1);
-            let within = |x: i32, y: i32, inset: i32| {
-                let r = (radius - inset).max(0);
-                let cx = x.clamp(inset + r, width - inset - r - 1);
-                let cy = y.clamp(inset + r, height - inset - r - 1);
-                x >= inset
-                    && y >= inset
-                    && x < width - inset
-                    && y < height - inset
-                    && (x - cx).pow(2) + (y - cy).pow(2) <= r.pow(2)
-            };
-            for y in 0..height {
-                for x in 0..width {
-                    if within(x, y, 0) && !within(x, y, line) {
-                        let i = ((y * width + x) * 4) as usize;
-                        pixels[i..i + 4].copy_from_slice(&outline);
-                    }
-                }
-            }
-        }
-        for (_, area) in &buttons {
-            draw_button_frame(pixels, width, area, &background, border, scale);
-        }
-        let font_at = |size: f64| Font::segoe(size * scale).ok_or("cannot create overlay font");
-        let (title_font, name_font, kind_font, row_font) = (
-            font_at(18.0)?,
-            font_at(16.0)?,
-            font_at(22.0)?,
-            font_at(15.0)?,
-        );
-        // SAFETY: the memory DC is owned by `surface`; the original selection is restored
-        // below, before the fonts are deleted.
-        let old_font = unsafe {
-            SetBkMode(dc, TRANSPARENT);
-            SelectObject(dc, title_font.0.into())
-        };
-        let draw = |font: &Font, gray: u32, rect: &mut RECT, text: &str, format| {
-            // SAFETY: `dc` stays selected into `surface`, which outlives this closure.
-            unsafe {
-                SelectObject(dc, font.0.into());
-                SetTextColor(dc, COLORREF(gray * 0x0001_0101));
-            }
-            draw_text(dc, text, rect, format);
-        };
-        let single = DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS;
-        let px = |v: f64| (v * scale) as i32;
-        // Row 1: harness and folder; the right edge keeps clear of the countdown badge.
-        let mut rect = RECT {
-            left: text_left,
-            top: px(14.0),
-            right: width - px(82.0),
-            bottom: px(38.0),
-        };
-        draw(&title_font, 0xf5, &mut rect, &heading.title, single);
-        // Row 2 is reserved so the card never changes height; empty without a name.
-        if let Some(name) = &heading.name {
-            let mut rect = RECT {
-                left: text_left,
-                top: px(38.0),
-                right: width - px(18.0),
-                bottom: px(60.0),
-            };
-            draw(&name_font, 0xc4, &mut rect, name, single);
-        }
-        // Row 3: the event kind, set apart and larger; usage cards show their body instead.
-        if !label.is_empty() {
-            let (font, top, format, gray) = if body {
-                (
-                    &title_font,
-                    px(66.0),
-                    DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
-                    0xf5,
-                )
-            } else {
-                (&kind_font, px(72.0), single, 0xf5)
-            };
-            let mut rect = RECT {
-                left: text_left,
-                top,
-                right: width - px(18.0),
-                bottom: height - px(40.0),
-            };
-            draw(font, gray, &mut rect, label, format);
-        }
-        for (action, r) in &buttons {
-            let caption = match action {
-                crate::card::Action::Previous => "<",
-                crate::card::Action::Next => ">",
-                crate::card::Action::Dismiss => "Dismiss",
-            };
-            let mut area = RECT {
-                left: r.left,
-                top: r.top,
-                right: r.right,
-                bottom: r.bottom,
-            };
-            draw(
-                &row_font,
-                0xf5,
-                &mut area,
-                caption,
-                DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE,
-            );
-        }
-        if let Some(counter) = controls.counter() {
-            let r = controls.counter_area(width, height, scale);
-            let mut area = RECT {
-                left: r.left,
-                top: r.top,
-                right: r.right,
-                bottom: r.bottom,
-            };
-            draw(
-                &row_font,
-                0xc4,
-                &mut area,
-                &counter,
-                DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE,
-            );
-        }
-        if let Some(age) = age {
-            let r = controls.age_area(width, height, scale);
-            let mut area = RECT {
-                left: r.left,
-                top: r.top,
-                right: r.right,
-                bottom: r.bottom,
-            };
-            draw(
-                &row_font,
-                0xa0,
-                &mut area,
-                age,
-                DT_LEFT | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-        }
-        // SAFETY: restores the selection made above; GdiFlush completes pending drawing
-        // into the DIB before the pixels are read again.
-        unsafe {
-            SelectObject(dc, old_font);
-            let _ = GdiFlush();
-        }
+        surface.pixels_mut().copy_from_slice(&painted.pixels);
+        draw_runs(surface.dc, &painted.text)?;
         let pixels = surface.pixels_mut();
         restore_alpha(pixels);
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -511,34 +315,8 @@ impl Surface {
     /// Draws the remaining-seconds badge over the pixels already in this surface.
     pub(crate) fn draw_countdown(&mut self, seconds: u64, scale: f64) -> Result<(), String> {
         let surface = self;
-        let font = Font::segoe(16.0 * scale).ok_or("cannot create countdown font")?;
-        // SAFETY: only the DC owned by `surface` is drawn to; the font selection is
-        // restored below, before the font is deleted.
-        let old = unsafe {
-            let old = SelectObject(surface.dc, font.0.into());
-            SetBkMode(surface.dc, TRANSPARENT);
-            SetTextColor(surface.dc, COLORREF(0x00f5f5f5));
-            old
-        };
-        let width = surface.width;
-        let mut area = RECT {
-            left: width - (80.0 * scale) as i32,
-            top: (16.0 * scale) as i32,
-            right: width - (18.0 * scale) as i32,
-            bottom: (40.0 * scale) as i32,
-        };
-        draw_text(
-            surface.dc,
-            &format!("{seconds}s"),
-            &mut area,
-            DT_RIGHT | DT_NOPREFIX | DT_SINGLELINE,
-        );
-        // SAFETY: restores the selection made above; GdiFlush completes pending drawing
-        // into the DIB before the pixels are read again.
-        unsafe {
-            SelectObject(surface.dc, old);
-            let _ = GdiFlush();
-        }
+        let run = crate::card_paint::countdown_run(surface.width, seconds, scale);
+        draw_runs(surface.dc, std::slice::from_ref(&run))?;
         restore_alpha(surface.pixels_mut());
         *surface.resized.get_mut() = None;
         Ok(())
