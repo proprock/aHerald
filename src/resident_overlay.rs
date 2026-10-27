@@ -132,7 +132,7 @@ impl Ui {
     fn log(&self, record: crate::operational_log::Record) {
         let _ = crate::operational_log::Log::new(
             &self.config.diagnostic_directory,
-            &self.config.general.logging,
+            self.config.general.logging,
         )
         .record(record);
     }
@@ -223,7 +223,7 @@ impl Ui {
                 if now && !*was {
                     let _ = crate::operational_log::Log::new(
                         &self.config.diagnostic_directory,
-                        &self.config.general.logging,
+                        self.config.general.logging,
                     )
                     .record(crate::operational_log::Record::UsageFailure);
                 }
@@ -536,7 +536,7 @@ impl Ui {
                     self.config_path
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new(".")),
-                    &self.config.general.logging,
+                    self.config.general.logging,
                 );
             }
             match controls.hit_test(self.width, self.height, self.scale, x, y) {

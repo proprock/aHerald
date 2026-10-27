@@ -18,7 +18,8 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    let _ = aherald::operational_log::Log::new(directory, "warn").record(record);
+    let _ = aherald::operational_log::Log::new(directory, aherald::config::LogLevel::Warn)
+        .record(record);
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
@@ -109,7 +110,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             "aHerald: Codex input monitoring unsupported for unrelated CLI/app sessions: no verified stable observation source; lifecycle hooks remain available"
         );
     }
-    if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
+    if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {
@@ -139,14 +140,16 @@ fn dispatch(
     event: &aherald::events::Event,
     config: &aherald::config::Config,
     path: &std::path::Path,
-    mode: &str,
+    mode: aherald::config::Mode,
 ) -> Result<(), String> {
     let setting = &config.events[event.kind.name()];
-    if !setting.enabled && !(mode == "resident" && event.is_terminal_evidence()) {
+    if !setting.enabled
+        && !(mode == aherald::config::Mode::Resident && event.is_terminal_evidence())
+    {
         return Ok(());
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
-    if mode == "resident" {
+    if mode == aherald::config::Mode::Resident {
         return aherald::resident::forward(
             &executable,
             path,

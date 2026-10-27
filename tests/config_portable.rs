@@ -1,4 +1,4 @@
-use aherald::config::Config;
+use aherald::config::{Config, Mode};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -39,7 +39,7 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     let path = r.0.join("config.toml");
     let c = Config::load(&path, false).unwrap();
     assert!(path.is_file());
-    assert_eq!(c.general.mode, "transient");
+    assert_eq!(c.general.mode, Mode::Transient);
     assert!(!c.codex.usage.enabled);
     assert!(c.notifications.activate_agent_on_click);
     assert_eq!(c.events["permission_required"].duration_ms, 0);
@@ -86,7 +86,7 @@ fn concurrent_first_loads_publish_one_complete_configuration() {
             std::thread::spawn(move || {
                 b.wait();
                 let c = Config::load(&p, false).unwrap();
-                assert_eq!(c.general.mode, "transient");
+                assert_eq!(c.general.mode, Mode::Transient);
                 std::fs::read_to_string(&p).unwrap()
             })
         })

@@ -1,5 +1,75 @@
-use aherald::{cli::Cli, config::Config};
+use aherald::{
+    cli::Cli,
+    config::{Config, Interpolation, LogLevel, Mode, Monitor, Position},
+};
 use std::{fs, path::PathBuf, process::Command};
+
+#[test]
+fn enumerated_settings_parse_every_documented_value() {
+    let dir = PathBuf::from(".");
+    for (name, mode) in [("resident", Mode::Resident), ("transient", Mode::Transient)] {
+        let text = format!("[general]\nmode='{name}'");
+        assert_eq!(Config::parse(&text, &dir).unwrap().general.mode, mode);
+    }
+    for (name, level) in [
+        ("off", LogLevel::Off),
+        ("error", LogLevel::Error),
+        ("warn", LogLevel::Warn),
+        ("info", LogLevel::Info),
+        ("debug", LogLevel::Debug),
+        ("trace", LogLevel::Trace),
+    ] {
+        let text = format!("[general]\nlogging='{name}'");
+        assert_eq!(Config::parse(&text, &dir).unwrap().general.logging, level);
+    }
+    for (name, position) in [
+        ("center", Position::Center),
+        ("top_center", Position::TopCenter),
+        ("bottom_right", Position::BottomRight),
+        ("near_cursor", Position::NearCursor),
+    ] {
+        let text = format!("[notifications]\nposition='{name}'");
+        let parsed = Config::parse(&text, &dir).unwrap();
+        assert_eq!(parsed.notifications.position, position);
+    }
+    for (name, monitor) in [("primary", Monitor::Primary), ("2", Monitor::Index(2))] {
+        let text = format!("[notifications]\nmonitor='{name}'");
+        let parsed = Config::parse(&text, &dir).unwrap();
+        assert_eq!(parsed.notifications.monitor, monitor);
+    }
+    for (name, mode) in [
+        ("nearest", Interpolation::Nearest),
+        ("bilinear", Interpolation::Bilinear),
+    ] {
+        let text = format!("[notifications]\ninterpolation='{name}'");
+        let parsed = Config::parse(&text, &dir).unwrap();
+        assert_eq!(parsed.notifications.interpolation, mode);
+    }
+}
+
+#[test]
+fn enumerated_settings_reject_unknown_values_without_echoing_them() {
+    let dir = PathBuf::from(".");
+    for (text, field) in [
+        ("[general]\nmode='SECRET'", "general.mode"),
+        ("[general]\nlogging='SECRET'", "general.logging"),
+        (
+            "[notifications]\nposition='SECRET'",
+            "notifications.position",
+        ),
+        ("[notifications]\nmonitor='SECRET'", "notifications.monitor"),
+        ("[notifications]\nmonitor='-1'", "notifications.monitor"),
+        (
+            "[notifications]\ninterpolation='SECRET'",
+            "notifications.interpolation",
+        ),
+        ("[general]\nmode=1", "general.mode"),
+    ] {
+        let error = Config::parse(text, &dir).unwrap_err();
+        assert!(error.contains(field), "{text}: {error}");
+        assert!(!error.contains("SECRET"), "{text} echoed a value: {error}");
+    }
+}
 
 #[test]
 fn tray_graph_defaults_and_validates_modes() {
@@ -149,12 +219,12 @@ fn defaults_paths_and_mode_override() {
     assert_eq!(config.events["error"].sound, Some(dir.join("sound.wav")));
     assert_eq!(config.events["permission_required"].duration_ms, 0);
     assert!(config.events["turn_complete"].enabled);
-    assert_eq!(Cli::default().selected_mode(&config), "resident");
+    assert_eq!(Cli::default().selected_mode(&config), Mode::Resident);
     assert_eq!(
         Cli::parse(args(&["--transient"]))
             .unwrap()
             .selected_mode(&config),
-        "transient"
+        Mode::Transient
     );
     assert_eq!(
         Config::parse("", &dir)
@@ -202,7 +272,7 @@ fn explicit_operations_are_unambiguous() {
     }
     let cli = Cli::parse(args(&["--hook", "--transient", "--config", "demo.toml"])).unwrap();
     assert_eq!(cli.operation.as_deref(), Some("hook"));
-    assert_eq!(cli.mode.as_deref(), Some("transient"));
+    assert_eq!(cli.mode, Some(Mode::Transient));
     assert_eq!(cli.config, Some(PathBuf::from("demo.toml")));
 }
 

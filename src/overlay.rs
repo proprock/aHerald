@@ -521,7 +521,7 @@ struct State {
     event: Event,
     activation: crate::activation::Worker,
     log_directory: std::path::PathBuf,
-    log_level: String,
+    log_level: crate::config::LogLevel,
     text_left: i32,
 }
 struct Window(HWND);
@@ -618,7 +618,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                                 y,
                             ),
                             &state.log_directory,
-                            &state.log_level,
+                            state.log_level,
                         );
                     }
                     if message == WM_LBUTTONUP
@@ -857,7 +857,7 @@ fn show_with_source(
             event: event.clone(),
             activation: crate::activation::Worker::default(),
             log_directory: config.diagnostic_directory.clone(),
-            log_level: config.general.logging.clone(),
+            log_level: config.general.logging,
             text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;

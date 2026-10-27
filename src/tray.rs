@@ -140,7 +140,7 @@ impl Icon {
                 },
                 size,
                 dpi,
-                "near_cursor",
+                crate::config::Position::NearCursor,
                 (
                     anchor.right - (size.0 as f64 * dpi) as i32 - (16.0 * dpi) as i32,
                     anchor.top - (size.1 as f64 * dpi) as i32 - (28.0 * dpi) as i32,

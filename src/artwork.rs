@@ -52,7 +52,7 @@ pub fn prepare(
     let prepare = |a: Animation| {
         a.prepare(
             config.notifications.scale,
-            config.notifications.interpolation == "bilinear",
+            config.notifications.interpolation == crate::config::Interpolation::Bilinear,
         )
         .ok()
     };
