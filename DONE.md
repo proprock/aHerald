@@ -444,3 +444,28 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   for a slot plays once a slot frees; `tray_enabled` behaves as documented; tests
   cover the chosen class and stacking behavior; standard Cargo checks.
   Source: `audit-20261026.md` E8.
+
+- [x] **AH-055 — Claude click-to-activate (split from AH-038).** Depends on AH-036.
+  Clicking a Claude card opens its own session. Desktop: the hook `session_id` is matched
+  to `cliSessionId` in Claude Desktop's session files (only that field is read; user-approved
+  2026-10-26) and `claude://claude.ai/epitaxy/local_<id>` is opened, with the Desktop window
+  as fallback. Terminal: the hook records the visible console window of its own or an ancestor
+  process (`console_window`), accepted at click time only for `conhost.exe`, `OpenConsole.exe`
+  and `WindowsTerminal.exe`. Automated: policy with a fake agent, Desktop lookup in temp dirs,
+  ancestor walk, event window field (`tests/activation.rs`, `tests/claude_desktop.rs`,
+  `tests/click_target.rs`). Manual 2026-10-26/27 (classic console host, Claude Desktop):
+  a card raised its terminal window; two Desktop sessions answered with a delay produced two
+  cards, and each click switched to its own session. Not verified: Windows Terminal and two
+  terminal windows (tracked in AH-056).
+
+- [x] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
+  `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
+  `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
+  in `.credentials.json`. Agreed exception to the token-reading rule (see AGENTS.md):
+  token used only for that call, never logged, stored or refreshed. Parsing, credential,
+  status and driver behavior are tested with fakes (no network). Live check 2026-10-25
+  (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
+  `five_hour`/`seven_day` `{utilization, resets_at}`; a stale token gave 401. Tested with
+  Claude Code 2.1.310. Manual 2026-10-25/27: separate Claude menu line, details card with
+  plan, 5h/Week, Extra usage and Spend, forced refresh on opening details, and tray
+  tooltip/menu/card with both agents enabled.

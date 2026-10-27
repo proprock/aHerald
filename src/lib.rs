@@ -25,6 +25,8 @@ pub mod animation;
 pub mod artwork;
 pub mod audio;
 #[cfg(windows)]
+pub mod console_window;
+#[cfg(windows)]
 mod detached;
 pub mod events;
 pub mod notification;

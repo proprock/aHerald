@@ -15,6 +15,26 @@ existing visible Codex window. It recognizes Codex.exe and the Windows Store
 OpenAI.Codex package, whose current executable is ChatGPT.exe. It does not launch
 a guessed executable or match an unrelated ChatGPT window by its title.
 
+## Claude cards
+
+Claude Code has no documented link to an existing session, so two sources are combined:
+
+- **Claude Desktop (Code tab).** The hook `session_id` equals `cliSessionId` in Desktop's
+  per-session file under `%LOCALAPPDATA%\Claude-Data\*\claude-code-sessions\...\local_<uuid>.json`.
+  A match opens `claude://claude.ai/epitaxy/local_<uuid>` (the link Desktop itself gives for a
+  session; undocumented and format-dependent). Only `cliSessionId` is deserialized; the id used in
+  the link comes from the file name and must be `local_` plus letters, digits and hyphens. If the
+  link cannot be opened, the Claude Desktop window (Store package) is raised.
+- **Terminal CLI.** The hook process records the visible window of its console: its own console
+  if it has one, otherwise the console of the nearest ancestor that has one (a classic console
+  window, or the Windows Terminal window that owns the pseudo console). The handle travels in
+  the event, and at click time it is accepted only for a live visible window of `conhost.exe`,
+  `OpenConsole.exe` or `WindowsTerminal.exe`. Only the window is raised: Windows Terminal tabs
+  are not selected. While probing, the hook process detaches from its console.
+
+With neither a Desktop session nor a recorded window nothing is activated; failure is
+logged the same way as for Codex.
+
 One owned worker with one pending click keeps shell/process queries off the GUI
 thread. Shutdown joins it, including after a transient card is dismissed, so a
 zero fade does not lose an accepted click. Failure preserves normal card behavior

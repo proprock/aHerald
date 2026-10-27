@@ -94,6 +94,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         turn_id: None,
         request_id: None,
         agent_id: None,
+        window: None,
     };
     event.validate()?;
     Ok(Some(event))

@@ -27,6 +27,8 @@ pub struct Queue {
     dedup_ms: u64,
     sequence: u64,
     last_tick: Option<u64>,
+    /// Whether a card was selected at the previous tick; idle gaps are not display time.
+    counting: bool,
     terminal_history: VecDeque<Event>,
 }
 fn rank(e: &Event) -> u8 {
@@ -70,6 +72,7 @@ impl Queue {
             dedup_ms,
             sequence: 0,
             last_tick: None,
+            counting: false,
             terminal_history: VecDeque::new(),
         }
     }
@@ -209,6 +212,7 @@ impl Queue {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            window: None,
         };
         self.items.push(Entry {
             id: self.sequence,
@@ -250,20 +254,21 @@ impl Queue {
             .map(|e| e.id);
     }
     pub fn tick(&mut self, now: u64, paused: bool) {
-        let elapsed = self
-            .last_tick
-            .replace(now)
-            .map(|t| now.saturating_sub(t))
-            .unwrap_or(0);
-        if paused {
-            return;
-        }
-        let id = self.selected;
-        if let Some(e) = self.items.iter_mut().find(|e| Some(e.id) == id) {
-            e.visible_ms = e.visible_ms.saturating_add(elapsed);
-            if e.duration > 0 && e.visible_ms >= e.duration {
-                self.dismiss();
+        // While idle the resident ticks rarely (usage polling), so a card that arrives after
+        // a long gap must not be charged for the time before it existed.
+        let elapsed = match self.last_tick.replace(now) {
+            Some(t) if self.counting => now.saturating_sub(t),
+            _ => 0,
+        };
+        if !paused {
+            let id = self.selected;
+            if let Some(e) = self.items.iter_mut().find(|e| Some(e.id) == id) {
+                e.visible_ms = e.visible_ms.saturating_add(elapsed);
+                if e.duration > 0 && e.visible_ms >= e.duration {
+                    self.dismiss();
+                }
             }
         }
+        self.counting = self.selected.is_some();
     }
 }
