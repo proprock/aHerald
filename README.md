@@ -5,6 +5,11 @@ detached or resident notifications, external animation/WAV resources, validated
 TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
+Platforms: Windows 10/11 x64 is the supported runtime. The crate also builds on macOS
+and Linux (CI checks formatting, lints and tests on all three), but there the service
+layer is a stand-in: hooks are parsed, while the overlay, tray, IPC and audio report
+"not supported yet" until the macOS and Linux ports (AH-061 onward) land.
+
 ## Build and verify
 
 Use stable Rust with the MSVC toolchain and Windows SDK:
