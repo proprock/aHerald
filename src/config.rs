@@ -20,6 +20,7 @@ pub struct Config {
     pub diagnostic_directory: PathBuf,
     pub general: General,
     pub resident: Resident,
+    pub tray: Tray,
     pub notifications: Notifications,
     pub sounds: Sounds,
     pub events: BTreeMap<String, EventConfig>,
@@ -33,6 +34,7 @@ impl Default for Config {
             diagnostic_directory: PathBuf::from("."),
             general: General::default(),
             resident: Resident::default(),
+            tray: Tray::default(),
             notifications: Notifications::default(),
             sounds: Sounds::default(),
             codex: Codex::default(),
@@ -58,6 +60,22 @@ impl Default for Config {
         }
     }
 }
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Tray {
+    pub graph: TrayGraph,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TrayGraph {
+    #[default]
+    Auto,
+    Both,
+    Claude,
+    Codex,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AgentAssets {

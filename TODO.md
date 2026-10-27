@@ -349,11 +349,154 @@ An implementation alone is not evidence of Windows visual acceptance.
   forced refresh on opening details. Remaining: confirm the tray
   tooltip/menu/card with both agents enabled.
 
+- [x] **AH-039 — Select tray graph agents.**
+  Add `[tray] graph = "auto" | "both" | "claude" | "codex"`, default auto.
+  Auto shows the agent with the lowest remaining percentage across 5h/week;
+  ties prefer Codex, disabled/no-data agents are excluded, missing windows stay gray.
+  Both splits each window's bar by width: Claude left, Codex right, independent
+  full-height fills and fixed positions. Exclusive modes never fall back.
+  Preserve display modes, colors, cached values, DPI sizing and icon reuse/restore.
+  Acceptance: config/selection/raster/native tests, four-mode visual preview at
+  16/20/24/32 px, isolated Explorer restoration and standard Cargo checks pass.
+  Graph selection does not enable polling or change menu/card behavior.
+  Verified on Windows 11 build 22621 with synthetic data; see `docs/tray-usage.md`.
+
 - [ ] **AH-038 — Claude follow-ups (deferred).**
   Click-to-activate and session names for Claude; `SubagentStop`/`SessionEnd`; a
   statusLine-based quota fallback (`rate_limits` in statusLine JSON, no token needed);
   honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
   Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
+
+- [ ] **AH-040 — Resolve stale Claude pending cards.** Depends on AH-036.
+  Claude permission/input cards are persistent and never receive terminal evidence
+  (`turn_id` is absent; `is_terminal_evidence` accepts only Codex hooks). They stay
+  until dismissed, hold the High-rank selection and silence every later sound; with
+  visuals off they cannot be dismissed at all. A Claude `Stop`/`StopFailure`
+  resolves pending cards of the same `session_id` only. Deduplicate a
+  `PermissionRequest` and `Notification` `permission_prompt` pair for one prompt if
+  the AH-036 payload captures show both fire. Decide with the user how queued,
+  unselected events announce themselves. Overlaps the terminal-evidence part of
+  AH-038. Acceptance: queue tests for same-session clearing, cross-session and
+  cross-agent isolation, the duplicate pair, and a later sound after a hidden
+  persistent card; standard Cargo checks. Source: `audit-20261026.md` E1.
+
+- [ ] **AH-041 — Keep the resident alive on card render failures.** Depends on AH-021.
+  Card, artwork, placement and countdown errors propagate through `Ui::draw` and
+  stop the resident, while transient mode falls back to a text card. Extract one
+  card composition shared by both modes: size by the largest frame, enforce the
+  animation byte budget, fall back to text, cache countdown frames, update the
+  window title and scale mouse coordinates. Stop the resident only when its window
+  or message loop is lost, and record a fixed diagnostic. Acceptance: an injected
+  composition or placement failure leaves the resident accepting events and showing
+  a text card; native rendering and leak tests and standard Cargo checks pass.
+  Source: `audit-20261026.md` E2, A1.
+
+- [ ] **AH-042 — Wake the resident only for pending work.** Depends on AH-041.
+  An idle resident wakes about 100 times per second: the 16 ms GUI timer, the 50 ms
+  pipe accept poll with a new event per attempt, and the 50 ms usage worker loop per
+  enabled agent. Post new IPC events to the window, run the timer only while a card
+  is visible or animating, wait on overlapped accept plus a stop event, and sleep
+  the usage worker until its next deadline. Present a static card only when frame,
+  alpha, countdown second or placement changes; update the tooltip only when its
+  text changes; cache usage-card layout and tray placement while the card is open.
+  Move "which card, frame, alpha and sounds now" into a pure presenter driven by
+  queue state and a controlled clock, leaving `Ui` a thin Win32 adapter, and stop
+  the window procedure from borrowing `Ui` while `draw` holds it across reentrant
+  `ShowWindow`/`SetWindowTextW` calls. Acceptance: presenter unit tests; a native
+  test observes no periodic wakeups while idle and prompt display of a forwarded
+  event; lifecycle, tray and leak tests and standard Cargo checks pass.
+  Source: `audit-20261026.md` P1, P2, A6, E7.
+
+- [ ] **AH-043 — Report configuration errors and guard Restart.**
+  Parsing reports only "invalid configuration fields" and validation one generic
+  message; the resident and Restart run without a console, so errors vanish and an
+  invalid file makes Restart exit silently. Name the failing field and reason
+  without echoing values. Validate the file before the tray Restart replaces the
+  process; on failure keep the running resident and show the error on a card. Add
+  fixed operational-log codes for invalid configuration, render fallback, resident
+  startup failure and usage failure, without payloads. Acceptance: config tests
+  assert field-level messages; a process test makes the file invalid, requests
+  Restart and observes the original resident still serving; standard Cargo checks.
+  Source: `audit-20261026.md` E5, A8.
+
+- [ ] **AH-044 — Separate usage sources and slow Claude retries.** Depends on AH-037.
+  `ClaudeTransport` emulates the Codex JSON-RPC app-server and reshapes HTTP data
+  into Codex JSON, which adds pre-formatted `Bucket.details`, a second backoff layer
+  and Codex-worded errors for Claude. Introduce a `UsageSource` boundary implemented
+  by the Codex client and the Claude HTTPS client; select card text by `Agent`, not
+  by label; remove the test-only `summary`/`details`/`brief` path and move its
+  assertions to the shown card text. After a Claude HTTP 429 the next scheduled
+  request waits at least `refresh_interval_sec`; manual refresh stays rate-limited.
+  `Retry-After` and the 15-minute cap remain in AH-038. Acceptance: driver tests with
+  a fake clock show no early Claude request after 429; Codex usage behavior and
+  error text are unchanged; standard Cargo checks. Source: `audit-20261026.md` A3,
+  A4, E4.
+
+- [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
+  WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
+  ignores system and PAC proxies. Disable redirects so the bearer token reaches only
+  `api.anthropic.com` and report 3xx as a sanitized service error; switch to
+  `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`. Clear header buffers holding the token after
+  use without adding a dependency. Acceptance: a test against a local endpoint shows
+  a 3xx response becomes an error without a follow-up request (if the client cannot
+  target one, document a manual redirect check instead); a manual check behind a
+  system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
+
+- [ ] **AH-046 — Accept concurrent hook bursts.** Depends on AH-010.
+  The resident pipe has one instance; busy clients retry with 10 ms sleeps, the
+  status probe allows 30 ms and the event 150 ms, and each forward makes two round
+  trips. Parallel subagent hooks may start extra residents or drop notifications
+  while the hook still reports success. First add a test that forwards 16 hook
+  events concurrently. If any is lost, serve several pipe instances or wait with
+  `WaitNamedPipeW`, and send the event before probing status. Acceptance: one
+  resident queues all 16 events exactly once and every hook returns within its
+  existing timeout; IPC security and race tests and standard Cargo checks pass.
+  Source: `audit-20261026.md` E3.
+
+- [ ] **AH-047 — Fix small resident and transient edge cases.**
+  The resident marks an event as sounded before checking for a free audio slot, so a
+  fifth simultaneous sound is lost. `[resident] tray_enabled` is parsed and
+  documented but has no effect; decide with the user whether to implement or
+  deprecate it, keeping existing configuration files loadable. Transient window
+  registration does not tolerate an existing class, and simultaneous transient cards
+  overlap at one position; decide whether they stack. Acceptance: a sound waiting
+  for a slot plays once a slot frees; `tray_enabled` behaves as documented; tests
+  cover the chosen class and stacking behavior; standard Cargo checks.
+  Source: `audit-20261026.md` E8.
+
+- [ ] **AH-048 — Reduce animation memory and sharpen scaled text.** Depends on AH-020, AH-041.
+  Each animation frame keeps a full-card DIB and DC, so long animations exceed the
+  32 MiB budget and silently drop to text, and session-name updates redraw every
+  frame. Compose one base card and blend only the artwork region per frame. Cards
+  render at 96 DPI and scale nearest-neighbor, which makes text blocky at 125–200%.
+  `docs/milestone-5.md` records that choice, so confirm the change with the user,
+  then render at the monitor's effective DPI, rebuild on `WM_DPICHANGED` and keep
+  nearest-neighbor for pixel art only. Acceptance: an animation that exceeded the
+  budget shows artwork within bounded memory; leak tests pass; visual check at
+  100/150/200%; standard Cargo checks. Source: `audit-20261026.md` P3, P4.
+
+- [ ] **AH-049 — Reuse app-server clients and decoded sounds.**
+  The resident runs separate `codex app-server` processes for usage and session
+  names, and transient mode starts one per Codex card. WAV files are read and parsed
+  for every event, bilinear scaling premultiplies twice, `activation::find` allocates
+  64 KB per enumerated window, and the IPC listener repeats the queue's terminal,
+  duplicate and obsolete checks. Share one app-server client in the resident where
+  the protocol allows, cache decoded sounds per file and volume, and let `push`
+  return its outcome. Acceptance: process tests show the expected app-server child
+  count; sound, scaling, activation and queue tests keep their results; standard
+  Cargo checks. Source: `audit-20261026.md` P5, P6.
+
+- [ ] **AH-050 — Tighten internal types and remove dead code.**
+  Replace string-typed `general.mode`, `logging`, `notifications.position`, `monitor`
+  and `interpolation` with Serde enums, and the `events` string map with typed
+  per-kind access. Replace `Result<_, String>` matching such as
+  `"local pipe deadline exceeded"` with typed IPC errors. Share the RAII handle (three
+  copies), the Segoe UI font constructor (three calls) and alpha restoration after
+  GDI text; narrow pixel-loop `unsafe` blocks to FFI calls. Remove unused
+  `Agent::hook_source` and the unused `now` argument of `View::status`; keep
+  test-only helpers only where tests need them. Acceptance: configuration format and
+  behavior are unchanged; invalid values still fail validation; standard Cargo
+  checks. Source: `audit-20261026.md` A2, A5, A7.
 
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV

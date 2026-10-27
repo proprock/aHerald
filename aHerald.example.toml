@@ -21,6 +21,14 @@ tray_enabled = true
 # Reserved setting: only false is supported. No startup entry is installed.
 auto_start = false
 
+[tray]
+# Icon graph: "auto" (default), "both", "claude" or "codex". Does not enable usage polling.
+# auto chooses the agent with the lowest remaining percentage across 5h/week;
+# ties prefer Codex. Only enabled agents with valid data participate.
+# both splits each window's bar by width: Claude left, Codex right.
+# Exclusive modes keep unavailable data gray instead of switching agents.
+graph = "auto"
+
 [notifications]
 # Card background in #RRGGBB; default #1C232D. Existing card opacity is preserved.
 # Events and usage may override this color; omitted overrides inherit it.
