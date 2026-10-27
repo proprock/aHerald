@@ -1,4 +1,7 @@
-use aherald::config::Config;
+use aherald::{
+    config::{Config, Mode},
+    events::Kind,
+};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -39,11 +42,11 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     let path = r.0.join("config.toml");
     let c = Config::load(&path, false).unwrap();
     assert!(path.is_file());
-    assert_eq!(c.general.mode, "transient");
+    assert_eq!(c.general.mode, Mode::Transient);
     assert!(!c.codex.usage.enabled);
     assert!(c.notifications.activate_agent_on_click);
-    assert_eq!(c.events["permission_required"].duration_ms, 0);
-    assert_eq!(c.events["turn_complete"].duration_ms, 3000);
+    assert_eq!(c.events[Kind::PermissionRequired].duration_ms, 0);
+    assert_eq!(c.events[Kind::TurnComplete].duration_ms, 3000);
     let text =
         "[notifications]\npet='pets/my pet.json'\n[events.error]\nsound='sounds/my sound.wav'";
     std::fs::write(&path, text).unwrap();
@@ -51,7 +54,7 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
     assert_eq!(c.notifications.pet, Some(r.0.join("pets/my pet.json")));
     assert_eq!(
-        c.events["error"].sound,
+        c.events[Kind::Error].sound,
         Some(r.0.join("sounds/my sound.wav"))
     );
     assert_eq!(c.diagnostic_directory, r.0);
@@ -86,7 +89,7 @@ fn concurrent_first_loads_publish_one_complete_configuration() {
             std::thread::spawn(move || {
                 b.wait();
                 let c = Config::load(&p, false).unwrap();
-                assert_eq!(c.general.mode, "transient");
+                assert_eq!(c.general.mode, Mode::Transient);
                 std::fs::read_to_string(&p).unwrap()
             })
         })

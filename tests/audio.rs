@@ -1,7 +1,7 @@
 use aherald::{
     audio::{Wave, selected},
     config::Config,
-    events::Event,
+    events::{Event, Kind},
 };
 fn wav(samples: &[i16]) -> Vec<u8> {
     let mut b = Vec::new();
@@ -55,7 +55,7 @@ fn invalid_and_missing_audio_is_rejected_without_panicking() {
 fn global_event_and_volume_mutes_are_honored() {
     let event = Event::demo("turn_complete").unwrap();
     let mut config = Config::default();
-    config.events.get_mut("turn_complete").unwrap().sound = Some("tone.wav".into());
+    config.events[Kind::TurnComplete].sound = Some("tone.wav".into());
     assert_eq!(
         selected(&config, &event).unwrap(),
         std::path::Path::new("tone.wav")
@@ -66,11 +66,7 @@ fn global_event_and_volume_mutes_are_honored() {
     config.sounds.enabled = false;
     assert!(selected(&config, &event).is_none());
     config.sounds.enabled = true;
-    config
-        .events
-        .get_mut("turn_complete")
-        .unwrap()
-        .sound_enabled = false;
+    config.events[Kind::TurnComplete].sound_enabled = false;
     assert!(selected(&config, &event).is_none());
 }
 

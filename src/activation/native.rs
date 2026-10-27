@@ -145,7 +145,7 @@ impl Worker {
         enabled: bool,
         body: bool,
         directory: &Path,
-        level: &str,
+        level: crate::config::LogLevel,
     ) {
         if !enabled || !body || event.source.agent().is_none() {
             return;
@@ -153,11 +153,11 @@ impl Worker {
         if self.sender.is_none() {
             let (tx, rx) = mpsc::sync_channel::<Event>(1);
             let log_directory = directory.to_owned();
-            let log_level = level.to_owned();
+            let log_level = level;
             match std::thread::Builder::new()
                 .name("agent-activation".into())
                 .spawn(move || {
-                    let mut log = Log::new(&log_directory, &log_level);
+                    let mut log = Log::new(&log_directory, log_level);
                     for event in rx {
                         let result = if event.source == Source::CodexHook {
                             click(&event, true, true, &mut Codex)

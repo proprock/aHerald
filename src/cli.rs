@@ -1,10 +1,10 @@
-use crate::agent::Agent;
+use crate::{agent::Agent, config::Mode};
 use std::path::PathBuf;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cli {
     pub operation: Option<String>,
-    pub mode: Option<String>,
+    pub mode: Option<Mode>,
     pub event: Option<String>,
     pub config: Option<PathBuf>,
     pub demo_pause_sec: Option<u64>,
@@ -41,7 +41,12 @@ impl Cli {
                     }
                 }
                 "--resident" | "--transient" => {
-                    if cli.mode.replace(arg[2..].to_owned()).is_some() {
+                    let mode = if arg == "--resident" {
+                        Mode::Resident
+                    } else {
+                        Mode::Transient
+                    };
+                    if cli.mode.replace(mode).is_some() {
                         return Err("conflicting explicit modes".into());
                     }
                 }
@@ -50,7 +55,7 @@ impl Cli {
                         return Err("conflicting explicit operations".into());
                     }
                     let event = args.next().ok_or("--event requires a value")?;
-                    if !crate::config::EVENT_NAMES.contains(&event.as_str()) {
+                    if crate::events::Kind::from_name(&event).is_none() {
                         return Err("unknown event".into());
                     }
                     cli.event = Some(event);
@@ -88,7 +93,7 @@ impl Cli {
         self.agent.unwrap_or(Agent::Codex)
     }
 
-    pub fn selected_mode<'a>(&'a self, config: &'a crate::config::Config) -> &'a str {
-        self.mode.as_deref().unwrap_or(&config.general.mode)
+    pub fn selected_mode(&self, config: &crate::config::Config) -> Mode {
+        self.mode.unwrap_or(config.general.mode)
     }
 }

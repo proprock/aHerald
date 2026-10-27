@@ -527,3 +527,22 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `prepare` test. Limit: the child count is asserted through a fake transport's connection
   factory (one factory call is one child), not by counting real processes; the
   allocation reductions have no automated test. Source: `audit-20261026.md` P5, P6.
+
+- [x] **AH-050 — Tighten internal types and remove dead code.**
+  Done: `general.mode`, `general.logging`, `notifications.position`, `monitor` and
+  `interpolation` are the enums `Mode`, `LogLevel`, `Position`, `Monitor` and
+  `Interpolation`; `Config::events` is `config::Events`, indexed by `events::Kind`
+  (`Kind::ALL`, `Kind::from_name`; `EVENT_NAMES` is gone), so a missing key cannot panic.
+  The TOML format is unchanged and bad values still fail without echoing them. In
+  `pipe.rs` a private `Failure` enum replaces matching on `"local pipe deadline
+  exceeded"`; public pipe functions still return the same `String` errors.
+  `audio_windows` uses `local::Handle`; `overlay.rs` has `Font::segoe`, `draw_text`,
+  `restore_alpha` and safe `Surface::pixels`/`pixels_mut`, so pixel loops run outside
+  `unsafe`. Removed `Agent::hook_source` and the unused `now` argument of
+  `View::status` and `View::compact`. Tests: `enumerated_settings_*` in
+  `tests/config.rs`, `a_connected_client_that_stalls_*` in `tests/ipc.rs`; existing
+  pixel and config tests guard the refactors. Limits: the `https.rs` handle closes with
+  `WinHttpCloseHandle`, so it cannot share `local::Handle`; `[resident] tray_enabled`
+  was already gone; test-only helpers (`pet::for_notification`, `Animation::index_at`,
+  `AssetCache::retained_bytes`) stay because tests use them. Source:
+  `audit-20261026.md` A2, A5, A7.

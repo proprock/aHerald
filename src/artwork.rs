@@ -12,7 +12,7 @@ pub fn resolve(
     event: &Event,
     builtin_root: &Path,
 ) -> Result<Option<Animation>, String> {
-    let settings = &config.events[event.kind.name()];
+    let settings = &config.events[event.kind];
     let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
     let selected = match settings.visual {
         EventVisual::Builtin => return Ok(builtin()),
@@ -52,7 +52,7 @@ pub fn prepare(
     let prepare = |a: Animation| {
         a.prepare(
             config.notifications.scale,
-            config.notifications.interpolation == "bilinear",
+            config.notifications.interpolation == crate::config::Interpolation::Bilinear,
         )
         .ok()
     };

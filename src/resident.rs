@@ -163,7 +163,7 @@ fn run_with_usage(
     let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
     let listener = std::thread::spawn(move || {
         use crate::operational_log::{Log, Record};
-        let mut log = Log::new(&log_directory, &settings.general.logging);
+        let mut log = Log::new(&log_directory, settings.general.logging);
         let server = match scope.create_pipe() {
             Ok(s) => s,
             Err(e) => {
@@ -195,7 +195,7 @@ fn run_with_usage(
                         if event.validate().is_err() {
                             return Response::Rejected;
                         }
-                        let setting = &settings.events[event.kind.name()];
+                        let setting = &settings.events[event.kind];
                         if !setting.enabled {
                             // A disabled kind shows nothing but still ends its turn's waits.
                             state.queue.observe_terminal(&event);

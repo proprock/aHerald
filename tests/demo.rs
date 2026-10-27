@@ -1,9 +1,9 @@
-use aherald::{config::Config, demo::Demo, queue::Queue};
+use aherald::{config::Config, demo::Demo, events::Kind, queue::Queue};
 
 #[test]
 fn grouped_waits_show_countdowns_even_when_the_configured_wait_is_persistent() {
     let config = Config::default();
-    assert_eq!(config.events["permission_required"].duration_ms, 0);
+    assert_eq!(config.events[Kind::PermissionRequired].duration_ms, 0);
     let mut demo = Demo::new(&config, 1).unwrap();
     let mut queue = Queue::new(64, 1500);
     for now in [
@@ -31,8 +31,8 @@ fn grouped_waits_show_countdowns_even_when_the_configured_wait_is_persistent() {
 #[test]
 fn grouped_messages_expire_one_at_a_time_with_a_fresh_timeout() {
     let mut config = Config::default();
-    for (name, setting) in &mut config.events {
-        setting.enabled = !matches!(name.as_str(), "permission_required" | "input_required");
+    for (kind, setting) in config.events.iter_mut() {
+        setting.enabled = !matches!(kind, Kind::PermissionRequired | Kind::InputRequired);
         setting.duration_ms = 3000;
     }
     config.notifications.fade_out_ms = 0;
@@ -99,10 +99,10 @@ fn cycles_all_signals_then_navigation_and_repeats_with_bounded_queue() {
     let mut queue = Queue::new(64, 1500);
     let mut now = 0;
     for _ in 0..3 {
-        for name in aherald::config::EVENT_NAMES {
+        for kind in Kind::ALL {
             demo.tick(now, false, &mut queue);
             assert_eq!(queue.items().len(), 1);
-            assert_eq!(queue.selected().unwrap().event.kind.name(), name);
+            assert_eq!(queue.selected().unwrap().event.kind, kind);
             demo.tick(now + 3100, false, &mut queue);
             assert!(queue.items().is_empty());
             now += 6100;
@@ -134,11 +134,7 @@ fn respects_disabled_events_persistent_duration_pause_and_long_presentations() {
         setting.enabled = false;
     }
     assert!(Demo::new(&config, 3).is_err());
-    config
-        .events
-        .get_mut("permission_required")
-        .unwrap()
-        .enabled = true;
+    config.events[Kind::PermissionRequired].enabled = true;
     let mut demo = Demo::new(&config, 3).unwrap();
     let mut queue = Queue::new(64, 1500);
     demo.tick(0, false, &mut queue);
@@ -155,16 +151,12 @@ fn respects_disabled_events_persistent_duration_pause_and_long_presentations() {
         "permission_required"
     );
 
-    config
-        .events
-        .get_mut("permission_required")
-        .unwrap()
-        .duration_ms = 10_000;
+    config.events[Kind::PermissionRequired].duration_ms = 10_000;
     let mut demo = Demo::new(&config, 3).unwrap();
     demo.tick(0, false, &mut queue);
     demo.tick(9999, false, &mut queue);
     assert_eq!(queue.items().len(), 1);
     demo.tick(10_300, false, &mut queue);
     assert!(queue.items().is_empty());
-    assert_eq!(config.events["permission_required"].duration_ms, 10_000);
+    assert_eq!(config.events[Kind::PermissionRequired].duration_ms, 10_000);
 }

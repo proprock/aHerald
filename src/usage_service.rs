@@ -51,7 +51,7 @@ impl View {
             .get(self.key())
             .or_else(|| snapshot.buckets.values().next())
     }
-    fn status(&self, _now: Duration) -> &'static str {
+    fn status(&self) -> &'static str {
         if !self.enabled {
             "disabled"
         } else if self
@@ -66,13 +66,8 @@ impl View {
             "loading"
         }
     }
-    pub fn compact(
-        &self,
-        now: Duration,
-        unix: i64,
-        display: crate::config::UsageDisplay,
-    ) -> String {
-        let status = self.status(now);
+    pub fn compact(&self, unix: i64, display: crate::config::UsageDisplay) -> String {
+        let status = self.status();
         let display_name = match display {
             crate::config::UsageDisplay::Remain => "remain",
             crate::config::UsageDisplay::Used => "used",
@@ -140,7 +135,7 @@ impl View {
                 }
             }
         }
-        let status = self.status(now);
+        let status = self.status();
         if status != "current" {
             text.push_str(&format!("Status: {status}\n"));
         }
@@ -236,7 +231,7 @@ impl View {
                 text.push_str("Available reset credits: —\n");
             }
         }
-        let status = self.status(now);
+        let status = self.status();
         if status != "current" {
             text.push_str(&format!("Status: {status}\n"));
         }
@@ -666,8 +661,7 @@ impl Service {
         })
     }
     pub fn compact(&self, display: crate::config::UsageDisplay) -> String {
-        self.view()
-            .compact(self.origin.elapsed(), unix_now(), display)
+        self.view().compact(unix_now(), display)
     }
     pub fn card_text(&self) -> String {
         self.view().card_text(self.origin.elapsed(), unix_now())

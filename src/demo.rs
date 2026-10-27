@@ -1,7 +1,7 @@
 //! Controlled-time scenarios for an isolated configuration preview.
 use crate::{
-    config::{Config, EVENT_NAMES},
-    events::Event,
+    config::Config,
+    events::{Event, Kind},
     queue::Queue,
 };
 
@@ -22,8 +22,8 @@ impl Demo {
         }
         let mut scenes = Vec::new();
         let mut holds = Vec::new();
-        for name in EVENT_NAMES {
-            let setting = &config.events[name];
+        for kind in Kind::ALL {
+            let setting = &config.events[kind];
             if setting.enabled {
                 let duration = if setting.duration_ms == 0 {
                     0
@@ -32,7 +32,7 @@ impl Demo {
                         .duration_ms
                         .saturating_add(config.notifications.fade_out_ms)
                 };
-                scenes.push(vec![(Event::demo(name)?, duration)]);
+                scenes.push(vec![(Event::demo(kind.name())?, duration)]);
                 holds.push(
                     setting
                         .duration_ms

@@ -16,11 +16,11 @@ fn view() -> View {
 fn compact_modes_and_countdowns() {
     assert_eq!(Config::default().codex.usage.display, UsageDisplay::Remain);
     assert_eq!(
-        view().compact(Duration::ZERO, 1000, UsageDisplay::Remain),
+        view().compact(1000, UsageDisplay::Remain),
         "Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h"
     );
     assert_eq!(
-        view().compact(Duration::ZERO, 1000, UsageDisplay::Used),
+        view().compact(1000, UsageDisplay::Used),
         "Codex used: 5h 75% / 2:35, 7d 90% / 6d 11h"
     );
     assert!(
@@ -58,12 +58,12 @@ fn countdown_boundaries_and_persistent_values() {
     assert_eq!(aherald::usage_service::countdown(Some(1), 1000), "0 min");
     assert!(
         view()
-            .compact(Duration::from_secs(300), 1000, UsageDisplay::Remain)
+            .compact(1000, UsageDisplay::Remain)
             .contains("Codex remain: 5h 25%")
     );
     assert!(
         View::new(false, Duration::from_secs(300))
-            .compact(Duration::ZERO, 1000, UsageDisplay::Remain)
+            .compact(1000, UsageDisplay::Remain)
             .contains("disabled")
     );
 }

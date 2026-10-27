@@ -2,7 +2,7 @@ use aherald::{
     activation::{Agent, click},
     card::Card,
     config::Config,
-    events::{Event, Source},
+    events::{Event, Kind, Source},
 };
 #[derive(Default)]
 struct Fake {
@@ -179,7 +179,7 @@ fn manual_agent_click_preview() {
     let mut c = Config::default();
     c.sounds.enabled = false;
     c.notifications.visual = aherald::config::Visual::Builtin;
-    c.events.get_mut("permission_required").unwrap().duration_ms = 180_000;
+    c.events[Kind::PermissionRequired].duration_ms = 180_000;
     c.diagnostic_directory = std::env::temp_dir();
     aherald::notification::show(&event(Some(&id)), &c).unwrap();
 }

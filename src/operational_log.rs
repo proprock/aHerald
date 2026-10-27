@@ -1,4 +1,5 @@
 //! Fixed operational codes only: this API cannot accept payloads or external errors.
+use crate::config::LogLevel;
 use std::{
     fs::{File, OpenOptions},
     io::{self, Write},
@@ -41,15 +42,15 @@ pub struct Log {
     bytes: u64,
 }
 impl Log {
-    pub fn new(directory: &Path, level: &str) -> Self {
+    pub fn new(directory: &Path, level: LogLevel) -> Self {
         Self {
             directory: directory.to_owned(),
             level: match level {
-                "error" => 1,
-                "warn" => 2,
-                "info" => 3,
-                "debug" | "trace" => 4,
-                _ => 0,
+                LogLevel::Off => 0,
+                LogLevel::Error => 1,
+                LogLevel::Warn => 2,
+                LogLevel::Info => 3,
+                LogLevel::Debug | LogLevel::Trace => 4,
             },
             file: None,
             bytes: 0,

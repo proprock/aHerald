@@ -1,4 +1,5 @@
 use super::Wave;
+use crate::local::Handle;
 use std::{
     mem::size_of,
     sync::atomic::{AtomicBool, Ordering},
@@ -8,14 +9,6 @@ use windows::{
     Win32::{Foundation::*, Media::Audio::*, Security::*, System::Threading::*},
     core::{PCWSTR, PSTR},
 };
-struct Handle(HANDLE);
-impl Drop for Handle {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
-    }
-}
 struct Guard(Handle);
 impl Drop for Guard {
     fn drop(&mut self) {

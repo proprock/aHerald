@@ -140,7 +140,7 @@ impl Icon {
                 },
                 size,
                 dpi,
-                "near_cursor",
+                crate::config::Position::NearCursor,
                 (
                     anchor.right - (size.0 as f64 * dpi) as i32 - (16.0 * dpi) as i32,
                     anchor.top - (size.1 as f64 * dpi) as i32 - (28.0 * dpi) as i32,
@@ -209,6 +209,11 @@ impl Menu {
             (EXIT, "Exit", false),
         ];
         for (id, label, checked) in usage.chain(items) {
+            if id == CONFIG || (id == SOUND && (codex.is_some() || claude.is_some())) {
+                // SAFETY: menu is owned; separators have no command or label.
+                unsafe { AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()) }
+                    .map_err(|_| "cannot add tray menu separator")?;
+            }
             let wide: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
             unsafe {
                 AppendMenuW(
@@ -257,7 +262,9 @@ mod tests {
         )
         .unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 8);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
+            assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_ne!(GetMenuState(menu.0, 6, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             let mut label = [0u16; 128];
             let n = GetMenuStringW(
                 menu.0,
@@ -294,7 +301,7 @@ mod tests {
     fn usage_lines_appear_only_for_enabled_agents() {
         let menu = Menu::new(true, true, false, None, Some("Claude")).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 9);
             assert_eq!(
                 GetMenuState(menu.0, SUMMARY as u32, MF_BYCOMMAND),
                 u32::MAX,
@@ -303,12 +310,40 @@ mod tests {
         }
         let menu = Menu::new(true, true, false, Some("Codex"), None).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 9);
         }
         let menu = Menu::new(true, true, false, Some("Codex"), Some("Claude")).unwrap();
         unsafe {
             assert_eq!(GetMenuItemID(menu.0, 0), CLAUDE_SUMMARY as u32);
             assert_eq!(GetMenuItemID(menu.0, 1), SUMMARY as u32);
+        }
+    }
+
+    #[test]
+    fn separators_follow_usage_and_pause_without_a_leading_separator() {
+        for (codex, claude, usage_count) in [
+            (None, None, 0),
+            (Some("Codex"), None, 1),
+            (None, Some("Claude"), 1),
+            (Some("Codex"), Some("Claude"), 2),
+        ] {
+            let menu = Menu::new(true, true, false, codex, claude).unwrap();
+            unsafe {
+                let count = GetMenuItemCount(Some(menu.0)) as u32;
+                let sound_position = usage_count + u32::from(usage_count > 0);
+                assert_eq!(GetMenuItemID(menu.0, sound_position as i32), SOUND as u32);
+                let separators: Vec<_> = (0..count)
+                    .filter(|&position| {
+                        GetMenuState(menu.0, position, MF_BYPOSITION) & MF_SEPARATOR.0 != 0
+                    })
+                    .collect();
+                let expected = if usage_count > 0 {
+                    vec![usage_count, sound_position + 3]
+                } else {
+                    vec![3]
+                };
+                assert_eq!(separators, expected);
+            }
         }
     }
 }

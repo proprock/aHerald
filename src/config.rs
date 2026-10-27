@@ -1,3 +1,4 @@
+use crate::events::Kind;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -5,13 +6,6 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
-pub const EVENT_NAMES: [&str; 5] = [
-    "turn_complete",
-    "permission_required",
-    "input_required",
-    "error",
-    "interrupted",
-];
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -23,10 +17,68 @@ pub struct Config {
     pub tray: Tray,
     pub notifications: Notifications,
     pub sounds: Sounds,
-    pub events: BTreeMap<String, EventConfig>,
+    pub events: Events,
     pub agents: BTreeMap<String, AgentAssets>,
     pub codex: Codex,
     pub claude: Claude,
+}
+
+/// Per-kind event settings; every kind always has an entry, so indexing cannot fail.
+#[derive(Clone, Debug)]
+pub struct Events([EventConfig; 5]);
+impl Events {
+    pub fn iter(&self) -> impl Iterator<Item = (Kind, &EventConfig)> {
+        Kind::ALL.into_iter().zip(self.0.iter())
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Kind, &mut EventConfig)> {
+        Kind::ALL.into_iter().zip(self.0.iter_mut())
+    }
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut EventConfig> {
+        self.0.iter_mut()
+    }
+    fn slot(kind: Kind) -> usize {
+        Kind::ALL
+            .iter()
+            .position(|candidate| *candidate == kind)
+            .unwrap_or_default()
+    }
+}
+impl Default for Events {
+    fn default() -> Self {
+        Self(Kind::ALL.map(|kind| EventConfig {
+            // Waits for the user stay visible until answered or dismissed.
+            duration_ms: if matches!(kind, Kind::PermissionRequired | Kind::InputRequired) {
+                0
+            } else {
+                3000
+            },
+            ..EventConfig::default()
+        }))
+    }
+}
+impl std::ops::Index<Kind> for Events {
+    type Output = EventConfig;
+    fn index(&self, kind: Kind) -> &EventConfig {
+        &self.0[Self::slot(kind)]
+    }
+}
+impl std::ops::IndexMut<Kind> for Events {
+    fn index_mut(&mut self, kind: Kind) -> &mut EventConfig {
+        &mut self.0[Self::slot(kind)]
+    }
+}
+impl<'de> Deserialize<'de> for Events {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let table = BTreeMap::<String, EventConfig>::deserialize(deserializer)?;
+        let mut events = Self::default();
+        for (name, event) in table {
+            // The message never includes the key; users may type private text there.
+            let kind = Kind::from_name(&name)
+                .ok_or_else(|| serde::de::Error::custom("unknown event kind"))?;
+            events[kind] = event;
+        }
+        Ok(events)
+    }
 }
 impl Default for Config {
     fn default() -> Self {
@@ -40,23 +92,7 @@ impl Default for Config {
             codex: Codex::default(),
             claude: Claude::default(),
             agents: BTreeMap::new(),
-            events: EVENT_NAMES
-                .into_iter()
-                .map(|name| {
-                    (
-                        name.into(),
-                        EventConfig {
-                            duration_ms: if matches!(name, "permission_required" | "input_required")
-                            {
-                                0
-                            } else {
-                                3000
-                            },
-                            ..EventConfig::default()
-                        },
-                    )
-                })
-                .collect(),
+            events: Events::default(),
         }
     }
 }
@@ -117,18 +153,77 @@ impl TryFrom<String> for Color {
         Ok(Self(rgb))
     }
 }
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Resident,
+    #[default]
+    Transient,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Error,
+    #[default]
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Position {
+    #[default]
+    Center,
+    TopCenter,
+    BottomRight,
+    NearCursor,
+}
+
+/// `"primary"` or a zero-based monitor number written as a string.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "String")]
+pub enum Monitor {
+    #[default]
+    Primary,
+    Index(usize),
+}
+impl TryFrom<String> for Monitor {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value == "primary" {
+            return Ok(Self::Primary);
+        }
+        value
+            .parse::<u32>()
+            .map(|index| Self::Index(index as usize))
+            .map_err(|_| "monitor must be \"primary\" or a monitor number".into())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Interpolation {
+    #[default]
+    Nearest,
+    Bilinear,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct General {
-    pub mode: String,
-    pub logging: String,
+    pub mode: Mode,
+    pub logging: LogLevel,
     pub deduplicate_ms: u64,
 }
 impl Default for General {
     fn default() -> Self {
         Self {
-            mode: "transient".into(),
-            logging: "warn".into(),
+            mode: Mode::default(),
+            logging: LogLevel::default(),
             deduplicate_ms: 1500,
         }
     }
@@ -146,14 +241,14 @@ pub struct Notifications {
     pub pet: Option<PathBuf>,
     pub pet_animations: BTreeMap<String, PetAnimation>,
     pub enabled: bool,
-    pub position: String,
-    pub monitor: String,
+    pub position: Position,
+    pub monitor: Monitor,
     pub scale: f64,
     pub fade_in_ms: u64,
     pub fade_out_ms: u64,
     pub click_to_dismiss: bool,
     pub activate_agent_on_click: bool,
-    pub interpolation: String,
+    pub interpolation: Interpolation,
 }
 impl Default for Notifications {
     fn default() -> Self {
@@ -161,14 +256,14 @@ impl Default for Notifications {
             background_color: Color([28, 35, 45]),
             visual: Visual::Auto,
             enabled: true,
-            position: "center".into(),
-            monitor: "primary".into(),
+            position: Position::default(),
+            monitor: Monitor::default(),
             scale: 1.0,
             fade_in_ms: 150,
             fade_out_ms: 300,
             click_to_dismiss: true,
             activate_agent_on_click: true,
-            interpolation: "nearest".into(),
+            interpolation: Interpolation::default(),
             pet: None,
             pet_animations: BTreeMap::new(),
         }
@@ -305,7 +400,7 @@ impl Default for Usage {
 }
 impl Config {
     pub fn event_background_color(&self, kind: crate::events::Kind) -> Color {
-        self.events[kind.name()]
+        self.events[kind]
             .background_color
             .unwrap_or(self.notifications.background_color)
     }
@@ -318,8 +413,7 @@ impl Config {
     }
 
     pub fn event_color(&self, kind: crate::events::Kind) -> Color {
-        use crate::events::Kind;
-        self.events[kind.name()].color.unwrap_or(Color(match kind {
+        self.events[kind].color.unwrap_or(Color(match kind {
             Kind::TurnComplete => [65, 210, 140],
             Kind::PermissionRequired => [250, 180, 55],
             Kind::InputRequired => [80, 165, 250],
@@ -351,6 +445,7 @@ impl Config {
                 m if m.starts_with("unknown field") => "is not a supported setting",
                 m if m.starts_with("invalid type") => "has the wrong type",
                 m if m.starts_with("missing field") => "is missing",
+                m if m.starts_with("unknown event kind") => "is not a supported event",
                 _ => "has an unsupported value",
             };
             match error.span().and_then(|s| field_path(text, s.start)) {
@@ -360,15 +455,16 @@ impl Config {
         })?;
         config.validate()?;
         config.diagnostic_directory = directory.to_owned();
-        for (name, default) in Self::default().events {
+        // A table that omits `duration_ms` keeps the kind's own default, not the struct's.
+        let defaults = Events::default();
+        for (kind, event) in config.events.iter_mut() {
             let has_duration = value
                 .get("events")
-                .and_then(|events| events.get(&name))
+                .and_then(|events| events.get(kind.name()))
                 .and_then(|event| event.get("duration_ms"))
                 .is_some();
-            let event = config.events.entry(name).or_insert_with(|| default.clone());
             if !has_duration {
-                event.duration_ms = default.duration_ms;
+                event.duration_ms = defaults[kind].duration_ms;
             }
         }
         for event in config.events.values_mut() {
@@ -420,31 +516,9 @@ impl Config {
         // (valid, setting, requirement); messages never include the offending value.
         let checks = [
             (
-                ["resident", "transient"].contains(&self.general.mode.as_str()),
-                "general.mode",
-                "must be \"resident\" or \"transient\"",
-            ),
-            (
-                ["off", "error", "warn", "info", "debug", "trace"]
-                    .contains(&self.general.logging.as_str()),
-                "general.logging",
-                "must be off, error, warn, info, debug or trace",
-            ),
-            (
                 self.general.deduplicate_ms <= 60_000,
                 "general.deduplicate_ms",
                 "must be at most 60000",
-            ),
-            (
-                ["center", "top_center", "bottom_right", "near_cursor"]
-                    .contains(&n.position.as_str()),
-                "notifications.position",
-                "must be center, top_center, bottom_right or near_cursor",
-            ),
-            (
-                n.monitor == "primary" || n.monitor.parse::<u32>().is_ok(),
-                "notifications.monitor",
-                "must be \"primary\" or a monitor number",
             ),
             (
                 n.scale.is_finite() && (0.25..=4.0).contains(&n.scale),
@@ -460,11 +534,6 @@ impl Config {
                 n.fade_out_ms <= 10_000,
                 "notifications.fade_out_ms",
                 "must be at most 10000",
-            ),
-            (
-                ["nearest", "bilinear"].contains(&n.interpolation.as_str()),
-                "notifications.interpolation",
-                "must be \"nearest\" or \"bilinear\"",
             ),
             (
                 self.sounds.volume.is_finite() && (0.0..=1.0).contains(&self.sounds.volume),
@@ -491,13 +560,8 @@ impl Config {
         if let Some((_, setting, requirement)) = checks.iter().find(|(ok, ..)| !ok) {
             return Err(format!("invalid configuration: {setting} {requirement}"));
         }
-        for (name, event) in &self.events {
-            if !EVENT_NAMES.contains(&name.as_str()) {
-                return Err(format!(
-                    "invalid configuration: events.{} is not a supported event",
-                    safe_key(name)
-                ));
-            }
+        for (kind, event) in self.events.iter() {
+            let name = kind.name();
             if event.duration_ms > 86_400_000 {
                 return Err(format!(
                     "invalid configuration: events.{name}.duration_ms must be at most 86400000"
@@ -514,10 +578,7 @@ impl Config {
                 .iter()
                 .map(|(agent, a)| (agent.as_str(), &a.pet_animations)),
         ) {
-            if let Some(name) = mapping
-                .keys()
-                .find(|name| !EVENT_NAMES.contains(&name.as_str()))
-            {
+            if let Some(name) = mapping.keys().find(|name| Kind::from_name(name).is_none()) {
                 return Err(format!(
                     "invalid configuration: {}.pet_animations.{} is not a supported event",
                     safe_key(owner),

@@ -48,8 +48,59 @@ impl Drop for Font {
         }
     }
 }
+impl Font {
+    /// Segoe UI medium of `size` logical pixels; `None` when GDI cannot create it.
+    fn segoe(size: f64) -> Option<Self> {
+        // SAFETY: plain GDI call with constant arguments; `Font` owns and deletes the handle.
+        let font = unsafe {
+            CreateFontW(
+                -size as i32,
+                0,
+                0,
+                0,
+                500,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                w!("Segoe UI"),
+            )
+        };
+        (!font.is_invalid()).then_some(Self(font))
+    }
+}
+/// Draws `text` into `rect` on a memory DC owned by a live `Surface`.
+fn draw_text(dc: HDC, text: &str, rect: &mut RECT, format: DRAW_TEXT_FORMAT) {
+    let mut text: Vec<u16> = text.encode_utf16().collect();
+    // SAFETY: `dc` is a live memory DC and both buffers outlive this synchronous call.
+    unsafe { DrawTextW(dc, &mut text, rect, format) };
+}
+/// GDI text writes RGB but can clear alpha; make every drawn pixel opaque again.
+fn restore_alpha(pixels: &mut [u8]) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
+        if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
+            pixel[3] = 255;
+        }
+    }
+}
 impl Surface {
-    fn allocate(width: i32, height: i32) -> Result<(Self, *mut u8), String> {
+    fn byte_len(&self) -> usize {
+        self.width as usize * self.height as usize * 4
+    }
+    fn pixels(&self) -> &[u8] {
+        // SAFETY: the DIB section owns `byte_len` bytes until `self` drops, and GDI never
+        // draws while a borrow of the surface is alive (drawing needs the DC calls below).
+        unsafe { std::slice::from_raw_parts(self.pixels, self.byte_len()) }
+    }
+    fn pixels_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as in `pixels`; `&mut self` makes this the only live view of the bytes.
+        unsafe { std::slice::from_raw_parts_mut(self.pixels, self.byte_len()) }
+    }
+    fn allocate(width: i32, height: i32) -> Result<Self, String> {
         // SAFETY: dimensions come from bounded frame preparation or bounded fallback sizing.
         unsafe {
             let dc = CreateCompatibleDC(None);
@@ -90,7 +141,7 @@ impl Surface {
             if bits.is_null() || previous.is_invalid() {
                 return Err("cannot select overlay bitmap".into());
             }
-            Ok((surface, bits as *mut u8))
+            Ok(surface)
         }
     }
     pub(crate) fn with_artwork(
@@ -107,22 +158,18 @@ impl Surface {
         {
             return Err("artwork does not fit notification card".into());
         }
-        let (surface, bits) = Self::allocate(self.width, self.height)?;
-        // SAFETY: both DIBs own width * height * 4 bytes; checked artwork bounds keep every
-        // access inside the destination. Frames and card pixels are premultiplied BGRA.
-        unsafe {
-            let len = self.width as usize * self.height as usize * 4;
-            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
-            let pixels = std::slice::from_raw_parts_mut(bits, len);
-            for y in 0..frame.height as usize {
-                for x in 0..frame.width as usize {
-                    let src = &frame.bgra[(y * frame.width as usize + x) * 4..][..4];
-                    let offset = ((y + top as usize) * self.width as usize + x + left as usize) * 4;
-                    for c in 0..4 {
-                        pixels[offset + c] = (src[c] as u16
-                            + (pixels[offset + c] as u16 * (255 - src[3] as u16) + 127) / 255)
-                            .min(255) as u8;
-                    }
+        let mut surface = Self::allocate(self.width, self.height)?;
+        // Frames and card pixels are premultiplied BGRA; the bounds were checked above.
+        let pixels = surface.pixels_mut();
+        pixels.copy_from_slice(self.pixels());
+        for y in 0..frame.height as usize {
+            for x in 0..frame.width as usize {
+                let src = &frame.bgra[(y * frame.width as usize + x) * 4..][..4];
+                let offset = ((y + top as usize) * self.width as usize + x + left as usize) * 4;
+                for c in 0..4 {
+                    pixels[offset + c] = (src[c] as u16
+                        + (pixels[offset + c] as u16 * (255 - src[3] as u16) + 127) / 255)
+                        .min(255) as u8;
                 }
             }
         }
@@ -153,45 +200,25 @@ impl Surface {
         )
     }
     pub(crate) fn body_height(width: i32, scale: f64, label: &str) -> Result<i32, String> {
-        let (surface, _) = Self::allocate(1, 1)?;
+        let surface = Self::allocate(1, 1)?;
+        let font = Font::segoe(18.0 * scale).ok_or("cannot create measurement font")?;
         // SAFETY: the temporary DC and selected font remain alive through measurement.
-        unsafe {
-            let font = Font(CreateFontW(
-                -(18.0 * scale) as i32,
-                0,
-                0,
-                0,
-                500,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                ANTIALIASED_QUALITY,
-                DEFAULT_PITCH.0 as u32,
-                w!("Segoe UI"),
-            ));
-            if font.0.is_invalid() {
-                return Err("cannot create measurement font".into());
-            }
-            let old = SelectObject(surface.dc, font.0.into());
-            let mut text: Vec<u16> = label.encode_utf16().collect();
-            let mut rect = RECT {
-                left: 0,
-                top: 0,
-                right: width,
-                bottom: 0,
-            };
-            DrawTextW(
-                surface.dc,
-                &mut text,
-                &mut rect,
-                DT_LEFT | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT,
-            );
-            SelectObject(surface.dc, old);
-            Ok(rect.bottom.max((18.0 * scale) as i32))
-        }
+        let old = unsafe { SelectObject(surface.dc, font.0.into()) };
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: 0,
+        };
+        draw_text(
+            surface.dc,
+            label,
+            &mut rect,
+            DT_LEFT | DT_NOPREFIX | DT_WORDBREAK | DT_CALCRECT,
+        );
+        // SAFETY: restores the selection made above before the font is deleted.
+        unsafe { SelectObject(surface.dc, old) };
+        Ok(rect.bottom.max((18.0 * scale) as i32))
     }
     pub(crate) fn card(
         width: i32,
@@ -208,132 +235,105 @@ impl Surface {
             color,
             background_color,
         } = content;
-        // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
-        // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
-        unsafe {
-            let (surface, bits) = Self::allocate(width, height)?;
-            let dc = surface.dc;
-            let pixels = std::slice::from_raw_parts_mut(bits, (width * height * 4) as usize);
-            let background = [
-                background_color.0[2],
-                background_color.0[1],
-                background_color.0[0],
-                242,
-            ];
-            let radius = (18.0 * scale) as i32;
-            for y in 0..height {
-                for x in 0..width {
-                    let cx = x.clamp(radius, width - radius - 1);
-                    let cy = y.clamp(radius, height - radius - 1);
-                    let inside = (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2);
-                    let i = ((y * width + x) * 4) as usize;
-                    pixels[i..i + 4].copy_from_slice(if inside {
-                        &background
-                    } else {
-                        &[0, 0, 0, 0]
-                    });
-                    if inside && x < (5.0 * scale) as i32 {
-                        pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
-                    }
+        let mut surface = Self::allocate(width, height)?;
+        let dc = surface.dc;
+        let pixels = surface.pixels_mut();
+        let background = [
+            background_color.0[2],
+            background_color.0[1],
+            background_color.0[0],
+            242,
+        ];
+        let radius = (18.0 * scale) as i32;
+        for y in 0..height {
+            for x in 0..width {
+                let cx = x.clamp(radius, width - radius - 1);
+                let cy = y.clamp(radius, height - radius - 1);
+                let inside = (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2);
+                let i = ((y * width + x) * 4) as usize;
+                pixels[i..i + 4].copy_from_slice(if inside { &background } else { &[0, 0, 0, 0] });
+                if inside && x < (5.0 * scale) as i32 {
+                    pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
                 }
             }
-            let font = Font(CreateFontW(
-                -(18.0 * scale) as i32,
-                0,
-                0,
-                0,
-                500,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                ANTIALIASED_QUALITY,
-                DEFAULT_PITCH.0 as u32,
-                w!("Segoe UI"),
-            ));
-            if font.0.is_invalid() {
-                return Err("cannot create overlay font".into());
-            }
+        }
+        let font = Font::segoe(18.0 * scale).ok_or("cannot create overlay font")?;
+        // SAFETY: the memory DC is owned by `surface`; the selection is restored below,
+        // before the font is deleted.
+        let old_font = unsafe {
             let old_font = SelectObject(dc, font.0.into());
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, COLORREF(0x00f5f5f5));
-            let mut text: Vec<u16> = source.encode_utf16().collect();
-            let mut rect = RECT {
-                left: text_left,
-                top: if label.contains('\n') {
-                    (18.0 * scale) as i32
-                } else {
-                    ((height - (64.0 * scale) as i32) / 2).max(0)
-                },
-                right: width - (82.0 * scale) as i32,
-                bottom: height,
+            old_font
+        };
+        let mut rect = RECT {
+            left: text_left,
+            top: if label.contains('\n') {
+                (18.0 * scale) as i32
+            } else {
+                ((height - (64.0 * scale) as i32) / 2).max(0)
+            },
+            right: width - (82.0 * scale) as i32,
+            bottom: height,
+        };
+        if !source.is_empty() {
+            draw_text(
+                dc,
+                source,
+                &mut rect,
+                DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
+            );
+        }
+        rect.top += (26.0 * scale) as i32;
+        rect.right = width - (18.0 * scale) as i32;
+        rect.bottom = height
+            - (if navigation || dismiss_button {
+                36.0
+            } else {
+                10.0
+            } * scale) as i32;
+        if !label.is_empty() {
+            draw_text(dc, label, &mut rect, DT_LEFT | DT_NOPREFIX | DT_WORDBREAK);
+        }
+        let controls = crate::card::Card {
+            heading: source.into(),
+            navigation,
+            dismiss_button,
+        };
+        for (action, r) in controls.buttons(width, height, scale) {
+            let label = match action {
+                crate::card::Action::Previous => "<",
+                crate::card::Action::Next => ">",
+                crate::card::Action::Dismiss => "Dismiss",
             };
-            if !text.is_empty() {
-                DrawTextW(
-                    dc,
-                    &mut text,
-                    &mut rect,
-                    DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
-                );
-            }
-            rect.top += (26.0 * scale) as i32;
-            rect.right = width - (18.0 * scale) as i32;
-            rect.bottom = height
-                - (if navigation || dismiss_button {
-                    36.0
-                } else {
-                    10.0
-                } * scale) as i32;
-            let mut text: Vec<u16> = label.encode_utf16().collect();
-            if !text.is_empty() {
-                DrawTextW(
-                    dc,
-                    &mut text,
-                    &mut rect,
-                    DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
-                );
-            }
-            let controls = crate::card::Card {
-                heading: source.into(),
-                navigation,
-                dismiss_button,
+            let mut area = RECT {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
             };
-            for (action, r) in controls.buttons(width, height, scale) {
-                let label = match action {
-                    crate::card::Action::Previous => "<",
-                    crate::card::Action::Next => ">",
-                    crate::card::Action::Dismiss => "Dismiss",
-                };
-                let mut footer: Vec<u16> = label.encode_utf16().collect();
-                let mut area = RECT {
-                    left: r.left,
-                    top: r.top,
-                    right: r.right,
-                    bottom: r.bottom,
-                };
-                DrawTextW(
-                    dc,
-                    &mut footer,
-                    &mut area,
-                    DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
-                );
-            }
+            draw_text(
+                dc,
+                label,
+                &mut area,
+                DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
+            );
+        }
+        // SAFETY: restores the selection made above; GdiFlush completes pending drawing
+        // into the DIB before the pixels are read again.
+        unsafe {
             SelectObject(dc, old_font);
             let _ = GdiFlush();
-            // GDI text writes RGB, but can clear alpha. Restore coverage, then premultiply.
-            for pixel in pixels.as_chunks_mut::<4>().0 {
-                if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
-                    pixel[3] = 255;
-                }
-                let alpha = pixel[3] as u16;
-                for channel in &mut pixel[..3] {
-                    *channel = ((*channel as u16 * alpha + 127) / 255) as u8;
-                }
-            }
-            Ok(surface)
         }
+        let pixels = surface.pixels_mut();
+        restore_alpha(pixels);
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let alpha = pixel[3] as u16;
+            for channel in &mut pixel[..3] {
+                *channel = ((*channel as u16 * alpha + 127) / 255) as u8;
+            }
+        }
+        Ok(surface)
     }
     pub(crate) fn with_heading(
         &self,
@@ -356,79 +356,53 @@ impl Surface {
                 background_color,
             },
         )?;
-        let (surface, bits) = Self::allocate(self.width, self.height)?;
-        // SAFETY: all three owned DIBs have identical dimensions. Copy only the
-        // heading's bounded rectangle, preserving artwork, controls and event text.
-        unsafe {
-            let len = self.width as usize * self.height as usize * 4;
-            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
-            let top = ((self.height - (64.0 * scale) as i32) / 2).max(0);
-            let right = (self.width - (82.0 * scale) as i32).clamp(0, self.width);
-            for y in top..(top + (26.0 * scale) as i32).min(self.height) {
-                let left = text_left.clamp(0, right);
-                let offset = ((y * self.width + left) * 4) as usize;
-                std::ptr::copy_nonoverlapping(
-                    heading.pixels.add(offset),
-                    bits.add(offset),
-                    ((right - left) * 4) as usize,
-                );
-            }
+        let mut surface = Self::allocate(self.width, self.height)?;
+        // All three surfaces have identical dimensions. Copy only the heading's bounded
+        // rectangle, preserving artwork, controls and event text.
+        let pixels = surface.pixels_mut();
+        pixels.copy_from_slice(self.pixels());
+        let top = ((self.height - (64.0 * scale) as i32) / 2).max(0);
+        let right = (self.width - (82.0 * scale) as i32).clamp(0, self.width);
+        for y in top..(top + (26.0 * scale) as i32).min(self.height) {
+            let left = text_left.clamp(0, right);
+            let offset = ((y * self.width + left) * 4) as usize;
+            let length = ((right - left) * 4) as usize;
+            pixels[offset..offset + length]
+                .copy_from_slice(&heading.pixels()[offset..offset + length]);
         }
         Ok(surface)
     }
     pub(crate) fn with_countdown(&self, seconds: u64, scale: f64) -> Result<Self, String> {
-        let (surface, bits) = Self::allocate(self.width, self.height)?;
-        // SAFETY: both DIBs own exactly width * height * four bytes; only this owned DC
-        // is drawn to, and the font selection is restored before its RAII destruction.
-        unsafe {
-            let len = self.width as usize * self.height as usize * 4;
-            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
-            let font = Font(CreateFontW(
-                -(16.0 * scale) as i32,
-                0,
-                0,
-                0,
-                500,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                ANTIALIASED_QUALITY,
-                DEFAULT_PITCH.0 as u32,
-                w!("Segoe UI"),
-            ));
-            if font.0.is_invalid() {
-                return Err("cannot create countdown font".into());
-            }
+        let mut surface = Self::allocate(self.width, self.height)?;
+        surface.pixels_mut().copy_from_slice(self.pixels());
+        let font = Font::segoe(16.0 * scale).ok_or("cannot create countdown font")?;
+        // SAFETY: only the DC owned by `surface` is drawn to; the font selection is
+        // restored below, before the font is deleted.
+        let old = unsafe {
             let old = SelectObject(surface.dc, font.0.into());
             SetBkMode(surface.dc, TRANSPARENT);
             SetTextColor(surface.dc, COLORREF(0x00f5f5f5));
-            let mut text: Vec<u16> = format!("{seconds}s").encode_utf16().collect();
-            let mut area = RECT {
-                left: self.width - (80.0 * scale) as i32,
-                top: (16.0 * scale) as i32,
-                right: self.width - (18.0 * scale) as i32,
-                bottom: (40.0 * scale) as i32,
-            };
-            DrawTextW(
-                surface.dc,
-                &mut text,
-                &mut area,
-                DT_RIGHT | DT_NOPREFIX | DT_SINGLELINE,
-            );
+            old
+        };
+        let mut area = RECT {
+            left: self.width - (80.0 * scale) as i32,
+            top: (16.0 * scale) as i32,
+            right: self.width - (18.0 * scale) as i32,
+            bottom: (40.0 * scale) as i32,
+        };
+        draw_text(
+            surface.dc,
+            &format!("{seconds}s"),
+            &mut area,
+            DT_RIGHT | DT_NOPREFIX | DT_SINGLELINE,
+        );
+        // SAFETY: restores the selection made above; GdiFlush completes pending drawing
+        // into the DIB before the pixels are read again.
+        unsafe {
             SelectObject(surface.dc, old);
             let _ = GdiFlush();
-            for pixel in std::slice::from_raw_parts_mut(bits, len)
-                .as_chunks_mut::<4>()
-                .0
-            {
-                if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
-                    pixel[3] = 255;
-                }
-            }
         }
+        restore_alpha(surface.pixels_mut());
         Ok(surface)
     }
     pub(crate) fn present_placed(
@@ -447,22 +421,18 @@ impl Surface {
                 .as_ref()
                 .is_none_or(|s| (s.width, s.height) != (width, height))
             {
-                let (surface, bits) = Self::allocate(width, height)?;
-                // SAFETY: both DIB buffers have their checked dimensions * four bytes. Copy
-                // premultiplied pixels directly so scaling preserves transparent edges.
-                unsafe {
-                    for y in 0..height as usize {
-                        for x in 0..width as usize {
-                            let src = ((y * self.height as usize / height as usize)
-                                * self.width as usize
-                                + x * self.width as usize / width as usize)
-                                * 4;
-                            std::ptr::copy_nonoverlapping(
-                                self.pixels.add(src),
-                                bits.add((y * width as usize + x) * 4),
-                                4,
-                            );
-                        }
+                let mut surface = Self::allocate(width, height)?;
+                // Copy premultiplied pixels directly so scaling preserves transparent edges.
+                let source = self.pixels();
+                let target = surface.pixels_mut();
+                for y in 0..height as usize {
+                    for x in 0..width as usize {
+                        let src = ((y * self.height as usize / height as usize)
+                            * self.width as usize
+                            + x * self.width as usize / width as usize)
+                            * 4;
+                        let dst = (y * width as usize + x) * 4;
+                        target[dst..dst + 4].copy_from_slice(&source[src..src + 4]);
                     }
                 }
                 *cached = Some(Box::new(surface));
@@ -521,7 +491,7 @@ struct State {
     event: Event,
     activation: crate::activation::Worker,
     log_directory: std::path::PathBuf,
-    log_level: String,
+    log_level: crate::config::LogLevel,
     text_left: i32,
 }
 struct Window(HWND);
@@ -618,7 +588,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                                 y,
                             ),
                             &state.log_directory,
-                            &state.log_level,
+                            state.log_level,
                         );
                     }
                     if message == WM_LBUTTONUP
@@ -846,7 +816,7 @@ fn show_with_source(
             notifications: config.notifications.clone(),
             placement,
             start: Instant::now(),
-            duration: config.events[event.kind.name()].duration_ms,
+            duration: config.events[event.kind].duration_ms,
             fade_in: config.notifications.fade_in_ms,
             fade_out: config.notifications.fade_out_ms,
             controls,
@@ -857,7 +827,7 @@ fn show_with_source(
             event: event.clone(),
             activation: crate::activation::Worker::default(),
             log_directory: config.diagnostic_directory.clone(),
-            log_level: config.general.logging.clone(),
+            log_level: config.general.logging,
             text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;

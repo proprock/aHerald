@@ -344,7 +344,7 @@ fn custom_requires_explicit_selection_and_missing_pet_reaches_text_without_built
             .unwrap()
             .is_none()
     );
-    config.events.get_mut("error").unwrap().animation =
+    config.events[Kind::Error].animation =
         Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));
     assert!(
         pet::for_notification(&config, Kind::Error)
@@ -352,7 +352,7 @@ fn custom_requires_explicit_selection_and_missing_pet_reaches_text_without_built
             .is_none(),
         "unused custom paths do not select artwork"
     );
-    config.events.get_mut("error").unwrap().visual = aherald::config::EventVisual::Custom;
+    config.events[Kind::Error].visual = aherald::config::EventVisual::Custom;
     assert_eq!(
         pet::for_notification(&config, Kind::Error)
             .unwrap()
@@ -475,9 +475,9 @@ fn agent_pet_settings_resolve_relative_paths_and_select_only_the_event_source() 
     assert!(pet::for_event(&config, &event).unwrap().is_some());
     config.agents.get_mut("codex").unwrap().pet = Some(fixture.0.join("missing.json"));
     assert!(pet::for_event(&config, &event).unwrap().is_none());
-    config.events.get_mut("error").unwrap().animation =
+    config.events[Kind::Error].animation =
         Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));
-    config.events.get_mut("error").unwrap().visual = aherald::config::EventVisual::Custom;
+    config.events[Kind::Error].visual = aherald::config::EventVisual::Custom;
     assert_eq!(
         pet::for_event(&config, &event).unwrap().unwrap().frames[0].dimensions(),
         (64, 64)

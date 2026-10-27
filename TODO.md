@@ -103,18 +103,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   Acceptance: a process test with a stub `codex` on `PATH` counts the spawned children;
   standard Cargo checks. Source: `audit-20261026.md` P5.
 
-- [ ] **AH-050 — Tighten internal types and remove dead code.**
-  Replace string-typed `general.mode`, `logging`, `notifications.position`, `monitor`
-  and `interpolation` with Serde enums, and the `events` string map with typed
-  per-kind access. Replace `Result<_, String>` matching such as
-  `"local pipe deadline exceeded"` with typed IPC errors. Share the RAII handle (three
-  copies), the Segoe UI font constructor (three calls) and alpha restoration after
-  GDI text; narrow pixel-loop `unsafe` blocks to FFI calls. Remove unused
-  `Agent::hook_source` and the unused `now` argument of `View::status`; keep
-  test-only helpers only where tests need them. Acceptance: configuration format and
-  behavior are unchanged; invalid values still fail validation; standard Cargo
-  checks. Source: `audit-20261026.md` A2, A5, A7.
-
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,

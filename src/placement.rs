@@ -1,3 +1,4 @@
+use crate::config::{Monitor, Position};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Area {
     pub left: i32,
@@ -11,7 +12,7 @@ pub fn layout(
     a: Area,
     size: (i32, i32),
     dpi_scale: f64,
-    position: &str,
+    position: Position,
     cursor: (i32, i32),
 ) -> (i32, i32, i32, i32) {
     let aw = (i64::from(a.right) - i64::from(a.left)).max(1) as f64;
@@ -25,16 +26,16 @@ pub fn layout(
     let cx = (i64::from(a.left) + i64::from(a.right) - i64::from(w)) / 2;
     let cy = (i64::from(a.top) + i64::from(a.bottom) - i64::from(h)) / 2;
     let (x, y) = match position {
-        "top_center" => (cx, i64::from(a.top) + margin),
-        "bottom_right" => (
+        Position::TopCenter => (cx, i64::from(a.top) + margin),
+        Position::BottomRight => (
             i64::from(a.right) - i64::from(w) - margin,
             i64::from(a.bottom) - i64::from(h) - margin,
         ),
-        "near_cursor" => (
+        Position::NearCursor => (
             i64::from(cursor.0) + (16.0 * dpi_scale) as i64,
             i64::from(cursor.1) + (16.0 * dpi_scale) as i64,
         ),
-        _ => (cx, cy),
+        Position::Center => (cx, cy),
     };
     (
         x.clamp(
@@ -57,11 +58,11 @@ pub fn stack(
     card: (i32, i32, i32, i32),
     area: Area,
     occupied: &[Area],
-    position: &str,
+    position: Position,
     gap: i32,
 ) -> (i32, i32) {
     let (x, base_y, w, h) = card;
-    let up = position == "bottom_right";
+    let up = position == Position::BottomRight;
     let mut y = base_y;
     for _ in 0..=occupied.len() {
         let Some(hit) = occupied
@@ -170,13 +171,12 @@ pub(crate) fn current(
             let _ = GetMonitorInfoW(*m, &mut info.monitorInfo);
             (*m != primary, info.szDevice)
         });
-        let selected = config
-            .monitor
-            .parse::<usize>()
-            .ok()
-            .and_then(|i| monitors.get(i).copied());
+        let selected = match config.monitor {
+            Monitor::Index(i) => monitors.get(i).copied(),
+            Monitor::Primary => None,
+        };
         let monitor = selected.unwrap_or_else(|| {
-            if config.position == "near_cursor" && config.monitor == "primary" {
+            if config.position == Position::NearCursor && config.monitor == Monitor::Primary {
                 MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST)
             } else {
                 primary
@@ -206,7 +206,7 @@ pub(crate) fn current(
                     / (size.0 as f64 * size.1 as f64 * 4.0 * frames.max(1) as f64))
                     .sqrt(),
             ),
-            &config.position,
+            config.position,
             (cursor.x, cursor.y),
         );
         let (x, y) = match avoid_cards {
@@ -214,7 +214,7 @@ pub(crate) fn current(
                 (x, y, w, h),
                 area,
                 &transient_cards(own),
-                &config.position,
+                config.position,
                 8,
             ),
             None => (x, y),

@@ -18,6 +18,16 @@ pub enum Priority {
     Low,
 }
 impl Kind {
+    pub const ALL: [Self; 5] = [
+        Self::TurnComplete,
+        Self::PermissionRequired,
+        Self::InputRequired,
+        Self::Error,
+        Self::Interrupted,
+    ];
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
     pub fn priority(self) -> Priority {
         match self {
             Self::Error => Priority::Medium,
