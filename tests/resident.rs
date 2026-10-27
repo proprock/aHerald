@@ -434,7 +434,12 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     unsafe {
         SendMessageW(window, WM_COMMAND, Some(WPARAM(202)), Some(LPARAM(0)));
     }
-    assert!(unsafe { IsWindowVisible(window) }.as_bool());
+    // A card reappears once its artwork is ready, at the latest after the wait limit.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !unsafe { IsWindowVisible(window) }.as_bool() {
+        assert!(Instant::now() < deadline, "card did not reappear");
+        std::thread::yield_now();
+    }
     unsafe {
         SendMessageW(
             window,

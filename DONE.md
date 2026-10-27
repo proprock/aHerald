@@ -499,6 +499,17 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   comparison was not done (AH-084). The red phase of the budget
   assertions was not observed (budgets were set after measuring).
 
+- [x] **AH-083 — Compose a resident card once instead of about three times (found in AH-082).**
+  A queue-count or index change redraws only the heading unless the navigation buttons
+  appear or vanish, and a newly selected card waits up to 300 ms for its artwork before
+  falling back to the text card (agreed with the user after timing ten installed pets:
+  artwork preparation took 14-130 ms in the release build, mean about 60 ms, on a cache
+  miss only). Rebuilds for 24 cards fell from 69 to 25; `tests/perf_baseline.rs` limit
+  is 30. `tests/resident_render_faults.rs` covers the first card appearing with its
+  artwork and a stalled worker (debug-only `slowart` fault) showing the text card after
+  the wait limit. The red phase was observed for the rebuild limit and the stalled-worker
+  test; the first-card test already passed before the change.
+
 - [x] **AH-078 — GUI-thread stall detector (from AH-077).** GUI messages are timed per
   class (`gui.timer`, `gui.wake`, `gui.input`, `gui.other`); a message over 50 ms is a
   throttled `WARN slow gui.<class>` line. Implemented as per-class spans instead of a

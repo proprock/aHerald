@@ -117,9 +117,12 @@ tenfold headroom even unoptimized; the release build is faster still (not measur
 The one finding is `composition.rebuild`: 69 rebuilds for 24 cards, nearly three per
 card. A card is composed when it is selected, again when its artwork arrives, and again
 whenever the queue count changes (a new or expired card), although a count change only
-alters the controls. That was 523 ms of 1.5 s total measured time. AH-083 now redraws only
-the heading when the count or index changes without adding or removing the buttons: 49
-rebuilds (349 ms), about two per card (selection, artwork arrival). The test
+alters the controls. That was 523 ms of 1.5 s total measured time. AH-083 redraws only
+the heading when the count or index changes without adding or removing the buttons, and a
+new card waits up to 300 ms for its artwork instead of being drawn as a text card first:
+25 rebuilds (201 ms) for 24 cards. Preparing ten installed pets took 14-130 ms per event
+kind in the release build (mean about 60 ms; 0.85-1.1 s unoptimized), only on a cache
+miss. A stalled worker shows the text card after 300 ms. The test
 fails when a mean exceeds about three times these figures, when cache misses or rebuilds
 exceed their limits, or when any frame is skipped. The release figures are not part of the
 test: it runs the binary Cargo builds for tests.

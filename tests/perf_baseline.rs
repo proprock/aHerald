@@ -28,9 +28,9 @@ const BUDGETS: &[(&str, u64)] = &[
     ("placement.compute", 500),
 ];
 /// Upper bounds for counters over the 24-event burst. Measured: asset_cache.miss 4 (one
-/// per event kind, the rest are hits), composition.rebuild 49 (about two per card:
-/// selection and artwork arrival; a queue-count change only redraws the heading).
-const COUNTER_LIMITS: &[(&str, u64)] = &[("asset_cache.miss", 8), ("composition.rebuild", 60)];
+/// per event kind, the rest are hits), composition.rebuild 25 (one per card: it waits
+/// for its artwork; a queue-count change only redraws the heading).
+const COUNTER_LIMITS: &[(&str, u64)] = &[("asset_cache.miss", 8), ("composition.rebuild", 30)];
 
 struct Cleanup(Scope, PathBuf);
 impl Drop for Cleanup {

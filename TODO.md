@@ -187,20 +187,6 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   difference is recorded in `docs/milestone-5.md`; if it is above 2% of a frame, reduce
   the per-sample work.
 
-- [ ] **AH-083 — Compose a resident card once instead of about three times (found in AH-082).**
-  Measured: 69 `composition.build` calls (7.6 ms each, 523 ms total) for 24 cards. The
-  card is rebuilt on selection, again when its artwork arrives, and again on every queue
-  count change, which only alters the controls. Compose once when the artwork is ready
-  (or keep the text card until then) and redraw only the controls on a count change.
-  Acceptance: `tests/perf_baseline.rs` limit `composition.rebuild` lowered to about one
-  per card (24 events); the composition and resource-cycle tests still pass; standard
-  Cargo checks.
-  Progress: the count/index-change rebuild is gone (heading-only redraw unless the
-  buttons appear or vanish): 69 -> 49 rebuilds, limit lowered 90 -> 60. Remaining: the
-  text card composed at selection before the artwork arrives (second build per card).
-  Needs a product decision: hold the card until the artwork is ready (about 0-9 ms on
-  a cache hit/miss, unbounded for a slow custom pet) or keep the instant text card.
-
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and
   starts its own name-lookup child. Decide with the user between skipping the name

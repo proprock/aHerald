@@ -33,6 +33,8 @@ fn fault(directory: &std::path::Path, name: &str) -> bool {
 fn fault(_: &std::path::Path, _: &str) -> bool {
     false
 }
+/// How long a newly selected card waits for its artwork before showing the text card.
+const ART_WAIT_MS: u64 = 300;
 /// Event id, the render scale the artwork was prepared at, and the artwork.
 type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
 struct Ui {
@@ -51,6 +53,11 @@ struct Ui {
     start: Instant,
     animation_start: u64,
     pending: bool,
+    /// Deadline (GUI clock, ms) until which a newly selected card waits for its artwork
+    /// instead of being drawn as a text card first.
+    art_wait: Option<u64>,
+    /// The selected card still has to be composed (selection changed, artwork arrived).
+    compose_due: bool,
     audio: Vec<std::thread::JoinHandle<()>>,
     text_left: i32,
     width: i32,
@@ -192,14 +199,17 @@ impl Ui {
             .shared
             .lock()
             .is_ok_and(|s| !s.paused && s.queue.selected().is_some_and(|e| e.duration > 0));
-        let wanted =
-            if self.demo.is_some() || counting || unsafe { IsWindowVisible(hwnd) }.as_bool() {
-                Some(16)
-            } else if self.config.codex.usage.enabled || self.claude.is_some() {
-                Some(15_000)
-            } else {
-                None
-            };
+        let wanted = if self.demo.is_some()
+            || counting
+            || self.art_wait.is_some()
+            || unsafe { IsWindowVisible(hwnd) }.as_bool()
+        {
+            Some(16)
+        } else if self.config.codex.usage.enabled || self.claude.is_some() {
+            Some(15_000)
+        } else {
+            None
+        };
         if wanted == self.timer_ms {
             return;
         }
@@ -334,6 +344,10 @@ impl Ui {
             self.art = None;
             self.pending = true;
             self.animation_start = now;
+            self.compose_due = true;
+            // Artwork usually takes 0-130 ms; a stalled or missing worker must not hide
+            // the notification, so the text card follows after the limit.
+            self.art_wait = self.jobs.as_ref().map(|_| now + ART_WAIT_MS);
         }
         if self.pending
             && self.jobs.as_ref().is_some_and(|tx| {
@@ -356,6 +370,16 @@ impl Ui {
                 self.pending = true;
             }
         }
+        if loaded {
+            self.compose_due = true;
+            self.art_wait = None;
+        }
+        if self.art_wait.is_some_and(|deadline| now >= deadline) {
+            self.art_wait = None;
+        } else if self.art_wait.is_some() {
+            // Keep the previous picture (if any); the 16 ms timer polls for the artwork.
+            return Ok(());
+        }
         let source = self.source_labels.label(&entry.event);
         let controls = crate::card::Card::new(
             &source,
@@ -367,7 +391,7 @@ impl Ui {
         // other count or index change alters just the heading text.
         let layout_changed = (self.layout_count > 1) != (count > 1);
         let heading_changed = self.source_heading != controls.heading;
-        if !(changed || loaded || layout_changed || self.composition.is_none())
+        if !(self.compose_due || layout_changed || self.composition.is_none())
             && heading_changed
             && let Some(composition) = self.composition.as_mut()
             && composition
@@ -381,12 +405,12 @@ impl Ui {
             self.source_heading = controls.heading.clone();
             self.layout_count = count;
             self.presenter.invalidate();
-        } else if changed
-            || loaded
+        } else if self.compose_due
             || self.composition.is_none()
             || self.layout_count != count
             || heading_changed
         {
+            self.compose_due = false;
             self.source_heading = controls.heading.clone();
             self.layout_count = count;
             self.relayout();
@@ -920,6 +944,10 @@ pub(super) fn run_preview(
                         cache = new_cache();
                         cached_scale = scale;
                     }
+                    // Debug-build fault injection: artwork preparation stalls.
+                    if fault(&assets.diagnostic_directory, "slowart") {
+                        std::thread::sleep(std::time::Duration::from_millis(2500));
+                    }
                     let art =
                         cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
                             crate::artwork::prepared_for_event(&assets, &event, scale)
@@ -971,6 +999,8 @@ pub(super) fn run_preview(
             start,
             animation_start: 0,
             pending: false,
+            art_wait: None,
+            compose_due: false,
             audio: Vec::new(),
             text_left: 22,
             width: 320,
