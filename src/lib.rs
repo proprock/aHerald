@@ -45,3 +45,5 @@ pub mod restart;
 pub mod shell;
 #[cfg(windows)]
 pub mod tray;
+
+pub mod tray_usage;

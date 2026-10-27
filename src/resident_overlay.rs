@@ -79,6 +79,13 @@ impl Ui {
             self.usage_next = now.saturating_add(1000);
             if let Some(tray) = &mut self.tray {
                 tray.tooltip(&self.usage.compact(self.config.usage.display));
+                let levels = crate::tray_usage::Levels::from_view(
+                    &self.usage.view(),
+                    self.config.usage.display,
+                );
+                if let Err(error) = tray.usage(levels) {
+                    eprintln!("aHerald: {error}");
+                }
             }
             if self.usage_window {
                 let text = self.usage.card_text();
@@ -215,6 +222,7 @@ impl Ui {
                     navigation: controls.navigation,
                     dismiss_button: controls.dismiss_button,
                     color: self.config.event_color(entry.event.kind),
+                    background_color: self.config.event_background_color(entry.event.kind),
                 },
             )?;
             self.durations = vec![1000];
@@ -336,6 +344,7 @@ impl Ui {
                     navigation: controls.navigation,
                     dismiss_button: false,
                     color: crate::config::Color([80, 165, 250]),
+                    background_color: self.config.usage_background_color(),
                 },
             )?);
         }

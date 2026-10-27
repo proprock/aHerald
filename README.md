@@ -125,6 +125,9 @@ With `click_to_dismiss = false`, only the explicit Dismiss button closes it by m
 Cards are informational: dismissal never answers an agent request. Finite events
 show remaining whole seconds at the top right; persistent waits have no countdown.
 Set `[events.NAME] color = "#RRGGBB"` to change an event's left accent stripe.
+Set `[notifications] background_color = "#RRGGBB"` for all card backgrounds
+(default `#1C232D`). Optional `[events.NAME] background_color` and `[usage]
+background_color` override it for individual card types.
 See [pet state overrides](docs/pets.md#per-event-state-overrides) for animation settings.
 Persistent waits can be switched away from. The queue holds 64 entries, ordered by priority and then arrival.
 Higher-priority overflow evicts the oldest lowest-priority entry; other overflow
@@ -132,15 +135,17 @@ is rejected. Matching event identity is deduplicated without merging unrelated
 sessions; visible time accumulates only while an event is selected.
 
 Click or right-click the aHerald tray icon (possibly under hidden icons) for usage
-summary/details/refresh, sound, visual notifications, pause, configuration location
-and exit. Enable the read-only Codex usage connection with `[usage] enabled = true`
-in the resident configuration. The tray shows primary/secondary usage; Usage
-details lists every available bucket, workspace/reset credits and reset times in
-the Windows local timezone. `refresh_interval_sec` defaults to 300. Refresh usage
-requests an update without waiting on the UI thread. Missing fields remain
-unavailable; failed or overdue snapshots are marked stale. Errors back off from
-10 to 300 seconds; manual refreshes coalesce and honor backoff (at least five
-seconds between successful requests). Notifications continue during outages.
+summary, sound, visual notifications, pause, configuration editing, restart and
+exit. Clicking the usage summary toggles a persistent card in the notification queue. Enable the read-only Codex usage connection with `[usage] enabled = true`
+in the resident configuration. The tray icon has two columns: primary/5h on the
+left and secondary/week on the right. Fill follows `[usage] display` (`remain` or
+`used`); colors always describe remaining quota: above 60% green, above 20% yellow,
+otherwise red. Missing values are gray. The usage card lists every available
+bucket, workspace/reset credits and reset times in the Windows local timezone.
+`refresh_interval_sec` defaults to 300. Last received values stay current through
+delayed or failed refreshes; update age and errors remain in the card details.
+Errors back off from 10 to 300 seconds. Notifications continue during outages.
+See [tray usage behavior and verification](docs/tray-usage.md).
 Codex must already be installed on PATH and signed in through its own supported
 flow; aHerald never opens a login flow or reads tokens. Usage is resident-only,
 disabled by default, and does not observe unrelated sessions. See

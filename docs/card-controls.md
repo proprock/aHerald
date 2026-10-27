@@ -24,7 +24,32 @@ notification regardless of whether Codex has already received an approval answer
 Set `color = '#RRGGBB'` under `[events.NAME]` for the accent stripe. Defaults:
 completion `#41D28C`, permission `#FAB437`, input `#50A5FA`, error `#F55564`,
 interruption `#B482F0`. This does not recolor external sprites.
+Set `[notifications] background_color = '#RRGGBB'` for the shared card background
+(default `#1C232D`). An optional `background_color` in `[events.NAME]` or `[usage]`
+overrides it for that card type; omitted values inherit the global setting.
+The existing card opacity, transparent rounded corners, accent stripe and sprite
+colors are preserved. This applies in resident, transient and demo modes, including
+background title updates. Text remains its existing light color; choose backgrounds
+that keep it readable. Restart a running resident after editing configuration.
 See `aHerald.example.toml` and [pet state overrides](pets.md#per-event-state-overrides).
+
+## Background color verification (AH-035, 2026-10-25)
+
+The configuration test first rejected background_color as an unknown field.
+The native pixel test then failed because the renderer still used its fixed
+background. Both now pass. Tests cover global defaults, event/usage inheritance,
+overrides, invalid HEX values, premultiplied native pixels, rounded-corner alpha,
+unchanged accent colors and background preservation after a heading update.
+
+The native DIB comparison preview was visually inspected on Windows 11 build
+22621.4317: global green, event override burgundy and usage override blue were
+distinct, with readable unchanged text and accent stripes. Run
+`cargo test --lib manual_background_color_preview -- --ignored --nocapture`
+on the interactive user desktop to reproduce the bounded 60-second comparison.
+It displays the actual card surfaces in a comparison window; it does not exercise
+queue navigation or change the running resident. Formatting, Clippy, all-target
+tests and the Windows x64 MSVC release build passed. Windows 10 and mixed-DPI
+multi-monitor behavior were not rechecked for this setting.
 
 ## Verification, 2026-10-25
 

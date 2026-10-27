@@ -18,10 +18,19 @@ pub const EXIT: usize = 205;
 pub struct Icon {
     data: NOTIFYICONDATAW,
     pub taskbar_created: u32,
+    image: NativeIcon,
+    raster: Option<(u32, Vec<u8>)>,
 }
 impl Icon {
     pub fn new(hwnd: HWND) -> Result<Self, String> {
-        // SAFETY: the shared system icon needs no destruction; the window outlives this icon.
+        let size = icon_size(hwnd);
+        let levels = crate::tray_usage::Levels::from_view(
+            &crate::usage_service::View::new(false, std::time::Duration::ZERO),
+            crate::config::UsageDisplay::Remain,
+        );
+        let pixels = levels.render(size)?;
+        let image = NativeIcon::new(&pixels, size)?;
+        // SAFETY: the owned icon and notification window outlive the tray registration.
         unsafe {
             let mut data = NOTIFYICONDATAW {
                 cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -30,7 +39,7 @@ impl Icon {
                 // Version 4 suppresses standard tooltips unless SHOWTIP is explicit.
                 uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP,
                 uCallbackMessage: CALLBACK,
-                hIcon: LoadIconW(None, IDI_APPLICATION).map_err(|_| "cannot load tray icon")?,
+                hIcon: image.0,
                 ..Default::default()
             };
             for (to, from) in data
@@ -47,6 +56,8 @@ impl Icon {
             let mut icon = Self {
                 data,
                 taskbar_created,
+                image,
+                raster: Some((size, pixels)),
             };
             // A missing Explorer must not disable notification delivery. Timer retries restore it.
             icon.restore();
@@ -54,7 +65,7 @@ impl Icon {
         }
     }
     pub fn restore(&mut self) -> bool {
-        // SAFETY: NOTIFYICONDATA and the shared icon/window handles remain valid.
+        // SAFETY: NOTIFYICONDATA and the owned icon/borrowed window remain valid.
         unsafe {
             if !Shell_NotifyIconW(NIM_ADD, &self.data).as_bool() {
                 return Shell_NotifyIconW(NIM_MODIFY, &self.data).as_bool();
@@ -62,6 +73,30 @@ impl Icon {
             self.data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
             Shell_NotifyIconW(NIM_SETVERSION, &self.data).as_bool()
         }
+    }
+    fn set_levels(&mut self, levels: crate::tray_usage::Levels, size: u32) -> Result<bool, String> {
+        let pixels = levels.render(size)?;
+        if self
+            .raster
+            .as_ref()
+            .is_some_and(|(old_size, old)| *old_size == size && *old == pixels)
+        {
+            return Ok(false);
+        }
+        let image = NativeIcon::new(&pixels, size)?;
+        self.data.hIcon = image.0;
+        // SAFETY: both icon handles remain alive until Shell has copied the replacement.
+        // If Explorer is absent, keep the current image for TaskbarCreated/timer restoration.
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data);
+        }
+        self.image = image;
+        self.raster = Some((size, pixels));
+        Ok(true)
+    }
+    pub fn usage(&mut self, levels: crate::tray_usage::Levels) -> Result<(), String> {
+        self.set_levels(levels, icon_size(self.data.hWnd))
+            .map(|_| ())
     }
     pub fn card_placement(&self, size: (i32, i32)) -> Result<(i32, i32, i32, i32), String> {
         use windows::Win32::{Graphics::Gdi::*, UI::HiDpi::*};
@@ -226,5 +261,92 @@ mod tests {
                 assert!(String::from_utf16_lossy(&label[..n as usize]).contains(expected));
             }
         }
+    }
+}
+
+// Win32 owns a copy of each bitmap after CreateIconIndirect; only HICON survives.
+struct Bitmap(windows::Win32::Graphics::Gdi::HBITMAP);
+impl Drop for Bitmap {
+    fn drop(&mut self) {
+        // SAFETY: owned bitmap, never selected into a DC while this guard is dropped.
+        unsafe {
+            let _ = windows::Win32::Graphics::Gdi::DeleteObject(self.0.into());
+        }
+    }
+}
+struct NativeIcon(HICON);
+impl Drop for NativeIcon {
+    fn drop(&mut self) {
+        // SAFETY: dynamically created HICON, removed/replaced in the tray before destruction.
+        unsafe {
+            let _ = DestroyIcon(self.0);
+        }
+    }
+}
+impl NativeIcon {
+    fn new(pixels: &[u8], size: u32) -> Result<Self, String> {
+        use windows::Win32::Graphics::Gdi::*;
+        if !(8..=256).contains(&size) || pixels.len() != (size * size * 4) as usize {
+            return Err("invalid tray raster".into());
+        }
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: size as i32,
+                biHeight: -(size as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // SAFETY: bounded raster length matches the 32-bit top-down DIB; bitmap guards own
+        // both allocations. CreateIconIndirect copies them, so they may be released afterward.
+        unsafe {
+            let mut bits = std::ptr::null_mut();
+            let color = Bitmap(
+                CreateDIBSection(None, &info, DIB_RGB_COLORS, &mut bits, None, 0)
+                    .map_err(|e| format!("cannot create tray bitmap: {e}"))?,
+            );
+            if bits.is_null() {
+                return Err("tray bitmap has no pixel buffer".into());
+            }
+            std::ptr::copy_nonoverlapping(pixels.as_ptr(), bits.cast::<u8>(), pixels.len());
+            let mask_bits = vec![0u8; (size.div_ceil(16) * 2 * size) as usize];
+            let mask = Bitmap(CreateBitmap(
+                size as i32,
+                size as i32,
+                1,
+                1,
+                Some(mask_bits.as_ptr().cast()),
+            ));
+            if mask.0.is_invalid() {
+                return Err("cannot create tray transparency mask".into());
+            }
+            CreateIconIndirect(&ICONINFO {
+                fIcon: true.into(),
+                hbmMask: mask.0,
+                hbmColor: color.0,
+                ..Default::default()
+            })
+            .map(Self)
+            .map_err(|e| format!("cannot create tray icon: {e}"))
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "tray_native_tests.rs"]
+mod native_tests;
+
+fn icon_size(owner: HWND) -> u32 {
+    use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
+    // SAFETY: query borrowed Shell/owner HWNDs without changing their state. Read the
+    // taskbar DPI because the non-activating overlay may be on a different monitor.
+    unsafe {
+        let taskbar = FindWindowW(w!("Shell_TrayWnd"), None).unwrap_or(owner);
+        let dpi = GetDpiForWindow(taskbar).max(96);
+        GetSystemMetricsForDpi(SM_CXSMICON, dpi).clamp(8, 256) as u32
     }
 }
