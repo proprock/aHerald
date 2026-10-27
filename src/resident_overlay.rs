@@ -41,7 +41,7 @@ struct Ui {
     scale: f64,
     jobs: Option<mpsc::SyncSender<(u64, crate::events::Event)>>,
     results: mpsc::Receiver<RenderResult>,
-    surfaces: Vec<Surface>,
+    composition: Option<Composition>,
     durations: Vec<u64>,
     looping: bool,
     selection: Option<u64>,
@@ -78,7 +78,6 @@ struct Ui {
     notice: Option<String>,
     usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
-    countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
     source_heading: String,
     presenter: crate::presenter::Presenter,
@@ -159,7 +158,7 @@ impl Ui {
     fn draw(&mut self, hwnd: HWND) {
         if self.draw_now(hwnd).is_err() {
             self.placement = None;
-            self.surfaces.clear();
+            self.composition = None;
             self.hide(hwnd);
             if !std::mem::replace(&mut self.render_failed, true) {
                 self.log(crate::operational_log::Record::RenderFailure);
@@ -342,14 +341,13 @@ impl Ui {
             || self.source_heading != controls.heading
         {
             self.source_heading = controls.heading.clone();
-            self.countdown = None;
             self.layout_count = count;
             self.relayout();
             let source = &controls.heading;
             let scale = self.scale;
             let config = &self.config;
             let kind = entry.event.kind;
-            let composed = Composition::compose(scale, self.art.as_deref(), |w, h, left| {
+            let composed = Composition::compose(scale, self.art.clone(), |w, h, left| {
                 // Debug-build fault injection: artwork-sized cards fail to build.
                 if fault(&config.diagnostic_directory, "compose") && left != (22.0 * scale) as i32 {
                     return Err("injected composition failure".into());
@@ -369,15 +367,14 @@ impl Ui {
                     },
                 )
             })?;
-            self.width = composed.surfaces[0].width;
-            self.height = composed.surfaces[0].height;
+            (self.width, self.height) = composed.size();
             self.text_left = composed.text_left;
             if composed.degraded {
                 self.log(crate::operational_log::Record::RenderFallback);
             }
-            self.durations = composed.durations;
+            self.durations = composed.durations.clone();
             self.looping = composed.looping;
-            self.surfaces = composed.surfaces;
+            self.composition = Some(composed);
             let title: Vec<u16> = format!("{} - {}", source, entry.event.kind.label(),)
                 .encode_utf16()
                 .chain(Some(0))
@@ -411,33 +408,18 @@ impl Ui {
                 let p = crate::placement::current(
                     &self.config.notifications,
                     (self.width, self.height),
-                    self.surfaces.len(),
+                    self.composition.as_ref().map_or(1, |c| c.frame_count()),
                     None,
                 )?;
                 self.placement = Some(p);
                 p
             }
         };
-        let surface = if let Some(seconds) = shown.seconds {
-            if self
-                .countdown
-                .as_ref()
-                .is_none_or(|(f, s, _)| *f != frame || *s != seconds)
-            {
-                self.countdown = Some((
-                    frame,
-                    seconds,
-                    self.surfaces[frame].with_countdown(seconds, self.scale)?,
-                ));
-            }
-            &self
-                .countdown
-                .as_ref()
-                .ok_or("missing countdown surface")?
-                .2
-        } else {
-            &self.surfaces[frame]
-        };
+        let surface = self
+            .composition
+            .as_mut()
+            .ok_or("missing composed card")?
+            .render(frame, shown.seconds, self.scale)?;
         self.display_size = surface.present_placed(hwnd, placement, alpha)?;
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -910,7 +892,7 @@ pub(super) fn run_preview(
             scale,
             jobs: Some(jobs_tx),
             results: results_rx,
-            surfaces: Vec::new(),
+            composition: None,
             durations: vec![1000],
             looping: false,
             selection: None,
@@ -945,7 +927,6 @@ pub(super) fn run_preview(
             notice: None,
             usage_failing: [false; 2],
             demo,
-            countdown: None,
             source_labels,
             source_heading: String::new(),
             presenter: crate::presenter::Presenter::default(),
