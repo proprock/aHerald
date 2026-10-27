@@ -265,11 +265,7 @@ impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
 /// Reads the stored token and queries the live endpoint.
 #[cfg(windows)]
 pub fn fetch_live() -> Result<Snapshot, Error> {
-    let dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE").map(|p| std::path::Path::new(&p).join(".claude"))
-        })
+    let dir = crate::paths::claude_config_dir()
         .ok_or(Error::Service("Claude credentials unavailable"))?;
     // The credentials file, the token and the request headers are zeroed when dropped.
     let mut bytes = crate::https::Wiped(Vec::new());

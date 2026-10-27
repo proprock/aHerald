@@ -1,8 +1,10 @@
+#[cfg(windows)]
+use aherald::events::Kind;
 use aherald::{
     activation::{Agent, click},
     card::Card,
     config::Config,
-    events::{Event, Kind, Source},
+    events::{Event, Source},
 };
 #[derive(Default)]
 struct Fake {
