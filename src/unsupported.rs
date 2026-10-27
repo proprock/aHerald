@@ -1,60 +1,24 @@
-//! Stand-ins for the Windows-only service layer so the crate builds on macOS and Linux.
+//! Stand-ins for the service layer that has no Unix implementation yet, so the crate builds
+//! on macOS and Linux.
 //!
 //! Every function keeps the signature of its Windows twin and reports `UNSUPPORTED`
-//! (or "nothing found") instead of panicking. The Unix implementations replace these
-//! modules one at a time (AH-061 and later); hook parsing, configuration and the
-//! notification domain logic already run on every platform.
+//! (or "nothing found") instead of panicking. IPC, process spawning, HTTPS and the opener
+//! already have Unix implementations (`src/unix/`, AH-061); the resident service with its
+//! overlay and tray arrives with AH-062 (macOS) and AH-068 (Linux).
 
 pub const UNSUPPORTED: &str = "this platform is not supported yet (Windows only)";
 
-pub mod local {
-    /// Names the per-user service instance. Nothing is created off Windows.
-    #[derive(Clone, Debug)]
-    pub struct Scope {
-        pub namespace: String,
-    }
-    impl Scope {
-        pub fn current(namespace: &str) -> Result<Self, String> {
-            Ok(Self {
-                namespace: namespace.into(),
-            })
-        }
-    }
-}
-
-pub mod pipe {
-    use super::{UNSUPPORTED, local::Scope};
-    use crate::ipc::{Request, Response};
-    use std::time::Duration;
-
-    pub fn request(_: &Scope, _: &Request, _: Duration) -> Result<Response, String> {
-        Err(UNSUPPORTED.into())
-    }
-}
-
 pub mod resident {
-    use super::{UNSUPPORTED, local::Scope};
-    use crate::{config::Config, events::Event};
+    use super::UNSUPPORTED;
+    use crate::{config::Config, local::Scope};
     use std::path::Path;
 
-    pub fn forward(_: &Path, _: &Path, _: &Scope, _: &Event) -> Result<(), String> {
-        Err(UNSUPPORTED.into())
-    }
-    pub fn forward_if_running(_: &Scope, _: &Event) -> Result<(), String> {
-        Err(UNSUPPORTED.into())
-    }
+    pub use crate::resident_client::{ensure, forward, forward_if_running};
+
     pub fn run_demo(_: Config, _: &Path, _: u64) -> Result<(), String> {
         Err(UNSUPPORTED.into())
     }
     pub fn run(_: Scope, _: Config, _: &Path) -> Result<(), String> {
-        Err(UNSUPPORTED.into())
-    }
-}
-
-pub mod restart {
-    use super::UNSUPPORTED;
-
-    pub fn wait_for_parent(_: u32) -> Result<(), String> {
         Err(UNSUPPORTED.into())
     }
 }

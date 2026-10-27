@@ -7,8 +7,9 @@ a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 Platforms: Windows 10/11 x64 is the supported runtime. The crate also builds on macOS
 and Linux (CI checks formatting, lints and tests on all three), but there the service
-layer is a stand-in: hooks are parsed, while the overlay, tray, IPC and audio report
-"not supported yet" until the macOS and Linux ports (AH-061 onward) land.
+layer is partly a stand-in: hooks are parsed and IPC, process spawning and HTTPS work,
+while the overlay, tray and audio report "not supported yet" until the macOS and Linux
+ports (AH-062 onward) land.
 
 ## Build and verify
 

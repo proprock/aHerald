@@ -5,52 +5,7 @@ use windows::{
     core::{HSTRING, PCWSTR},
 };
 
-pub const MAX_BODY: usize = 64 * 1024;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum HttpError {
-    Network,
-    TooLarge,
-}
-
-/// Memory that may hold a credential; it is overwritten with zeros when dropped.
-///
-/// This clears only buffers this crate owns. Copies made earlier by the standard
-/// library, the JSON parser or WinHTTP itself are out of reach, so it narrows the
-/// exposure window rather than guaranteeing erasure.
-pub struct Wiped<T: Zero>(pub T);
-impl<T: Zero> Drop for Wiped<T> {
-    fn drop(&mut self) {
-        self.0.zero();
-    }
-}
-pub trait Zero {
-    fn zero(&mut self);
-}
-impl Zero for Vec<u16> {
-    fn zero(&mut self) {
-        for unit in self.iter_mut() {
-            // SAFETY: `unit` is a valid, aligned, exclusive reference; the volatile write
-            // keeps the compiler from removing the store as dead.
-            unsafe { std::ptr::write_volatile(unit, 0) };
-        }
-    }
-}
-impl Zero for Vec<u8> {
-    fn zero(&mut self) {
-        for byte in self.iter_mut() {
-            // SAFETY: as above.
-            unsafe { std::ptr::write_volatile(byte, 0) };
-        }
-    }
-}
-impl Zero for String {
-    fn zero(&mut self) {
-        // SAFETY: NUL bytes are valid UTF-8, so the string stays well formed.
-        let bytes = unsafe { self.as_mut_vec() };
-        bytes.zero();
-    }
-}
+pub use crate::http_common::{HttpError, MAX_BODY, Response, Wiped, Zero};
 
 /// Closes a WinHTTP handle on drop.
 struct Handle(*mut c_void);
@@ -70,14 +25,6 @@ impl Drop for Handle {
             let _ = WinHttpCloseHandle(self.0);
         }
     }
-}
-
-/// A completed response: status, at most `MAX_BODY` bytes of body, and `Retry-After`.
-pub struct Response {
-    pub status: u16,
-    pub body: Vec<u8>,
-    /// Only the delay-seconds form; an HTTP-date or a missing header is `None`.
-    pub retry_after: Option<Duration>,
 }
 
 /// Blocking GET to `https://host/path`; `headers` is CRLF-separated `Name: value` lines.
@@ -191,106 +138,5 @@ pub fn get_at(
             body,
             retry_after,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{
-        io::{Read, Write},
-        net::TcpListener,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-    };
-
-    /// Serves `responses` in order on loopback and counts the requests it receives.
-    fn serve(responses: Vec<String>) -> (u16, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        listener.set_nonblocking(true).unwrap();
-        let requests = Arc::new(AtomicUsize::new(0));
-        let seen = requests.clone();
-        let thread = std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + Duration::from_secs(3);
-            for response in responses {
-                let mut stream = loop {
-                    match listener.accept() {
-                        Ok((stream, _)) => break stream,
-                        Err(_) if std::time::Instant::now() < deadline => {
-                            std::thread::sleep(Duration::from_millis(5))
-                        }
-                        Err(_) => return,
-                    }
-                };
-                stream.set_nonblocking(false).unwrap();
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(1)))
-                    .unwrap();
-                let mut buffer = [0u8; 2048];
-                let _ = stream.read(&mut buffer);
-                seen.fetch_add(1, Ordering::SeqCst);
-                let _ = stream.write_all(response.as_bytes());
-            }
-        });
-        (port, requests, thread)
-    }
-
-    #[test]
-    fn zeroing_overwrites_every_unit_and_keeps_the_length() {
-        let mut text = String::from("Bearer secret");
-        text.zero();
-        assert_eq!(text.len(), 13);
-        assert!(text.bytes().all(|b| b == 0));
-        let mut wide: Vec<u16> = "secret".encode_utf16().collect();
-        wide.zero();
-        assert_eq!(wide, [0u16; 6]);
-    }
-
-    #[test]
-    fn redirect_is_reported_and_never_followed() {
-        let (port, requests, server) = serve(vec![
-            "HTTP/1.1 302 Found\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                .into(),
-            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".into(),
-        ]);
-        let response = get_at(
-            false,
-            "127.0.0.1",
-            port,
-            "/start",
-            "Authorization: Bearer test\r\n",
-            Duration::from_secs(2),
-        )
-        .unwrap();
-        server.join().unwrap();
-        assert_eq!(response.status, 302);
-        assert_eq!(requests.load(Ordering::SeqCst), 1, "redirect was followed");
-    }
-
-    fn retry_after_of(header: &str) -> Option<Duration> {
-        let (port, _, server) = serve(vec![format!(
-            "HTTP/1.1 429 Too Many Requests\r\n{header}Content-Length: 0\r\nConnection: close\r\n\r\n"
-        )]);
-        let response = get_at(false, "127.0.0.1", port, "/", "", Duration::from_secs(2)).unwrap();
-        server.join().unwrap();
-        assert_eq!(response.status, 429);
-        response.retry_after
-    }
-
-    #[test]
-    fn retry_after_seconds_are_reported_and_other_forms_are_ignored() {
-        assert_eq!(
-            retry_after_of("Retry-After: 120\r\n"),
-            Some(Duration::from_secs(120))
-        );
-        assert_eq!(retry_after_of(""), None);
-        // HTTP-date form is not interpreted: the driver falls back to its own interval.
-        assert_eq!(
-            retry_after_of("Retry-After: Wed, 21 Oct 2026 07:28:00 GMT\r\n"),
-            None
-        );
     }
 }

@@ -34,6 +34,10 @@ configuration work.
   and stacked simultaneous transient cards; implemented, manual multi-monitor acceptance is pending (AH-020).
 - `--version` and a tray **About aHerald** item that shows the version on a usage-style card (AH-086).
 - `src/unsupported.rs` stubs, `src/paths.rs` and a three-OS CI matrix (AH-060).
+- Unix common layer for macOS and Linux: a unix-domain-socket IPC with the Windows
+  frames (private per-user directory, `flock` single instance, peer user-id check),
+  detached child spawn, restart, `open`/`xdg-open`, and an HTTPS GET on `ureq` with
+  rustls; none of it is reachable until a Unix overlay exists (AH-061).
 
 ### Changed
 - `config.toml` is read from beside `aherald.exe`; there is no APPDATA lookup (AH-033).
@@ -63,4 +67,6 @@ configuration work.
   not visible (accepted release limitation).
 - Mixed-DPI multi-monitor behaviour, the Windows 10 smoke matrix and the system-proxy
   check for the Claude quota request are not yet verified (AH-020, AH-023, AH-045).
-- macOS and Linux build but do not run the notification service yet (AH-061 onward).
+- macOS and Linux build and have IPC, spawn and HTTPS, but no overlay, tray or audio, so
+  the notification service does not run there yet (AH-062 onward). Unix IPC isolates
+  by user id only; there is no logon-session equivalent.

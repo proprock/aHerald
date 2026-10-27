@@ -263,7 +263,7 @@ impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
 }
 
 /// Reads the stored token and queries the live endpoint.
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub fn fetch_live() -> Result<Snapshot, Error> {
     let dir = crate::paths::claude_config_dir()
         .ok_or(Error::Service("Claude credentials unavailable"))?;
