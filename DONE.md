@@ -511,3 +511,19 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Limit: aliasing undefined behavior is not observable at run time, so the native test
   proves the deferral path stays alive, not the absence of aliasing. Source:
   `audit-20261026.md` E7, A6.
+
+- [x] **AH-049 — Reuse app-server clients and decoded sounds.**
+  Done (agreed with the user; transient mode is AH-058): with Codex usage polling on, the
+  resident reads session names over the usage worker's connection
+  (`usage_service::NameLookup`, `Connection::thread_name`), so one `codex app-server`
+  child runs instead of two; with polling off the name worker keeps its own child.
+  `audio::SoundCache` (8 entries, keyed by path, volume, size and modification time)
+  replaces a disk read and parse per event. `Queue::push` returns `queue::Outcome`
+  (Queued, Resolved, Duplicate, Obsolete, Full, Invalid) and the IPC listener no longer
+  repeats the terminal, duplicate and obsolete checks (a repeated open Claude wait now
+  answers Accepted instead of Rejected). Bilinear `Animation::prepare` premultiplies once
+  and `activation::find` reuses one path buffer per enumeration. Tests:
+  `tests/usage_shared.rs`, `tests/queue_outcome.rs`, `audio::cache` and a bilinear
+  `prepare` test. Limit: the child count is asserted through a fake transport's connection
+  factory (one factory call is one child), not by counting real processes; the
+  allocation reductions have no automated test. Source: `audit-20261026.md` P5, P6.

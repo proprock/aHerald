@@ -96,16 +96,12 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   budget shows artwork within bounded memory; leak tests pass; visual check at
   100/150/200%; standard Cargo checks. Source: `audit-20261026.md` P3, P4.
 
-- [ ] **AH-049 — Reuse app-server clients and decoded sounds.**
-  The resident runs separate `codex app-server` processes for usage and session
-  names, and transient mode starts one per Codex card. WAV files are read and parsed
-  for every event, bilinear scaling premultiplies twice, `activation::find` allocates
-  64 KB per enumerated window, and the IPC listener repeats the queue's terminal,
-  duplicate and obsolete checks. Share one app-server client in the resident where
-  the protocol allows, cache decoded sounds per file and volume, and let `push`
-  return its outcome. Acceptance: process tests show the expected app-server child
-  count; sound, scaling, activation and queue tests keep their results; standard
-  Cargo checks. Source: `audit-20261026.md` P5, P6.
+- [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
+  (split from AH-049).** Depends on AH-049. Each transient process shows one card and
+  starts its own name-lookup child. Decide with the user between skipping the name
+  lookup in transient mode (ID fallback only) and a config option, or keeping it.
+  Acceptance: a process test with a stub `codex` on `PATH` counts the spawned children;
+  standard Cargo checks. Source: `audit-20261026.md` P5.
 
 - [ ] **AH-050 — Tighten internal types and remove dead code.**
   Replace string-typed `general.mode`, `logging`, `notifications.position`, `monitor`
