@@ -188,6 +188,60 @@ fn resident_startup_races_status_forwarding_and_quit() {
 }
 
 #[test]
+fn sixteen_concurrent_hooks_reach_one_resident_exactly_once() {
+    let root = std::env::temp_dir().join(format!("aherald-burst-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[notifications]\nenabled=false\n[sounds]\nenabled=false",
+    )
+    .unwrap();
+    let scope = Scope::current(&format!("burst-test-{}", std::process::id())).unwrap();
+    struct Cleanup(Scope, PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none()
+            {
+                std::thread::yield_now();
+            }
+            let _ = std::fs::remove_dir_all(&self.1);
+        }
+    }
+    let _cleanup = Cleanup(scope.clone(), root);
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
+    // All hooks start together against a cold resident, as parallel subagent hooks do.
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+    let jobs: Vec<_> = (0..16)
+        .map(|n| {
+            let (exe, config, scope, barrier) =
+                (exe.clone(), config.clone(), scope.clone(), barrier.clone());
+            std::thread::spawn(move || {
+                let event = aherald::events::parse_hook(
+                    format!(
+                        r#"{{"hook_event_name":"PermissionRequest","session_id":"burst-{n}","turn_id":"turn-{n}"}}"#
+                    )
+                    .as_bytes(),
+                )
+                .unwrap()
+                .unwrap();
+                barrier.wait();
+                resident::forward(&exe, &config, &scope, &event)
+            })
+        })
+        .collect();
+    for job in jobs {
+        job.join().unwrap().expect("every concurrent hook succeeds");
+    }
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(),
+        Response::Status { queued: 16, .. }
+    ));
+}
+
+#[test]
 fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     use aherald::events::Event;
     use std::time::Instant;
