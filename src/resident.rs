@@ -195,28 +195,22 @@ fn run_with_usage(
                         if event.validate().is_err() {
                             return Response::Rejected;
                         }
-                        let resolved = state.queue.observe_terminal(&event);
                         let setting = &settings.events[event.kind.name()];
                         if !setting.enabled {
+                            // A disabled kind shows nothing but still ends its turn's waits.
+                            state.queue.observe_terminal(&event);
                             return Response::Accepted;
                         }
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        let duplicate = state.queue.is_duplicate(&event, now)
-                            || state.queue.is_obsolete(&event);
                         let window = state.window;
-                        if state.queue.push(
-                            event,
-                            now,
-                            if setting.duration_ms == 0 {
-                                0
-                            } else {
-                                setting
-                                    .duration_ms
-                                    .saturating_add(settings.notifications.fade_out_ms)
-                            },
-                        ) || duplicate
-                            || resolved > 0
-                        {
+                        let duration = if setting.duration_ms == 0 {
+                            0
+                        } else {
+                            setting
+                                .duration_ms
+                                .saturating_add(settings.notifications.fade_out_ms)
+                        };
+                        if state.queue.push(event, now, duration).is_accepted() {
                             wake(window);
                             Response::Accepted
                         } else {

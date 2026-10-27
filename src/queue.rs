@@ -19,6 +19,29 @@ impl Entry {
         self.duration.saturating_sub(fade_out_ms)
     }
 }
+/// What `Queue::push` did with an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Queued,
+    /// Not queued, but it resolved waiting cards of a finished turn.
+    Resolved,
+    /// Repeats an event already shown or shown recently.
+    Duplicate,
+    /// Arrived after its turn already ended.
+    Obsolete,
+    /// The queue holds only cards of equal or higher priority.
+    Full,
+    Invalid,
+}
+impl Outcome {
+    pub fn is_queued(self) -> bool {
+        self == Self::Queued
+    }
+    /// The sender needs no retry or error: everything but `Full` and `Invalid`.
+    pub fn is_accepted(self) -> bool {
+        !matches!(self, Self::Full | Self::Invalid)
+    }
+}
 pub struct Queue {
     items: Vec<Entry>,
     selected: Option<u64>,
@@ -142,13 +165,23 @@ impl Queue {
                 .iter()
                 .any(|(e, time)| now.saturating_sub(*time) <= self.dedup_ms && same(e, event))
     }
-    pub fn push(&mut self, event: Event, now: u64, duration: u64) -> bool {
+    /// Admits `event` and says what happened. Terminal evidence in the event also
+    /// resolves matching waits, whatever the outcome.
+    pub fn push(&mut self, event: Event, now: u64, duration: u64) -> Outcome {
         if event.validate().is_err() {
-            return false;
+            return Outcome::Invalid;
         }
-        self.observe_terminal(&event);
+        let resolved = self.observe_terminal(&event);
+        // Not queued, but it did clear waiting cards: that is still progress.
+        let refused = |reason| {
+            if resolved > 0 {
+                Outcome::Resolved
+            } else {
+                reason
+            }
+        };
         if self.is_obsolete(&event) {
-            return false;
+            return refused(Outcome::Obsolete);
         }
         // Claude's PermissionRequest and permission_prompt Notification for one prompt can
         // arrive seconds apart (6 s observed), so an unresolved card absorbs the repeat.
@@ -161,7 +194,7 @@ impl Queue {
                     *t = now;
                 }
             }
-            return false;
+            return refused(Outcome::Duplicate);
         }
         if self.items.iter().filter(|e| !e.is_usage()).count() == self.capacity {
             let worst = self
@@ -173,7 +206,7 @@ impl Queue {
                 .map(|(i, _)| i)
                 .unwrap_or(0);
             if rank(&event) >= rank(&self.items[worst].event) {
-                return false;
+                return refused(Outcome::Full);
             }
             self.items.remove(worst);
         }
@@ -195,7 +228,7 @@ impl Queue {
         if selected.is_none_or(|e| rank(&self.items[0].event) < rank(&e.event)) {
             self.selected = Some(self.items[0].id);
         }
-        true
+        Outcome::Queued
     }
     /// One internal persistent card shares navigation with agent notifications.
     /// It has a reserved slot so opening usage never evicts an agent event.
