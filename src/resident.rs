@@ -177,8 +177,8 @@ fn run_with_usage(
     let settings = config.clone();
     let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
     let listener = std::thread::spawn(move || {
-        use crate::operational_log::{Log, Record};
-        let mut log = Log::new(&log_directory, settings.general.logging);
+        use crate::operational_log::{Record, init, log};
+        init(&log_directory, settings.general.logging);
         let server = match scope.create_pipe() {
             Ok(s) => s,
             Err(e) => {
@@ -187,7 +187,7 @@ fn run_with_usage(
             }
         };
         let _ = ready_tx.send(Ok(()));
-        let _ = log.record(Record::Started);
+        log(Record::Started);
         while !shutdown.load(Ordering::Acquire) {
             let result = server.serve_until(&listener_stop, |request| {
                 let Ok(mut state) = state.lock() else {
@@ -230,17 +230,17 @@ fn run_with_usage(
                             Response::Accepted
                         } else {
                             drop(state);
-                            let _ = log.record(Record::QueueRejected);
+                            log(Record::QueueRejected);
                             Response::Rejected
                         }
                     }
                 }
             });
             if result.is_err() {
-                let _ = log.record(Record::IpcFailure);
+                log(Record::IpcFailure);
             }
         }
-        let _ = log.record(Record::Stopped);
+        log(Record::Stopped);
     });
     let startup = ready_rx
         .recv_timeout(Duration::from_secs(1))

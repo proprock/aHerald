@@ -18,8 +18,8 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    let _ = aherald::operational_log::Log::new(directory, aherald::config::LogLevel::Warn)
-        .record(record);
+    aherald::operational_log::init(directory, aherald::config::LogLevel::Warn);
+    aherald::operational_log::log(record);
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {

@@ -130,11 +130,11 @@ impl Ui {
     }
     /// Fixed operational codes only; never payloads or external error text.
     fn log(&self, record: crate::operational_log::Record) {
-        let _ = crate::operational_log::Log::new(
+        crate::operational_log::init(
             &self.config.diagnostic_directory,
             self.config.general.logging,
-        )
-        .record(record);
+        );
+        crate::operational_log::log(record);
     }
     /// Redraws everything at the DPI of the monitor the next card will appear on. Cards
     /// are drawn at that DPI rather than stretched, so a monitor change or a DPI change
@@ -233,15 +233,13 @@ impl Ui {
                     .as_ref()
                     .is_some_and(|c| c.view().error.is_some()),
             ];
+            let mut started = 0;
             for (was, now) in self.usage_failing.iter_mut().zip(failing) {
-                if now && !*was {
-                    let _ = crate::operational_log::Log::new(
-                        &self.config.diagnostic_directory,
-                        self.config.general.logging,
-                    )
-                    .record(crate::operational_log::Record::UsageFailure);
-                }
+                started += usize::from(now && !*was);
                 *was = now;
+            }
+            for _ in 0..started {
+                self.log(crate::operational_log::Record::UsageFailure);
             }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
