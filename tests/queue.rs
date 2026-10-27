@@ -27,16 +27,26 @@ fn flood_and_duplicate_storm_stay_bounded_and_allow_recovery() {
     while !queue.items().is_empty() {
         queue.dismiss();
     }
-    assert!(queue.push(event(Kind::PermissionRequired, "recovered"), 70_001, 0));
+    assert!(
+        queue
+            .push(event(Kind::PermissionRequired, "recovered"), 70_001, 0)
+            .is_queued()
+    );
     assert_eq!(queue.items().len(), 1);
 }
 #[test]
 fn priority_fifo_and_overflow_preserve_unrelated_sessions() {
     let mut q = Queue::new(3, 1000);
-    assert!(q.push(event(Kind::Interrupted, "low"), 0, 3000));
-    assert!(q.push(event(Kind::Error, "medium"), 0, 3000));
-    assert!(q.push(event(Kind::PermissionRequired, "high-1"), 0, 0));
-    assert!(q.push(event(Kind::InputRequired, "high-2"), 0, 0));
+    assert!(q.push(event(Kind::Interrupted, "low"), 0, 3000).is_queued());
+    assert!(q.push(event(Kind::Error, "medium"), 0, 3000).is_queued());
+    assert!(
+        q.push(event(Kind::PermissionRequired, "high-1"), 0, 0)
+            .is_queued()
+    );
+    assert!(
+        q.push(event(Kind::InputRequired, "high-2"), 0, 0)
+            .is_queued()
+    );
     assert_eq!(
         q.items()
             .iter()
@@ -44,8 +54,14 @@ fn priority_fifo_and_overflow_preserve_unrelated_sessions() {
             .collect::<Vec<_>>(),
         ["high-1", "high-2", "medium"]
     );
-    assert!(!q.push(event(Kind::Interrupted, "new-low"), 1, 3000));
-    assert!(!q.push(event(Kind::PermissionRequired, "high-1"), 2, 0));
+    assert!(
+        !q.push(event(Kind::Interrupted, "new-low"), 1, 3000)
+            .is_queued()
+    );
+    assert!(
+        !q.push(event(Kind::PermissionRequired, "high-1"), 2, 0)
+            .is_queued()
+    );
     assert_eq!(q.items().len(), 3);
 }
 
@@ -87,19 +103,22 @@ fn identity_dedup_and_dismissed_history_are_bounded_by_time() {
     e.source = Source::CodexHook;
     e.turn_id = Some("turn".into());
     e.request_id = Some("request".into());
-    assert!(q.push(e.clone(), 0, 0));
+    assert!(q.push(e.clone(), 0, 0).is_queued());
     q.dismiss();
-    assert!(!q.push(e.clone(), 50, 0));
+    assert!(!q.push(e.clone(), 50, 0).is_queued());
     e.request_id = Some("different".into());
-    assert!(q.push(e.clone(), 60, 0));
+    assert!(q.push(e.clone(), 60, 0).is_queued());
     e.session_id = Some("another-session".into());
-    assert!(q.push(e.clone(), 70, 0));
-    assert!(q.push(event(Kind::PermissionRequired, "same"), 200, 0));
+    assert!(q.push(e.clone(), 70, 0).is_queued());
+    assert!(
+        q.push(event(Kind::PermissionRequired, "same"), 200, 0)
+            .is_queued()
+    );
     let mut unknown = Event::demo("error").unwrap();
     unknown.source = Source::CodexHook;
     let mut q = Queue::new(4, 100);
-    assert!(q.push(unknown.clone(), 0, 0));
-    assert!(q.push(unknown, 1, 0));
+    assert!(q.push(unknown.clone(), 0, 0).is_queued());
+    assert!(q.push(unknown, 1, 0).is_queued());
 }
 
 #[test]
@@ -109,11 +128,14 @@ fn usage_is_one_persistent_queue_entry_and_dismissal_selects_next_message() {
     q.show_usage();
     assert_eq!(q.items().len(), 1);
     assert!(q.selected().unwrap().is_usage());
-    assert!(q.push(
-        aherald::events::Event::demo("permission_required").unwrap(),
-        0,
-        1000
-    ));
+    assert!(
+        q.push(
+            aherald::events::Event::demo("permission_required").unwrap(),
+            0,
+            1000
+        )
+        .is_queued()
+    );
     q.tick(0, false);
     q.tick(50_000, false);
     assert!(q.selected().unwrap().is_usage());
@@ -208,26 +230,47 @@ fn claude_stop_without_session_resolves_nothing() {
 #[test]
 fn claude_permission_request_and_notification_pair_make_one_card() {
     let mut q = Queue::new(8, 1500);
-    assert!(q.push(claude(Kind::PermissionRequired, "a"), 0, 0));
-    assert!(!q.push(claude(Kind::PermissionRequired, "a"), 200, 0));
-    assert!(q.push(claude(Kind::PermissionRequired, "b"), 200, 0));
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "a"), 0, 0)
+            .is_queued()
+    );
+    assert!(
+        !q.push(claude(Kind::PermissionRequired, "a"), 200, 0)
+            .is_queued()
+    );
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "b"), 200, 0)
+            .is_queued()
+    );
     assert_eq!(q.items().len(), 2);
     // Codex hooks carry no request id, so identical waits stay distinct.
-    assert!(q.push(codex_wait("a"), 300, 0));
-    assert!(q.push(codex_wait("a"), 400, 0));
+    assert!(q.push(codex_wait("a"), 300, 0).is_queued());
+    assert!(q.push(codex_wait("a"), 400, 0).is_queued());
 }
 
 #[test]
 fn claude_notification_arriving_seconds_after_permission_request_joins_the_pending_card() {
     // Live capture (Claude Code, 2026-10-26): the pair arrived 6 s apart, beyond deduplicate_ms.
     let mut q = Queue::new(8, 1500);
-    assert!(q.push(claude(Kind::PermissionRequired, "a"), 0, 0));
-    assert!(!q.push(claude(Kind::PermissionRequired, "a"), 6000, 0));
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "a"), 0, 0)
+            .is_queued()
+    );
+    assert!(
+        !q.push(claude(Kind::PermissionRequired, "a"), 6000, 0)
+            .is_queued()
+    );
     assert_eq!(q.items().len(), 1);
     // Another session still gets its own card, and a resolved prompt may ask again.
-    assert!(q.push(claude(Kind::PermissionRequired, "b"), 6100, 0));
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "b"), 6100, 0)
+            .is_queued()
+    );
     q.observe_terminal(&claude(Kind::TurnComplete, "a"));
-    assert!(q.push(claude(Kind::PermissionRequired, "a"), 9000, 0));
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "a"), 9000, 0)
+            .is_queued()
+    );
 }
 
 #[test]
@@ -264,7 +307,10 @@ fn time_spent_idle_never_counts_against_a_new_cards_display_time() {
     let mut q = Queue::new(8, 0);
     q.tick(0, false);
     q.tick(15_000, false);
-    assert!(q.push(event(Kind::TurnComplete, "idle-gap"), 22_000, 3000));
+    assert!(
+        q.push(event(Kind::TurnComplete, "idle-gap"), 22_000, 3000)
+            .is_queued()
+    );
     q.tick(22_010, false);
     q.tick(25_009, false);
     assert_eq!(q.items().len(), 1, "card expired before its duration");

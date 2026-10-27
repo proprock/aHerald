@@ -216,7 +216,7 @@ pub fn premultiplied_bgra(rgba: &[u8]) -> Vec<u8> {
     }
     bytes
 }
-pub fn scaled(frame: &RgbaImage, scale: f64, bilinear: bool) -> Result<RgbaImage, String> {
+fn scaled_size(frame: &RgbaImage, scale: f64) -> Result<(u32, u32), String> {
     if !scale.is_finite() || !(0.25..=16.0).contains(&scale) || frame.is_empty() {
         return Err("invalid render scale".into());
     }
@@ -225,18 +225,14 @@ pub fn scaled(frame: &RgbaImage, scale: f64, bilinear: bool) -> Result<RgbaImage
     if w > 2048 || h > 2048 {
         return Err("scaled dimensions exceed limit".into());
     }
+    Ok((w, h))
+}
+pub fn scaled(frame: &RgbaImage, scale: f64, bilinear: bool) -> Result<RgbaImage, String> {
+    let (w, h) = scaled_size(frame, scale)?;
     if !bilinear {
         return Ok(imageops::resize(frame, w, h, FilterType::Nearest));
     }
-    // Filter premultiplied channels to avoid transparent RGB bleeding into opaque edges.
-    let mut premultiplied = frame.clone();
-    for pixel in premultiplied.pixels_mut() {
-        let a = pixel[3] as u16;
-        for c in &mut pixel.0[..3] {
-            *c = ((*c as u16 * a + 127) / 255) as u8;
-        }
-    }
-    let mut result = imageops::resize(&premultiplied, w, h, FilterType::Triangle);
+    let mut result = resized_premultiplied(frame, w, h);
     for pixel in result.pixels_mut() {
         let a = pixel[3] as u16;
         for c in &mut pixel.0[..3] {
@@ -244,6 +240,26 @@ pub fn scaled(frame: &RgbaImage, scale: f64, bilinear: bool) -> Result<RgbaImage
         }
     }
     Ok(result)
+}
+/// Bilinear resize in premultiplied space, which keeps transparent RGB from bleeding
+/// into opaque edges. The result stays premultiplied.
+fn resized_premultiplied(frame: &RgbaImage, w: u32, h: u32) -> RgbaImage {
+    let mut premultiplied = frame.clone();
+    for pixel in premultiplied.pixels_mut() {
+        let a = pixel[3] as u16;
+        for c in &mut pixel.0[..3] {
+            *c = ((*c as u16 * a + 127) / 255) as u8;
+        }
+    }
+    imageops::resize(&premultiplied, w, h, FilterType::Triangle)
+}
+/// Premultiplied RGBA to the BGRA order GDI expects, without premultiplying again.
+fn bgra_from_premultiplied(rgba: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(rgba.len());
+    for pixel in rgba.as_chunks::<4>().0 {
+        bytes.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
+    }
+    bytes
 }
 
 pub struct PreparedFrame {
@@ -269,11 +285,24 @@ impl Animation {
         }
         let mut frames = Vec::with_capacity(self.frames.len());
         for frame in self.frames {
-            let frame = scaled(&frame, scale, bilinear)?;
+            let (width, height, bgra) = if bilinear {
+                // `scaled` validates the scale and size; the bilinear result is already
+                // premultiplied, so it is not converted to straight alpha and back.
+                let (w, h) = scaled_size(&frame, scale)?;
+                let resized = resized_premultiplied(&frame, w, h);
+                (w, h, bgra_from_premultiplied(resized.as_raw()))
+            } else {
+                let frame = scaled(&frame, scale, false)?;
+                (
+                    frame.width(),
+                    frame.height(),
+                    premultiplied_bgra(frame.as_raw()),
+                )
+            };
             frames.push(PreparedFrame {
-                width: frame.width(),
-                height: frame.height(),
-                bgra: premultiplied_bgra(frame.as_raw()),
+                width,
+                height,
+                bgra,
             });
         }
         Ok(PreparedAnimation {

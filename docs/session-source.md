@@ -8,6 +8,17 @@ shared time prefix of UUIDv7 IDs. With no ID, the source remains `Codex`; demo
 cards retain `aHerald demo`. Short suffixes are convenient labels, not globally
 unique identifiers. Long names are visually ellipsized within the existing card.
 
+In the resident with Codex usage polling enabled, names are read over the usage
+worker's own app-server connection (`usage_service::NameLookup`): requests are
+strictly serial on that one connection, so only one `codex app-server` child runs.
+An unknown thread (a JSON-RPC error) leaves the connection open; a lost connection
+follows the usage worker's reconnect backoff and yields the ID fallback meanwhile.
+With usage polling off, and in transient mode (one card per process), the worker
+below owns its own child. Documentation checked 2026-10-27: after the single
+`initialize` handshake a client may send further requests, each with its own `id`
+([app-server](https://learn.chatgpt.com/docs/app-server)); the page documents no
+per-connection request limit for stdio.
+
 A separate background worker lazily owns a stdio app-server process. It performs
 `initialize`, `initialized`, then only `thread/read` with `includeTurns: false`.
 The requested ID must match the response ID. It never resumes/subscribes to a

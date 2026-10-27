@@ -36,7 +36,7 @@ fn terminal_evidence_clears_only_matching_turn_waits_and_suppresses_late_deliver
         );
         if terminal == "Interrupt" {
             assert!(
-                !queue.push(wait, 1000, 0),
+                !queue.push(wait, 1000, 0).is_queued(),
                 "late wait must not reopen an interrupted turn"
             );
         }
@@ -84,9 +84,9 @@ fn parent_terminal_does_not_clear_subagent_waits() {
 fn requests_without_request_identity_are_not_merged_or_resolved_by_tool_results() {
     let mut queue = Queue::new(8, 1000);
     let wait = hook("PermissionRequest", "one", "turn-a");
-    assert!(queue.push(wait.clone(), 0, 0));
+    assert!(queue.push(wait.clone(), 0, 0).is_queued());
     assert!(
-        queue.push(wait, 1, 0),
+        queue.push(wait, 1, 0).is_queued(),
         "two hook boundaries may be different requests"
     );
     assert_eq!(queue.items().len(), 2);
@@ -97,12 +97,12 @@ fn source_and_request_identity_isolation_and_duplicate_delivery() {
     let mut queue = Queue::new(8, 1000);
     let mut wait = hook("PermissionRequest", "one", "turn-a");
     wait.request_id = Some("request-a".into());
-    assert!(queue.push(wait.clone(), 0, 0));
-    assert!(!queue.push(wait.clone(), 1, 0));
+    assert!(queue.push(wait.clone(), 0, 0).is_queued());
+    assert!(!queue.push(wait.clone(), 1, 0).is_queued());
     wait.request_id = Some("request-b".into());
-    assert!(queue.push(wait.clone(), 2, 0));
+    assert!(queue.push(wait.clone(), 2, 0).is_queued());
     wait.source = Source::Demo;
-    assert!(queue.push(wait, 3, 0));
+    assert!(queue.push(wait, 3, 0).is_queued());
     assert_eq!(queue.items().len(), 3);
 }
 
@@ -126,14 +126,26 @@ fn terminal_processing_is_independent_of_admission_and_preserves_selection() {
     for turn in 0..200 {
         queue.observe_terminal(&hook("Interrupt", "flood", &format!("turn-{turn}")));
     }
-    assert!(!queue.push(hook("PermissionRequest", "flood", "turn-199"), 300, 0));
+    assert!(
+        !queue
+            .push(hook("PermissionRequest", "flood", "turn-199"), 300, 0)
+            .is_queued()
+    );
     // History is intentionally bounded to the most recent 128 turns.
-    assert!(queue.push(hook("PermissionRequest", "flood", "turn-0"), 301, 0));
+    assert!(
+        queue
+            .push(hook("PermissionRequest", "flood", "turn-0"), 301, 0)
+            .is_queued()
+    );
 }
 
 #[test]
 fn stop_boundary_does_not_hide_a_new_wait_if_another_hook_continues_the_turn() {
     let mut queue = Queue::new(8, 1000);
     queue.push(hook("Stop", "one", "turn-a"), 0, 3000);
-    assert!(queue.push(hook("PermissionRequest", "one", "turn-a"), 1, 0));
+    assert!(
+        queue
+            .push(hook("PermissionRequest", "one", "turn-a"), 1, 0)
+            .is_queued()
+    );
 }

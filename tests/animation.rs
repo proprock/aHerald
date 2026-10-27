@@ -93,3 +93,35 @@ fn missing_corrupt_and_out_of_bounds_assets_are_errors() {
         assert!(Animation::load(&fixture.0).is_err());
     }
 }
+
+#[test]
+fn bilinear_prepare_keeps_translucent_edges_premultiplied() {
+    // An opaque red pixel next to a transparent one: the blended edge is half red.
+    let frame = RgbaImage::from_fn(2, 1, |x, _| {
+        if x == 0 {
+            Rgba([255, 0, 0, 255])
+        } else {
+            Rgba([0, 0, 0, 0])
+        }
+    });
+    let animation = Animation {
+        frames: vec![frame],
+        durations_ms: vec![100],
+        looping: true,
+    };
+    let prepared = animation.prepare(2.0, true).unwrap();
+    let bgra = &prepared.frames[0].bgra;
+    assert_eq!(
+        (prepared.frames[0].width, prepared.frames[0].height),
+        (4, 2)
+    );
+    for pixel in bgra.chunks(4) {
+        let (blue, green, red, alpha) = (pixel[0], pixel[1], pixel[2], pixel[3]);
+        assert!(blue <= alpha && green <= alpha && red <= alpha, "{pixel:?}");
+        assert_eq!((blue, green), (0, 0));
+        // Premultiplied red equals alpha for pure red, within one rounding step.
+        assert!(red.abs_diff(alpha) <= 1, "{pixel:?}");
+    }
+    assert_eq!(&bgra[..4], &[0, 0, 255, 255]);
+    assert_eq!(&bgra[12..16], &[0, 0, 0, 0]);
+}

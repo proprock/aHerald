@@ -110,7 +110,7 @@ impl Drop for Output {
         }
     }
 }
-fn output(wave: Wave, cancel: &AtomicBool) -> Result<(), String> {
+fn output(wave: &Wave, cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Acquire) {
         return Ok(());
     }
@@ -146,7 +146,7 @@ fn output(wave: Wave, cancel: &AtomicBool) -> Result<(), String> {
         let mut output = Output {
             device,
             header: Box::default(),
-            samples: wave.samples,
+            samples: wave.samples.clone(),
             prepared: false,
         };
         output.header.lpData = PSTR(output.samples.as_mut_ptr().cast());
@@ -165,7 +165,7 @@ fn output(wave: Wave, cancel: &AtomicBool) -> Result<(), String> {
         Ok(())
     }
 }
-pub fn play(wave: Wave, key: &[u8], dedup_ms: u64, cancel: &AtomicBool) -> Result<(), String> {
+pub fn play(wave: &Wave, key: &[u8], dedup_ms: u64, cancel: &AtomicBool) -> Result<(), String> {
     let scope = scope()?;
     let hash = key.iter().fold(0xcbf29ce484222325u64, |h, b| {
         (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
@@ -265,6 +265,6 @@ mod device_smoke {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/turn_complete/sound.wav");
         let wave = super::Wave::load(&path, 0.5).unwrap();
-        super::output(wave, &std::sync::atomic::AtomicBool::new(false)).unwrap();
+        super::output(&wave, &std::sync::atomic::AtomicBool::new(false)).unwrap();
     }
 }

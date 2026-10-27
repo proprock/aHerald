@@ -99,6 +99,59 @@ impl Wave {
         Self::parse(&bytes, volume)
     }
 }
+type SoundKey = (std::path::PathBuf, u64, u64, Option<std::time::SystemTime>);
+/// Decoded sounds, most recently used last. The key holds the file's size and
+/// modification time, so a replaced file is decoded again and a deleted one is an error.
+pub struct SoundCache {
+    entries: std::collections::VecDeque<(SoundKey, std::sync::Arc<Wave>)>,
+    capacity: usize,
+}
+impl SoundCache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            entries: Default::default(),
+            capacity: capacity.max(1),
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn get(&mut self, path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, String> {
+        let meta = std::fs::metadata(path).map_err(|_| "cannot open WAV")?;
+        let key = (
+            path.to_owned(),
+            volume.to_bits(),
+            meta.len(),
+            meta.modified().ok(),
+        );
+        if let Some(index) = self.entries.iter().position(|(k, _)| *k == key)
+            && let Some(entry) = self.entries.remove(index)
+        {
+            let wave = entry.1.clone();
+            self.entries.push_back(entry);
+            return Ok(wave);
+        }
+        let wave = std::sync::Arc::new(Wave::load(path, volume)?);
+        self.entries.push_back((key, wave.clone()));
+        while self.entries.len() > self.capacity {
+            self.entries.pop_front();
+        }
+        Ok(wave)
+    }
+}
+/// The sounds of one process: the resident replays the same few files all day.
+#[cfg(windows)]
+fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, String> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<SoundCache>> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| std::sync::Mutex::new(SoundCache::new(8)))
+        .lock()
+        .map_err(|_| "sound cache unavailable")?
+        .get(path, volume)
+}
 pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
     let settings = config.events.get(event.kind.name())?;
     (config.sounds.enabled
@@ -134,8 +187,8 @@ pub fn start_controlled(
     };
     let key = serde_json::to_vec(event).ok()?;
     Some(std::thread::spawn(move || {
-        if let Ok(wave) = Wave::load(&path, volume) {
-            let _ = native::play(wave, &key, dedup, &cancel);
+        if let Ok(wave) = cached(&path, volume) {
+            let _ = native::play(&wave, &key, dedup, &cancel);
         }
     }))
 }

@@ -10,14 +10,15 @@ fn open_link(url: &str) -> Result<(), String> {
     crate::shell::open(std::ffi::OsStr::new(url)).map_err(|_| "agent_link_failed".into())
 }
 /// Lowercased full image path of the process that owns `hwnd`.
-fn window_image(hwnd: HWND) -> Option<String> {
+/// `path` is scratch space the caller reuses across windows (a long-path buffer is 64 KB).
+fn window_image(hwnd: HWND, path: &mut Vec<u16>) -> Option<String> {
     // SAFETY: handles are checked by Win32; path buffer lives for the call.
     unsafe {
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         let process =
             crate::local::Handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?);
-        let mut path = vec![0u16; 32768];
+        path.resize(32768, 0);
         let mut size = path.len() as u32;
         QueryFullProcessImageNameW(
             process.0,
@@ -45,12 +46,14 @@ fn raise(hwnd: HWND) -> Result<(), String> {
 struct Search {
     supported: fn(&str) -> bool,
     found: HWND,
+    scratch: Vec<u16>,
 }
 /// Raises the first visible top-level window whose executable path satisfies `supported`.
 fn activate_matching(supported: fn(&str) -> bool) -> Result<(), String> {
     let mut search = Search {
         supported,
         found: HWND::default(),
+        scratch: Vec::new(),
     };
     // SAFETY: callback runs synchronously; `search` outlives the enumeration.
     unsafe {
@@ -66,7 +69,7 @@ unsafe extern "system" fn find(hwnd: HWND, data: LPARAM) -> windows::core::BOOL 
     unsafe {
         let search = &mut *(data.0 as *mut Search);
         if IsWindowVisible(hwnd).as_bool()
-            && window_image(hwnd).is_some_and(|path| (search.supported)(&path))
+            && window_image(hwnd, &mut search.scratch).is_some_and(|path| (search.supported)(&path))
         {
             search.found = hwnd;
             return false.into();
@@ -112,7 +115,7 @@ impl Agent for Claude {
         // The handle came over IPC: accept only a live, visible window of a terminal host.
         // SAFETY: IsWindow/IsWindowVisible accept any handle value.
         let live = unsafe { IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() };
-        let terminal = window_image(hwnd).is_some_and(|path| {
+        let terminal = window_image(hwnd, &mut Vec::new()).is_some_and(|path| {
             [
                 "\\conhost.exe",
                 "\\openconsole.exe",

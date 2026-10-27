@@ -368,6 +368,10 @@ pub trait UsageSource {
     fn updates(&mut self, _snapshot: &mut Option<Snapshot>) -> Push {
         Push::default()
     }
+    /// A session name read over the source's own connection, if it has one.
+    fn thread_name(&mut self, _now: Duration, _id: &str) -> Option<String> {
+        None
+    }
 }
 /// Codex app-server: one owned child connection with rolling updates.
 pub struct CodexSource<T, F> {
@@ -386,6 +390,9 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T
     }
     fn is_live(&self) -> bool {
         self.connection.client.is_some()
+    }
+    fn thread_name(&mut self, now: Duration, id: &str) -> Option<String> {
+        self.connection.thread_name(now, id).ok().flatten()
     }
     fn listen(&mut self, now: Duration) -> Result<(), Error> {
         let Some(client) = &mut self.connection.client else {
@@ -459,6 +466,16 @@ impl<S: UsageSource> Driver<S> {
         };
         wait.max(Duration::from_millis(1))
     }
+    /// Runs a request that arrived for the worker; true when it asks for a refresh.
+    pub fn command(&mut self, now: Duration, command: Command) -> bool {
+        match command {
+            Command::Refresh => true,
+            Command::Name { id, reply } => {
+                let _ = reply.try_send(self.source.thread_name(now, &id));
+                false
+            }
+        }
+    }
     fn failure(&mut self, now: Duration, error: Error) {
         // A rate-limited service is asked again no sooner than the refresh interval.
         let delay = match error {
@@ -507,9 +524,48 @@ impl<S: UsageSource> Driver<S> {
     }
 }
 
+/// A request for the usage worker, which owns the agent's single connection.
+pub enum Command {
+    Refresh,
+    Name {
+        id: String,
+        reply: mpsc::SyncSender<Option<String>>,
+    },
+}
+/// How long a name lookup waits: the worker may be mid-request when it arrives.
+const LOOKUP_WAIT: Duration = Duration::from_secs(12);
+/// Reads session names over the usage worker's connection instead of a second child.
+#[derive(Clone)]
+pub struct NameLookup {
+    commands: mpsc::SyncSender<Command>,
+}
+impl NameLookup {
+    /// `None` for an unnamed or unknown thread, a busy or stopped worker, or `cancel`.
+    pub fn name(&self, id: &str, cancel: &AtomicBool) -> Option<String> {
+        let (reply, answer) = mpsc::sync_channel(1);
+        self.commands
+            .try_send(Command::Name {
+                id: id.into(),
+                reply,
+            })
+            .ok()?;
+        let deadline = Instant::now() + LOOKUP_WAIT;
+        loop {
+            match answer.recv_timeout(Duration::from_millis(20)) {
+                Ok(name) => return name,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if cancel.load(Ordering::Acquire) || Instant::now() >= deadline {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+}
 pub struct Service {
     state: Arc<Mutex<View>>,
-    refresh: mpsc::SyncSender<()>,
+    refresh: mpsc::SyncSender<Command>,
     stop: Arc<AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
     origin: Instant,
@@ -553,14 +609,17 @@ impl Service {
     ) -> Self {
         let state = Arc::new(Mutex::new(View::for_agent(agent, enabled, interval)));
         let origin = Instant::now();
-        let (refresh, rx) = mpsc::sync_channel(1);
+        let (refresh, rx) = mpsc::sync_channel(8);
         let shared = state.clone();
         let done = stop.clone();
         let worker = enabled.then(|| {
             std::thread::spawn(move || {
                 let mut driver = Driver::with_source(agent, interval, make());
                 while !done.load(Ordering::Acquire) {
-                    let manual = rx.try_recv().is_ok();
+                    let mut manual = false;
+                    while let Ok(command) = rx.try_recv() {
+                        manual |= driver.command(origin.elapsed(), command);
+                    }
                     if driver.step(origin.elapsed(), manual)
                         && let Ok(mut state) = shared.lock()
                     {
@@ -568,8 +627,9 @@ impl Service {
                     }
                     // Wake immediately on a refresh, with no busy waiting and a bounded mailbox.
                     match rx.recv_timeout(driver.wait(origin.elapsed())) {
-                        Ok(()) => {
-                            if driver.step(origin.elapsed(), true)
+                        Ok(command) => {
+                            let manual = driver.command(origin.elapsed(), command);
+                            if driver.step(origin.elapsed(), manual)
                                 && let Ok(mut state) = shared.lock()
                             {
                                 *state = driver.view.clone();
@@ -590,7 +650,13 @@ impl Service {
         }
     }
     pub fn refresh(&self) {
-        let _ = self.refresh.try_send(());
+        let _ = self.refresh.try_send(Command::Refresh);
+    }
+    /// Session names through this service's connection; empty answers when disabled.
+    pub fn names(&self) -> NameLookup {
+        NameLookup {
+            commands: self.refresh.clone(),
+        }
     }
     pub fn view(&self) -> View {
         self.state.lock().map(|v| v.clone()).unwrap_or_else(|_| {
@@ -610,7 +676,7 @@ impl Service {
 impl Drop for Service {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        let _ = self.refresh.try_send(());
+        let _ = self.refresh.try_send(Command::Refresh);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
