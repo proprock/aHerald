@@ -1,4 +1,6 @@
-use crate::config::{Monitor, Position};
+#[cfg(windows)]
+use crate::config::Monitor;
+use crate::config::Position;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Area {
     pub left: i32,
@@ -108,6 +110,7 @@ pub fn stack(
 }
 
 /// Window class shared with `overlay::show`; other processes' cards are found by it.
+#[cfg(windows)]
 pub(crate) const TRANSIENT_CLASS: &str = "aHerald.Overlay";
 
 /// Visible transient cards of any process, excluding `exclude` (a raw `HWND`, or 0).

@@ -55,3 +55,5 @@ pub enum Response {
 #[cfg(windows)]
 #[path = "pipe.rs"]
 pub mod pipe;
+#[cfg(not(windows))]
+pub use crate::unsupported::pipe;

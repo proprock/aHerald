@@ -19,7 +19,7 @@ pub mod usage_service;
 pub const NAME: &str = "aHerald";
 
 pub fn help() -> &'static str {
-    "aHerald — native Windows notification companion\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report] [--resident | --transient] [--config PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
+    "aHerald — native notification companion (Windows; macOS and Linux build but are not supported yet)\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report] [--resident | --transient] [--config PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
 }
 pub mod animation;
 pub mod artwork;
@@ -31,6 +31,7 @@ mod detached;
 pub mod events;
 pub mod notification;
 pub mod operational_log;
+pub mod paths;
 pub mod perf;
 pub mod perf_report;
 pub mod pet;
@@ -60,3 +61,8 @@ pub mod shell;
 pub mod tray;
 
 pub mod tray_usage;
+
+#[cfg(not(windows))]
+mod unsupported;
+#[cfg(not(windows))]
+pub use unsupported::{console_window, local, resident, restart};
