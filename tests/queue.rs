@@ -217,6 +217,19 @@ fn claude_permission_request_and_notification_pair_make_one_card() {
 }
 
 #[test]
+fn claude_notification_arriving_seconds_after_permission_request_joins_the_pending_card() {
+    // Live capture (Claude Code, 2026-10-26): the pair arrived 6 s apart, beyond deduplicate_ms.
+    let mut q = Queue::new(8, 1500);
+    assert!(q.push(claude(Kind::PermissionRequired, "a"), 0, 0));
+    assert!(!q.push(claude(Kind::PermissionRequired, "a"), 6000, 0));
+    assert_eq!(q.items().len(), 1);
+    // Another session still gets its own card, and a resolved prompt may ask again.
+    assert!(q.push(claude(Kind::PermissionRequired, "b"), 6100, 0));
+    q.observe_terminal(&claude(Kind::TurnComplete, "a"));
+    assert!(q.push(claude(Kind::PermissionRequired, "a"), 9000, 0));
+}
+
+#[test]
 fn every_new_event_is_announced_once_even_behind_a_persistent_card() {
     let mut q = Queue::new(8, 0);
     q.push(claude(Kind::PermissionRequired, "a"), 0, 0);

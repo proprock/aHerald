@@ -16,8 +16,6 @@ logging = "warn"
 deduplicate_ms = 1500
 
 [resident]
-# Show the notification-area icon and its menu in resident/demo mode; default true.
-tray_enabled = true
 # Reserved setting: only false is supported. No startup entry is installed.
 auto_start = false
 

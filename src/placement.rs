@@ -50,11 +50,90 @@ pub fn layout(
     )
 }
 
+/// Move a card `(x, y, width, height)` past already shown cards so none overlap. Cards
+/// anchored at the bottom stack upward, all others downward. When the work area has no
+/// room left, the base spot is kept rather than pushing a card off screen.
+pub fn stack(
+    card: (i32, i32, i32, i32),
+    area: Area,
+    occupied: &[Area],
+    position: &str,
+    gap: i32,
+) -> (i32, i32) {
+    let (x, base_y, w, h) = card;
+    let up = position == "bottom_right";
+    let mut y = base_y;
+    for _ in 0..=occupied.len() {
+        let Some(hit) = occupied
+            .iter()
+            .find(|o| x < o.right && o.left < x + w && y < o.bottom && o.top < y + h)
+        else {
+            return (x, y);
+        };
+        y = if up {
+            hit.top - gap - h
+        } else {
+            hit.bottom + gap
+        };
+        if y < area.top || y + h > area.bottom {
+            break;
+        }
+    }
+    (x, base_y)
+}
+
+/// Window class shared with `overlay::show`; other processes' cards are found by it.
+pub(crate) const TRANSIENT_CLASS: &str = "aHerald.Overlay";
+
+/// Visible transient cards of any process, excluding `exclude` (a raw `HWND`, or 0).
+#[cfg(windows)]
+fn transient_cards(exclude: isize) -> Vec<Area> {
+    use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+    struct Search {
+        exclude: isize,
+        found: Vec<Area>,
+    }
+    unsafe extern "system" fn collect(hwnd: HWND, data: LPARAM) -> windows::core::BOOL {
+        // SAFETY: synchronous enumeration owns the live Search for the callback's duration.
+        unsafe {
+            let search = &mut *(data.0 as *mut Search);
+            let mut class = [0u16; 32];
+            let length = GetClassNameW(hwnd, &mut class).max(0) as usize;
+            let mut rect = RECT::default();
+            if hwnd.0 as isize != search.exclude
+                && String::from_utf16_lossy(&class[..length]) == TRANSIENT_CLASS
+                && IsWindowVisible(hwnd).as_bool()
+                && GetWindowRect(hwnd, &mut rect).is_ok()
+            {
+                search.found.push(Area {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                });
+            }
+        }
+        true.into()
+    }
+    let mut search = Search {
+        exclude,
+        found: Vec::new(),
+    };
+    // SAFETY: `search` outlives the synchronous enumeration.
+    unsafe {
+        let _ = EnumWindows(Some(collect), LPARAM(&mut search as *mut Search as isize));
+    }
+    search.found
+}
+
+/// Placement for a card. `avoid_cards` is `Some(own_window)` (0 before the window exists)
+/// to stack clear of other transient cards; the resident's single window passes `None`.
 #[cfg(windows)]
 pub(crate) fn current(
     config: &crate::config::Notifications,
     size: (i32, i32),
     frames: usize,
+    avoid_cards: Option<isize>,
 ) -> Result<(i32, i32, i32, i32), String> {
     use windows::Win32::{
         Foundation::*,
@@ -113,13 +192,14 @@ pub(crate) fn current(
         let (mut dx, mut dy) = (96, 96);
         let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
         let a = info.rcWork;
-        Ok(layout(
-            Area {
-                left: a.left,
-                top: a.top,
-                right: a.right,
-                bottom: a.bottom,
-            },
+        let area = Area {
+            left: a.left,
+            top: a.top,
+            right: a.right,
+            bottom: a.bottom,
+        };
+        let (x, y, w, h) = layout(
+            area,
             size,
             (dx.max(96) as f64 / 96.0).min(
                 (crate::animation::MAX_BYTES as f64
@@ -128,6 +208,17 @@ pub(crate) fn current(
             ),
             &config.position,
             (cursor.x, cursor.y),
-        ))
+        );
+        let (x, y) = match avoid_cards {
+            Some(own) => stack(
+                (x, y, w, h),
+                area,
+                &transient_cards(own),
+                &config.position,
+                8,
+            ),
+            None => (x, y),
+        };
+        Ok((x, y, w, h))
     }
 }
