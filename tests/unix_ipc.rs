@@ -100,7 +100,22 @@ fn the_instance_lock_admits_one_owner_and_recovers_after_it_is_dropped() {
             .unwrap()
     );
     drop(owner);
-    assert!(scope.acquire().unwrap().is_some());
+    // A child another test is spawning right now briefly holds a copy of the lock's
+    // descriptor until its exec closes it, so recovery is awaited for a bounded time.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let recovered = loop {
+        if scope.acquire().unwrap().is_some() {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        recovered,
+        "the lock was not released after its owner dropped it"
+    );
 }
 
 /// Not a test of its own: the body of the process that `the_instance_lock_is_released_...`

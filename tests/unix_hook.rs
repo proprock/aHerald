@@ -34,6 +34,24 @@ fn hook(runtime: &std::path::Path) -> (std::process::Output, Duration) {
     (output, started.elapsed())
 }
 
+/// A hook that finds no resident starts one in the background; stop it so it does not outlive
+/// the test (on macOS it would keep a status item in the menu bar).
+fn stop_residents(runtime: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline {
+        let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--quit", "--config", "tests/fixtures/quiet.toml"])
+            .env("XDG_RUNTIME_DIR", runtime)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        if String::from_utf8_lossy(&output.stdout).contains("bye") {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn runtime(tag: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("ah-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
@@ -47,6 +65,7 @@ fn the_hook_returns_its_reply_when_no_resident_can_be_reached() {
     let (output, elapsed) = hook(&runtime);
     assert_eq!(output.stdout, b"{}\n");
     assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+    stop_residents(&runtime);
     let _ = std::fs::remove_dir_all(runtime);
 }
 

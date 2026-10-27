@@ -75,6 +75,16 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   under the status item (as on Windows), so it has no trigger before the tray exists.
   `NSStatusItem` and menu parity with Windows (sound, visual, pause, edit configuration,
   restart, exit, usage rows). Acceptance: manual menu check on macOS.
+  Status 2026-10-28 (branch `feature/ah-063-macos-tray`): `src/mac/tray.rs` (`NSStatusItem`,
+  quota-bar icon, tooltip), `menu.rs` (menu model with the Windows order, separators and check
+  marks, unit-tested), the About and Codex usage cards under the item (`geometry::place_below`,
+  scroll wheel pages), and the Restart-refused notice. Observed on the M1 with synthetic clicks:
+  the menu opens, Pause toggles and shows its check mark, About and the Codex line open their
+  card, a click closes it, Exit stops the resident. Usage with live quota data was checked against Codex 0.133 from the
+  desktop app (95% / 95%, plus plan, matching the app); the CLI is found in
+  `/Applications/Codex.app` or `~/Applications` when it is not on `PATH`, and reset times use the
+  local zone. Not verified: Edit configuration and Restart end to end, light/dark menu bar
+  icons, the status item on a second display. Claude usage rows wait for AH-066.
 
 - [ ] **AH-064 — macOS audio.** Depends on AH-061.
   CoreAudio/AudioQueue playback with the serialized-playback gate. Acceptance: no

@@ -237,8 +237,10 @@ pub struct StdioTransport {
 }
 impl StdioTransport {
     pub fn codex() -> Result<Self, Error> {
-        let path = std::env::var_os("PATH").ok_or(Error::Unavailable)?;
-        let executable = crate::codex_install::find(&path).ok_or(Error::Unavailable)?;
+        let executable = std::env::var_os("PATH")
+            .and_then(|path| crate::codex_install::find(&path))
+            .or_else(|| crate::codex_install::find_app_bundle(&crate::codex_install::app_bundles()))
+            .ok_or(Error::Unavailable)?;
         let mut command = Command::new(executable);
         command.args(["app-server", "--listen", "stdio://"]);
         Self::spawn(command)

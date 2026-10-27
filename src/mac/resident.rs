@@ -6,8 +6,10 @@
 use super::{
     geometry::{self, Frame},
     input,
+    menu::{self, Command},
     panel::{self, Panel},
     surface::{Composition, Surface},
+    tray::Tray,
 };
 use crate::{
     animation::PreparedAnimation,
@@ -254,6 +256,24 @@ struct Ui {
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
     demo: Option<crate::demo::Demo>,
+    tray: Tray,
+    usage: crate::usage_service::Service,
+    usage_next: u64,
+    /// What the menu was last built from, so it is rebuilt only when that changes.
+    menu_key: Option<(bool, bool, bool, String)>,
+    tooltip: String,
+    stop: Arc<AtomicBool>,
+    waker: Arc<Waker>,
+    config_path: std::path::PathBuf,
+    /// Replaces the usage card text, e.g. the about text or a refused Restart; cleared when
+    /// the card closes.
+    notice: Option<String>,
+    usage_text: String,
+    usage_text_next: u64,
+    usage_page: usize,
+    usage_window: bool,
+    usage_surface: Option<Surface>,
+    layout_count: usize,
 }
 
 impl Ui {
@@ -267,21 +287,199 @@ impl Ui {
         self.presenter.invalidate();
     }
 
+    /// Keeps the status item's icon, tooltip and menu in step with usage and the toggles.
+    fn refresh_tray(&mut self) {
+        let now = self.now();
+        let (sound, visual, paused) = self
+            .shared
+            .lock()
+            .map(|s| (s.sounds, s.visuals, s.paused))
+            .unwrap_or((false, false, false));
+        let display = self.config.codex.usage.display;
+        let line = self.usage.compact(display);
+        let key = (sound, visual, paused, line.clone());
+        if self.menu_key.as_ref() != Some(&key) {
+            self.tray
+                .set_menu(&menu::items(sound, visual, paused, Some(&line), None));
+            self.menu_key = Some(key);
+        }
+        if now >= self.usage_next {
+            self.usage_next = now.saturating_add(1000);
+            if line != self.tooltip {
+                self.tray.set_tooltip(&line);
+                self.tooltip = line;
+            }
+            let levels = crate::tray_usage::Levels::from_views(
+                &self.usage.view(),
+                None,
+                self.config.tray.graph,
+                display,
+            );
+            if let Err(error) = self.tray.set_levels(levels) {
+                eprintln!("aHerald: {error}");
+            }
+        }
+    }
+
+    /// Opens the usage card with `text` instead of the quota details.
+    fn show_notice(&mut self, text: String) {
+        self.notice = Some(text);
+        if let Ok(mut state) = self.shared.lock() {
+            state.queue.show_usage();
+        }
+        self.reset_usage_card();
+    }
+
+    /// The usage card's text or page changed: rebuild it from the first page.
+    fn reset_usage_card(&mut self) {
+        self.usage_text = self.usage_card_text();
+        self.usage_page = 0;
+        self.invalidate_usage();
+        self.selection = None;
+    }
+
+    fn usage_card_text(&self) -> String {
+        self.notice
+            .clone()
+            .unwrap_or_else(|| self.usage.card_text())
+    }
+
+    /// The usage card's text, page, size or place changed: redraw it from scratch.
+    fn invalidate_usage(&mut self) {
+        self.usage_surface = None;
+        self.frame = None;
+        self.presenter.invalidate();
+    }
+
+    /// Pages through a long usage card with the scroll wheel.
+    fn handle_scrolls(&mut self) {
+        let scrolls = self.panel.take_scrolls();
+        if !self.usage_window {
+            return;
+        }
+        let body = self.usage_text.split_once('\n').map_or("", |(_, b)| b);
+        let last = crate::usage_service::card_pages(body).len() - 1;
+        for delta in scrolls.into_iter().filter(|d| *d != 0.0) {
+            let page = if delta < 0.0 {
+                (self.usage_page + 1).min(last)
+            } else {
+                self.usage_page.saturating_sub(1)
+            };
+            if page != self.usage_page {
+                self.usage_page = page;
+                self.invalidate_usage();
+            }
+        }
+    }
+
+    /// Runs what the menu chose. Returns whether the loop must stop.
+    fn handle_commands(&mut self) {
+        for command in self.tray.take_commands() {
+            match command {
+                Command::Sound | Command::Visual | Command::Pause => {
+                    let now = self.now();
+                    if let Ok(mut state) = self.shared.lock() {
+                        let paused = state.paused;
+                        state.queue.tick(now, paused);
+                        match command {
+                            Command::Sound => state.sounds = !state.sounds,
+                            Command::Visual => state.visuals = !state.visuals,
+                            _ => state.paused = !state.paused,
+                        }
+                        self.config.sounds.enabled = state.sounds;
+                        self.config.notifications.enabled = state.visuals;
+                    }
+                }
+                Command::Config => {
+                    let path = self.config_path.clone();
+                    std::thread::spawn(move || {
+                        if let Err(error) = crate::shell::edit_configuration(&path) {
+                            eprintln!("aHerald: {error}");
+                        }
+                    });
+                }
+                Command::Restart => {
+                    // A replacement that cannot load its configuration would exit silently
+                    // and leave no resident: validate first and keep this one running.
+                    if let Err(error) = Config::load(&self.config_path, true) {
+                        crate::operational_log::log(
+                            crate::operational_log::Record::InvalidConfiguration,
+                        );
+                        self.show_notice(format!(
+                            "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                        ));
+                        continue;
+                    }
+                    let (stop, waker) = (self.stop.clone(), self.waker.clone());
+                    std::thread::spawn(move || match crate::restart::launch() {
+                        Ok(()) => {
+                            stop.store(true, Ordering::Release);
+                            waker.wake();
+                        }
+                        Err(error) => eprintln!("aHerald: {error}"),
+                    });
+                }
+                Command::Exit => {
+                    self.stop.store(true, Ordering::Release);
+                }
+                Command::CodexSummary => {
+                    self.notice = None;
+                    if let Ok(mut state) = self.shared.lock() {
+                        // The same line closes its open card.
+                        if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                            state.queue.dismiss();
+                        } else {
+                            state.queue.show_usage();
+                            self.usage.refresh();
+                        }
+                    }
+                    self.reset_usage_card();
+                }
+                Command::About => {
+                    let about = crate::about_card_text();
+                    // The same item closes its open card, like a usage line.
+                    if self.usage_window && self.notice.as_deref() == Some(about.as_str()) {
+                        if let Ok(mut state) = self.shared.lock() {
+                            state.queue.dismiss();
+                        }
+                        self.notice = None;
+                        self.reset_usage_card();
+                    } else {
+                        self.show_notice(about);
+                    }
+                }
+                // Claude usage on macOS arrives with AH-066.
+                Command::ClaudeSummary => {}
+            }
+        }
+    }
+
     /// Applies the clicks the panel collected to the queue; the next step redraws.
     fn handle_clicks(&mut self) {
         let clicks = self.panel.take_clicks();
         if clicks.is_empty() {
             return;
         }
-        let (Some(composition), Some(frame)) = (&self.composition, self.frame) else {
+        let Some(frame) = self.frame else {
             return;
         };
-        let (width, height) = composition.size();
+        let (width, height, text_left) = if self.usage_window {
+            let Some(surface) = &self.usage_surface else {
+                return;
+            };
+            (surface.width, surface.height, (22.0 * self.scale) as i32)
+        } else {
+            let Some(composition) = &self.composition else {
+                return;
+            };
+            let (width, height) = composition.size();
+            (width, height, composition.text_left)
+        };
         let layout = input::Layout {
             width,
             height,
             scale: self.scale,
-            text_left: composition.text_left,
+            text_left,
         };
         let window = (frame.rect.width, frame.rect.height);
         let now = self.now();
@@ -293,7 +491,7 @@ impl Ui {
         for point in clicks {
             input::click(
                 &mut state.queue,
-                self.config.notifications.click_to_dismiss,
+                self.usage_window || self.config.notifications.click_to_dismiss,
                 &layout,
                 input::to_pixels(point, window, &layout),
             );
@@ -314,12 +512,105 @@ impl Ui {
     /// Redraws one step. A card that cannot be drawn must not end the resident: hide it,
     /// keep the queue and retry from scratch on the next wake.
     fn step(&mut self) {
+        self.refresh_tray();
         if self.draw().is_err() {
             self.frame = None;
             self.composition = None;
             self.hide();
             self.compose_due = true;
         }
+    }
+
+    fn draw_usage(&mut self, index: usize, count: usize) -> Result<(), String> {
+        let (heading, body) = self
+            .usage_text
+            .split_once('\n')
+            .unwrap_or((&self.usage_text, ""));
+        let pages = crate::usage_service::card_pages(body);
+        self.usage_page = self.usage_page.min(pages.len() - 1);
+        let controls = Card::new(
+            crate::card::Heading::from_summary(heading),
+            index,
+            count,
+            true,
+        );
+        if self.layout_count != count {
+            self.layout_count = count;
+            self.invalidate_usage();
+        }
+        let screens = panel::screens(self.mtm);
+        if screens.is_empty() {
+            return Err("no display".into());
+        }
+        let anchor = self.tray.frame();
+        let centre = anchor.map_or((0.0, 0.0), |a| (a.x + a.width / 2.0, a.y + a.height / 2.0));
+        let screen = geometry::choose(
+            &screens,
+            self.config.notifications.monitor,
+            crate::config::Position::NearCursor,
+            centre,
+        );
+        let wanted = self.config.notifications.scale * screens[screen].scale;
+        if (wanted - self.scale).abs() > 1e-9 {
+            self.scale = wanted;
+            self.composition = None;
+            self.art = None;
+            self.pending = true;
+            self.compose_due = true;
+            self.invalidate_usage();
+        }
+        let scale = self.scale;
+        if self.usage_surface.is_none() {
+            let width = (760.0 * scale) as i32;
+            let height = Surface::body_height(
+                width - (40.0 * scale) as i32,
+                scale,
+                &pages[self.usage_page],
+            )? + (114.0 * scale) as i32;
+            self.usage_surface = Some(Surface::card(
+                width,
+                height,
+                scale,
+                (22.0 * scale) as i32,
+                CardText {
+                    heading: &controls.heading,
+                    label: &pages[self.usage_page],
+                    body: true,
+                    index,
+                    count,
+                    dismiss_button: false,
+                    age: None,
+                    color: crate::config::Color([80, 165, 250]),
+                    background_color: self.config.usage_background_color(),
+                    border: self.config.usage_border_color(),
+                },
+            )?);
+        }
+        if self.presenter.next_static().is_none() {
+            return Ok(());
+        }
+        let surface = self
+            .usage_surface
+            .as_ref()
+            .ok_or("usage surface unavailable")?;
+        let size = (surface.width, surface.height);
+        let frame = match self.frame {
+            Some(frame) => frame,
+            None => {
+                let frame = match anchor {
+                    Some(anchor) => geometry::place_below(&screens[screen], anchor, size),
+                    None => geometry::place(
+                        &screens[screen],
+                        size,
+                        crate::config::Position::TopCenter,
+                        centre,
+                    ),
+                };
+                self.frame = Some(frame);
+                frame
+            }
+        };
+        self.panel.show(surface, &frame, 255)
     }
 
     fn draw(&mut self) -> Result<(), String> {
@@ -341,7 +632,29 @@ impl Ui {
                 paused,
             )
         };
-        let Some(entry) = entry.filter(|e| !paused && !e.is_usage()) else {
+        self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
+        if !self.usage_window {
+            self.notice = None;
+            self.usage_surface = None;
+        }
+        if self.usage_window {
+            if now >= self.usage_text_next {
+                self.usage_text_next = now.saturating_add(1000);
+                let text = self.usage_card_text();
+                if text != self.usage_text {
+                    self.usage_text = text;
+                    self.invalidate_usage();
+                }
+            }
+            let id = entry.as_ref().map(|e| e.id);
+            if self.selection != id {
+                self.usage_page = 0;
+                self.invalidate_usage();
+            }
+            self.selection = id;
+            return self.draw_usage(index, count);
+        }
+        let Some(entry) = entry.filter(|_| !paused) else {
             self.hide();
             return Ok(());
         };
@@ -499,7 +812,7 @@ fn present(
     stop: Arc<AtomicBool>,
     start: Instant,
     waker: Arc<Waker>,
-    _config_path: &Path,
+    config_path: &Path,
     demo: Option<crate::demo::Demo>,
 ) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the macOS overlay must run on the main thread")?;
@@ -552,6 +865,11 @@ fn present(
         }
     });
 
+    let usage_enabled = config.codex.usage.enabled;
+    let usage = crate::usage_service::Service::codex(
+        usage_enabled,
+        Duration::from_secs(config.codex.usage.refresh_interval_sec),
+    );
     let result = Panel::new(mtm).map(|panel| {
         let mut ui = Ui {
             shared,
@@ -571,8 +889,27 @@ fn present(
             frame: None,
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
-            source_labels: crate::session_source::Service::codex(),
+            source_labels: if usage_enabled {
+                crate::session_source::Service::shared(usage.names())
+            } else {
+                crate::session_source::Service::codex()
+            },
             demo,
+            tray: Tray::new(mtm),
+            usage,
+            usage_next: 0,
+            menu_key: None,
+            tooltip: String::new(),
+            stop: stop.clone(),
+            waker: waker.clone(),
+            config_path: config_path.to_owned(),
+            notice: None,
+            usage_text: String::new(),
+            usage_text_next: 0,
+            usage_page: 0,
+            usage_window: false,
+            usage_surface: None,
+            layout_count: 0,
             config,
         };
         // Events queued before the loop started are picked up by the first step.
@@ -580,6 +917,9 @@ fn present(
             ui.step();
             let wait = if ui.animating() {
                 NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
+            } else if ui.config.codex.usage.enabled {
+                // Usage polling keeps the icon and tooltip fresh while nothing is shown.
+                NSDate::dateWithTimeIntervalSinceNow(1.0)
             } else {
                 NSDate::distantFuture()
             };
@@ -596,6 +936,8 @@ fn present(
                 app.sendEvent(&event);
             }
             ui.handle_clicks();
+            ui.handle_scrolls();
+            ui.handle_commands();
         }
         ui.jobs.take();
     });

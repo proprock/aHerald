@@ -84,6 +84,36 @@ pub fn place(screen: &Screen, card: (i32, i32), position: Position, cursor: (f64
     }
 }
 
+/// Frame for a card hanging under the status item `anchor` (global points), right-aligned
+/// with it and kept inside the visible area, shrunk when it does not fit.
+pub fn place_below(screen: &Screen, anchor: Rect, card: (i32, i32)) -> Frame {
+    let (visible, scale) = (screen.visible, screen.scale);
+    let (mut width, mut height) = (f64::from(card.0) / scale, f64::from(card.1) / scale);
+    let gap = 6.0;
+    let room = (visible.height - gap).max(1.0);
+    let factor = (visible.width / width.max(1.0))
+        .min(room / height.max(1.0))
+        .min(1.0);
+    (width, height) = (width * factor, height * factor);
+    let right = (anchor.x + anchor.width).min(visible.x + visible.width);
+    let x = (right - width).clamp(
+        visible.x,
+        (visible.x + visible.width - width).max(visible.x),
+    );
+    // The item sits in the menu bar, which lies above the visible area.
+    let top = anchor.y.min(visible.y + visible.height) - gap;
+    let y = (top - height).max(visible.y);
+    Frame {
+        rect: Rect {
+            x,
+            y,
+            width,
+            height,
+        },
+        scale,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +237,30 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn a_card_hangs_under_the_status_item_and_ends_at_its_right_edge() {
+        let anchor = rect(1300.0, 875.0, 40.0, 25.0);
+        let f = place_below(&laptop(), anchor, (1520, 700));
+        assert_eq!((f.rect.width, f.rect.height, f.scale), (760.0, 350.0, 2.0));
+        assert_eq!(f.rect.x + f.rect.width, 1340.0);
+        // A small gap below the menu bar.
+        assert_eq!(f.rect.y + f.rect.height, 875.0 - 6.0);
+    }
+
+    #[test]
+    fn a_card_under_an_item_near_an_edge_stays_on_screen() {
+        let left = place_below(&laptop(), rect(100.0, 875.0, 40.0, 25.0), (1520, 700));
+        assert_eq!(left.rect.x, 0.0);
+        let right = place_below(&laptop(), rect(1420.0, 875.0, 40.0, 25.0), (1520, 700));
+        assert_eq!(right.rect.x + right.rect.width, 1440.0);
+    }
+
+    #[test]
+    fn a_card_taller_than_the_visible_area_is_shrunk_in_proportion() {
+        let f = place_below(&laptop(), rect(1300.0, 875.0, 40.0, 25.0), (1520, 4000));
+        assert!(f.rect.height <= 875.0 - 6.0 && f.rect.y >= 0.0);
+        assert!((f.rect.width / f.rect.height - 1520.0 / 4000.0).abs() < 0.01);
     }
 }

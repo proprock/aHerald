@@ -36,6 +36,27 @@ pub(crate) fn find(path: &OsStr) -> Option<PathBuf> {
     None
 }
 
+/// Where the Codex desktop app keeps its bundled CLI on macOS; the app does not put it on
+/// `PATH`. Fixed absolute locations only, never searched for.
+pub(crate) fn app_bundles() -> Vec<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    const INSIDE: &str = "Codex.app/Contents/Resources/codex";
+    let mut found = vec![PathBuf::from("/Applications").join(INSIDE)];
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from)
+        && home.is_absolute()
+    {
+        found.push(home.join("Applications").join(INSIDE));
+    }
+    found
+}
+
+/// The first of `candidates` that is a regular file.
+pub(crate) fn find_app_bundle(candidates: &[PathBuf]) -> Option<PathBuf> {
+    candidates.iter().find(|path| path.is_file()).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +148,27 @@ mod tests {
         install.file("npm prefix/codex.cmd");
         let native = install.file(NESTED);
         assert_eq!(find(&install.path(&["broken", "npm prefix"])), Some(native));
+    }
+    #[test]
+    fn an_app_bundle_is_used_only_when_it_is_a_file_and_the_first_one_wins() {
+        let install = Installation::new();
+        let first = install.file("first/Codex.app/Contents/Resources/codex");
+        let second = install.file("second/Codex.app/Contents/Resources/codex");
+        let missing = install.0.join("none/codex");
+        let folder = install.0.join("folder");
+        fs::create_dir_all(&folder).unwrap();
+        assert_eq!(
+            find_app_bundle(&[missing.clone(), folder.clone(), second.clone(), first]),
+            Some(second)
+        );
+        assert_eq!(find_app_bundle(&[missing, folder]), None);
+        assert_eq!(find_app_bundle(&[]), None);
+    }
+    #[test]
+    fn app_bundle_locations_are_absolute_and_exist_only_on_macos() {
+        let bundles = app_bundles();
+        assert_eq!(!bundles.is_empty(), cfg!(target_os = "macos"));
+        assert!(bundles.iter().all(|path| path.is_absolute()));
     }
     #[test]
     fn missing_binary_and_relative_search_paths_are_unavailable() {
