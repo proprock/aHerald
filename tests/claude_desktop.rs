@@ -75,6 +75,31 @@ fn the_identity_comes_from_the_file_name_not_from_file_contents() {
     );
 }
 
+fn age(root: &Root, relative: &str, days: u64) {
+    let file = fs::File::options()
+        .write(true)
+        .open(root.0.join(relative))
+        .unwrap();
+    let when = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 24 * 60 * 60);
+    file.set_modified(when).unwrap();
+}
+
+#[test]
+fn sessions_untouched_for_months_are_not_scanned() {
+    let root = Root::new("desktop-recent");
+    let body = r#"{"cliSessionId":"wanted"}"#;
+    root.write("a/local_old.json", body);
+    age(&root, "a/local_old.json", 90);
+    assert_eq!(local_session_id(&root.0, "wanted"), None);
+
+    root.write("a/local_new.json", body);
+    age(&root, "a/local_new.json", 5);
+    assert_eq!(
+        local_session_id(&root.0, "wanted").as_deref(),
+        Some("local_new")
+    );
+}
+
 #[cfg(windows)]
 #[test]
 #[ignore = "reads real Claude Desktop sessions; requires AHERALD_TEST_CLI_SESSION"]

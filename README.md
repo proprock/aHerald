@@ -11,6 +11,9 @@ layer is partly a stand-in: hooks are parsed and IPC, process spawning and HTTPS
 while the overlay, tray and audio report "not supported yet" until the macOS and Linux
 ports (AH-062 onward) land.
 
+New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
+first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.
+
 ## Build and verify
 
 Use stable Rust with the MSVC toolchain and Windows SDK:
@@ -34,6 +37,8 @@ Developer utilities live in the repository root:
   `cargo run --example generate_assets`, overwriting the corresponding files in `assets/`.
 - `check-release.ps1` inspects the release executable's architecture, GUI subsystem,
   and CRT imports. Run `.\check-release.ps1` after building; it requires `llvm-readobj`.
+- `package-release.ps1` builds `dist/aherald-vX.Y.Z-windows-x64.zip` (with `.sha256`) and
+  proves that a fresh extraction runs; the release workflow uses the same script.
 
 ## Run without Codex
 

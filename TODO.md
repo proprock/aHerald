@@ -202,11 +202,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-075 — Bound the Claude Desktop session scan by recency (found in AH-056).**
-  Optional. The lookup reads every `local_*.json` (up to 5000) for sessions that may not be
-  Desktop sessions at all; AH-056 only moved it behind the recorded window. Check whether a
-  session file's mtime follows each turn before limiting the scan to recent files.
-
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
@@ -232,19 +227,16 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
-- [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
-  Produce a release ZIP containing executable, example configuration, PNG/WAV
-  assets, metadata, license, and instructions. Explain resident/transient modes,
-  CLI, replacement assets, configuration, manual hooks/autostart, uninstall, build
-  commands, and event-source limitations. Acceptance: clean extraction works
-  without administrator privileges or installed GUI runtimes.
-
 - [ ] **AH-023 — Complete release acceptance.** Depends on AH-022.
   Run automated checks, Windows IPC/lifecycle integration tests, and the smoke
   matrix on Windows 10 and 11. Cover topmost/transparency/focus, sound, switching,
   tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
   Acceptance: publish the tested environment/results; label any untested platform
   explicitly instead of claiming verified support.
+  Status 2026-10-27: the automated part and hook latency on Windows 11 are recorded in
+  `docs/release-acceptance.md`. Remaining: Windows 10 smoke, the visual/manual checks,
+  long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
+  old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
 
 ## Milestone 6 — Claude parity (deferred)
 

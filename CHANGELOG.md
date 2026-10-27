@@ -33,6 +33,9 @@ configuration work.
 - Placement options (centre, top centre, bottom right, near cursor, selected monitor)
   and stacked simultaneous transient cards; implemented, manual multi-monitor acceptance is pending (AH-020).
 - `--version` and a tray **About aHerald** item that shows the version on a usage-style card (AH-086).
+- Portable archive: `package-release.ps1` adds `START-HERE.md`, `MANIFEST.txt` with file
+  hashes and a clean-extraction check; new `docs/portable.md` guide covering modes, CLI,
+  replacing assets, manual hooks and autostart, uninstall and limits (AH-022).
 - `src/unsupported.rs` stubs, `src/paths.rs` and a three-OS CI matrix (AH-060).
 - Unix common layer for macOS and Linux: a unix-domain-socket IPC with the Windows
   frames (private per-user directory, `flock` single instance, peer user-id check),
