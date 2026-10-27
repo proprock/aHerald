@@ -202,11 +202,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-075 — Bound the Claude Desktop session scan by recency (found in AH-056).**
-  Optional. The lookup reads every `local_*.json` (up to 5000) for sessions that may not be
-  Desktop sessions at all; AH-056 only moved it behind the recorded window. Check whether a
-  session file's mtime follows each turn before limiting the scan to recent files.
-
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev

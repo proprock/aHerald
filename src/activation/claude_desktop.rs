@@ -13,6 +13,9 @@ use std::{
 const MAX_FILE: u64 = 1024 * 1024;
 const MAX_FILES: usize = 5000;
 const MAX_DEPTH: usize = 4;
+/// Desktop updates a session file's modification time on every activity, so a session that a
+/// hook can still belong to is recent; older files are not read.
+const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
 /// `local_` followed by ASCII letters, digits and hyphens: safe as one link path component.
 pub fn is_local_id(id: &str) -> bool {
@@ -31,8 +34,11 @@ pub fn local_session_id(root: &Path, cli_session_id: &str) -> Option<String> {
         cli_session_id: Option<String>,
     }
     let _timer = crate::perf::span(crate::perf::Span::SessionLookup);
+    let cutoff = SystemTime::now()
+        .checked_sub(MAX_AGE)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
     let mut files = Vec::new();
-    collect(root, 0, &mut files);
+    collect(root, 0, cutoff, &mut files);
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
     files.into_iter().find_map(|(path, _)| {
         let id = path.file_stem()?.to_str()?;
@@ -45,7 +51,7 @@ pub fn local_session_id(root: &Path, cli_session_id: &str) -> Option<String> {
     })
 }
 
-fn collect(dir: &Path, depth: usize, files: &mut Vec<(PathBuf, SystemTime)>) {
+fn collect(dir: &Path, depth: usize, cutoff: SystemTime, files: &mut Vec<(PathBuf, SystemTime)>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -59,7 +65,7 @@ fn collect(dir: &Path, depth: usize, files: &mut Vec<(PathBuf, SystemTime)>) {
         };
         if meta.is_dir() {
             if depth < MAX_DEPTH {
-                collect(&path, depth + 1, files);
+                collect(&path, depth + 1, cutoff, files);
             }
         } else if meta.len() <= MAX_FILE
             && path.extension().is_some_and(|e| e == "json")
@@ -68,7 +74,10 @@ fn collect(dir: &Path, depth: usize, files: &mut Vec<(PathBuf, SystemTime)>) {
                 .and_then(|n| n.to_str())
                 .is_some_and(|n| n.starts_with("local_"))
         {
-            files.push((path, meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)));
+            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            if modified >= cutoff {
+                files.push((path, modified));
+            }
         }
     }
 }
