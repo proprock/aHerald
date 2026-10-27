@@ -499,6 +499,16 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   comparison was not done (AH-084). The red phase of the budget
   assertions was not observed (budgets were set after measuring).
 
+- [x] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
+  Cause: the `idle_prompt` `Notification`, which Claude Code sends about a minute after
+  `Stop`, was mapped to `input_required`, so a finished, idle session got a second card.
+  `idle_prompt` is now ignored (the `Stop` card already announced the turn); `elicitation_dialog`
+  and `agent_needs_input` still map to `input_required`. `docs/claude-hooks.md` updated. Red
+  phase observed in `claude_notification_types_map_to_event_kinds`. The payload was not
+  re-captured live: the cause rests on the earlier 2026-10-26 capture (`idle_prompt` after
+  `Stop`) and the two cards seen on 2026-10-27. Automated: full suite 0 failed; `fmt` and
+  `clippy -D warnings` clean.
+
 - [x] **AH-083 — Compose a resident card once instead of about three times (found in AH-082).**
   A queue-count or index change redraws only the heading unless the navigation buttons
   appear or vanish, and a newly selected card waits up to 300 ms for its artwork before

@@ -253,7 +253,8 @@ mod tests {
     fn claude_notification_types_map_to_event_kinds() {
         for (ty, kind) in [
             ("permission_prompt", Some(Kind::PermissionRequired)),
-            ("idle_prompt", Some(Kind::InputRequired)),
+            // A reminder about a finished turn; `Stop` already produced its card.
+            ("idle_prompt", None),
             ("elicitation_dialog", Some(Kind::InputRequired)),
             ("agent_needs_input", Some(Kind::InputRequired)),
             ("auth_success", None),

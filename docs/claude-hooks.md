@@ -3,7 +3,8 @@
 Source: <https://code.claude.com/docs/en/hooks> (read 2026-10-25). Live captures on 2026-10-26
 (interactive Claude Code): `PermissionRequest`, `Notification` with `notification_type =
 permission_prompt` and `Stop` carried `hook_event_name` and `session_id` and no turn id, as
-documented. `idle_prompt` arrived about a minute after `Stop`; `StopFailure` is still unobserved; verify against your installed version.
+documented. `idle_prompt` arrived about a minute after `Stop` and showed a bogus input-required card
+for an idle session (AH-074), so it is ignored; `StopFailure` is still unobserved; verify against your installed version.
 `PermissionRequest` and the `permission_prompt` notification arrived 6 s apart for one prompt.
 
 ## Setup (manual)
@@ -21,7 +22,8 @@ touching settings with `[claude] hooks_enabled = false` in `config.toml`.
 | `StopFailure` | any `error` (for example `rate_limit`) | `error` |
 | `PermissionRequest` | always | `permission_required` |
 | `Notification` | `notification_type = permission_prompt` | `permission_required` |
-| `Notification` | `idle_prompt`, `elicitation_dialog`, `agent_needs_input` | `input_required` |
+| `Notification` | `elicitation_dialog`, `agent_needs_input` | `input_required` |
+| `Notification` | `idle_prompt` | none: the `Stop` card already announced the finished turn |
 | `SessionEnd` | any `reason` (`clear`, `logout`, `prompt_input_exit`, ...) | none: clears that session's pending cards |
 | `SubagentStop` and other hooks / notification types | | ignored |
 
