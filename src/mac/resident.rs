@@ -6,8 +6,10 @@
 use super::{
     geometry::{self, Frame},
     input,
+    menu::{self, Command},
     panel::{self, Panel},
     surface::{Composition, Surface},
+    tray::Tray,
 };
 use crate::{
     animation::PreparedAnimation,
@@ -254,6 +256,15 @@ struct Ui {
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
     demo: Option<crate::demo::Demo>,
+    tray: Tray,
+    usage: crate::usage_service::Service,
+    usage_next: u64,
+    /// What the menu was last built from, so it is rebuilt only when that changes.
+    menu_key: Option<(bool, bool, bool, String)>,
+    tooltip: String,
+    stop: Arc<AtomicBool>,
+    waker: Arc<Waker>,
+    config_path: std::path::PathBuf,
 }
 
 impl Ui {
@@ -265,6 +276,94 @@ impl Ui {
         self.panel.hide();
         self.selection = None;
         self.presenter.invalidate();
+    }
+
+    /// Keeps the status item's icon, tooltip and menu in step with usage and the toggles.
+    fn refresh_tray(&mut self) {
+        let now = self.now();
+        let (sound, visual, paused) = self
+            .shared
+            .lock()
+            .map(|s| (s.sounds, s.visuals, s.paused))
+            .unwrap_or((false, false, false));
+        let display = self.config.codex.usage.display;
+        let line = self.usage.compact(display);
+        let key = (sound, visual, paused, line.clone());
+        if self.menu_key.as_ref() != Some(&key) {
+            self.tray
+                .set_menu(&menu::items(sound, visual, paused, Some(&line), None));
+            self.menu_key = Some(key);
+        }
+        if now >= self.usage_next {
+            self.usage_next = now.saturating_add(1000);
+            if line != self.tooltip {
+                self.tray.set_tooltip(&line);
+                self.tooltip = line;
+            }
+            let levels = crate::tray_usage::Levels::from_views(
+                &self.usage.view(),
+                None,
+                self.config.tray.graph,
+                display,
+            );
+            if let Err(error) = self.tray.set_levels(levels) {
+                eprintln!("aHerald: {error}");
+            }
+        }
+    }
+
+    /// Runs what the menu chose. Returns whether the loop must stop.
+    fn handle_commands(&mut self) {
+        for command in self.tray.take_commands() {
+            match command {
+                Command::Sound | Command::Visual | Command::Pause => {
+                    let now = self.now();
+                    if let Ok(mut state) = self.shared.lock() {
+                        let paused = state.paused;
+                        state.queue.tick(now, paused);
+                        match command {
+                            Command::Sound => state.sounds = !state.sounds,
+                            Command::Visual => state.visuals = !state.visuals,
+                            _ => state.paused = !state.paused,
+                        }
+                        self.config.sounds.enabled = state.sounds;
+                        self.config.notifications.enabled = state.visuals;
+                    }
+                }
+                Command::Config => {
+                    let path = self.config_path.clone();
+                    std::thread::spawn(move || {
+                        if let Err(error) = crate::shell::edit_configuration(&path) {
+                            eprintln!("aHerald: {error}");
+                        }
+                    });
+                }
+                Command::Restart => {
+                    // A replacement that cannot load its configuration would exit silently
+                    // and leave no resident: validate first and keep this one running.
+                    if let Err(error) = Config::load(&self.config_path, true) {
+                        crate::operational_log::log(
+                            crate::operational_log::Record::InvalidConfiguration,
+                        );
+                        eprintln!("aHerald: restart cancelled: {error}");
+                        continue;
+                    }
+                    let (stop, waker) = (self.stop.clone(), self.waker.clone());
+                    std::thread::spawn(move || match crate::restart::launch() {
+                        Ok(()) => {
+                            stop.store(true, Ordering::Release);
+                            waker.wake();
+                        }
+                        Err(error) => eprintln!("aHerald: {error}"),
+                    });
+                }
+                Command::Exit => {
+                    self.stop.store(true, Ordering::Release);
+                }
+                // The about and usage cards follow in the next step of AH-063.
+                Command::About | Command::CodexSummary | Command::ClaudeSummary => {}
+            }
+        }
     }
 
     /// Applies the clicks the panel collected to the queue; the next step redraws.
@@ -314,6 +413,7 @@ impl Ui {
     /// Redraws one step. A card that cannot be drawn must not end the resident: hide it,
     /// keep the queue and retry from scratch on the next wake.
     fn step(&mut self) {
+        self.refresh_tray();
         if self.draw().is_err() {
             self.frame = None;
             self.composition = None;
@@ -499,7 +599,7 @@ fn present(
     stop: Arc<AtomicBool>,
     start: Instant,
     waker: Arc<Waker>,
-    _config_path: &Path,
+    config_path: &Path,
     demo: Option<crate::demo::Demo>,
 ) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the macOS overlay must run on the main thread")?;
@@ -552,6 +652,11 @@ fn present(
         }
     });
 
+    let usage_enabled = config.codex.usage.enabled;
+    let usage = crate::usage_service::Service::codex(
+        usage_enabled,
+        Duration::from_secs(config.codex.usage.refresh_interval_sec),
+    );
     let result = Panel::new(mtm).map(|panel| {
         let mut ui = Ui {
             shared,
@@ -571,8 +676,20 @@ fn present(
             frame: None,
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
-            source_labels: crate::session_source::Service::codex(),
+            source_labels: if usage_enabled {
+                crate::session_source::Service::shared(usage.names())
+            } else {
+                crate::session_source::Service::codex()
+            },
             demo,
+            tray: Tray::new(mtm),
+            usage,
+            usage_next: 0,
+            menu_key: None,
+            tooltip: String::new(),
+            stop: stop.clone(),
+            waker: waker.clone(),
+            config_path: config_path.to_owned(),
             config,
         };
         // Events queued before the loop started are picked up by the first step.
@@ -580,6 +697,9 @@ fn present(
             ui.step();
             let wait = if ui.animating() {
                 NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
+            } else if ui.config.codex.usage.enabled {
+                // Usage polling keeps the icon and tooltip fresh while nothing is shown.
+                NSDate::dateWithTimeIntervalSinceNow(1.0)
             } else {
                 NSDate::distantFuture()
             };
@@ -596,6 +716,7 @@ fn present(
                 app.sendEvent(&event);
             }
             ui.handle_clicks();
+            ui.handle_commands();
         }
         ui.jobs.take();
     });

@@ -40,7 +40,7 @@ ureq = { version = "3", default-features = false, features = ["rustls"], optiona
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry", "NSDictionary", "NSValue", "NSObject", "NSArray", "NSEnumerator", "NSDate", "NSRunLoop", "NSThread"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSGraphicsContext", "NSFont", "NSColor", "NSParagraphStyle", "NSStringDrawing", "NSText", "NSAttributedString", "NSFontDescriptor", "NSGraphics", "NSPanel", "NSWindow", "NSResponder", "NSView", "NSImageView", "NSImage", "NSControl", "NSCell", "NSScreen", "NSApplication", "NSRunningApplication", "NSEvent", "objc2-core-graphics", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSGraphicsContext", "NSFont", "NSColor", "NSParagraphStyle", "NSStringDrawing", "NSText", "NSAttributedString", "NSFontDescriptor", "NSGraphics", "NSPanel", "NSWindow", "NSResponder", "NSView", "NSImageView", "NSImage", "NSControl", "NSCell", "NSScreen", "NSApplication", "NSRunningApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSMenu", "NSMenuItem", "NSEvent", "objc2-core-graphics", "objc2-core-foundation"] }
 
 [profile.release]
 lto = true
