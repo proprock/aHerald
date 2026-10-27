@@ -207,6 +207,15 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
   old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
 
+- [ ] **AH-087 — State "not tested on Windows 10" in the release notes.** Depends on AH-023.
+  Decided 2026-10-27: Windows 10 is out of the acceptance scope (end of support, no
+  machine) and the "Windows 10/11" wording stays for now. At release time add an explicit
+  line that the release was not tested on Windows 10 to `CHANGELOG.md` and `README.md`
+  (`docs/portable.md` and `README.md` limits already say it), and decide then whether
+  to reword the platform claim (`README.md`, `docs/portable.md`, `CHANGELOG.md`,
+  `INFO.md`, `AGENTS.md`, `package-release.ps1` MANIFEST line). Ask before changing
+  `AGENTS.md` or `INFO.md`. Acceptance: the release notes carry the statement.
+
 ## Milestone 6 — Claude parity (deferred)
 
 - [ ] **AH-059 — Claude session names and statusLine quota fallback (split from AH-038).**
