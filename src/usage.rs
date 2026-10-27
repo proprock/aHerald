@@ -182,7 +182,7 @@ pub fn local_reset(timestamp: i64) -> Option<String> {
         }
         tm
     };
-    let minutes = i64::from(tm.tm_gmtoff) / 60;
+    let minutes = tm.tm_gmtoff / 60;
     Some(format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02} (UTC{}{:02}:{:02})",
         i64::from(tm.tm_year) + 1900,
