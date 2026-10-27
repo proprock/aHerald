@@ -99,7 +99,32 @@ impl Icon {
         self.set_levels(levels, icon_size(self.data.hWnd))
             .map(|_| ())
     }
+    /// DPI scale (1.0 at 96 DPI) of the monitor holding the tray icon, which is where
+    /// the usage card is shown; the card is drawn at this scale.
+    pub fn card_dpi_scale(&self) -> f64 {
+        self.anchor().map_or(1.0, |(_, _, dpi)| dpi)
+    }
+    /// Placement of a usage card already drawn at `card_dpi_scale`, `size` in physical pixels.
     pub fn card_placement(&self, size: (i32, i32)) -> Result<(i32, i32, i32, i32), String> {
+        let (anchor, a, dpi) = self.anchor()?;
+        Ok(crate::placement::layout_rendered(
+            crate::placement::Area {
+                left: a.left,
+                top: a.top,
+                right: a.right,
+                bottom: a.bottom,
+            },
+            size,
+            dpi,
+            crate::config::Position::NearCursor,
+            (
+                anchor.right - size.0 - (16.0 * dpi) as i32,
+                anchor.top - size.1 - (28.0 * dpi) as i32,
+            ),
+        ))
+    }
+    /// Tray icon rectangle, the work area of its monitor and that monitor's DPI scale.
+    fn anchor(&self) -> Result<(RECT, RECT, f64), String> {
         use windows::Win32::{Graphics::Gdi::*, UI::HiDpi::*};
         // SAFETY: borrowed tray identity and monitor handles are used only during this query.
         unsafe {
@@ -129,23 +154,7 @@ impl Icon {
             }
             let (mut dx, mut dy) = (96, 96);
             let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
-            let dpi = dx.max(96) as f64 / 96.0;
-            let a = info.rcWork;
-            Ok(crate::placement::layout(
-                crate::placement::Area {
-                    left: a.left,
-                    top: a.top,
-                    right: a.right,
-                    bottom: a.bottom,
-                },
-                size,
-                dpi,
-                crate::config::Position::NearCursor,
-                (
-                    anchor.right - (size.0 as f64 * dpi) as i32 - (16.0 * dpi) as i32,
-                    anchor.top - (size.1 as f64 * dpi) as i32 - (28.0 * dpi) as i32,
-                ),
-            ))
+            Ok((anchor, info.rcWork, dx.max(96) as f64 / 96.0))
         }
     }
     pub fn focus(&self) {

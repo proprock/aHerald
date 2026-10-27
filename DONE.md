@@ -458,6 +458,21 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   cards, and each click switched to its own session. Not verified: Windows Terminal and two
   terminal windows (tracked in AH-056).
 
+- [x] **AH-048 — Reduce animation memory and sharpen scaled text.** Depends on AH-020, AH-041.
+  A card keeps one base surface, one working surface and the shared artwork frames; only
+  the changed part is redrawn (frame, countdown second, session name). An 80-frame
+  animation on a 530×244 card, which as full-card frames needed ~41 MiB and fell back to
+  text, now shows its artwork (`composition_tests`); native-resource cycle test covers
+  frame, countdown and heading redraws. Cards are drawn at the target monitor's effective
+  DPI (user agreed, option A) and redrawn on DPI, display or monitor change; artwork too
+  large for the DPI scale is prepared at the configured scale; nearest-neighbor stays
+  only for fitting an oversized card and for pixel art via the interpolation setting
+  (`docs/milestone-5.md`). Automated on Windows 11 build 22621: 277 passed, 0 failed,
+  14 ignored (three consecutive runs); `fmt`, `clippy -D warnings` and the release
+  build clean. `placement_failure_keeps_the_resident…` raced the failing draw once
+  composition got fast; it now sends a wake after clearing the fault, as the resident
+  retries on the next wake. Visual check at 100/150/200% moved to AH-076.
+
 - [x] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
   Depends on AH-055. Manual 2026-10-27 (Windows Terminal 1.24.12741.0, Claude CLI): a card
   raised the Windows Terminal window; with two sessions in two windows, each click raised

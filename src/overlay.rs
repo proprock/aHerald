@@ -144,13 +144,24 @@ impl Surface {
             Ok(surface)
         }
     }
-    pub(crate) fn with_artwork(
-        &self,
+    /// Replaces this surface's pixels with `base` (same dimensions) and drops the
+    /// cached resized copy, which no longer matches.
+    fn copy_from(&mut self, base: &Surface) {
+        debug_assert_eq!((self.width, self.height), (base.width, base.height));
+        self.pixels_mut().copy_from_slice(base.pixels());
+        *self.resized.get_mut() = None;
+    }
+    /// Draws `base` with one artwork frame blended over it into this surface, which
+    /// must have the same dimensions as `base`.
+    pub(crate) fn blend_artwork(
+        &mut self,
+        base: &Surface,
         frame: &crate::animation::PreparedFrame,
         left: i32,
         top: i32,
-    ) -> Result<Self, String> {
-        if left < 0
+    ) -> Result<(), String> {
+        if (self.width, self.height) != (base.width, base.height)
+            || left < 0
             || top < 0
             || left as u32 + frame.width > self.width as u32
             || top as u32 + frame.height > self.height as u32
@@ -158,14 +169,14 @@ impl Surface {
         {
             return Err("artwork does not fit notification card".into());
         }
-        let mut surface = Self::allocate(self.width, self.height)?;
+        self.copy_from(base);
         // Frames and card pixels are premultiplied BGRA; the bounds were checked above.
-        let pixels = surface.pixels_mut();
-        pixels.copy_from_slice(self.pixels());
+        let width = self.width as usize;
+        let pixels = self.pixels_mut();
         for y in 0..frame.height as usize {
             for x in 0..frame.width as usize {
                 let src = &frame.bgra[(y * frame.width as usize + x) * 4..][..4];
-                let offset = ((y + top as usize) * self.width as usize + x + left as usize) * 4;
+                let offset = ((y + top as usize) * width + x + left as usize) * 4;
                 for c in 0..4 {
                     pixels[offset + c] = (src[c] as u16
                         + (pixels[offset + c] as u16 * (255 - src[3] as u16) + 127) / 255)
@@ -173,7 +184,7 @@ impl Surface {
                 }
             }
         }
-        Ok(surface)
+        Ok(())
     }
     #[cfg(test)]
     fn text(
@@ -372,9 +383,9 @@ impl Surface {
         }
         Ok(surface)
     }
-    pub(crate) fn with_countdown(&self, seconds: u64, scale: f64) -> Result<Self, String> {
-        let mut surface = Self::allocate(self.width, self.height)?;
-        surface.pixels_mut().copy_from_slice(self.pixels());
+    /// Draws the remaining-seconds badge over the pixels already in this surface.
+    pub(crate) fn draw_countdown(&mut self, seconds: u64, scale: f64) -> Result<(), String> {
+        let surface = self;
         let font = Font::segoe(16.0 * scale).ok_or("cannot create countdown font")?;
         // SAFETY: only the DC owned by `surface` is drawn to; the font selection is
         // restored below, before the font is deleted.
@@ -384,10 +395,11 @@ impl Surface {
             SetTextColor(surface.dc, COLORREF(0x00f5f5f5));
             old
         };
+        let width = surface.width;
         let mut area = RECT {
-            left: self.width - (80.0 * scale) as i32,
+            left: width - (80.0 * scale) as i32,
             top: (16.0 * scale) as i32,
-            right: self.width - (18.0 * scale) as i32,
+            right: width - (18.0 * scale) as i32,
             bottom: (40.0 * scale) as i32,
         };
         draw_text(
@@ -403,7 +415,8 @@ impl Surface {
             let _ = GdiFlush();
         }
         restore_alpha(surface.pixels_mut());
-        Ok(surface)
+        *surface.resized.get_mut() = None;
+        Ok(())
     }
     pub(crate) fn present_placed(
         &self,
@@ -473,7 +486,10 @@ impl Surface {
     }
 }
 struct State {
-    surfaces: Vec<Surface>,
+    composition: Composition,
+    /// Configured scale times the DPI scale the card was drawn at.
+    render_scale: f64,
+    config: Config,
     frame_durations: Vec<u64>,
     looping: bool,
     notifications: crate::config::Notifications,
@@ -484,7 +500,6 @@ struct State {
     fade_in: u64,
     fade_out: u64,
     controls: crate::card::Card,
-    countdown: Option<(usize, u64, Surface)>,
     dismissed: Option<u64>,
     failed: bool,
     source_labels: crate::session_source::Service,
@@ -492,7 +507,6 @@ struct State {
     activation: crate::activation::Worker,
     log_directory: std::path::PathBuf,
     log_level: crate::config::LogLevel,
-    text_left: i32,
 }
 struct Window(HWND);
 impl Drop for Window {
@@ -530,23 +544,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     let state = &mut *ptr;
                     let source = state.source_labels.label(&state.event);
                     if source != state.controls.heading {
-                        let updated = state
-                            .surfaces
-                            .iter()
-                            .map(|surface| {
-                                surface.with_heading(
-                                    &source,
-                                    state.text_left,
-                                    state.notifications.scale,
-                                    state.background_color,
-                                )
-                            })
-                            .collect::<Result<Vec<_>, _>>();
+                        let updated = state.composition.update_heading(
+                            &source,
+                            state.render_scale,
+                            state.background_color,
+                        );
                         match updated {
-                            Ok(surfaces) => {
-                                state.surfaces = surfaces;
+                            Ok(()) => {
                                 state.controls.heading = source.clone();
-                                state.countdown = None;
                                 let title: Vec<u16> =
                                     format!("{source} - {}", state.event.kind.label())
                                         .encode_utf16()
@@ -561,29 +566,44 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                             }
                         }
                     }
-                    if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE)
-                        && let Ok(p) = crate::placement::current(
+                    if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
+                        // A monitor with another DPI needs the card drawn again, not stretched.
+                        let wanted = state.notifications.scale
+                            * crate::placement::dpi_scale(&state.notifications);
+                        if (wanted - state.render_scale).abs() > 1e-9
+                            && let Ok(composition) = build_composition(
+                                &state.config,
+                                &state.event,
+                                &state.controls,
+                                wanted,
+                            )
+                        {
+                            state.frame_durations = composition.durations.clone();
+                            state.looping = composition.looping;
+                            state.composition = composition;
+                            state.render_scale = wanted;
+                        }
+                        if let Ok(p) = crate::placement::current(
                             &state.notifications,
-                            (state.surfaces[0].width, state.surfaces[0].height),
-                            state.surfaces.len(),
+                            state.composition.size(),
                             Some(hwnd.0 as isize),
-                        )
-                    {
-                        state.placement = p;
+                        ) {
+                            state.placement = p;
+                        }
                     }
+                    let (card_width, card_height) = state.composition.size();
                     let elapsed = state.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    let x = (lp.0 as u16) as i16 as i32 * state.surfaces[0].width
-                        / state.placement.2.max(1);
-                    let y = ((lp.0 >> 16) as u16) as i16 as i32 * state.surfaces[0].height
+                    let x = (lp.0 as u16) as i16 as i32 * card_width / state.placement.2.max(1);
+                    let y = ((lp.0 >> 16) as u16) as i16 as i32 * card_height
                         / state.placement.3.max(1);
                     if message == WM_LBUTTONUP && state.dismissed.is_none() {
                         state.activation.submit(
                             &state.event,
                             state.notifications.activate_agent_on_click,
                             state.controls.body_hit_test(
-                                state.surfaces[0].width,
-                                state.surfaces[0].height,
-                                state.notifications.scale,
+                                card_width,
+                                card_height,
+                                state.render_scale,
                                 x,
                                 y,
                             ),
@@ -594,9 +614,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     if message == WM_LBUTTONUP
                         && state.dismissed.is_none()
                         && state.controls.hit_test(
-                            state.surfaces[0].width,
-                            state.surfaces[0].height,
-                            state.notifications.scale,
+                            card_width,
+                            card_height,
+                            state.render_scale,
                             x,
                             y,
                         ) == Some(crate::card::Action::Dismiss)
@@ -619,29 +639,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                             elapsed,
                         );
                         let result = (|| {
-                            let surface = if let Some(seconds) =
-                                crate::card::remaining_seconds(state.duration, elapsed)
-                            {
-                                if state
-                                    .countdown
-                                    .as_ref()
-                                    .is_none_or(|(f, s, _)| *f != frame || *s != seconds)
-                                {
-                                    state.countdown = Some((
-                                        frame,
-                                        seconds,
-                                        state.surfaces[frame]
-                                            .with_countdown(seconds, state.notifications.scale)?,
-                                    ));
-                                }
-                                &state
-                                    .countdown
-                                    .as_ref()
-                                    .ok_or("missing countdown surface")?
-                                    .2
-                            } else {
-                                &state.surfaces[frame]
-                            };
+                            let seconds = crate::card::remaining_seconds(state.duration, elapsed);
+                            let surface =
+                                state
+                                    .composition
+                                    .render(frame, seconds, state.render_scale)?;
                             surface.present_placed(hwnd, state.placement, alpha)
                         })();
                         if result.is_err() {
@@ -658,9 +660,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
     }
 }
 
-/// Card frames shared by the transient and resident windows.
+/// One card shared by the transient and resident windows: a base card plus the
+/// artwork frames, blended into a single working surface only when a frame (or the
+/// countdown second) changes. Memory is two card surfaces plus the artwork, however
+/// many frames there are.
 pub(crate) struct Composition {
-    pub surfaces: Vec<Surface>,
+    base: Surface,
+    work: Surface,
+    art: Option<std::sync::Arc<crate::animation::PreparedAnimation>>,
+    art_left: i32,
+    /// What `work` currently shows: frame and countdown second.
+    shown: Option<(usize, Option<u64>)>,
     pub durations: Vec<u64>,
     pub looping: bool,
     pub text_left: i32,
@@ -668,32 +678,34 @@ pub(crate) struct Composition {
     pub degraded: bool,
 }
 impl Composition {
-    /// Sizes the card by the largest artwork frame and composes every frame. Artwork
-    /// over the byte budget or any composition failure falls back to the plain text
-    /// card; only a failing text card is an error.
+    /// Sizes the card by the largest artwork frame. Any composition failure, or a
+    /// card too large to hold twice within the byte budget, falls back to the plain
+    /// text card; only a failing text card is an error. The artwork's own size is
+    /// already bounded when it is prepared.
     pub(crate) fn compose(
         scale: f64,
-        art: Option<&crate::animation::PreparedAnimation>,
+        art: Option<std::sync::Arc<crate::animation::PreparedAnimation>>,
         make_card: impl Fn(i32, i32, i32) -> Result<Surface, String>,
     ) -> Result<Self, String> {
         let (base_width, base_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
-        if let Some(art) = art.filter(|a| !a.frames.is_empty()) {
+        let has_art = art.as_ref().is_some_and(|a| !a.frames.is_empty());
+        if let Some(art) = art.as_ref().filter(|a| !a.frames.is_empty()) {
             let padding = (18.0 * scale) as i32;
             let art_width = art.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
             let art_height = art.frames.iter().map(|f| f.height).max().unwrap_or(0) as i32;
             let width = base_width + art_width + padding;
             let height = base_height.max(art_height + padding * 2);
-            let bytes = width as u64 * height as u64 * 4 * art.frames.len() as u64;
+            let bytes = width as u64 * height as u64 * 4 * 2;
             if bytes <= crate::animation::MAX_BYTES
-                && let Ok(card) = make_card(width, height, art_width + padding * 2)
-                && let Ok(surfaces) = art
-                    .frames
-                    .iter()
-                    .map(|f| card.with_artwork(f, padding, (height - f.height as i32) / 2))
-                    .collect::<Result<Vec<_>, _>>()
+                && let Ok(base) = make_card(width, height, art_width + padding * 2)
+                && let Ok(work) = Surface::allocate(width, height)
             {
                 return Ok(Self {
-                    surfaces,
+                    base,
+                    work,
+                    art: Some(art.clone()),
+                    art_left: padding,
+                    shown: None,
                     durations: art.durations_ms.clone(),
                     looping: art.looping,
                     text_left: art_width + padding * 2,
@@ -703,12 +715,61 @@ impl Composition {
         }
         let text_left = (22.0 * scale) as i32;
         Ok(Self {
-            surfaces: vec![make_card(base_width, base_height, text_left)?],
+            base: make_card(base_width, base_height, text_left)?,
+            work: Surface::allocate(base_width, base_height)?,
+            art: None,
+            art_left: 0,
+            shown: None,
             durations: vec![1000],
             looping: false,
             text_left,
-            degraded: art.is_some_and(|a| !a.frames.is_empty()),
+            degraded: has_art,
         })
+    }
+    pub(crate) fn frame_count(&self) -> usize {
+        self.art.as_ref().map_or(1, |a| a.frames.len())
+    }
+    pub(crate) fn size(&self) -> (i32, i32) {
+        (self.base.width, self.base.height)
+    }
+    /// Draws `frame`, with the countdown badge when `seconds` is given, into the
+    /// working surface and returns it. Asking again for what is shown costs nothing.
+    pub(crate) fn render(
+        &mut self,
+        frame: usize,
+        seconds: Option<u64>,
+        scale: f64,
+    ) -> Result<&Surface, String> {
+        let frame = frame.min(self.frame_count() - 1);
+        if self.shown != Some((frame, seconds)) {
+            self.shown = None;
+            match &self.art {
+                Some(art) => {
+                    let f = &art.frames[frame];
+                    let top = (self.base.height - f.height as i32) / 2;
+                    self.work.blend_artwork(&self.base, f, self.art_left, top)?;
+                }
+                None => self.work.copy_from(&self.base),
+            }
+            if let Some(seconds) = seconds {
+                self.work.draw_countdown(seconds, scale)?;
+            }
+            self.shown = Some((frame, seconds));
+        }
+        Ok(&self.work)
+    }
+    /// Redraws the heading on the one base card; artwork, controls and event text stay.
+    pub(crate) fn update_heading(
+        &mut self,
+        source: &str,
+        scale: f64,
+        background_color: crate::config::Color,
+    ) -> Result<(), String> {
+        self.base = self
+            .base
+            .with_heading(source, self.text_left, scale, background_color)?;
+        self.shown = None;
+        Ok(())
     }
 }
 
@@ -750,6 +811,43 @@ fn placement_guard() -> Option<crate::local::Ownership> {
     }
 }
 
+/// Draws the card for `event` at `scale` (configured scale times the monitor's DPI
+/// scale). Artwork is prepared on a helper thread, as asset decoding stays off the
+/// thread that owns the window.
+fn build_composition(
+    config: &Config,
+    event: &Event,
+    controls: &crate::card::Card,
+    scale: f64,
+) -> Result<Composition, String> {
+    let make_card = |width, height, text_left| {
+        Surface::card(
+            width,
+            height,
+            scale,
+            text_left,
+            CardText {
+                source: &controls.heading,
+                label: event.kind.label(),
+                navigation: false,
+                dismiss_button: controls.dismiss_button,
+                color: config.event_color(event.kind),
+                background_color: config.event_background_color(event.kind),
+            },
+        )
+    };
+    let assets = config.clone();
+    let asset_event = event.clone();
+    let prepared = std::thread::spawn(move || {
+        crate::artwork::prepared_for_event(&assets, &asset_event, scale)
+    })
+    .join()
+    .ok()
+    .and_then(Result::ok)
+    .flatten();
+    Composition::compose(scale, prepared.map(std::sync::Arc::new), make_card)
+}
+
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     show_with_source(event, config, crate::session_source::Service::codex())
 }
@@ -761,56 +859,25 @@ fn show_with_source(
     // SAFETY: all Win32 objects are created/used/destroyed on this thread; boxed State outlives Window.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let scale = config.notifications.scale;
+        // The card is drawn at the DPI of the monitor it will appear on.
+        let scale = config.notifications.scale * crate::placement::dpi_scale(&config.notifications);
         let label = event.kind.label();
         let source = source_labels.label(event);
         let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
-        let make_card = |width, height, text_left| {
-            Surface::card(
-                width,
-                height,
-                scale,
-                text_left,
-                CardText {
-                    source: &source,
-                    label,
-                    navigation: false,
-                    dismiss_button: controls.dismiss_button,
-                    color: config.event_color(event.kind),
-                    background_color: config.event_background_color(event.kind),
-                },
-            )
-        };
-        let assets = config.clone();
-        let asset_event = event.clone();
-        let prepared =
-            std::thread::spawn(move || crate::artwork::prepared_for_event(&assets, &asset_event))
-                .join()
-                .ok()
-                .and_then(Result::ok)
-                .flatten();
-        let Composition {
-            surfaces,
-            durations: frame_durations,
-            looping,
-            text_left,
-            ..
-        } = Composition::compose(scale, prepared.as_ref(), make_card)?;
-        let (width, height) = (surfaces[0].width, surfaces[0].height);
+        let composition = build_composition(config, event, &controls, scale)?;
+        let (frame_durations, looping) = (composition.durations.clone(), composition.looping);
+        let (width, height) = composition.size();
         let position = POINT::default();
         // Concurrent hook processes pick their spot one at a time; the guard is held
         // until this card is visible so the next process sees it. A timeout only risks
         // an overlap, never a missing card.
         let placing = placement_guard();
-        let placement = crate::placement::current(
-            &config.notifications,
-            (width, height),
-            surfaces.len(),
-            Some(0),
-        )?;
+        let placement = crate::placement::current(&config.notifications, (width, height), Some(0))?;
         let mut state = Box::new(State {
             background_color: config.event_background_color(event.kind),
-            surfaces,
+            composition,
+            render_scale: scale,
+            config: config.clone(),
             frame_durations,
             looping,
             notifications: config.notifications.clone(),
@@ -820,7 +887,6 @@ fn show_with_source(
             fade_in: config.notifications.fade_in_ms,
             fade_out: config.notifications.fade_out_ms,
             controls,
-            countdown: None,
             dismissed: None,
             failed: false,
             source_labels,
@@ -828,7 +894,6 @@ fn show_with_source(
             activation: crate::activation::Worker::default(),
             log_directory: config.diagnostic_directory.clone(),
             log_level: config.general.logging,
-            text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;
         let class = register_class(instance.into())?;
@@ -852,11 +917,12 @@ fn show_with_source(
         )
         .map_err(|_| "cannot create overlay window")?;
         let window = Window(hwnd);
-        state.surfaces[0].present_placed(
-            hwnd,
-            state.placement,
-            if state.fade_in == 0 { 255 } else { 0 },
-        )?;
+        let first_alpha = if state.fade_in == 0 { 255 } else { 0 };
+        let placement = state.placement;
+        state
+            .composition
+            .render(0, None, scale)?
+            .present_placed(hwnd, placement, first_alpha)?;
         if SetTimer(Some(hwnd), 1, 16, None) == 0 {
             return Err("cannot start overlay timer".into());
         }
@@ -918,11 +984,33 @@ mod composition_tests {
     fn card(width: i32, height: i32, left: i32) -> Result<Surface, String> {
         Surface::text(width, height, 1.0, "Codex", "Turn complete", left)
     }
+    fn shared(art: PreparedAnimation) -> Option<std::sync::Arc<PreparedAnimation>> {
+        Some(std::sync::Arc::new(art))
+    }
+    fn pixel(surface: &Surface, x: usize, y: usize) -> [u8; 4] {
+        surface.pixels()[(y * surface.width as usize + x) * 4..][..4]
+            .try_into()
+            .unwrap()
+    }
+    /// Frame `index` is an opaque block whose blue channel identifies it.
+    fn numbered(count: usize, width: u32, height: u32) -> PreparedAnimation {
+        PreparedAnimation {
+            frames: (0..count)
+                .map(|i| PreparedFrame {
+                    width,
+                    height,
+                    bgra: [i as u8, 0, 0, 255].repeat((width * height) as usize),
+                })
+                .collect(),
+            durations_ms: vec![40; count],
+            looping: true,
+        }
+    }
     #[test]
     fn card_is_sized_by_the_largest_frame() {
-        let c = Composition::compose(1.0, Some(&art(&[(40, 40), (64, 150)])), card).unwrap();
-        assert_eq!(c.surfaces.len(), 2);
-        assert!(c.surfaces.iter().all(|s| (s.width, s.height) == (402, 186)));
+        let c = Composition::compose(1.0, shared(art(&[(40, 40), (64, 150)])), card).unwrap();
+        assert_eq!(c.frame_count(), 2);
+        assert_eq!(c.size(), (402, 186));
         assert_eq!((c.text_left, c.looping), (100, true));
         assert_eq!(c.durations, [40, 40]);
     }
@@ -935,18 +1023,79 @@ mod composition_tests {
                 card(w, h, l)
             }
         };
-        let c = Composition::compose(1.0, Some(&art(&[(40, 40)])), wide).unwrap();
-        assert_eq!(
-            (c.surfaces.len(), c.surfaces[0].width, c.text_left),
-            (1, 320, 22)
-        );
+        let c = Composition::compose(1.0, shared(art(&[(40, 40)])), wide).unwrap();
+        assert_eq!((c.frame_count(), c.size().0, c.text_left), (1, 320, 22));
         assert!(c.degraded, "a fallback with artwork available is reported");
     }
     #[test]
     fn missing_artwork_uses_text_card_and_text_failure_is_an_error() {
         let c = Composition::compose(1.0, None, card).unwrap();
-        assert_eq!(c.surfaces.len(), 1);
+        assert_eq!(c.frame_count(), 1);
         assert!(Composition::compose(1.0, None, |_, _, _| Err("boom".into())).is_err());
+    }
+    #[test]
+    fn an_animation_whose_full_card_frames_exceed_the_budget_keeps_its_artwork() {
+        // 80 frames of a 530x244 card would need ~41 MiB as full-card surfaces.
+        let count = 80;
+        assert!(530 * 244 * 4 * count as u64 > crate::animation::MAX_BYTES);
+        let mut c = Composition::compose(1.0, shared(numbered(count, 192, 208)), card).unwrap();
+        assert!(!c.degraded);
+        assert_eq!((c.frame_count(), c.size()), (count, (530, 244)));
+        for index in [0, 41, count - 1] {
+            let surface = c.render(index, None, 1.0).unwrap();
+            assert_eq!(pixel(surface, 20, 20), [index as u8, 0, 0, 255]);
+            assert_eq!(
+                pixel(surface, 0, 0),
+                [0, 0, 0, 0],
+                "rounded corner stays clear"
+            );
+        }
+    }
+    #[test]
+    fn rendering_a_frame_leaves_no_trace_of_the_previous_one() {
+        let mut animation = numbered(2, 40, 40);
+        animation.frames[1].bgra = vec![0; 40 * 40 * 4];
+        let mut c = Composition::compose(1.0, shared(animation), card).unwrap();
+        let behind = card(378, 110, 76).unwrap();
+        assert_eq!(
+            pixel(c.render(0, None, 1.0).unwrap(), 30, 50),
+            [0, 0, 0, 255]
+        );
+        let transparent = c.render(1, None, 1.0).unwrap();
+        // A fully transparent frame shows exactly the card behind it.
+        assert_eq!(transparent.pixels(), behind.pixels());
+    }
+    #[test]
+    fn countdown_is_drawn_per_frame_and_removed_without_touching_the_base() {
+        let mut c = Composition::compose(1.0, shared(numbered(2, 40, 40)), card).unwrap();
+        let plain = c.render(1, None, 1.0).unwrap().pixels().to_vec();
+        let timed = c.render(1, Some(3), 1.0).unwrap().pixels().to_vec();
+        assert_ne!(plain, timed);
+        let width = c.size().0 as usize;
+        let row = |data: &[u8], y: usize| data[y * width * 4..(y + 1) * width * 4].to_vec();
+        for y in 60..c.size().1 as usize {
+            assert_eq!(
+                row(&plain, y),
+                row(&timed, y),
+                "only the badge row band differs"
+            );
+        }
+        assert_eq!(c.render(1, None, 1.0).unwrap().pixels(), plain.as_slice());
+    }
+    #[test]
+    fn a_new_session_name_redraws_one_base_card_and_keeps_every_frame() {
+        let mut c = Composition::compose(1.0, shared(numbered(3, 40, 40)), card).unwrap();
+        let before = c.render(2, None, 1.0).unwrap().pixels().to_vec();
+        c.update_heading(
+            "Codex: Проверка aHerald",
+            1.0,
+            crate::config::Notifications::default().background_color,
+        )
+        .unwrap();
+        let after = c.render(2, None, 1.0).unwrap();
+        assert_ne!(before.as_slice(), after.pixels(), "heading text changed");
+        assert_eq!(pixel(after, 30, 50), [2, 0, 0, 255], "artwork survives");
+        assert_eq!(c.render(0, None, 1.0).unwrap().pixels()[..4], [0, 0, 0, 0]);
     }
 }
 
@@ -1253,7 +1402,10 @@ mod card_tests {
         assert!(region(&pixels(&explicit), 205, 78, 303, 101) > 40);
         let mut previous = base.clone();
         for second in [3, 2, 1] {
-            let timed = pixels(&single.with_countdown(second, 1.0).unwrap());
+            let mut drawn = Surface::allocate(320, 110).unwrap();
+            drawn.copy_from(&single);
+            drawn.draw_countdown(second, 1.0).unwrap();
+            let timed = pixels(&drawn);
             assert!(region(&timed, 240, 16, 303, 40) > 20);
             assert_ne!(timed, previous);
             for y in 40..110 {
@@ -1331,7 +1483,38 @@ mod card_tests {
             );
             let cycle = || {
                 let card = Surface::text(320, 110, 1.0, "Codex", "Error", 22).unwrap();
-                let card = card.with_countdown(3, 1.0).unwrap();
+                let mut animated = super::Composition::compose(
+                    1.0,
+                    Some(std::sync::Arc::new(crate::animation::PreparedAnimation {
+                        frames: (0..4)
+                            .map(|i| crate::animation::PreparedFrame {
+                                width: 8,
+                                height: 8,
+                                bgra: vec![i; 8 * 8 * 4],
+                            })
+                            .collect(),
+                        durations_ms: vec![40; 4],
+                        looping: true,
+                    })),
+                    |w, h, left| Surface::text(w, h, 1.0, "Codex", "Error", left),
+                )
+                .unwrap();
+                for frame in 0..8 {
+                    animated
+                        .render(frame, Some(3 - frame as u64 % 3), 1.0)
+                        .unwrap();
+                }
+                animated
+                    .update_heading(
+                        "Codex: renamed",
+                        1.0,
+                        crate::config::Notifications::default().background_color,
+                    )
+                    .unwrap();
+                let mut shown = Surface::allocate(320, 110).unwrap();
+                shown.copy_from(&card);
+                shown.draw_countdown(3, 1.0).unwrap();
+                let card = shown;
                 for width in [320, 480, 320] {
                     card.present_placed(window.0, (0, 0, width, 110), 255)
                         .unwrap();
@@ -1394,7 +1577,8 @@ mod card_tests {
             height: 208,
             bgra: [0, 0, 128, 128].repeat(192 * 208),
         };
-        let composed = card.with_artwork(&frame, 18, 18).unwrap();
+        let mut composed = Surface::allocate(530, 244).unwrap();
+        composed.blend_artwork(&card, &frame, 18, 18).unwrap();
         let other = Surface::text(530, 244, 1.0, "aHerald demo", "Turn complete", 228).unwrap();
         // SAFETY: each owned DIB has exactly width * height pixels and remains live here.
         unsafe {
@@ -1419,6 +1603,6 @@ mod card_tests {
             );
             assert_eq!(&result[..4], &[0, 0, 0, 0]);
         }
-        assert!(card.with_artwork(&frame, 400, 18).is_err());
+        assert!(composed.blend_artwork(&card, &frame, 400, 18).is_err());
     }
 }

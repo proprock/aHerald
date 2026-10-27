@@ -139,6 +139,35 @@ fn custom_artwork_that_exceeds_scaled_limits_recovers_to_builtin() {
             .is_none()
     );
 }
+#[test]
+fn artwork_too_large_at_the_monitor_dpi_keeps_the_configured_scale() {
+    let fixture = Fixture::new();
+    RgbaImage::new(1024, 1024)
+        .save(fixture.0.join("large.png"))
+        .unwrap();
+    fs::write(
+        fixture.0.join("animation.toml"),
+        "type='spritesheet'\nimage='large.png'\nframe_width=1024\nframe_height=1024\nframes=1",
+    )
+    .unwrap();
+    let config =
+        Config::parse("[events.error]\nvisual='custom'\nanimation='.'", &fixture.0).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+    let event = aherald::events::Event::demo("error").unwrap();
+    let width = |scale| {
+        aherald::artwork::prepare_at(&config, &event, &root, scale)
+            .unwrap()
+            .unwrap()
+            .frames[0]
+            .width
+    };
+    assert_eq!(width(2.0), 2048, "fits the budget at the DPI scale");
+    assert_eq!(
+        width(4.0),
+        1024,
+        "over budget: configured scale, still custom"
+    );
+}
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {

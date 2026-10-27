@@ -9,15 +9,28 @@ by Windows device name. Numeric selection takes precedence over cursor location;
 an absent index falls back to primary. With `primary` and `near_cursor`, select
 the monitor nearest the cursor. A card does not chase subsequent cursor movement.
 
-Effective monitor DPI scales the composed card and margins, in addition to the
-configured scale. Fit the entire card into the monitor work area, retaining its
-aspect ratio. Display/work-area/DPI messages recalculate placement without
-activation or a screen-sized intermediate window. Resident hit testing maps
-physical coordinates back to the card. Raster resize surfaces are cached until
-their dimensions change. Each source animation and its resized surfaces have a
-32 MiB budget; DPI enlargement is capped to that budget. Display scaling uses
-nearest-neighbor sampling of the premultiplied composed card; the configuration's
-interpolation setting still controls original artwork preparation.
+Effective monitor DPI scales the card and margins, in addition to the configured
+scale. Fit the entire card into the monitor work area, retaining its aspect ratio.
+Display/work-area/DPI messages recalculate placement without activation or a
+screen-sized intermediate window. Resident hit testing maps physical coordinates
+back to the card. Raster resize surfaces are cached until their dimensions change.
+
+AH-048 changed two earlier choices (agreed with the user, option A):
+
+- The card is drawn at the effective DPI of the target monitor (configured scale ×
+  DPI scale) instead of at 96 DPI and stretched, so text is sharp at 125–200%.
+  Artwork is prepared at the same scale with the configured interpolation, so pixel
+  art keeps nearest-neighbor sampling and nothing else is resampled. A DPI, display or
+  monitor change redraws the card (`WM_DPICHANGED`, `WM_DISPLAYCHANGE`,
+  `WM_SETTINGCHANGE`); the resident worker prepares artwork for one render scale at a
+  time. Artwork too large to prepare at the DPI scale is prepared at the configured
+  scale instead of being dropped. Nearest-neighbor stretching remains only for a card
+  larger than the work area (shrink to fit).
+- A card keeps one base surface, one working surface and the shared artwork frames,
+  not one full-card surface per frame. Changing frame, countdown second or session
+  name redraws only what changed. The 32 MiB budget applies to the prepared artwork
+  (checked when it is prepared) and to the two card surfaces, so long animations are no
+  longer replaced by the text card.
 
 Tests execute placement for negative desktop coordinates, all four positions,
 scaled margins, tiny work areas, oversized cards and cursor arithmetic boundaries.

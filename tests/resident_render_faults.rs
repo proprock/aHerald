@@ -123,6 +123,9 @@ fn placement_failure_keeps_the_resident_accepting_events_and_recovers() {
     send(&scope, "input_required", "two");
     assert_eq!(status(&scope), (pid, 2));
     std::fs::remove_file(root.join("aherald.fault")).unwrap();
+    // A failed card is retried from scratch on the next wake, not on a timer, so the
+    // recovery needs an event; without it the outcome raced the failing draw.
+    send(&scope, "input_required", "three");
     wait_for_window(pid);
     assert_eq!(status(&scope).0, pid);
 }

@@ -1,7 +1,47 @@
 use aherald::{
     config::Position,
-    placement::{Area, layout},
+    placement::{Area, layout, layout_rendered},
 };
+
+#[test]
+fn a_card_rendered_at_the_monitor_dpi_is_placed_at_its_own_size() {
+    let a = Area {
+        left: -1920,
+        top: -200,
+        right: 0,
+        bottom: 880,
+    };
+    // 320x110 at 150%, drawn natively: same spot as stretching it, without a resample.
+    for position in [Position::Center, Position::TopCenter, Position::BottomRight] {
+        assert_eq!(
+            layout_rendered(a, (480, 165), 1.5, position, (-10, 870)),
+            layout(a, (320, 110), 1.5, position, (-10, 870)),
+        );
+    }
+    // The 150% margin applies to the physical card.
+    assert_eq!(
+        layout_rendered(a, (480, 165), 1.5, Position::BottomRight, (0, 0)),
+        (-516, 679, 480, 165)
+    );
+}
+
+#[test]
+fn a_rendered_card_is_never_enlarged_but_still_fits_the_work_area() {
+    let a = Area {
+        left: -100,
+        top: 10,
+        right: 100,
+        bottom: 110,
+    };
+    assert_eq!(
+        layout_rendered(a, (800, 200), 2.0, Position::Center, (0, 0)),
+        (-100, 35, 200, 50)
+    );
+    assert_eq!(
+        layout_rendered(a, (40, 20), 2.0, Position::Center, (0, 0)),
+        (-20, 50, 40, 20)
+    );
+}
 
 #[test]
 fn positions_use_the_selected_work_area_and_scale_margins() {
