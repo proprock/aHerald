@@ -72,14 +72,21 @@ impl Drop for Handle {
     }
 }
 
+/// A completed response: status, at most `MAX_BODY` bytes of body, and `Retry-After`.
+pub struct Response {
+    pub status: u16,
+    pub body: Vec<u8>,
+    /// Only the delay-seconds form; an HTTP-date or a missing header is `None`.
+    pub retry_after: Option<Duration>,
+}
+
 /// Blocking GET to `https://host/path`; `headers` is CRLF-separated `Name: value` lines.
-/// Returns the status code and at most `MAX_BODY` bytes of body.
 pub fn get(
     host: &str,
     path: &str,
     headers: &str,
     timeout: Duration,
-) -> Result<(u16, Vec<u8>), HttpError> {
+) -> Result<Response, HttpError> {
     get_at(true, host, 443, path, headers, timeout)
 }
 
@@ -92,7 +99,7 @@ pub fn get_at(
     path: &str,
     headers: &str,
     timeout: Duration,
-) -> Result<(u16, Vec<u8>), HttpError> {
+) -> Result<Response, HttpError> {
     let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
     // SAFETY: every pointer passed below references live, initialized data for the duration of
     // each synchronous call, and every returned handle is owned by a `Handle` guard that is
@@ -126,7 +133,9 @@ pub fn get_at(
         )
         .map_err(|_| HttpError::Network)?;
         let wide = Wiped(headers.encode_utf16().collect::<Vec<u16>>());
-        WinHttpSendRequest(request.0, Some(&wide.0), None, 0, 0, 0)
+        // An empty slice would reach WinHTTP as a dangling pointer it reads as a C string.
+        let header_units = Some(wide.0.as_slice()).filter(|h| !h.is_empty());
+        WinHttpSendRequest(request.0, header_units, None, 0, 0, 0)
             .map_err(|_| HttpError::Network)?;
         WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(|_| HttpError::Network)?;
         let mut status = 0u32;
@@ -141,6 +150,23 @@ pub fn get_at(
             std::ptr::null_mut(),
         )
         .map_err(|_| HttpError::Network)?;
+        // WINHTTP_QUERY_RETRY_AFTER (36) as text; `size` is in bytes. An absent header or a
+        // buffer too small for a delay-seconds value leaves `retry_after` empty.
+        let mut text = [0u16; 24];
+        let mut size = std::mem::size_of_val(&text) as u32;
+        let retry_after = WinHttpQueryHeaders(
+            request.0,
+            36,
+            PCWSTR::null(),
+            Some(text.as_mut_ptr() as *mut c_void),
+            &mut size,
+            std::ptr::null_mut(),
+        )
+        .ok()
+        .and_then(|()| text.get(..size as usize / 2))
+        .and_then(|units| String::from_utf16(units).ok())
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .map(|seconds| Duration::from_secs(u64::from(seconds)));
         let mut body = Vec::new();
         let mut chunk = [0u8; 4096];
         loop {
@@ -160,7 +186,11 @@ pub fn get_at(
             }
             body.extend_from_slice(&chunk[..read as usize]);
         }
-        Ok((status as u16, body))
+        Ok(Response {
+            status: status as u16,
+            body,
+            retry_after,
+        })
     }
 }
 
@@ -226,7 +256,7 @@ mod tests {
                 .into(),
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".into(),
         ]);
-        let (status, _) = get_at(
+        let response = get_at(
             false,
             "127.0.0.1",
             port,
@@ -236,7 +266,31 @@ mod tests {
         )
         .unwrap();
         server.join().unwrap();
-        assert_eq!(status, 302);
+        assert_eq!(response.status, 302);
         assert_eq!(requests.load(Ordering::SeqCst), 1, "redirect was followed");
+    }
+
+    fn retry_after_of(header: &str) -> Option<Duration> {
+        let (port, _, server) = serve(vec![format!(
+            "HTTP/1.1 429 Too Many Requests\r\n{header}Content-Length: 0\r\nConnection: close\r\n\r\n"
+        )]);
+        let response = get_at(false, "127.0.0.1", port, "/", "", Duration::from_secs(2)).unwrap();
+        server.join().unwrap();
+        assert_eq!(response.status, 429);
+        response.retry_after
+    }
+
+    #[test]
+    fn retry_after_seconds_are_reported_and_other_forms_are_ignored() {
+        assert_eq!(
+            retry_after_of("Retry-After: 120\r\n"),
+            Some(Duration::from_secs(120))
+        );
+        assert_eq!(retry_after_of(""), None);
+        // HTTP-date form is not interpreted: the driver falls back to its own interval.
+        assert_eq!(
+            retry_after_of("Retry-After: Wed, 21 Oct 2026 07:28:00 GMT\r\n"),
+            None
+        );
     }
 }

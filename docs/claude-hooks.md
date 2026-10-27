@@ -67,7 +67,9 @@ Request safety: redirects are never followed (WinHTTP redirect policy "never"), 
 token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected
 (refused)". Proxy settings come from the system (WinHTTP automatic proxy: Windows proxy
 settings, WPAD and PAC). After HTTP 429 the next request waits at least
-`refresh_interval_sec`, manual refresh included. aHerald zeroes the buffers it owns that
+`refresh_interval_sec`, manual refresh included, and at least the `Retry-After` delay
+(seconds form only; an HTTP-date is ignored) capped at 15 minutes. A longer
+`refresh_interval_sec` still wins over the cap. aHerald zeroes the buffers it owns that
 hold the token (file contents, token, request headers) after the request; copies made by
 the JSON parser, the standard library or WinHTTP are not covered.
 

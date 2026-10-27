@@ -236,7 +236,7 @@ fn scripted(error: Error) -> (Driver<Scripted>, Arc<AtomicUsize>) {
 }
 #[test]
 fn rate_limited_source_waits_for_the_refresh_interval_even_for_manual_refresh() {
-    let (mut driver, calls) = scripted(Error::RateLimited("Claude usage rate limited"));
+    let (mut driver, calls) = scripted(Error::RateLimited("Claude usage rate limited", None));
     driver.step(Duration::from_secs(1), false);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     for (second, manual) in [(11, false), (100, true), (299, false), (300, true)] {
@@ -254,6 +254,63 @@ fn rate_limited_source_waits_for_the_refresh_interval_even_for_manual_refresh() 
     driver.step(Duration::from_secs(301), false);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert!(driver.wait(Duration::from_secs(301)) >= Duration::from_secs(299));
+}
+#[test]
+fn retry_after_longer_than_the_interval_delays_every_request_until_it_elapses() {
+    let (mut driver, calls) = scripted(Error::RateLimited(
+        "Claude usage rate limited",
+        Some(Duration::from_secs(600)),
+    ));
+    driver.step(Duration::from_secs(1), false);
+    for (second, manual) in [(301, false), (400, true), (600, true), (600, false)] {
+        driver.step(Duration::from_secs(second), manual);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "early request at {second}s"
+        );
+    }
+    driver.step(Duration::from_secs(602), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn retry_after_is_capped_at_fifteen_minutes() {
+    let (mut driver, calls) = scripted(Error::RateLimited(
+        "Claude usage rate limited",
+        Some(Duration::from_secs(86_400)),
+    ));
+    driver.step(Duration::from_secs(1), false);
+    driver.step(Duration::from_secs(900), true);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "request before the cap");
+    driver.step(Duration::from_secs(902), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn a_short_retry_after_never_undercuts_the_refresh_interval() {
+    let (mut driver, calls) = scripted(Error::RateLimited(
+        "Claude usage rate limited",
+        Some(Duration::from_secs(30)),
+    ));
+    driver.step(Duration::from_secs(1), false);
+    driver.step(Duration::from_secs(60), true);
+    driver.step(Duration::from_secs(299), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    driver.step(Duration::from_secs(302), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn a_long_refresh_interval_still_wins_over_the_cap() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = Scripted {
+        calls: calls.clone(),
+        error: Error::RateLimited("Claude usage rate limited", None),
+    };
+    let mut driver = Driver::with_source(Agent::Claude, Duration::from_secs(3600), source);
+    driver.step(Duration::from_secs(1), false);
+    driver.step(Duration::from_secs(1800), true);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    driver.step(Duration::from_secs(3602), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 #[test]
 fn ordinary_source_failures_keep_the_short_backoff() {
