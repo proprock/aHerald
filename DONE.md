@@ -546,3 +546,15 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   was already gone; test-only helpers (`pet::for_notification`, `Animation::index_at`,
   `AssetCache::retained_bytes`) stay because tests use them. Source:
   `audit-20261026.md` A2, A5, A7.
+
+- [x] **AH-038 — Claude follow-ups.**
+  Done (2026-10-27, `feature/AH-038`): Claude quota polling honors `Retry-After` (seconds
+  form) capped at 15 minutes and never earlier than `refresh_interval_sec` (driver tests with
+  a fake clock, loopback header test); `SessionEnd` clears that session's pending cards
+  without a card or sound and reaches only a running resident (`Event.ended`; queue,
+  hook-parse and resident IPC tests); `SubagentStop` stays ignored by decision; terminal
+  evidence, per-session waits, session names, console window capture and activation
+  selection go through `Agent`. Also fixed: an empty header slice reached
+  `WinHttpSendRequest` as a dangling pointer. Not done, split to AH-059: Claude session
+  names and the statusLine quota fallback. Not verified live: `SessionEnd` and a real 429
+  `Retry-After` from Claude Code.
