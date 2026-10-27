@@ -197,12 +197,13 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 - [ ] **AH-023 — Complete release acceptance.** Depends on AH-022.
   Run automated checks, Windows IPC/lifecycle integration tests, and the smoke
-  matrix on Windows 10 and 11. Cover topmost/transparency/focus, sound, switching,
+  matrix on Windows 11. Windows 10 is out of the acceptance scope (decided 2026-10-27:
+  end of support, no machine; it stays labelled untested). Cover topmost/transparency/focus, sound, switching,
   tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
   Acceptance: publish the tested environment/results; label any untested platform
   explicitly instead of claiming verified support.
   Status 2026-10-27: the automated part and hook latency on Windows 11 are recorded in
-  `docs/release-acceptance.md`. Remaining: Windows 10 smoke, the visual/manual checks,
+  `docs/release-acceptance.md`. Remaining: the visual/manual checks,
   long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
   old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
 

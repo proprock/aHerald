@@ -36,7 +36,8 @@ measurement script's `--quit` stopped that live resident.
 
 ## Not covered (still open for AH-023)
 
-- Windows 10 smoke test: no Windows 10 machine was available.
+- Windows 10 is out of the acceptance scope (decided 2026-10-27: end of support, no
+  machine). It was not tested; no support is claimed for it.
 - Visual checks: topmost, transparency, focus, tray menus, Explorer restart, mixed DPI and
   multiple monitors (AH-020); they need a person at the screen. Card layout, the About card
   and native-DPI drawing at 100/150/200% were observed on 2026-10-27 (AH-076, AH-085,
