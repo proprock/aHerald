@@ -1,0 +1,199 @@
+# aHerald configuration reference. Active settings reproduce built-in defaults.
+# Copy to %APPDATA%\aHerald\config.toml, or pass --config PATH explicitly.
+# This file is not loaded automatically from the repository/application directory.
+# All paths are relative to this configuration file, not the working directory.
+# Use single-quoted Windows paths; ~ and environment variables are not expanded.
+# Optional paths and override tables are absent by default; uncomment to enable.
+# Booleans accept true or false. Unknown keys and invalid values are rejected.
+
+[general]
+# Delivery mode: "transient" (default) or "resident". CLI mode flags take priority.
+mode = "transient"
+# Diagnostic level: "off", "error", "warn" (default), "info", "debug", "trace".
+logging = "warn"
+# Duplicate-event window in milliseconds: 0..60000; default 1500.
+# Also controls repeat-sound suppression when sounds.suppress_repeats is true.
+deduplicate_ms = 1500
+
+[resident]
+# Show the notification-area icon and its menu in resident/demo mode; default true.
+tray_enabled = true
+# Reserved setting: only false is supported. No startup entry is installed.
+auto_start = false
+
+[notifications]
+# Main artwork source: "auto" (default: pet if configured, otherwise builtin),
+# "builtin" (standard aHerald animation) or "pet" (configured agent/shared pet).
+# Per-event visual overrides take priority. Loading failure tries builtin, then text.
+visual = "auto"
+# Show visual notification cards; default true. Sound is controlled separately.
+enabled = true
+# Placement: "center" (default), "top_center", "bottom_right", "near_cursor".
+position = "center"
+# Monitor: "primary" (default) or a quoted zero-based monitor index, e.g. "0".
+# Index 0 is primary, then Windows display-device-name order; missing indices use primary.
+# With near_cursor and "primary", use the cursor's monitor instead.
+monitor = "primary"
+# Visual scale, including artwork/text: 0.25..4.0; default 1.0. DPI also applies.
+scale = 1.0
+# Fade-in duration in milliseconds: 0..10000; default 150. Zero disables the fade.
+fade_in_ms = 150
+# Fade-out duration in milliseconds: 0..10000; default 300. Runs after expiry/click.
+fade_out_ms = 300
+# Dismiss the selected card by clicking its body; default true (no Dismiss button).
+# false keeps an explicit Dismiss button. Navigation clicks never dismiss events.
+click_to_dismiss = true
+# Artwork resize filter: "nearest" (default) or "bilinear".
+interpolation = "nearest"
+# Shared local pet.json path; default absent (use builtin artwork in auto mode).
+# Agent pet takes priority over this shared pet. In auto mode, setting a pet
+# switches all inherited events to it, regardless of stored animation paths.
+# pet = 'characters/my-pet/pet.json'
+
+# Shared event-to-pet-state overrides; default empty (automatic mapping below).
+# Allowed states: "idle", "running-right", "running-left", "waving", "jumping",
+# "failed", "waiting", "running", "review". Requires a selected pet manifest.
+# These tracks loop in place when visual selects pet; custom/builtin ignore this map.
+# [notifications.pet_animations]
+# Completion state; automatic default "waving".
+# turn_complete = "waving"
+# Permission-wait state; automatic default "review".
+# permission_required = "review"
+# Input-wait state; automatic default "waiting".
+# input_required = "waiting"
+# Error state; automatic default "failed".
+# error = "failed"
+# Interruption state; automatic default "idle".
+# interrupted = "idle"
+
+[sounds]
+# Play configured event WAV files; default true. No sound path is selected by default.
+enabled = true
+# Playback volume: 0.0..1.0; default 0.75. Zero mutes playback.
+volume = 0.75
+# Suppress repeated event sounds within general.deduplicate_ms; default true.
+suppress_repeats = true
+
+# All five event tables support the same seven settings shown below.
+# Custom artwork/sound paths are absent by default; builtin artwork loads automatically.
+# Color accepts exactly "#RRGGBB". Values below match automatic event colors;
+# omitting color also uses the automatic color. Color changes only the left stripe.
+# Duration counts selected visible time in resident mode; pause freezes that clock.
+
+[events.turn_complete]
+# Artwork: "inherit" (default: main source), "builtin", "pet" or "custom".
+# Only "custom" uses animation; it requires a path. Failure falls back to builtin/text.
+visual = "inherit"
+# Enable completion notifications; default true.
+enabled = true
+# Custom animation directory; default absent. Used only with visual = "custom".
+# animation = 'assets/turn_complete'
+# Optional WAV path; default absent (silent). Requires both sound switches enabled.
+# sound = 'assets/turn_complete/sound.wav'
+# Enable this event's configured sound; default true. sounds.enabled is the master.
+sound_enabled = true
+# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
+duration_ms = 3000
+# Left accent color; automatic default green #41D28C.
+color = "#41D28C"
+
+[events.permission_required]
+# Artwork: "inherit" (default), "builtin", "pet" or "custom" (requires animation).
+visual = "inherit"
+# Enable permission-wait notifications; default true. Dismissal never answers a request.
+enabled = true
+# Custom animation directory; default absent; used only with visual = "custom".
+# animation = 'assets/permission_required'
+# Optional WAV path; default absent (silent).
+# sound = 'assets/permission_required/sound.wav'
+# Enable this event's configured sound; default true; also needs sounds.enabled.
+sound_enabled = true
+# Lifetime in milliseconds: 0..86400000; default 0 (persistent, without countdown).
+duration_ms = 0
+# Left accent color; automatic default yellow #FAB437.
+color = "#FAB437"
+
+[events.input_required]
+# Artwork: "inherit" (default), "builtin", "pet" or "custom" (requires animation).
+visual = "inherit"
+# Enable input-wait notifications; default true. Only supported event sources apply.
+enabled = true
+# Custom animation directory; default absent; used only with visual = "custom".
+# animation = 'assets/input_required'
+# Optional WAV path; default absent (silent).
+# sound = 'assets/input_required/sound.wav'
+# Enable this event's configured sound; default true; also needs sounds.enabled.
+sound_enabled = true
+# Lifetime in milliseconds: 0..86400000; default 0 (persistent, without countdown).
+duration_ms = 0
+# Left accent color; automatic default blue #50A5FA.
+color = "#50A5FA"
+
+[events.error]
+# Artwork: "inherit" (default), "builtin", "pet" or "custom" (requires animation).
+visual = "inherit"
+# Enable error notifications; default true.
+enabled = true
+# Custom animation directory; default absent; used only with visual = "custom".
+# animation = 'assets/error'
+# Optional WAV path; default absent (silent).
+# sound = 'assets/error/sound.wav'
+# Enable this event's configured sound; default true; also needs sounds.enabled.
+sound_enabled = true
+# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
+duration_ms = 3000
+# Left accent color; automatic default red #F55564.
+color = "#F55564"
+
+[events.interrupted]
+# Artwork: "inherit" (default), "builtin", "pet" or "custom" (requires animation).
+visual = "inherit"
+# Enable interruption notifications; default true.
+enabled = true
+# Custom animation directory; default absent; used only with visual = "custom".
+# animation = 'assets/interrupted'
+# Optional WAV path; default absent (silent).
+# sound = 'assets/interrupted/sound.wav'
+# Enable this event's configured sound; default true; also needs sounds.enabled.
+sound_enabled = true
+# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
+duration_ms = 3000
+# Left accent color; automatic default purple #B482F0.
+color = "#B482F0"
+
+# Per-agent artwork settings; default no agent entries. Existing sources: codex, demo.
+# Codex hooks use codex; --event uses demo. --demo uses demo artwork, then codex.
+# Other agent keys are accepted but do not enable another agent/event adapter.
+# Repeat this optional table for each source you want to customize.
+# [agents.codex]
+# Agent-specific local pet.json; default absent (use shared notifications.pet).
+# pet = 'characters/my-pet/pet.json'
+
+# Per-agent state overrides; default empty. Agent mapping > shared mapping > automatic.
+# Same nine allowed states as notifications.pet_animations; shared pets also work.
+# [agents.codex.pet_animations]
+# Completion state; inherited automatic default "waving".
+# turn_complete = "waving"
+# Permission-wait state; inherited automatic default "review".
+# permission_required = "review"
+# Input-wait state; inherited automatic default "waiting".
+# input_required = "waiting"
+# Error state; inherited automatic default "failed".
+# error = "failed"
+# Interruption state; inherited automatic default "idle".
+# interrupted = "idle"
+
+[codex]
+# Accept supported Codex hooks delivered with --hook; default true.
+# This switch does not install hooks. See examples/hooks.windows.json for manual setup.
+hooks_enabled = true
+# Reserved observation switch; default false. true reports unsupported monitoring
+# of unrelated Codex CLI/app sessions; it does not enable input-wait detection.
+input_monitoring = false
+
+[usage]
+# Read-only usage polling in resident/demo mode; default false. Requires codex.exe
+# on PATH and an existing sign-in; usage failures leave event notifications working.
+enabled = false
+# Automatic refresh interval in seconds: 10..86400; default 300. Tray can refresh now.
+refresh_interval_sec = 300

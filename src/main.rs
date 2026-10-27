@@ -80,6 +80,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         None
     };
     let config = aherald::config::Config::load(&path, cli.config.is_some())?;
+    if let Some(pause_sec) = cli.demo_pause_sec {
+        return aherald::resident::run_demo(config, &path, pause_sec);
+    }
     if config.codex.input_monitoring {
         eprintln!(
             "aHerald: Codex input monitoring unsupported for unrelated CLI/app sessions: no verified stable observation source; lifecycle hooks remain available"

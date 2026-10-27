@@ -2,6 +2,55 @@ use aherald::{cli::Cli, config::Config};
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn visual_selection_validates_scope_and_custom_paths() {
+    for text in [
+        "[notifications]\nvisual='auto'",
+        "[notifications]\nvisual='builtin'",
+        "[notifications]\nvisual='pet'",
+        "[events.error]\nvisual='inherit'",
+        "[events.error]\nvisual='builtin'",
+        "[events.error]\nvisual='pet'",
+        "[events.error]\nvisual='custom'\nanimation='custom/error'",
+    ] {
+        assert!(Config::parse(text, &PathBuf::from(".")).is_ok(), "{text}");
+    }
+    for text in [
+        "[notifications]\nvisual='inherit'",
+        "[notifications]\nvisual='custom'",
+        "[events.error]\nvisual='auto'",
+        "[events.error]\nvisual='unknown'",
+        "[events.error]\nvisual='custom'",
+    ] {
+        assert!(Config::parse(text, &PathBuf::from(".")).is_err(), "{text}");
+    }
+}
+
+#[test]
+fn event_accent_colors_and_pet_state_maps_are_validated() {
+    let dir = PathBuf::from(".");
+    let config = Config::parse("[events.error]\ncolor='#102030'\n[notifications.pet_animations]\nerror='waiting'\n[agents.codex.pet_animations]\nturn_complete='review'", &dir).unwrap();
+    assert_eq!(
+        config.event_color(aherald::events::Kind::Error).0,
+        [16, 32, 48]
+    );
+    assert_eq!(
+        config.event_color(aherald::events::Kind::TurnComplete).0,
+        [65, 210, 140]
+    );
+    for text in [
+        "[events.error]\ncolor='red'",
+        "[events.error]\ncolor='#12345'",
+        "[events.error]\ncolor='#gg0000'",
+        "[events.error]\ncolor='#11223344'",
+        "[notifications.pet_animations]\nunknown='idle'",
+        "[notifications.pet_animations]\nerror='unknown'",
+        "[agents.codex.pet_animations]\nunknown='idle'",
+    ] {
+        assert!(Config::parse(text, &dir).is_err(), "{text}");
+    }
+}
+
+#[test]
 fn defaults_paths_and_mode_override() {
     let dir = PathBuf::from(r"C:\demo");
     let config = Config::parse(

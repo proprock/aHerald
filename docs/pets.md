@@ -20,16 +20,19 @@ Loading the package neither starts nor changes Codex. Node.js, npm, network acce
 and a Codex restart are unnecessary for aHerald playback. Download/install resources
 separately if needed; aHerald does not interpret a configuration value as a command.
 
-Artwork priority is `[events.NAME].animation`, then `[agents.SOURCE].pet`, then
-`[notifications].pet` as an optional shared default. A missing agent setting uses
-the shared default; a configured but broken asset keeps the text card instead of
-silently choosing another character. `codex` selects Codex hook artwork; `demo`
+With `[notifications] visual = 'auto'` (the default), setting a pet switches all
+inherited events to that pet. Without a pet, events use builtin aHerald artwork.
+`[agents.SOURCE].pet` selects the character before `[notifications].pet` as a shared
+default. A configured but broken pet falls back to builtin artwork, then text.
+`codex` selects Codex hook artwork; `demo`
 selects `--event` demo artwork. Unknown agent entries can be stored for future
 adapters but are never selected by existing sources. In particular, a
 `[agents.claude]` entry does not enable Claude event ingestion.
 
-An explicit `[events.NAME].animation` overrides agent and shared pets for that event.
-An invalid selected animation or pet produces the existing text fallback. Sound,
+Choose `[events.NAME] visual = 'builtin', 'pet', or 'custom'` for explicit exceptions;
+the default is `'inherit'`. Only `'custom'` uses that event's `animation` path.
+Existing paths alone no longer override pets. See [the three setups](visuals.md).
+Sound,
 fade, scale, placement, click and duration settings still apply. The filename in
 `spritesheetPath` is relative to the manifest directory and must remain within it,
 including after filesystem link resolution. The default filename is `spritesheet.webp`.
@@ -44,7 +47,7 @@ including after filesystem link resolution. The default filename is `spritesheet
   Dimensions must match the declared version before full decoding. Only occupied
   cells for the chosen state are extracted; scaled frames retain the engine limits.
 - Unrecognized metadata fields are tolerated. Other versions, custom `frame` layouts,
-  and nonempty custom `animations` are unsupported and use text fallback.
+  and nonempty custom `animations` are unsupported and use builtin/text recovery.
 
 | aHerald event | Pet state | Zero-based row | Occupied frames |
 | --- | --- | --- | --- |
@@ -57,6 +60,40 @@ including after filesystem link resolution. The default filename is `spritesheet
 Frame durations follow the inspected standard tracks. aHerald loops the selected
 notification state for its configured duration; this is aHerald's policy, not an
 implementation of Codex's chat-status transitions, directional movement, or controls.
+
+## Per-event state overrides
+
+Choose a standard pet state for each event instead of its automatic default:
+
+```toml
+[notifications.pet_animations]
+turn_complete = 'jumping'
+
+[agents.codex.pet_animations]
+permission_required = 'waiting'
+```
+
+The agent's mapping takes priority over the shared mapping, followed by the default
+event mapping above. This also works when an agent uses the shared pet manifest.
+`[events.NAME] visual = 'custom'` selects external artwork instead of a pet state.
+Unknown event keys or state names are configuration errors. The mapping selects
+an atlas track; it does not recolor the artwork. Event `color` changes the card stripe.
+
+| State | Zero-based row | Occupied frames |
+| --- | --- | --- |
+| idle | 0 | 6 |
+| running-right | 1 | 8 |
+| running-left | 2 | 8 |
+| waving | 3 | 4 |
+| jumping | 4 | 5 |
+| failed | 5 | 8 |
+| waiting | 6 | 6 |
+| running | 7 | 6 |
+| review | 8 | 6 |
+
+The pinned Codex track definitions below were rechecked on 2026-10-25 for these
+nine state names, rows, frame counts and durations. aHerald loops the selected
+track in place, including running/jumping tracks; it does not move the card.
 
 ## Sources and version boundary
 

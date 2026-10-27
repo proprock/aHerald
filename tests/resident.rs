@@ -273,26 +273,45 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let bounds = loop {
+        let mut bounds = RECT::default();
+        unsafe { GetWindowRect(window, &mut bounds).unwrap() };
+        if bounds.right - bounds.left > (bounds.bottom - bounds.top) * 3 {
+            break bounds;
+        }
+        assert!(Instant::now() < deadline, "resident artwork did not load");
+        std::thread::yield_now();
+    };
+    let x = bounds.right - bounds.left - 39;
+    let y = bounds.bottom - bounds.top - 22;
     unsafe {
         assert_ne!(GetForegroundWindow(), window);
-        PostMessageW(Some(window), WM_KEYDOWN, WPARAM(0x27), LPARAM(0)).unwrap();
+        PostMessageW(
+            Some(window),
+            WM_LBUTTONUP,
+            WPARAM(0),
+            LPARAM(((y << 16) | x) as isize),
+        )
+        .unwrap();
     }
     let deadline = Instant::now() + Duration::from_secs(2);
     while !title(window).contains("Input required") {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
+    assert!(title(window).contains("2/2"));
     unsafe {
         PostMessageW(
             Some(window),
             WM_LBUTTONUP,
             WPARAM(0),
-            LPARAM((90 << 16) | 220),
+            LPARAM((90 << 16) | 100),
         )
         .unwrap();
     }
     let deadline = Instant::now() + Duration::from_secs(2);
-    while !title(window).contains("1/1") {
+    while title(window) != "aHerald demo - Permission required" {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }

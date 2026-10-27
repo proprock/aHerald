@@ -10,17 +10,12 @@ enabled = true
 volume = 0.5
 suppress_repeats = true
 [events.turn_complete]
-animation = "../assets/turn_complete"
 sound = "../assets/turn_complete/sound.wav"
 [events.permission_required]
-animation = "../assets/permission_required"
 sound = "../assets/permission_required/sound.wav"
 [events.input_required]
-animation = "../assets/input_required"
 sound = "../assets/input_required/sound.wav"
 [events.error]
-animation = "../assets/error"
 sound = "../assets/error/sound.wav"
 [events.interrupted]
-animation = "../assets/interrupted"
 sound = "../assets/interrupted/sound.wav"

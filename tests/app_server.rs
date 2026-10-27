@@ -56,6 +56,31 @@ fn handshake_precedes_reads_and_ids_are_correlated() {
     assert_eq!(sent[0]["params"]["clientInfo"]["name"], "aherald");
 }
 #[test]
+fn session_name_is_read_without_loading_or_subscribing_to_the_thread() {
+    let mut client = Client::initialize(
+        mock(vec![
+            json!({"id":1,"result":{}}),
+            json!({"id":2,"result":{"thread":{"id":"session-a","name":"Fix printer","turns":[]}}}),
+            json!({"id":3,"result":{"thread":{"id":"session-b","name":null,"turns":[]}}}),
+            json!({"id":4,"result":{"thread":{"id":"wrong-session","name":"Wrong title"}}}),
+        ]),
+        Duration::from_secs(1),
+    )
+    .unwrap();
+    assert_eq!(
+        client.read_thread_name("session-a").unwrap().as_deref(),
+        Some("Fix printer")
+    );
+    assert_eq!(client.read_thread_name("session-b").unwrap(), None);
+    assert_eq!(client.read_thread_name("session-a"), Err(Error::Malformed));
+    let sent = &client.transport().sent;
+    assert_eq!(sent.len(), 5);
+    for request in &sent[2..] {
+        assert_eq!(request["method"], "thread/read");
+        assert_eq!(request["params"]["includeTurns"], false);
+    }
+}
+#[test]
 fn timeout_disconnect_malformed_and_server_errors_are_distinct_and_sanitized() {
     for error in [Error::Timeout, Error::Disconnected, Error::Malformed] {
         let transport = Mock {

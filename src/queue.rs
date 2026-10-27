@@ -8,6 +8,12 @@ pub struct Entry {
     pub duration: u64,
     pub visible_ms: u64,
 }
+impl Entry {
+    /// The queue lifetime includes fade-out; zero denotes a persistent card.
+    pub fn display_duration(&self, fade_out_ms: u64) -> u64 {
+        self.duration.saturating_sub(fade_out_ms)
+    }
+}
 pub struct Queue {
     items: Vec<Entry>,
     selected: Option<u64>,

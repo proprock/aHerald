@@ -33,7 +33,7 @@ unsafe extern "system" fn find(hwnd: HWND, p: LPARAM) -> windows::core::BOOL {
     }
 }
 #[test]
-fn native_window_keeps_card_beside_external_frames_and_recovers_to_text() {
+fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_assets() {
     let root = std::env::temp_dir().join(format!("aherald-resource-native-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     struct Cleanup(PathBuf);
@@ -52,16 +52,24 @@ fn native_window_keeps_card_beside_external_frames_and_recovers_to_text() {
     .unwrap();
     std::fs::write(corrupt.join("sheet.png"), b"broken PNG").unwrap();
     let valid = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/turn_complete");
+    let executable = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
+    let isolated = root.join("aherald.exe");
+    std::fs::copy(&executable, &isolated).unwrap();
     for (path, is_image) in [
-        (valid, true),
-        (corrupt, false),
-        (root.join("missing"), false),
+        (None, true),
+        (Some(valid), true),
+        (Some(corrupt), true),
+        (Some(root.join("missing")), true),
+        (None, false),
     ] {
         let config = root.join("config.toml");
-        std::fs::write(&config,format!("[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.turn_complete]\nduration_ms=0\nanimation='{}'",path.display())).unwrap();
+        let custom = path
+            .map(|path| format!("\nvisual='custom'\nanimation='{}'", path.display()))
+            .unwrap_or_default();
+        std::fs::write(&config,format!("[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.turn_complete]\nduration_ms=0{custom}")).unwrap();
         let mut child = Owned(
             deliver(
-                &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
+                if is_image { &executable } else { &isolated },
                 &config,
                 &Event::demo("turn_complete").unwrap(),
             )
@@ -96,6 +104,10 @@ fn native_window_keeps_card_beside_external_frames_and_recovers_to_text() {
                 );
             } else {
                 assert!(width > height * 2);
+                assert!(
+                    width <= height * 3,
+                    "artwork must not load from the working directory"
+                );
             }
             PostMessageW(Some(search.hwnd), WM_LBUTTONUP, WPARAM(0), LPARAM(0)).unwrap();
         }

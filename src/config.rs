@@ -59,6 +59,42 @@ impl Default for Config {
 #[serde(default, deny_unknown_fields)]
 pub struct AgentAssets {
     pub pet: Option<PathBuf>,
+    pub pet_animations: BTreeMap<String, PetAnimation>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PetAnimation {
+    Idle,
+    #[serde(rename = "running-right")]
+    RunningRight,
+    #[serde(rename = "running-left")]
+    RunningLeft,
+    Waving,
+    Jumping,
+    Waiting,
+    Failed,
+    Running,
+    Review,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "String")]
+pub struct Color(pub [u8; 3]);
+impl TryFrom<String> for Color {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let bytes = value.as_bytes();
+        if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
+            return Err("event color must be #RRGGBB".into());
+        }
+        let mut rgb = [0; 3];
+        for (index, channel) in rgb.iter_mut().enumerate() {
+            *channel = u8::from_str_radix(&value[1 + index * 2..3 + index * 2], 16)
+                .map_err(|_| "invalid event color")?;
+        }
+        Ok(Self(rgb))
+    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -93,7 +129,9 @@ impl Default for Resident {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Notifications {
+    pub visual: Visual,
     pub pet: Option<PathBuf>,
+    pub pet_animations: BTreeMap<String, PetAnimation>,
     pub enabled: bool,
     pub position: String,
     pub monitor: String,
@@ -106,6 +144,7 @@ pub struct Notifications {
 impl Default for Notifications {
     fn default() -> Self {
         Self {
+            visual: Visual::Auto,
             enabled: true,
             position: "center".into(),
             monitor: "primary".into(),
@@ -115,6 +154,7 @@ impl Default for Notifications {
             click_to_dismiss: true,
             interpolation: "nearest".into(),
             pet: None,
+            pet_animations: BTreeMap::new(),
         }
     }
 }
@@ -137,22 +177,43 @@ impl Default for Sounds {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EventConfig {
+    pub visual: EventVisual,
     pub enabled: bool,
     pub animation: Option<PathBuf>,
     pub sound: Option<PathBuf>,
     pub sound_enabled: bool,
     pub duration_ms: u64,
+    pub color: Option<Color>,
 }
 impl Default for EventConfig {
     fn default() -> Self {
         Self {
+            visual: EventVisual::Inherit,
             enabled: true,
             animation: None,
             sound: None,
             sound_enabled: true,
             duration_ms: 3000,
+            color: None,
         }
     }
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Visual {
+    #[default]
+    Auto,
+    Builtin,
+    Pet,
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EventVisual {
+    #[default]
+    Inherit,
+    Builtin,
+    Pet,
+    Custom,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -183,6 +244,16 @@ impl Default for Usage {
     }
 }
 impl Config {
+    pub fn event_color(&self, kind: crate::events::Kind) -> Color {
+        use crate::events::Kind;
+        self.events[kind.name()].color.unwrap_or(Color(match kind {
+            Kind::TurnComplete => [65, 210, 140],
+            Kind::PermissionRequired => [250, 180, 55],
+            Kind::InputRequired => [80, 165, 250],
+            Kind::Error => [245, 85, 100],
+            Kind::Interrupted => [180, 130, 240],
+        }))
+    }
     pub fn default_path() -> Result<PathBuf, String> {
         std::env::var_os("APPDATA")
             .map(|base| PathBuf::from(base).join("aHerald/config.toml"))
@@ -266,8 +337,17 @@ impl Config {
             || !(0.0..=1.0).contains(&self.sounds.volume)
             || !(10..=86_400).contains(&self.usage.refresh_interval_sec)
             || self.events.iter().any(|(name, event)| {
-                !EVENT_NAMES.contains(&name.as_str()) || event.duration_ms > 86_400_000
+                !EVENT_NAMES.contains(&name.as_str())
+                    || event.duration_ms > 86_400_000
+                    || (event.visual == EventVisual::Custom && event.animation.is_none())
             })
+            || std::iter::once(&n.pet_animations)
+                .chain(self.agents.values().map(|a| &a.pet_animations))
+                .any(|mapping| {
+                    mapping
+                        .keys()
+                        .any(|name| !EVENT_NAMES.contains(&name.as_str()))
+                })
             || self.resident.auto_start
         {
             return Err(

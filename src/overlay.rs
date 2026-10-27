@@ -14,6 +14,8 @@ pub(crate) struct CardText<'a> {
     pub source: &'a str,
     pub label: &'a str,
     pub navigation: bool,
+    pub dismiss_button: bool,
+    pub color: crate::config::Color,
 }
 pub(crate) struct Surface {
     dc: HDC,
@@ -122,6 +124,7 @@ impl Surface {
         }
         Ok(surface)
     }
+    #[cfg(test)]
     fn text(
         width: i32,
         height: i32,
@@ -139,6 +142,8 @@ impl Surface {
                 source,
                 label,
                 navigation: false,
+                dismiss_button: false,
+                color: crate::config::Color([101, 220, 178]),
             },
         )
     }
@@ -153,6 +158,8 @@ impl Surface {
             source,
             label,
             navigation,
+            dismiss_button,
+            color,
         } = content;
         // SAFETY: the DIB is top-down BGRA and sized for all pixel accesses. The memory DC and
         // bitmap remain owned until Surface drops, and GDI selections are restored before cleanup.
@@ -173,7 +180,7 @@ impl Surface {
                         &[0, 0, 0, 0]
                     });
                     if inside && x < (5.0 * scale) as i32 {
-                        pixels[i..i + 3].copy_from_slice(&[178, 220, 101]);
+                        pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
                     }
                 }
             }
@@ -199,36 +206,62 @@ impl Surface {
             let old_font = SelectObject(dc, font.0.into());
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, COLORREF(0x00f5f5f5));
-            let mut text: Vec<u16> = format!("{source}\n{label}").encode_utf16().collect();
+            let mut text: Vec<u16> = source.encode_utf16().collect();
             let mut rect = RECT {
                 left: text_left,
                 top: ((height - (64.0 * scale) as i32) / 2).max(0),
-                right: width - (18.0 * scale) as i32,
+                right: width - (82.0 * scale) as i32,
                 bottom: height,
             };
-            DrawTextW(
-                dc,
-                &mut text,
-                &mut rect,
-                DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
-            );
-            if navigation {
-                let span = (width - (18.0 * scale) as i32 - text_left) / 3;
-                for (index, label) in ["Prev", "Next", "Dismiss"].iter().enumerate() {
-                    let mut footer: Vec<u16> = label.encode_utf16().collect();
-                    let mut area = RECT {
-                        left: text_left + span * index as i32,
-                        top: height - (34.0 * scale) as i32,
-                        right: text_left + span * (index as i32 + 1),
-                        bottom: height - (10.0 * scale) as i32,
-                    };
-                    DrawTextW(
-                        dc,
-                        &mut footer,
-                        &mut area,
-                        DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
-                    );
-                }
+            if !text.is_empty() {
+                DrawTextW(
+                    dc,
+                    &mut text,
+                    &mut rect,
+                    DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
+                );
+            }
+            rect.top += (26.0 * scale) as i32;
+            rect.right = width - (18.0 * scale) as i32;
+            rect.bottom = height
+                - (if navigation || dismiss_button {
+                    36.0
+                } else {
+                    10.0
+                } * scale) as i32;
+            let mut text: Vec<u16> = label.encode_utf16().collect();
+            if !text.is_empty() {
+                DrawTextW(
+                    dc,
+                    &mut text,
+                    &mut rect,
+                    DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
+                );
+            }
+            let controls = crate::card::Card {
+                heading: source.into(),
+                navigation,
+                dismiss_button,
+            };
+            for (action, r) in controls.buttons(width, height, scale) {
+                let label = match action {
+                    crate::card::Action::Previous => "<",
+                    crate::card::Action::Next => ">",
+                    crate::card::Action::Dismiss => "Dismiss",
+                };
+                let mut footer: Vec<u16> = label.encode_utf16().collect();
+                let mut area = RECT {
+                    left: r.left,
+                    top: r.top,
+                    right: r.right,
+                    bottom: r.bottom,
+                };
+                DrawTextW(
+                    dc,
+                    &mut footer,
+                    &mut area,
+                    DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
+                );
             }
             SelectObject(dc, old_font);
             let _ = GdiFlush();
@@ -244,6 +277,100 @@ impl Surface {
             }
             Ok(surface)
         }
+    }
+    pub(crate) fn with_heading(
+        &self,
+        source: &str,
+        text_left: i32,
+        scale: f64,
+    ) -> Result<Self, String> {
+        let heading = Self::card(
+            self.width,
+            self.height,
+            scale,
+            text_left,
+            CardText {
+                source,
+                label: "",
+                navigation: false,
+                dismiss_button: false,
+                color: crate::config::Color([0, 0, 0]),
+            },
+        )?;
+        let (surface, bits) = Self::allocate(self.width, self.height)?;
+        // SAFETY: all three owned DIBs have identical dimensions. Copy only the
+        // heading's bounded rectangle, preserving artwork, controls and event text.
+        unsafe {
+            let len = self.width as usize * self.height as usize * 4;
+            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
+            let top = ((self.height - (64.0 * scale) as i32) / 2).max(0);
+            let right = (self.width - (82.0 * scale) as i32).clamp(0, self.width);
+            for y in top..(top + (26.0 * scale) as i32).min(self.height) {
+                let left = text_left.clamp(0, right);
+                let offset = ((y * self.width + left) * 4) as usize;
+                std::ptr::copy_nonoverlapping(
+                    heading.pixels.add(offset),
+                    bits.add(offset),
+                    ((right - left) * 4) as usize,
+                );
+            }
+        }
+        Ok(surface)
+    }
+    pub(crate) fn with_countdown(&self, seconds: u64, scale: f64) -> Result<Self, String> {
+        let (surface, bits) = Self::allocate(self.width, self.height)?;
+        // SAFETY: both DIBs own exactly width * height * four bytes; only this owned DC
+        // is drawn to, and the font selection is restored before its RAII destruction.
+        unsafe {
+            let len = self.width as usize * self.height as usize * 4;
+            std::ptr::copy_nonoverlapping(self.pixels, bits, len);
+            let font = Font(CreateFontW(
+                -(16.0 * scale) as i32,
+                0,
+                0,
+                0,
+                500,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                ANTIALIASED_QUALITY,
+                DEFAULT_PITCH.0 as u32,
+                w!("Segoe UI"),
+            ));
+            if font.0.is_invalid() {
+                return Err("cannot create countdown font".into());
+            }
+            let old = SelectObject(surface.dc, font.0.into());
+            SetBkMode(surface.dc, TRANSPARENT);
+            SetTextColor(surface.dc, COLORREF(0x00f5f5f5));
+            let mut text: Vec<u16> = format!("{seconds}s").encode_utf16().collect();
+            let mut area = RECT {
+                left: self.width - (80.0 * scale) as i32,
+                top: (16.0 * scale) as i32,
+                right: self.width - (18.0 * scale) as i32,
+                bottom: (40.0 * scale) as i32,
+            };
+            DrawTextW(
+                surface.dc,
+                &mut text,
+                &mut area,
+                DT_RIGHT | DT_NOPREFIX | DT_SINGLELINE,
+            );
+            SelectObject(surface.dc, old);
+            let _ = GdiFlush();
+            for pixel in std::slice::from_raw_parts_mut(bits, len)
+                .as_chunks_mut::<4>()
+                .0
+            {
+                if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
+                    pixel[3] = 255;
+                }
+            }
+        }
+        Ok(surface)
     }
     pub(crate) fn present_placed(
         &self,
@@ -326,9 +453,13 @@ struct State {
     duration: u64,
     fade_in: u64,
     fade_out: u64,
-    click: bool,
+    controls: crate::card::Card,
+    countdown: Option<(usize, u64, Surface)>,
     dismissed: Option<u64>,
     failed: bool,
+    source_labels: crate::session_source::Service,
+    event: Event,
+    text_left: i32,
 }
 struct Window(HWND);
 impl Drop for Window {
@@ -364,6 +495,38 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                 let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State;
                 if !ptr.is_null() {
                     let state = &mut *ptr;
+                    let source = state.source_labels.label(&state.event);
+                    if source != state.controls.heading {
+                        let updated = state
+                            .surfaces
+                            .iter()
+                            .map(|surface| {
+                                surface.with_heading(
+                                    &source,
+                                    state.text_left,
+                                    state.notifications.scale,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>();
+                        match updated {
+                            Ok(surfaces) => {
+                                state.surfaces = surfaces;
+                                state.controls.heading = source.clone();
+                                state.countdown = None;
+                                let title: Vec<u16> =
+                                    format!("{source} - {}", state.event.kind.label())
+                                        .encode_utf16()
+                                        .chain(Some(0))
+                                        .collect();
+                                let _ = SetWindowTextW(hwnd, windows::core::PCWSTR(title.as_ptr()));
+                            }
+                            Err(_) => {
+                                state.failed = true;
+                                let _ = DestroyWindow(hwnd);
+                                return LRESULT(0);
+                            }
+                        }
+                    }
                     if matches!(message, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE)
                         && let Ok(p) = crate::placement::current(
                             &state.notifications,
@@ -374,7 +537,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         state.placement = p;
                     }
                     let elapsed = state.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    if message == WM_LBUTTONUP && state.click && state.dismissed.is_none() {
+                    let x = (lp.0 as u16) as i16 as i32 * state.surfaces[0].width
+                        / state.placement.2.max(1);
+                    let y = ((lp.0 >> 16) as u16) as i16 as i32 * state.surfaces[0].height
+                        / state.placement.3.max(1);
+                    if message == WM_LBUTTONUP
+                        && state.dismissed.is_none()
+                        && state.controls.hit_test(
+                            state.surfaces[0].width,
+                            state.surfaces[0].height,
+                            state.notifications.scale,
+                            x,
+                            y,
+                        ) == Some(crate::card::Action::Dismiss)
+                    {
                         state.dismissed = Some(elapsed);
                     }
                     let (alpha, done) = super::presentation(
@@ -386,16 +562,42 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     );
                     if done {
                         let _ = DestroyWindow(hwnd);
-                    } else if state.surfaces[crate::animation::frame_index(
-                        &state.frame_durations,
-                        state.looping,
-                        elapsed,
-                    )]
-                    .present_placed(hwnd, state.placement, alpha)
-                    .is_err()
-                    {
-                        state.failed = true;
-                        let _ = DestroyWindow(hwnd);
+                    } else {
+                        let frame = crate::animation::frame_index(
+                            &state.frame_durations,
+                            state.looping,
+                            elapsed,
+                        );
+                        let result = (|| {
+                            let surface = if let Some(seconds) =
+                                crate::card::remaining_seconds(state.duration, elapsed)
+                            {
+                                if state
+                                    .countdown
+                                    .as_ref()
+                                    .is_none_or(|(f, s, _)| *f != frame || *s != seconds)
+                                {
+                                    state.countdown = Some((
+                                        frame,
+                                        seconds,
+                                        state.surfaces[frame]
+                                            .with_countdown(seconds, state.notifications.scale)?,
+                                    ));
+                                }
+                                &state
+                                    .countdown
+                                    .as_ref()
+                                    .ok_or("missing countdown surface")?
+                                    .2
+                            } else {
+                                &state.surfaces[frame]
+                            };
+                            surface.present_placed(hwnd, state.placement, alpha)
+                        })();
+                        if result.is_err() {
+                            state.failed = true;
+                            let _ = DestroyWindow(hwnd);
+                        }
                     }
                     return LRESULT(0);
                 }
@@ -407,28 +609,48 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
 }
 
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
+    show_with_source(event, config, crate::session_source::Service::codex())
+}
+fn show_with_source(
+    event: &Event,
+    config: &Config,
+    mut source_labels: crate::session_source::Service,
+) -> Result<(), String> {
     // SAFETY: all Win32 objects are created/used/destroyed on this thread; boxed State outlives Window.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let scale = config.notifications.scale;
         let (fallback_width, fallback_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
         let label = event.kind.label();
-        let source = event.source.label();
+        let source = source_labels.label(event);
+        let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
+        let make_card = |width, height, text_left| {
+            Surface::card(
+                width,
+                height,
+                scale,
+                text_left,
+                CardText {
+                    source: &source,
+                    label,
+                    navigation: false,
+                    dismiss_button: controls.dismiss_button,
+                    color: config.event_color(event.kind),
+                },
+            )
+        };
         let assets = config.clone();
         let asset_event = event.clone();
-        let bilinear = config.notifications.interpolation == "bilinear";
-        let prepared = std::thread::spawn(move || {
-            crate::pet::for_event(&assets, &asset_event)?
-                .map(|animation| animation.prepare(scale, bilinear))
-                .transpose()
-        })
-        .join()
-        .ok()
-        .and_then(Result::ok)
-        .flatten();
+        let prepared =
+            std::thread::spawn(move || crate::artwork::prepared_for_event(&assets, &asset_event))
+                .join()
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
         let mut surfaces = Vec::new();
         let mut frame_durations = vec![1000];
         let mut looping = false;
+        let mut text_left = (22.0 * scale) as i32;
         if let Some(animation) = prepared {
             let padding = (18.0 * scale) as i32;
             let art_width = animation.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
@@ -437,8 +659,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             let height = fallback_height.max(art_height + padding * 2);
             let bytes = width as u64 * height as u64 * 4 * animation.frames.len() as u64;
             if !animation.frames.is_empty() && bytes <= crate::animation::MAX_BYTES {
-                let card =
-                    Surface::text(width, height, scale, source, label, art_width + padding * 2)?;
+                let card = make_card(width, height, art_width + padding * 2)?;
                 let composed = animation
                     .frames
                     .iter()
@@ -447,6 +668,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
                     })
                     .collect::<Result<Vec<_>, _>>();
                 if let Ok(frames) = composed {
+                    text_left = art_width + padding * 2;
                     surfaces = frames;
                     frame_durations = animation.durations_ms;
                     looping = animation.looping;
@@ -454,12 +676,9 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             }
         }
         if surfaces.is_empty() {
-            surfaces.push(Surface::text(
+            surfaces.push(make_card(
                 fallback_width,
                 fallback_height,
-                scale,
-                source,
-                label,
                 (22.0 * scale) as i32,
             )?);
         }
@@ -477,9 +696,13 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
             duration: config.events[event.kind.name()].duration_ms,
             fade_in: config.notifications.fade_in_ms,
             fade_out: config.notifications.fade_out_ms,
-            click: config.notifications.click_to_dismiss,
+            controls,
+            countdown: None,
             dismissed: None,
             failed: false,
+            source_labels,
+            event: event.clone(),
+            text_left,
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;
         let class = w!("aHerald.Overlay");
@@ -547,7 +770,193 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
 #[cfg(test)]
 mod card_tests {
     use super::Surface;
+    #[test]
+    fn metadata_heading_preserves_artwork_signal_and_controls() {
+        let card = Surface::text(
+            530,
+            244,
+            1.0,
+            "Codex: session 12345678",
+            "Permission required",
+            228,
+        )
+        .unwrap();
+        let updated = card
+            .with_heading("Codex: Проверка aHerald", 228, 1.0)
+            .unwrap();
+        // SAFETY: both owned DIBs contain width * height BGRA pixels.
+        unsafe {
+            let old = std::slice::from_raw_parts(card.pixels, 530 * 244 * 4);
+            let new = std::slice::from_raw_parts(updated.pixels, old.len());
+            let mut changed = 0;
+            for y in 0..244 {
+                for x in 0..530 {
+                    let i = (y * 530 + x) * 4;
+                    if (90..116).contains(&y) && (228..448).contains(&x) {
+                        changed += usize::from(old[i..i + 4] != new[i..i + 4]);
+                    } else {
+                        assert_eq!(old[i..i + 4], new[i..i + 4]);
+                    }
+                }
+            }
+            assert!(changed > 100);
+        }
+    }
+
+    #[test]
+    fn background_title_reaches_native_window() {
+        source_window(false);
+    }
+    #[test]
+    #[ignore = "one native visual inspection of the resolved session heading"]
+    fn preview_session_heading() {
+        source_window(true);
+    }
+    fn source_window(preview: bool) {
+        use super::*;
+        use std::{sync::mpsc, time::Duration};
+        use windows::core::BOOL;
+        let (release, gate) = mpsc::channel();
+        let mut event = Event::demo("permission_required").unwrap();
+        event.source = crate::events::Source::CodexHook;
+        event.session_id = Some("019a0000-0000-0000-0000-000012345678".into());
+        let mut config = Config::default();
+        config.sounds.enabled = false;
+        let job = std::thread::spawn(move || {
+            show_with_source(
+                &event,
+                &config,
+                crate::session_source::Service::new(move |_| {
+                    gate.recv().ok()?;
+                    Some("Проверка aHerald".into())
+                }),
+            )
+        });
+        unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> BOOL {
+            unsafe {
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                let mut class = [0u16; 80];
+                let len = GetClassNameW(hwnd, &mut class);
+                if pid == std::process::id()
+                    && String::from_utf16_lossy(&class[..len as usize]) == "aHerald.Overlay"
+                {
+                    *(param.0 as *mut HWND) = hwnd;
+                    return BOOL(0);
+                }
+                BOOL(1)
+            }
+        }
+        let mut hwnd = HWND::default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while hwnd.is_invalid() {
+            unsafe {
+                let _ = EnumWindows(Some(find), LPARAM(&mut hwnd as *mut HWND as isize));
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        struct Close(HWND);
+        impl Drop for Close {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = PostMessageW(Some(self.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+        }
+        let close = Close(hwnd);
+        let title = || {
+            let mut text = [0u16; 256];
+            let len = unsafe { GetWindowTextW(hwnd, &mut text) };
+            String::from_utf16_lossy(&text[..len as usize])
+        };
+        assert_eq!(title(), "Codex: session 12345678 - Permission required");
+        release.send(()).unwrap();
+        while title() != "Codex: Проверка aHerald - Permission required" {
+            assert!(Instant::now() < deadline);
+            std::thread::yield_now();
+        }
+        assert_ne!(unsafe { GetForegroundWindow() }, hwnd);
+        if preview {
+            // Expose only this owned fixture window to desktop capture.
+            unsafe {
+                let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ((style & !WS_EX_TOOLWINDOW.0) | WS_EX_APPWINDOW.0) as isize,
+                );
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            std::thread::park_timeout(Duration::from_secs(30));
+        }
+        drop(close);
+        job.join().unwrap().unwrap();
+    }
     use crate::animation::PreparedFrame;
+    #[test]
+    fn controls_accent_and_countdown_render_real_pixels_in_their_regions() {
+        let make = |navigation, dismiss_button| {
+            Surface::card(
+                320,
+                110,
+                1.0,
+                22,
+                super::CardText {
+                    source: "Codex",
+                    label: "Turn complete",
+                    navigation,
+                    dismiss_button,
+                    color: crate::config::Color([16, 32, 48]),
+                },
+            )
+            .unwrap()
+        };
+        let single = make(false, false);
+        let multiple = make(true, false);
+        let explicit = make(false, true);
+        // SAFETY: every surface owns a 320x110 BGRA DIB and lives through inspection.
+        let pixels = |surface: &Surface| unsafe {
+            std::slice::from_raw_parts(surface.pixels, 320 * 110 * 4).to_vec()
+        };
+        let base = pixels(&single);
+        let region = |data: &[u8], left: usize, top: usize, right: usize, bottom: usize| {
+            (top..bottom)
+                .flat_map(|y| (left..right).map(move |x| (y * 320 + x) * 4))
+                .filter(|i| data[*i] > 180 && data[*i + 1] > 180 && data[*i + 2] > 180)
+                .count()
+        };
+        assert_eq!(&base[(55 * 320 + 2) * 4..][..4], &[46, 30, 15, 242]);
+        assert_eq!(region(&base, 215, 78, 303, 101), 0);
+        assert!(region(&pixels(&multiple), 215, 78, 303, 101) > 10);
+        assert!(region(&pixels(&explicit), 205, 78, 303, 101) > 40);
+        let mut previous = base.clone();
+        for second in [3, 2, 1] {
+            let timed = pixels(&single.with_countdown(second, 1.0).unwrap());
+            assert!(region(&timed, 240, 16, 303, 40) > 20);
+            assert_ne!(timed, previous);
+            for y in 40..110 {
+                assert_eq!(
+                    &timed[y * 320 * 4..(y + 1) * 320 * 4],
+                    &base[y * 320 * 4..(y + 1) * 320 * 4]
+                );
+            }
+            assert!(
+                timed
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| p[..3].iter().all(|c| *c <= p[3]))
+            );
+            previous = timed;
+        }
+        assert_eq!(
+            pixels(&single),
+            base,
+            "badges must not modify the cached base card"
+        );
+    }
     #[test]
     fn repeated_card_rendering_and_dpi_resize_release_native_resources() {
         if std::env::var_os("AHERALD_RESOURCE_HELPER").is_none() {
@@ -602,6 +1011,7 @@ mod card_tests {
             );
             let cycle = || {
                 let card = Surface::text(320, 110, 1.0, "Codex", "Error", 22).unwrap();
+                let card = card.with_countdown(3, 1.0).unwrap();
                 for width in [320, 480, 320] {
                     card.present_placed(window.0, (0, 0, width, 110), 255)
                         .unwrap();

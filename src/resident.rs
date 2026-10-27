@@ -80,6 +80,36 @@ pub struct Shared {
 }
 #[path = "resident_overlay.rs"]
 mod overlay;
+/// Preview in this process without acquiring the resident mutex or exposing IPC.
+pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
+    let demo = crate::demo::Demo::new(&config, pause_sec)?;
+    // Demo cards remain clearly labelled while using the supported agent's artwork.
+    if !config.agents.contains_key("demo")
+        && let Some(assets) = config.agents.get("codex").cloned()
+    {
+        config.agents.insert("demo".into(), assets);
+    }
+    let shared = Arc::new(std::sync::Mutex::new(Shared {
+        queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
+        paused: false,
+        sounds: config.sounds.enabled,
+        visuals: config.notifications.enabled,
+    }));
+    let usage = crate::usage_service::Service::codex(
+        config.usage.enabled,
+        Duration::from_secs(config.usage.refresh_interval_sec),
+    );
+    overlay::run_preview(
+        config,
+        shared,
+        Arc::new(AtomicBool::new(false)),
+        Instant::now(),
+        path.to_owned(),
+        usage,
+        Some(demo),
+    )
+}
+
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     let enabled = config.usage.enabled;
     let interval = Duration::from_secs(config.usage.refresh_interval_sec);
