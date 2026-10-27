@@ -159,32 +159,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 ## Milestone 5 — Polish and portable release
 
-- [ ] **AH-085 — Redesign the notification card layout.**
-  Layout (left to right): a wider accent stripe whose colour marks the event kind; the
-  artwork unchanged; the countdown top right unchanged. Text rows: (1) `<harness>, <folder>`
-  (the folder is the last component of the hook's `cwd`; only `<harness>` when there is
-  none, never a session ID); (2) the readable session name, or an empty row (the row is
-  always reserved so the card never changes height); (3) the event kind, larger and set
-  slightly apart, in the normal text colour. Bottom row: left `[Dismiss] <age>` (the button
-  only when `click_to_dismiss = false`), right `[<] n/m [>]` only when several cards are
-  queued; the arrows are bordered buttons in the Dismiss style and navigation wraps around.
-  The usage card moves to the same layout. Folder is display-only: it is not logged.
-  Acceptance: automated tests for folder extraction (separators, trailing separators, drive
-  roots, control and bidi characters, length), the heading model, button geometry, wrap-around
-  navigation and age text; Codex and Claude hooks carry the folder through the resident IPC;
-  rendering tests keep the card height equal for one and several cards; docs and example
-  config updated; manual visual check of both agents at 100% and 150% recorded.
-  Scope added 2026-10-27: `border_color` (global, per event, usage) outlines the card and
-  frames its buttons. Implemented with automated tests; remaining: the manual visual check
-  (not done; no interactive desktop run yet).
-
-- [ ] **AH-086 — `--version` and a tray About card.**
-  `aherald --version` prints `aHerald <version>` (no configuration needed); the tray
-  item "About aHerald" shows the version on a usage-style card and a second choice
-  closes it. Implemented with automated tests (CLI output and conflicts, the card text,
-  menu entry, and a native test that the card opens and closes). Remaining: look at the
-  card on a real desktop at 100% and 150%.
-
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop
@@ -192,6 +166,8 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   mixed-DPI checks pass without focus theft or screen-wide flashing.
   Implementation and automated checks committed; manual multi-monitor/mixed-DPI
   acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
+  Also carries the case split from AH-076: a card that opens on a second monitor with a
+  different DPI is drawn at that monitor's scale (cards are not draggable by design).
 
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
@@ -219,24 +195,26 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
-- [ ] **AH-076 — Visual check of native-DPI cards at 100/150/200% (split from AH-048).**
-  Depends on AH-048. Cards are now drawn at the target monitor's DPI. Check on a real
-  display at 100%, 150% and 200%: sharp text, pixel art still crisp (nearest-neighbor),
-  a long animation (more than 64 frames at 530×244) shows its artwork, and the usage
-  card and a transient card redraw when dragged between monitors of different DPI
-  (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
-  Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
-
 - [ ] **AH-023 — Complete release acceptance.** Depends on AH-022.
   Run automated checks, Windows IPC/lifecycle integration tests, and the smoke
-  matrix on Windows 10 and 11. Cover topmost/transparency/focus, sound, switching,
+  matrix on Windows 11. Windows 10 is out of the acceptance scope (decided 2026-10-27:
+  end of support, no machine; it stays labelled untested). Cover topmost/transparency/focus, sound, switching,
   tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
   Acceptance: publish the tested environment/results; label any untested platform
   explicitly instead of claiming verified support.
   Status 2026-10-27: the automated part and hook latency on Windows 11 are recorded in
-  `docs/release-acceptance.md`. Remaining: Windows 10 smoke, the visual/manual checks,
+  `docs/release-acceptance.md`. Remaining: the visual/manual checks,
   long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
   old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
+
+- [ ] **AH-087 — State "not tested on Windows 10" in the release notes.** Depends on AH-023.
+  Decided 2026-10-27: Windows 10 is out of the acceptance scope (end of support, no
+  machine) and the "Windows 10/11" wording stays for now. At release time add an explicit
+  line that the release was not tested on Windows 10 to `CHANGELOG.md` and `README.md`
+  (`docs/portable.md` and `README.md` limits already say it), and decide then whether
+  to reword the platform claim (`README.md`, `docs/portable.md`, `CHANGELOG.md`,
+  `INFO.md`, `AGENTS.md`, `package-release.ps1` MANIFEST line). Ask before changing
+  `AGENTS.md` or `INFO.md`. Acceptance: the release notes carry the statement.
 
 ## Milestone 6 — Claude parity (deferred)
 

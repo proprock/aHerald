@@ -147,7 +147,7 @@ fn exclusive_graphs_never_fall_back_to_another_agent() {
 }
 
 #[test]
-fn both_splits_each_window_into_claude_then_codex_at_every_size() {
+fn both_groups_claude_then_codex_each_with_five_hour_then_weekly_at_every_size() {
     use aherald::config::TrayGraph::Both;
     let codex = view(Some(80.), Some(0.));
     let claude = view(Some(0.), Some(50.));
@@ -157,12 +157,12 @@ fn both_splits_each_window_into_claude_then_codex_at_every_size() {
         let space = size - 2 * margin - gap;
         for display in [UsageDisplay::Remain, UsageDisplay::Used] {
             let pixels = graph(&codex, &claude, Both, display).render(size).unwrap();
-            for (window, colors) in [[GREEN, RED], [YELLOW, GREEN]].into_iter().enumerate() {
-                let i = window as u32;
+            for (agent, colors) in [[GREEN, YELLOW], [RED, GREEN]].into_iter().enumerate() {
+                let i = agent as u32;
                 let left = margin + i * space / 2 + i * gap;
                 let width = (i + 1) * space / 2 - i * space / 2;
-                for (agent, color) in colors.into_iter().enumerate() {
-                    let x = left + if agent == 0 { 0 } else { width / 2 };
+                for (window, color) in colors.into_iter().enumerate() {
+                    let x = left + if window == 0 { 0 } else { width / 2 };
                     assert_eq!(
                         pixel(
                             &pixels,
@@ -185,17 +185,17 @@ fn both_splits_each_window_into_claude_then_codex_at_every_size() {
         .unwrap();
     assert_eq!(pixel(&remain, 16, 1, 1), GREEN);
     assert_ne!(pixel(&used, 16, 1, 1), GREEN);
-    assert_ne!(pixel(&remain, 16, 4, 1), RED);
-    assert_ne!(pixel(&remain, 16, 4, 5), RED);
-    assert_eq!(pixel(&used, 16, 4, 5), RED);
-    assert_eq!(pixel(&used, 16, 4, 14), RED);
+    assert_ne!(pixel(&remain, 16, 9, 1), RED);
+    assert_ne!(pixel(&remain, 16, 9, 5), RED);
+    assert_eq!(pixel(&used, 16, 9, 5), RED);
+    assert_eq!(pixel(&used, 16, 9, 14), RED);
     assert_eq!(pixel(&remain, 16, 8, 8), [0; 4]);
     let missing = Levels::from_views(&codex, None, Both, UsageDisplay::Remain)
         .render(16)
         .unwrap();
     assert_eq!(pixel(&missing, 16, 1, 1), GRAY);
-    assert_eq!(pixel(&missing, 16, 4, 14), RED);
-    assert_eq!(pixel(&missing, 16, 9, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 4, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 9, 14), RED);
     assert_eq!(pixel(&missing, 16, 12, 1), GREEN);
     let mut disabled = codex.clone();
     disabled.enabled = false;
@@ -203,7 +203,8 @@ fn both_splits_each_window_into_claude_then_codex_at_every_size() {
         .render(16)
         .unwrap();
     assert_eq!(pixel(&missing, 16, 1, 1), GREEN);
-    assert_eq!(pixel(&missing, 16, 4, 1), GRAY);
+    assert_eq!(pixel(&missing, 16, 4, 14), YELLOW);
+    assert_eq!(pixel(&missing, 16, 9, 1), GRAY);
     assert_eq!(pixel(&missing, 16, 12, 1), GRAY);
 }
 

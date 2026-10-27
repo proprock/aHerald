@@ -47,7 +47,7 @@ fn split_native_icon_preserves_four_colors_and_reuses_and_restores_handle() {
         let dc = CreateCompatibleDC(None);
         assert!(!dc.is_invalid());
         let old = SelectObject(dc, info.hbmColor.into());
-        for (x, color) in [(1, 0x55b422), (4, 0x4444e0), (9, 0x00a5d8), (12, 0x55b422)] {
+        for (x, color) in [(1, 0x55b422), (4, 0x00a5d8), (9, 0x4444e0), (12, 0x55b422)] {
             assert_eq!(GetPixel(dc, x, 14), COLORREF(color));
         }
         SelectObject(dc, old);

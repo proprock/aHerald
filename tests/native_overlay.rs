@@ -159,7 +159,11 @@ fn preview_placement() {
         "aherald-placement-preview-{}.toml",
         std::process::id()
     ));
-    std::fs::write(&path, "[notifications]\nposition='bottom_right'\nscale=1.5\n[events.permission_required]\nduration_ms=0\n[sounds]\nenabled=false").unwrap();
+    // Optional: preview a local pet manifest (for example a large spritesheet) instead of builtin art.
+    let pet = std::env::var("AHERALD_PREVIEW_PET")
+        .map(|pet| format!("pet='{pet}'\n"))
+        .unwrap_or_default();
+    std::fs::write(&path, format!("[notifications]\nposition='bottom_right'\nscale=1.5\n{pet}[events.permission_required]\nduration_ms=0\n[sounds]\nenabled=false")).unwrap();
     let mut child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
