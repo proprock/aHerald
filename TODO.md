@@ -174,18 +174,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
-- [ ] **AH-023 — Complete release acceptance.** Depends on AH-022.
-  Run automated checks, Windows IPC/lifecycle integration tests, and the smoke
-  matrix on Windows 11. Windows 10 is out of the acceptance scope (decided 2026-10-27:
-  end of support, no machine; it stays labelled untested). Cover topmost/transparency/focus, sound, switching,
-  tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
-  Acceptance: publish the tested environment/results; label any untested platform
-  explicitly instead of claiming verified support.
-  Status 2026-10-27: the automated part and hook latency on Windows 11 are recorded in
-  `docs/release-acceptance.md`. Remaining: the visual/manual checks,
-  long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
-  old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
-
 ## Milestone 6 — Claude parity (deferred)
 
 - [ ] **AH-059 — Claude session names and statusLine quota fallback (split from AH-038).**

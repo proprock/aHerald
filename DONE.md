@@ -691,6 +691,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   separate C runtime). Not verified: the workflow itself has not run on GitHub (not pushed);
   Windows 10 extraction belongs to AH-023.
 
+- [x] **AH-023 — Complete release acceptance.**
+  Done (2026-10-27): automated checks, hook latency, card/About/DPI visual checks and
+  sound on Windows 11 build 22621, and the release workflow on tag `v0.1.0` are recorded
+  in `docs/release-acceptance.md`. Long-lived waits are covered by the live resident's
+  multi-hour runs, not a timed pending card. Windows 10 is out of scope and labelled
+  untested. Not verified and labelled so: a full Explorer process restart and
+  multi-monitor/mixed DPI (open as AH-020).
+
 - [x] **AH-060 — Platform seam, non-Windows build and CI.**
   Done (2026-10-27): the library and `main.rs` compile on macOS and Linux behind stub
   platform modules (`src/unsupported.rs`); `src/paths.rs` is the path helper;
