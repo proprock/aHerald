@@ -36,12 +36,6 @@ impl Agent {
             Self::Claude => "Claude",
         }
     }
-    pub fn hook_source(self) -> Source {
-        match self {
-            Self::Codex => Source::CodexHook,
-            Self::Claude => Source::ClaudeHook,
-        }
-    }
     pub fn hooks_enabled(self, config: &Config) -> bool {
         match self {
             Self::Codex => config.codex.hooks_enabled,

@@ -280,7 +280,7 @@ fn cached_values_keep_color_and_no_stale_status_after_time_or_failure() {
     assert!(!card.contains("Status:"), "{card}");
     assert!(card.contains("refresh failed"), "{card}");
     assert!(card.contains("8990"), "{card}");
-    for text in [v.compact(now, 1000, UsageDisplay::Remain), card] {
+    for text in [v.compact(1000, UsageDisplay::Remain), card] {
         assert!(!text.contains("stale"), "{text}");
     }
 }
