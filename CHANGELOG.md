@@ -32,6 +32,7 @@ configuration work.
   detector, animation frame-budget report, resource snapshots and `--perf-report` (AH-077–AH-082, AH-084).
 - Placement options (centre, top centre, bottom right, near cursor, selected monitor)
   and stacked simultaneous transient cards; implemented, manual multi-monitor acceptance is pending (AH-020).
+- `--version` and a tray **About aHerald** item that shows the version on a usage-style card (AH-086).
 - `src/unsupported.rs` stubs, `src/paths.rs` and a three-OS CI matrix (AH-060).
 
 ### Changed

@@ -37,6 +37,44 @@ fn help_identifies_application() {
 }
 
 #[test]
+fn version_prints_the_crate_version_and_needs_no_configuration() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
+        .args(["--version", "--config", "does-not-exist.toml"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("aHerald {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn version_conflicts_with_other_operations_and_modes() {
+    use aherald::cli::Cli;
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    assert_eq!(
+        parse(&["--version"]).unwrap().operation.as_deref(),
+        Some("version")
+    );
+    for args in [
+        vec!["--version", "--help"],
+        vec!["--version", "--hook"],
+        vec!["--version", "--resident"],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?}");
+    }
+}
+
+#[test]
+fn the_about_card_names_the_application_and_its_version() {
+    let text = aherald::about_card_text();
+    let (heading, body) = text.split_once('\n').unwrap();
+    assert_eq!(heading, "aHerald");
+    assert!(body.contains(&format!("Version {}", env!("CARGO_PKG_VERSION"))));
+}
+
+#[test]
 fn status_does_not_require_loading_the_notification_configuration() {
     let path = std::env::temp_dir().join(format!("aherald-control-{}.toml", std::process::id()));
     std::fs::write(&path, "[invalid TOML").unwrap();

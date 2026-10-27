@@ -697,6 +697,25 @@ impl Ui {
                 self.invalidate_usage();
                 self.selection = None;
             }
+            ABOUT => {
+                let about = crate::about_card_text();
+                if let Ok(mut state) = self.shared.lock() {
+                    // The same item closes its open card, like a usage line.
+                    if state.queue.selected().is_some_and(|e| e.is_usage())
+                        && self.notice.as_deref() == Some(about.as_str())
+                    {
+                        state.queue.dismiss();
+                        self.notice = None;
+                    } else {
+                        self.notice = Some(about);
+                        state.queue.show_usage();
+                    }
+                }
+                self.usage_text = self.card_text();
+                self.usage_page = 0;
+                self.invalidate_usage();
+                self.selection = None;
+            }
             EXIT => self.stop.store(true, Ordering::Release),
             _ => {}
         }

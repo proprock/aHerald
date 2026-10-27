@@ -35,7 +35,7 @@ impl Cli {
                     }
                     cli.demo_pause_sec = Some(seconds);
                 }
-                "--hook" | "--status" | "--quit" | "--help" | "--perf-report" => {
+                "--hook" | "--status" | "--quit" | "--help" | "--version" | "--perf-report" => {
                     if cli.operation.replace(arg[2..].to_owned()).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
@@ -78,7 +78,7 @@ impl Cli {
         }
         if matches!(
             cli.operation.as_deref(),
-            Some("status" | "quit" | "help" | "demo")
+            Some("status" | "quit" | "help" | "version" | "demo")
         ) && cli.mode.is_some()
         {
             return Err("operation does not accept a mode".into());
