@@ -46,40 +46,28 @@ fn polling_manual_refresh_failure_and_recovery_are_bounded() {
         })
     });
     driver.step(Duration::ZERO, false);
-    assert!(driver.view.summary(Duration::ZERO).contains("25%"));
-    // The queued error response is deliberately consumed by the next request, not idle polling.
-    driver.step(Duration::from_secs(5), true);
     assert!(
         driver
             .view
-            .summary(Duration::from_secs(5))
-            .contains("current")
+            .card_text(Duration::ZERO, 0)
+            .contains("25% used")
     );
-    assert!(
-        !driver
-            .view
-            .details(Duration::from_secs(5))
-            .contains("SECRET")
-    );
+    // The queued error response is deliberately consumed by the next request, not idle polling.
+    driver.step(Duration::from_secs(5), true);
+    let card = driver.view.card_text(Duration::from_secs(5), 0);
+    assert!(!card.contains("Status:"), "{card}");
+    assert!(!card.contains("SECRET"), "{card}");
     for t in 6..15 {
         driver.step(Duration::from_secs(t), true);
     }
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
     driver.step(Duration::from_secs(15), true);
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    assert!(driver.view.summary(Duration::from_secs(15)).contains("40%"));
-    assert!(
-        !driver
-            .view
-            .summary(Duration::from_secs(15))
-            .contains("stale")
-    );
-    assert!(
-        driver
-            .view
-            .summary(Duration::from_secs(316))
-            .contains("current")
-    );
+    let card = driver.view.card_text(Duration::from_secs(15), 0);
+    assert!(card.contains("40% used"), "{card}");
+    assert!(!card.contains("stale"), "{card}");
+    let later = driver.view.card_text(Duration::from_secs(316), 0);
+    assert!(!later.contains("Status:"), "{later}");
 }
 #[test]
 fn unavailable_polling_does_not_spin_or_expose_private_errors() {
@@ -93,7 +81,12 @@ fn unavailable_polling_does_not_spin_or_expose_private_errors() {
         driver.step(Duration::from_millis(n), true);
     }
     assert_eq!(count.load(Ordering::SeqCst), 1);
-    assert!(driver.view.summary(Duration::ZERO).contains("unavailable"));
+    assert!(
+        driver
+            .view
+            .card_text(Duration::ZERO, 0)
+            .contains("Status: unavailable")
+    );
     driver.step(Duration::from_secs(10), false);
     assert_eq!(count.load(Ordering::SeqCst), 2);
     driver.step(Duration::from_secs(29), true);
@@ -119,11 +112,16 @@ fn rolling_updates_are_applied_and_account_changes_clear_previous_usage() {
     });
     driver.step(Duration::ZERO, false);
     driver.step(Duration::from_secs(1), false);
-    let details = driver.view.details(Duration::from_secs(1));
-    assert!(details.contains("28%") && details.contains("90%") && details.contains("other"));
+    let card = driver.view.card_text(Duration::from_secs(1), 0);
+    assert!(card.contains("28% used") && card.contains("90% used") && card.contains("other"));
     driver.step(Duration::from_secs(2), false);
     assert!(driver.view.snapshot.is_none());
-    assert!(!driver.view.details(Duration::from_secs(2)).contains("90%"));
+    assert!(
+        !driver
+            .view
+            .card_text(Duration::from_secs(2), 0)
+            .contains("90%")
+    );
 }
 
 #[test]
@@ -171,7 +169,7 @@ fn periodic_refresh_reuses_one_connection_and_disabled_service_never_connects() 
         || -> Result<Mock, Error> { panic!("disabled usage must not launch a child") },
     );
     service.refresh();
-    assert!(service.summary().contains("disabled"));
+    assert!(service.card_text().contains("Status: disabled"));
     assert_eq!(
         aherald::config::Config::default()
             .codex

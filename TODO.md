@@ -77,14 +77,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   placement while the card is open. Acceptance: presenter unit tests; lifecycle, tray
   and leak tests; standard Cargo checks. Source: `audit-20261026.md` A6, E7, P2.
 
-- [ ] **AH-052 — Finish the usage-source cleanup (split from AH-044).**
-  Depends on AH-044. Remove the test-only `View::summary`/`details`/`brief` path and
-  move its assertions to the shown card text; type `Bucket.details` (for example as
-  structured extra-usage and spend fields) instead of pre-formatted lines; drop the
-  Codex-shaped JSON that `claude_usage::snapshot_from_response` still builds before
-  `Snapshot::parse`. Acceptance: tests assert the card text; no production code is
-  kept only for tests; standard Cargo checks. Source: `audit-20261026.md` A3, A4.
-
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev

@@ -66,18 +66,6 @@ impl View {
             "loading"
         }
     }
-    pub fn summary(&self, now: Duration) -> String {
-        let mut text = format!("{} usage ({})", self.label(), self.status(now));
-        if let Some(bucket) = self.bucket() {
-            for (label, window) in [
-                ("Primary", &bucket.primary),
-                ("Secondary", &bucket.secondary),
-            ] {
-                text.push_str(&format!("\r\n{label}: {}", brief(window.as_ref())));
-            }
-        }
-        text
-    }
     pub fn compact(
         &self,
         now: Duration,
@@ -143,9 +131,13 @@ impl View {
                         .unwrap_or_else(|| "—".into())
                 ));
             }
-            for line in bucket.details.iter().flatten() {
-                text.push_str(&clean(line));
-                text.push('\n');
+            for (name, allowance) in [
+                ("Extra usage", &bucket.extra_usage),
+                ("Spend", &bucket.spend),
+            ] {
+                if let Some(allowance) = allowance {
+                    text.push_str(&allowance_line(name, allowance));
+                }
             }
         }
         let status = self.status(now);
@@ -262,98 +254,6 @@ impl View {
         }
         text
     }
-    pub fn details(&self, now: Duration) -> String {
-        let mut text = format!("{} usage: {}\r\n", self.label(), self.status(now));
-        if !self.enabled {
-            text.push_str("Set [codex.usage] enabled = true and restart the resident.\r\n");
-        }
-        if let Some(error) = &self.error {
-            text.push_str(&format!("{error}\r\n"));
-        }
-        if let Some(updated) = self.updated {
-            text.push_str(&format!(
-                "Last successful update: {} seconds ago\r\n",
-                now.saturating_sub(updated).as_secs()
-            ));
-        }
-        if let Some(snapshot) = &self.snapshot {
-            for (id, bucket) in &snapshot.buckets {
-                text.push_str(&format!(
-                    "\r\n{} [{}] — plan: {}\r\n",
-                    clean(bucket.limit_name.as_deref().unwrap_or(id)),
-                    clean(id),
-                    bucket
-                        .plan_type
-                        .as_deref()
-                        .map(clean)
-                        .unwrap_or_else(|| "unavailable".into())
-                ));
-                for (label, window) in [
-                    ("Primary", &bucket.primary),
-                    ("Secondary", &bucket.secondary),
-                ] {
-                    let reset = window
-                        .as_ref()
-                        .and_then(|w| w.resets_at)
-                        .and_then(reset_text)
-                        .unwrap_or_else(|| "unavailable".into());
-                    text.push_str(&format!(
-                        "{label}: {}; reset: {reset}\r\n",
-                        brief(window.as_ref())
-                    ));
-                }
-                if let Some(c) = &bucket.credits {
-                    text.push_str(&format!(
-                        "Workspace credits: available={}, unlimited={}, balance={}\r\n",
-                        flag(c.has_credits),
-                        flag(c.unlimited),
-                        c.balance
-                            .as_deref()
-                            .map(clean)
-                            .unwrap_or_else(|| "unavailable".into())
-                    ));
-                } else {
-                    text.push_str("Workspace credits: unavailable\r\n");
-                }
-                if let Some(reached) = &bucket.rate_limit_reached_type {
-                    text.push_str(&format!("Limit state: {}\r\n", clean(reached)));
-                }
-            }
-            text.push_str(&format!(
-                "\r\nOrdinary usage allowed: {}\r\n",
-                flag(snapshot.ordinary_usage_allowed)
-            ));
-            if let Some(c) = &snapshot.reset_credits {
-                text.push_str(&format!(
-                    "Available reset credits: {} (read-only)\r\n",
-                    c.available_count
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "unavailable".into())
-                ));
-                if let Some(rows) = &c.credits {
-                    for row in rows {
-                        text.push_str(&format!(
-                            "  {}: {}; granted {}; expires {}\r\n",
-                            clean(row.title.as_deref().unwrap_or("Reset credit")),
-                            clean(row.status.as_deref().unwrap_or("unavailable")),
-                            row.granted_at
-                                .and_then(reset_text)
-                                .unwrap_or_else(|| "unavailable".into()),
-                            row.expires_at
-                                .and_then(short_reset_text)
-                                .unwrap_or_else(|| "unavailable".into())
-                        ));
-                    }
-                } else {
-                    text.push_str("Reset credit details: unavailable\r\n");
-                }
-            } else {
-                text.push_str("Reset credits: unavailable\r\n");
-            }
-        }
-        text.push_str("\r\nReset times use the Windows local timezone.\r\nNotifications run independently of usage. No account mutations are available.");
-        text
-    }
 }
 /// Preserve all text while fitting a bounded notification card; arrows page through it.
 pub fn card_pages(text: &str) -> Vec<String> {
@@ -401,28 +301,33 @@ fn clean(value: &str) -> String {
         .take(120)
         .collect()
 }
+/// `Extra usage: enabled, limit: 12.34/50.00 USD` (the figures are used/limit).
+fn allowance_line(name: &str, allowance: &crate::usage::Allowance) -> String {
+    let amount = |value: &Option<String>| clean(value.as_deref().unwrap_or("—"));
+    // Extra usage reads "limit: used/limit"; spend reads "used/limit" without the label.
+    let label = if name == "Extra usage" { "limit: " } else { "" };
+    format!(
+        "{name}: {}, {label}{}/{}{}\n",
+        if allowance.enabled == Some(true) {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        amount(&allowance.used),
+        amount(&allowance.limit),
+        allowance
+            .currency
+            .as_deref()
+            .map(|c| format!(" {}", clean(c)))
+            .unwrap_or_default()
+    )
+}
 fn flag(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "yes",
         Some(false) => "no",
         None => "unavailable",
     }
-}
-fn brief(window: Option<&crate::usage::Window>) -> String {
-    let Some(window) = window else {
-        return "unavailable".into();
-    };
-    let percent = window
-        .used_percent
-        .map(|v| format!("{v}% used"))
-        .unwrap_or_else(|| "unavailable".into());
-    format!(
-        "{percent} / {}",
-        window
-            .window_duration_mins
-            .map(|m| format!("{m} min"))
-            .unwrap_or_else(|| "window unavailable".into())
-    )
 }
 fn short_reset_text(timestamp: i64) -> Option<String> {
     reset_text(timestamp).map(|s| s.chars().take(16).collect())
@@ -694,18 +599,12 @@ impl Service {
             view
         })
     }
-    pub fn summary(&self) -> String {
-        self.view().summary(self.origin.elapsed())
-    }
     pub fn compact(&self, display: crate::config::UsageDisplay) -> String {
         self.view()
             .compact(self.origin.elapsed(), unix_now(), display)
     }
     pub fn card_text(&self) -> String {
         self.view().card_text(self.origin.elapsed(), unix_now())
-    }
-    pub fn details(&self) -> String {
-        self.view().details(self.origin.elapsed())
     }
 }
 impl Drop for Service {

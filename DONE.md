@@ -477,3 +477,13 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   exit. Checked by mutation: a placement wait that never times out makes the test fail
   with "card missing". Card-showing tests in that file now run one at a time because they
   share that mutex and screen area.
+
+- [x] **AH-052 — Finish the usage-source cleanup (split from AH-044).** Depends on AH-044.
+  Removed the test-only `View::summary`/`details`, `Service::summary`/`details` and
+  `brief`; their assertions in `tests/usage_service.rs` and `tests/tray_usage.rs` now check
+  the shown `card_text`. `Bucket.details` (pre-formatted lines) became typed
+  `Bucket.extra_usage`/`spend` (`usage::Allowance`: enabled, used, limit, currency);
+  the card renders the same text from them. `claude_usage::parse_response` builds the
+  `Snapshot` directly (no Codex-shaped JSON, `snapshot_from_response`/`with_plan` gone).
+  Codex card text is unchanged. Note: the dropped `details` view also showed reset-credit
+  `granted` times and full-length reset timestamps, which the card never did.
