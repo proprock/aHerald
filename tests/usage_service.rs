@@ -1,0 +1,179 @@
+use aherald::{
+    app_server::{Error, Transport},
+    usage_service::Driver,
+};
+use serde_json::{Value, json};
+use std::{
+    collections::VecDeque,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+struct Mock {
+    incoming: VecDeque<Result<Value, Error>>,
+}
+impl Transport for Mock {
+    fn send(&mut self, _: &Value, _: Duration) -> Result<(), Error> {
+        Ok(())
+    }
+    fn receive(&mut self, _: Duration) -> Result<Value, Error> {
+        self.incoming.pop_front().unwrap_or(Err(Error::Timeout))
+    }
+}
+#[test]
+fn polling_manual_refresh_failure_and_recovery_are_bounded() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    let mut driver = Driver::new(Duration::from_secs(300), move || {
+        let attempt = count.fetch_add(1, Ordering::SeqCst);
+        Ok(Mock {
+            incoming: if attempt == 0 {
+                VecDeque::from([
+                    Ok(json!({"id":1,"result":{}})),
+                    Ok(json!({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":25}}}})),
+                    Ok(json!({"id":3,"error":{"code":-32000,"message":"SECRET"}})),
+                ])
+            } else {
+                VecDeque::from([
+                    Ok(json!({"id":1,"result":{}})),
+                    Ok(json!({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":40}}}})),
+                ])
+            },
+        })
+    });
+    driver.step(Duration::ZERO, false);
+    assert!(driver.view.summary(Duration::ZERO).contains("25%"));
+    // The queued error response is deliberately consumed by the next request, not idle polling.
+    driver.step(Duration::from_secs(5), true);
+    assert!(
+        driver
+            .view
+            .summary(Duration::from_secs(5))
+            .contains("stale")
+    );
+    assert!(
+        !driver
+            .view
+            .details(Duration::from_secs(5))
+            .contains("SECRET")
+    );
+    for t in 6..15 {
+        driver.step(Duration::from_secs(t), true);
+    }
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    driver.step(Duration::from_secs(15), true);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(driver.view.summary(Duration::from_secs(15)).contains("40%"));
+    assert!(
+        !driver
+            .view
+            .summary(Duration::from_secs(15))
+            .contains("stale")
+    );
+    assert!(
+        driver
+            .view
+            .summary(Duration::from_secs(316))
+            .contains("stale")
+    );
+}
+#[test]
+fn unavailable_polling_does_not_spin_or_expose_private_errors() {
+    let count = Arc::new(AtomicUsize::new(0));
+    let calls = count.clone();
+    let mut driver = Driver::<Mock, _>::new(Duration::from_secs(300), move || {
+        calls.fetch_add(1, Ordering::SeqCst);
+        Err(Error::Unavailable)
+    });
+    for n in 0..1000 {
+        driver.step(Duration::from_millis(n), true);
+    }
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert!(driver.view.summary(Duration::ZERO).contains("unavailable"));
+    driver.step(Duration::from_secs(10), false);
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+    driver.step(Duration::from_secs(29), true);
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn rolling_updates_are_applied_and_account_changes_clear_previous_usage() {
+    let mut driver = Driver::new(Duration::from_secs(300), || {
+        Ok(Mock {
+            incoming: VecDeque::from([
+                Ok(json!({"id":1,"result":{}})),
+                Ok(
+                    json!({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":25}},"rateLimitsByLimitId":{
+                        "codex":{"primary":{"usedPercent":25}},"other":{"primary":{"usedPercent":90}}
+                    }}}),
+                ),
+                Ok(
+                    json!({"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":28}}}}),
+                ),
+                Ok(json!({"method":"account/updated","params":{"accountId":"private-account"}})),
+            ]),
+        })
+    });
+    driver.step(Duration::ZERO, false);
+    driver.step(Duration::from_secs(1), false);
+    let details = driver.view.details(Duration::from_secs(1));
+    assert!(details.contains("28%") && details.contains("90%") && details.contains("other"));
+    driver.step(Duration::from_secs(2), false);
+    assert!(driver.view.snapshot.is_none());
+    assert!(!driver.view.details(Duration::from_secs(2)).contains("90%"));
+}
+
+#[test]
+fn periodic_refresh_reuses_one_connection_and_disabled_service_never_connects() {
+    struct Echo {
+        response: Option<Value>,
+        calls: Arc<AtomicUsize>,
+    }
+    impl Transport for Echo {
+        fn send(&mut self, value: &Value, _: Duration) -> Result<(), Error> {
+            if value["method"] == "account/rateLimits/read" {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Some(id) = value.get("id") {
+                self.response =
+                    Some(json!({"id":id,"result":{"rateLimits":{"primary":{"usedPercent":0}}}}));
+            }
+            Ok(())
+        }
+        fn receive(&mut self, _: Duration) -> Result<Value, Error> {
+            self.response.take().ok_or(Error::Timeout)
+        }
+    }
+    let reads = Arc::new(AtomicUsize::new(0));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let calls = reads.clone();
+    let connections = starts.clone();
+    let mut driver = Driver::new(Duration::from_secs(300), move || {
+        connections.fetch_add(1, Ordering::SeqCst);
+        Ok(Echo {
+            response: None,
+            calls: calls.clone(),
+        })
+    });
+    driver.step(Duration::ZERO, false);
+    driver.step(Duration::from_secs(299), false);
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
+    driver.step(Duration::from_secs(300), false);
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    let service = aherald::usage_service::Service::spawn(
+        false,
+        Duration::from_secs(300),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        || -> Result<Mock, Error> { panic!("disabled usage must not launch a child") },
+    );
+    service.refresh();
+    assert!(service.summary().contains("disabled"));
+    assert_eq!(
+        aherald::config::Config::default()
+            .usage
+            .refresh_interval_sec,
+        300
+    );
+}

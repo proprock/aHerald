@@ -50,5 +50,6 @@ hooks_enabled = true
 input_monitoring = false
 
 [usage]
+# Resident-only; requires codex.exe on PATH and an existing Codex sign-in.
 enabled = false
 refresh_interval_sec = 300

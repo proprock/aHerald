@@ -85,9 +85,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
             "aHerald: Codex input monitoring unsupported for unrelated CLI/app sessions: no verified stable observation source; lifecycle hooks remain available"
         );
     }
-    if config.usage.enabled {
-        eprintln!("aHerald: Codex usage is not implemented until Milestone 4");
-    }
     if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
     }

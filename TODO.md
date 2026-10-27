@@ -182,14 +182,14 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 4 — Usage and quotas
 
-- [ ] **AH-017 — Connect to the official app-server.** Depends on AH-013.
+- [x] **AH-017 — Connect to the official app-server.** Depends on AH-013.
   Manage one long-lived stdio child with handshake, bounded JSON messages,
   request IDs, timeout, reconnect/backoff, and shutdown. Handle Codex absence,
   authentication unavailability, and unsupported methods without blocking UI.
   Acceptance: mock transport tests cover normal responses, timeouts, disconnects,
   malformed messages, and reconnect; credentials are never read or logged directly.
 
-- [ ] **AH-018 — Normalize available rate-limit data.** Depends on AH-017.
+- [x] **AH-018 — Normalize available rate-limit data.** Depends on AH-017.
   Implement `account/rateLimits/read` and supported updates, preferring multi-bucket
   data when available. Preserve primary/secondary windows, percentages, Unix reset
   timestamps, additional buckets, and officially exposed credits. Distinguish
@@ -197,7 +197,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   Acceptance: fixtures cover legacy/multi-bucket, optional fields, unknown fields,
   unavailable values, and local-time reset conversion including DST boundaries.
 
-- [ ] **AH-019 — Present usage independently of notifications.** Depends on AH-012, AH-018.
+- [x] **AH-019 — Present usage independently of notifications.** Depends on AH-012, AH-018.
   Show compact tray usage and a native details window for all available buckets.
   Use local reset times, default 300-second refresh, manual refresh, and explicit
   stale/unavailable states. Acceptance: usage failure leaves notifications working,
