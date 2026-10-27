@@ -77,42 +77,52 @@ impl Levels {
         let gap = ((size + 4) / 8).max(1);
         let height = size - 2 * margin;
         let space = size - 2 * margin - gap;
-        for index in 0..2 {
-            let i = index as u32;
-            let left = margin + i * space / 2 + i * gap;
-            let width = (i + 1) * space / 2 - i * space / 2;
-            let agents = if self.split_right.is_some() { 2 } else { 1 };
-            for agent in 0..agents {
-                let remaining = if agent == 0 {
-                    self.remaining[index]
-                } else {
-                    self.split_right.and_then(|r| r[index])
-                };
-                let start = left + agent * width / agents;
-                let end = left + (agent + 1) * width / agents;
-                let color = match remaining {
-                    Some(v) if v > 60.0 => [85, 180, 34, 255],
-                    Some(v) if v > 20.0 => [0, 165, 216, 255],
-                    Some(_) => [68, 68, 224, 255],
-                    None => [133, 133, 133, 255],
-                };
-                let percent = remaining.map_or(100.0, |v| match self.display {
-                    UsageDisplay::Remain => v,
-                    UsageDisplay::Used => 100.0 - v,
-                });
-                // A one-pixel baseline keeps a known zero distinct from missing data.
-                let fill = ((height as f64 * percent / 100.0).round() as u32).max(1);
-                for y in margin..margin + height {
-                    for x in start..end {
-                        let offset = ((y * size + x) * 4) as usize;
-                        // Opaque neutral tracks retain the full scale on light and dark taskbars.
-                        let pixel = if y >= margin + height - fill {
-                            color
-                        } else {
-                            [85, 85, 85, 255]
-                        };
-                        pixels[offset..offset + 4].copy_from_slice(&pixel);
+        // One group per agent (two when split), each holding its 5h then 7d bar,
+        // so a split icon reads as two single-agent icons side by side.
+        let mut bars = Vec::with_capacity(4);
+        match self.split_right {
+            Some(right) => {
+                for (group, remaining) in [self.remaining, right].into_iter().enumerate() {
+                    let g = group as u32;
+                    let left = margin + g * space / 2 + g * gap;
+                    let width = (g + 1) * space / 2 - g * space / 2;
+                    for (window, remaining) in remaining.into_iter().enumerate() {
+                        let w = window as u32;
+                        bars.push((remaining, left + w * width / 2, left + (w + 1) * width / 2));
                     }
+                }
+            }
+            None => {
+                for (window, remaining) in self.remaining.into_iter().enumerate() {
+                    let w = window as u32;
+                    let left = margin + w * space / 2 + w * gap;
+                    bars.push((remaining, left, left + (w + 1) * space / 2 - w * space / 2));
+                }
+            }
+        }
+        for (remaining, start, end) in bars {
+            let color = match remaining {
+                Some(v) if v > 60.0 => [85, 180, 34, 255],
+                Some(v) if v > 20.0 => [0, 165, 216, 255],
+                Some(_) => [68, 68, 224, 255],
+                None => [133, 133, 133, 255],
+            };
+            let percent = remaining.map_or(100.0, |v| match self.display {
+                UsageDisplay::Remain => v,
+                UsageDisplay::Used => 100.0 - v,
+            });
+            // A one-pixel baseline keeps a known zero distinct from missing data.
+            let fill = ((height as f64 * percent / 100.0).round() as u32).max(1);
+            for y in margin..margin + height {
+                for x in start..end {
+                    let offset = ((y * size + x) * 4) as usize;
+                    // Opaque neutral tracks retain the full scale on light and dark taskbars.
+                    let pixel = if y >= margin + height - fill {
+                        color
+                    } else {
+                        [85, 85, 85, 255]
+                    };
+                    pixels[offset..offset + 4].copy_from_slice(&pixel);
                 }
             }
         }
