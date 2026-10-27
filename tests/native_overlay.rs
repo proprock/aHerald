@@ -15,6 +15,12 @@ impl Drop for Owned {
         let _ = self.0.wait();
     }
 }
+/// Transient cards in these tests share one session-wide placement mutex and screen area, and
+/// the lock-timeout test holds that mutex on purpose, so card-showing tests run one at a time.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 struct Search {
     pid: u32,
     window: HWND,
@@ -211,6 +217,7 @@ unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL
 }
 #[test]
 fn overlay_is_nonactivating_layered_and_click_dismisses_indefinite_wait() {
+    let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-native-{}.toml", std::process::id()));
     std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
     let mut child = Owned(
@@ -268,6 +275,7 @@ fn overlay_is_nonactivating_layered_and_click_dismisses_indefinite_wait() {
 
 #[test]
 fn finite_notification_exits_by_its_timer() {
+    let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-timer-{}.toml", std::process::id()));
     std::fs::write(&path, "[events.turn_complete]\nduration_ms=100\n[notifications]\nfade_in_ms=0\nfade_out_ms=50\n[sounds]\nenabled=false").unwrap();
     let mut child = Owned(
@@ -325,6 +333,7 @@ fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
 
 #[test]
 fn simultaneous_transient_cards_do_not_overlap() {
+    let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-stack-{}.toml", std::process::id()));
     std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
@@ -360,4 +369,56 @@ fn simultaneous_transient_cards_do_not_overlap() {
             assert!(!overlap, "cards overlap: {a:?} vs {b:?}");
         }
     }
+}
+
+#[test]
+fn card_is_shown_when_another_process_holds_the_placement_lock_past_the_timeout() {
+    let _serial = serial();
+    // Stands in for a hook process that keeps the placement mutex longer than the 500 ms wait.
+    let held = aherald::local::Scope::current("overlay-placement")
+        .unwrap()
+        .acquire()
+        .unwrap()
+        .expect("placement mutex is free before the test starts");
+    let path = std::env::temp_dir().join(format!("aherald-lock-{}.toml", std::process::id()));
+    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
+    let child = Owned(
+        deliver(
+            &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
+            &path,
+            &Event::demo("permission_required").unwrap(),
+        )
+        .unwrap(),
+    );
+    let _ = std::fs::remove_file(&path);
+    let mut search = Search {
+        pid: child.0.id(),
+        window: HWND::default(),
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while search.window.is_invalid() && Instant::now() < deadline {
+        // SAFETY: the callback receives a live Search for this synchronous enumeration.
+        unsafe {
+            let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut Search as isize));
+        }
+        std::thread::yield_now();
+    }
+    // The lock is still held here, so a visible card means the wait timed out and degraded.
+    assert!(
+        !search.window.is_invalid(),
+        "card missing while the placement lock is held"
+    );
+    // SAFETY: only the owned child's window is sent a synthetic dismissal.
+    unsafe { PostMessageW(Some(search.window), WM_LBUTTONUP, WPARAM(0), LPARAM(0)).unwrap() };
+    let mut child = child;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "card process did not exit");
+        std::thread::yield_now();
+    }
+    drop(held);
 }
