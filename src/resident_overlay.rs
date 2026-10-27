@@ -1,4 +1,5 @@
 //! Single resident card. The GUI never waits for asset decoding or IPC.
+use crate::reentry::{Deferred, Gate};
 use crate::{
     animation::PreparedAnimation,
     config::Config,
@@ -6,6 +7,7 @@ use crate::{
     resident::Shared,
 };
 use std::{
+    cell::{Cell, UnsafeCell},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -286,7 +288,7 @@ impl Ui {
         };
         self.audio.retain(|job| !job.is_finished());
         // Every new event sounds once, even behind a selected persistent card.
-        let room = 4usize.saturating_sub(self.audio.len());
+        let room = crate::presenter::sound_slots(self.audio.len());
         let fresh = self
             .shared
             .lock()
@@ -383,6 +385,10 @@ impl Ui {
             // The title is informational; a failure must not stop the card.
             unsafe {
                 let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
+                // Debug-build fault injection: a message sent while this draw runs.
+                if fault(&self.config.diagnostic_directory, "reenter") {
+                    SendMessageW(hwnd, WM_DISPLAYCHANGE, None, None);
+                }
             }
         }
         let Some(shown) = self.presenter.next(&crate::presenter::Input {
@@ -624,99 +630,139 @@ impl Ui {
         }
     }
 }
-unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    // SAFETY: Ui is boxed for the window's lifetime, and accessed only by its GUI thread.
-    unsafe {
-        if msg == WM_NCCREATE {
-            let create = &*(lp.0 as *const CREATESTRUCTW);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+/// Everything behind the window's `GWLP_USERDATA`.
+///
+/// `ShowWindow` and `SetWindowTextW` send messages to this window synchronously, so the
+/// procedure is entered again while `Ui::draw` runs. `Ui` therefore sits behind the
+/// `gate`: a handler borrows it only when no other handler is active, and a message that
+/// arrives meanwhile is kept and handled once the active one is done. Nothing outside
+/// `ui` is touched on that path.
+struct Window {
+    gate: Gate,
+    taskbar_created: Cell<u32>,
+    ui: UnsafeCell<Ui>,
+}
+impl Window {
+    /// Runs `f` on the `Ui`, or keeps `message` for later when a handler is active.
+    ///
+    /// # Safety
+    /// GUI thread only; the gate guarantees that at most one `&mut Ui` is alive.
+    unsafe fn with_ui<R>(&self, message: Deferred, f: impl FnOnce(&mut Ui) -> R) -> Option<R> {
+        if !self.gate.enter() {
+            self.gate.defer(message);
+            return None;
         }
-        let p = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ui;
-        if !p.is_null() {
-            if (*p)
-                .tray
-                .as_ref()
-                .is_some_and(|tray| msg == tray.taskbar_created)
-            {
-                if let Some(tray) = &mut (*p).tray {
+        // SAFETY: the gate is held, so no other reference to the Ui exists.
+        let result = f(unsafe { &mut *self.ui.get() });
+        self.gate.leave();
+        Some(result)
+    }
+}
+/// Handles a tray icon notification. The popup menu runs a nested message loop, so the
+/// `Ui` is borrowed before and after it, never across it.
+///
+/// # Safety
+/// GUI thread only.
+unsafe fn tray_callback(w: &Window, hwnd: HWND, message: Deferred) {
+    use windows::Win32::UI::Shell::{NIN_SELECT, NINF_KEY};
+    let event = (message.lparam & 0xffff) as u32;
+    if ![
+        WM_CONTEXTMENU,
+        WM_RBUTTONUP,
+        WM_LBUTTONUP,
+        NIN_SELECT,
+        NIN_SELECT | NINF_KEY,
+    ]
+    .contains(&event)
+    {
+        return;
+    }
+    // SAFETY: GUI thread, per this function's contract.
+    unsafe {
+        let Some(menu) = w.with_ui(message, |ui| {
+            let (codex, claude) = ui.menu_lines();
+            crate::tray::Menu::new(
+                ui.config.sounds.enabled,
+                ui.config.notifications.enabled,
+                ui.shared.lock().ok().is_some_and(|s| s.paused),
+                codex.as_deref(),
+                claude.as_deref(),
+            )
+        }) else {
+            return;
+        };
+        if let Ok(menu) = menu {
+            let command = menu.select(hwnd);
+            let chosen = Deferred {
+                msg: WM_COMMAND,
+                wparam: command,
+                lparam: 0,
+            };
+            w.with_ui(chosen, |ui| {
+                ui.command(hwnd, command);
+                if let Some(tray) = &ui.tray {
+                    tray.focus();
+                }
+                ui.draw(hwnd);
+            });
+        }
+    }
+}
+/// Returns false for a message the window leaves to `DefWindowProcW`.
+///
+/// # Safety
+/// GUI thread only.
+unsafe fn handle(w: &Window, hwnd: HWND, message: Deferred) -> bool {
+    let (msg, wp, lp) = (message.msg, WPARAM(message.wparam), LPARAM(message.lparam));
+    // SAFETY: GUI thread, per this function's contract.
+    unsafe {
+        if msg != 0 && msg == w.taskbar_created.get() {
+            w.with_ui(message, |ui| {
+                if let Some(tray) = &mut ui.tray {
                     tray.restore();
                 }
-                // The tray icon moved with the taskbar: the cached placement is stale.
-                (*p).relayout();
-                return LRESULT(0);
-            }
-            if msg == crate::tray::CALLBACK {
-                let event = (lp.0 & 0xffff) as u32;
-                use windows::Win32::UI::Shell::{NIN_SELECT, NINF_KEY};
-                if [
-                    WM_CONTEXTMENU,
-                    WM_RBUTTONUP,
-                    WM_LBUTTONUP,
-                    NIN_SELECT,
-                    NIN_SELECT | NINF_KEY,
-                ]
-                .contains(&event)
-                {
-                    let menu = {
-                        let ui = &*p;
-                        let (codex, claude) = ui.menu_lines();
-                        crate::tray::Menu::new(
-                            ui.config.sounds.enabled,
-                            ui.config.notifications.enabled,
-                            ui.shared.lock().ok().is_some_and(|s| s.paused),
-                            codex.as_deref(),
-                            claude.as_deref(),
-                        )
-                    };
-                    if let Ok(menu) = menu {
-                        // TrackPopupMenu runs a nested message loop. Do not borrow Ui across it.
-                        let command = menu.select(hwnd);
-                        let ui = &mut *p;
-                        ui.command(hwnd, command);
-                        if let Some(tray) = &ui.tray {
-                            tray.focus();
-                        }
-                        ui.draw(hwnd);
-                    }
-                }
-                return LRESULT(0);
-            }
-            if msg == WM_MOUSEWHEEL && (*p).usage_window {
-                let ui = &mut *p;
-                let body = ui
-                    .usage_text
-                    .split_once('\n')
-                    .map(|(_, body)| body)
-                    .unwrap_or("");
-                let pages = crate::usage_service::card_pages(body).len();
-                let delta = ((wp.0 >> 16) as u16) as i16;
-                if delta != 0 {
-                    ui.usage_page = (ui.usage_page as isize - delta.signum() as isize)
-                        .rem_euclid(pages as isize) as usize;
-                }
-                ui.invalidate_usage();
-                ui.draw(hwnd);
-                return LRESULT(0);
-            }
-            if msg == WM_COMMAND {
-                let ui = &mut *p;
-                ui.command(hwnd, wp.0 & 0xffff);
-                ui.draw(hwnd);
-                return LRESULT(0);
-            }
+                // The icon moved with the taskbar: a cached placement is stale.
+                ui.relayout();
+            });
+            return true;
         }
         match msg {
-            WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
-            WM_DESTROY => {
-                PostQuitMessage(0);
-                return LRESULT(0);
+            crate::tray::CALLBACK => tray_callback(w, hwnd, message),
+            WM_MOUSEWHEEL => {
+                // Only the usage card scrolls; otherwise the default procedure decides.
+                return w
+                    .with_ui(message, |ui| {
+                        if !ui.usage_window {
+                            return false;
+                        }
+                        let body = ui
+                            .usage_text
+                            .split_once('\n')
+                            .map(|(_, body)| body)
+                            .unwrap_or("");
+                        let pages = crate::usage_service::card_pages(body).len();
+                        let delta = ((wp.0 >> 16) as u16) as i16;
+                        if delta != 0 {
+                            ui.usage_page = (ui.usage_page as isize - delta.signum() as isize)
+                                .rem_euclid(pages as isize)
+                                as usize;
+                        }
+                        ui.invalidate_usage();
+                        ui.draw(hwnd);
+                        true
+                    })
+                    .unwrap_or(true);
+            }
+            WM_COMMAND => {
+                w.with_ui(message, |ui| {
+                    ui.command(hwnd, wp.0 & 0xffff);
+                    ui.draw(hwnd);
+                });
             }
             WM_CLOSE => {
-                if !p.is_null() {
-                    (*p).tray.take();
+                if w.with_ui(message, |ui| ui.tray.take()).is_some() {
+                    let _ = DestroyWindow(hwnd);
                 }
-                let _ = DestroyWindow(hwnd);
-                return LRESULT(0);
             }
             WM_TIMER
             | crate::resident::WAKE
@@ -724,23 +770,54 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             | WM_KEYDOWN
             | WM_DISPLAYCHANGE
             | WM_DPICHANGED
-            | WM_SETTINGCHANGE
-                if !p.is_null() =>
-            {
-                let ui = &mut *p;
-                if matches!(msg, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
-                    ui.relayout();
-                }
-                if ui.now() >= ui.tray_retry {
-                    ui.tray_retry = ui.now().saturating_add(5000);
-                    if let Some(tray) = &mut ui.tray {
-                        tray.restore();
+            | WM_SETTINGCHANGE => {
+                w.with_ui(message, |ui| {
+                    if matches!(msg, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
+                        ui.relayout();
                     }
+                    if ui.now() >= ui.tray_retry {
+                        ui.tray_retry = ui.now().saturating_add(5000);
+                        if let Some(tray) = &mut ui.tray {
+                            tray.restore();
+                        }
+                    }
+                    if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
+                        ui.input(msg, wp, lp);
+                    }
+                    ui.draw(hwnd);
+                });
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    // SAFETY: the Window is boxed for the window's lifetime and used only by its GUI thread.
+    unsafe {
+        if msg == WM_NCCREATE {
+            let create = &*(lp.0 as *const CREATESTRUCTW);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+        }
+        if let Some(w) = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Window).as_ref() {
+            let message = Deferred {
+                msg,
+                wparam: wp.0,
+                lparam: lp.0,
+            };
+            if handle(w, hwnd, message) {
+                // Run what arrived while a handler was active, once none is.
+                while !w.gate.busy() {
+                    let Some(next) = w.gate.next() else { break };
+                    handle(w, hwnd, next);
                 }
-                if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
-                    ui.input(msg, wp, lp);
-                }
-                ui.draw(hwnd);
+                return LRESULT(0);
+            }
+        }
+        match msg {
+            WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+            WM_DESTROY => {
+                PostQuitMessage(0);
                 return LRESULT(0);
             }
             _ => {}
@@ -817,53 +894,60 @@ pub(super) fn run_preview(
         }
     });
     let claude = claude_usage(&config);
-    let mut ui = Box::new(Ui {
-        shared,
-        stop: stop.clone(),
-        config,
-        scale,
-        jobs: Some(jobs_tx),
-        results: results_rx,
-        surfaces: Vec::new(),
-        durations: vec![1000],
-        looping: false,
-        selection: None,
-        layout_count: 0,
-        art: None,
-        start,
-        animation_start: 0,
-        pending: false,
-        audio: Vec::new(),
-        text_left: 22,
-        width: 320,
-        height: 110,
-        display_size: (320, 110),
-        placement: None,
-        tray: None,
-        tray_retry: 0,
-        config_path,
-        claude,
-        usage,
-        usage_next: 0,
-        usage_window: false,
-        activation: crate::activation::Worker::default(),
-        usage_text: String::new(),
-        usage_page: 0,
-        usage_claude: false,
-        usage_surface: None,
-        audio_cancel: Arc::new(AtomicBool::new(false)),
-        error: None,
-        render_failed: false,
-        timer_ms: None,
-        tooltip: String::new(),
-        notice: None,
-        usage_failing: [false; 2],
-        demo,
-        countdown: None,
-        source_labels: crate::session_source::Service::codex(),
-        source_heading: String::new(),
-        presenter: crate::presenter::Presenter::default(),
+    let window = Box::new(Window {
+        gate: Gate::default(),
+        taskbar_created: Cell::new(0),
+        ui: UnsafeCell::new(Ui {
+            shared,
+            stop: stop.clone(),
+            config,
+            scale,
+            jobs: Some(jobs_tx),
+            results: results_rx,
+            surfaces: Vec::new(),
+            durations: vec![1000],
+            looping: false,
+            selection: None,
+            layout_count: 0,
+            art: None,
+            start,
+            animation_start: 0,
+            pending: false,
+            audio: Vec::new(),
+            text_left: 22,
+            width: 320,
+            height: 110,
+            display_size: (320, 110),
+            placement: None,
+            tray: None,
+            tray_retry: 0,
+            config_path,
+            claude,
+            usage,
+            usage_next: 0,
+            usage_window: false,
+            activation: crate::activation::Worker::default(),
+            usage_text: String::new(),
+            usage_page: 0,
+            usage_claude: false,
+            usage_surface: None,
+            audio_cancel: Arc::new(AtomicBool::new(false)),
+            error: None,
+            render_failed: false,
+            timer_ms: None,
+            tooltip: String::new(),
+            notice: None,
+            usage_failing: [false; 2],
+            demo,
+            countdown: None,
+            source_labels: crate::session_source::Service::codex(),
+            source_heading: String::new(),
+            presenter: crate::presenter::Presenter::default(),
+        }),
     });
+    // A short-lived borrow per use: none may be alive while messages are dispatched,
+    // because the window procedure borrows the Ui too.
+    let ui = || unsafe { &mut *window.ui.get() };
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;
         let class = w!("aHerald.Resident");
@@ -881,7 +965,7 @@ pub(super) fn run_preview(
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class,
-            if ui.demo.is_some() {
+            if ui().demo.is_some() {
                 w!("aHerald demo")
             } else {
                 w!("aHerald resident")
@@ -894,17 +978,20 @@ pub(super) fn run_preview(
             None,
             None,
             Some(module.into()),
-            Some(&mut *ui as *mut Ui as *const std::ffi::c_void),
+            Some(&*window as *const Window as *const std::ffi::c_void),
         )
         .map_err(|_| "cannot create resident window")?;
         match crate::tray::Icon::new(hwnd) {
-            Ok(tray) => ui.tray = Some(tray),
+            Ok(tray) => {
+                window.taskbar_created.set(tray.taskbar_created);
+                ui().tray = Some(tray);
+            }
             Err(error) => {
                 let _ = DestroyWindow(hwnd);
                 return Err(error);
             }
         }
-        if let Ok(mut state) = ui.shared.lock() {
+        if let Ok(mut state) = ui().shared.lock() {
             state.window = hwnd.0 as isize;
         }
         // The first draw also arms or skips the timer; events queued before the window
@@ -914,7 +1001,7 @@ pub(super) fn run_preview(
         loop {
             let code = GetMessageW(&mut msg, None, 0, 0).0;
             if code <= 0 {
-                ui.tray.take();
+                ui().tray.take();
                 if IsWindow(Some(hwnd)).as_bool() {
                     let _ = DestroyWindow(hwnd);
                 }
@@ -929,6 +1016,7 @@ pub(super) fn run_preview(
         Ok(())
     })();
     stop.store(true, Ordering::Release);
+    let ui = ui();
     ui.audio_cancel.store(true, Ordering::Release);
     ui.tray.take();
     ui.jobs.take();

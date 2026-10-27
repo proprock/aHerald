@@ -124,3 +124,12 @@ fn invalidate_forces_the_next_presentation() {
     presenter.invalidate();
     assert!(presenter.next(&input(&e, &[1000], 32)).is_some());
 }
+
+#[test]
+fn sound_slots_cap_concurrent_playback() {
+    use aherald::presenter::{MAX_SOUNDS, sound_slots};
+    assert_eq!(sound_slots(0), MAX_SOUNDS);
+    assert_eq!(sound_slots(MAX_SOUNDS - 1), 1);
+    assert_eq!(sound_slots(MAX_SOUNDS), 0);
+    assert_eq!(sound_slots(MAX_SOUNDS + 3), 0);
+}

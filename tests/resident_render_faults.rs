@@ -126,3 +126,20 @@ fn placement_failure_keeps_the_resident_accepting_events_and_recovers() {
     wait_for_window(pid);
     assert_eq!(status(&scope).0, pid);
 }
+
+#[test]
+fn a_message_sent_during_draw_is_handled_after_it_and_the_resident_keeps_serving() {
+    let (scope, _cleanup, pid, root) = start("reenter");
+    send(&scope, "permission_required", "one");
+    wait_for_window(pid);
+    send(&scope, "input_required", "two");
+    assert_eq!(status(&scope), (pid, 2));
+    // The deferred display change re-placed the card instead of dropping or hiding it.
+    let until = Instant::now() + Duration::from_millis(300);
+    while Instant::now() < until {
+        assert!(visible_window(pid).is_some(), "card vanished");
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    std::fs::remove_file(root.join("aherald.fault")).unwrap();
+    assert_eq!(status(&scope).0, pid);
+}
