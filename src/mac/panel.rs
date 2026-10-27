@@ -14,6 +14,8 @@ use std::cell::RefCell;
 pub struct Clicks {
     /// Mouse-down positions in points from the card's top-left corner, oldest first.
     points: RefCell<Vec<(f64, f64)>>,
+    /// Vertical scroll amounts, positive when the content should move up.
+    scrolls: RefCell<Vec<f64>>,
 }
 
 define_class!(
@@ -32,6 +34,11 @@ define_class!(
             self.ivars().points.borrow_mut().push((at.x, height - at.y));
         }
 
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &NSEvent) {
+            self.ivars().scrolls.borrow_mut().push(event.scrollingDeltaY());
+        }
+
         // A click on a card of another application's window still reaches the buttons.
         #[unsafe(method(acceptsFirstMouse:))]
         fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
@@ -44,6 +51,7 @@ impl CardView {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = mtm.alloc::<Self>().set_ivars(Clicks {
             points: RefCell::new(Vec::new()),
+            scrolls: RefCell::new(Vec::new()),
         });
         // SAFETY: `init` of the superclass on a freshly allocated, initialised-ivar object.
         unsafe { msg_send![super(this), init] }
@@ -143,6 +151,11 @@ impl Panel {
     /// Mouse-down positions since the last call, in points from the card's top-left corner.
     pub fn take_clicks(&self) -> Vec<(f64, f64)> {
         std::mem::take(&mut *self.view.ivars().points.borrow_mut())
+    }
+
+    /// Scroll-wheel movements since the last call, oldest first.
+    pub fn take_scrolls(&self) -> Vec<f64> {
+        std::mem::take(&mut *self.view.ivars().scrolls.borrow_mut())
     }
 
     pub fn hide(&self) {

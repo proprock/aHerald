@@ -265,6 +265,15 @@ struct Ui {
     stop: Arc<AtomicBool>,
     waker: Arc<Waker>,
     config_path: std::path::PathBuf,
+    /// Replaces the usage card text, e.g. the about text or a refused Restart; cleared when
+    /// the card closes.
+    notice: Option<String>,
+    usage_text: String,
+    usage_text_next: u64,
+    usage_page: usize,
+    usage_window: bool,
+    usage_surface: Option<Surface>,
+    layout_count: usize,
 }
 
 impl Ui {
@@ -312,6 +321,57 @@ impl Ui {
         }
     }
 
+    /// Opens the usage card with `text` instead of the quota details.
+    fn show_notice(&mut self, text: String) {
+        self.notice = Some(text);
+        if let Ok(mut state) = self.shared.lock() {
+            state.queue.show_usage();
+        }
+        self.reset_usage_card();
+    }
+
+    /// The usage card's text or page changed: rebuild it from the first page.
+    fn reset_usage_card(&mut self) {
+        self.usage_text = self.usage_card_text();
+        self.usage_page = 0;
+        self.invalidate_usage();
+        self.selection = None;
+    }
+
+    fn usage_card_text(&self) -> String {
+        self.notice
+            .clone()
+            .unwrap_or_else(|| self.usage.card_text())
+    }
+
+    /// The usage card's text, page, size or place changed: redraw it from scratch.
+    fn invalidate_usage(&mut self) {
+        self.usage_surface = None;
+        self.frame = None;
+        self.presenter.invalidate();
+    }
+
+    /// Pages through a long usage card with the scroll wheel.
+    fn handle_scrolls(&mut self) {
+        let scrolls = self.panel.take_scrolls();
+        if !self.usage_window {
+            return;
+        }
+        let body = self.usage_text.split_once('\n').map_or("", |(_, b)| b);
+        let last = crate::usage_service::card_pages(body).len() - 1;
+        for delta in scrolls.into_iter().filter(|d| *d != 0.0) {
+            let page = if delta < 0.0 {
+                (self.usage_page + 1).min(last)
+            } else {
+                self.usage_page.saturating_sub(1)
+            };
+            if page != self.usage_page {
+                self.usage_page = page;
+                self.invalidate_usage();
+            }
+        }
+    }
+
     /// Runs what the menu chose. Returns whether the loop must stop.
     fn handle_commands(&mut self) {
         for command in self.tray.take_commands() {
@@ -345,7 +405,9 @@ impl Ui {
                         crate::operational_log::log(
                             crate::operational_log::Record::InvalidConfiguration,
                         );
-                        eprintln!("aHerald: restart cancelled: {error}");
+                        self.show_notice(format!(
+                            "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                        ));
                         continue;
                     }
                     let (stop, waker) = (self.stop.clone(), self.waker.clone());
@@ -360,8 +422,34 @@ impl Ui {
                 Command::Exit => {
                     self.stop.store(true, Ordering::Release);
                 }
-                // The about and usage cards follow in the next step of AH-063.
-                Command::About | Command::CodexSummary | Command::ClaudeSummary => {}
+                Command::CodexSummary => {
+                    self.notice = None;
+                    if let Ok(mut state) = self.shared.lock() {
+                        // The same line closes its open card.
+                        if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                            state.queue.dismiss();
+                        } else {
+                            state.queue.show_usage();
+                            self.usage.refresh();
+                        }
+                    }
+                    self.reset_usage_card();
+                }
+                Command::About => {
+                    let about = crate::about_card_text();
+                    // The same item closes its open card, like a usage line.
+                    if self.usage_window && self.notice.as_deref() == Some(about.as_str()) {
+                        if let Ok(mut state) = self.shared.lock() {
+                            state.queue.dismiss();
+                        }
+                        self.notice = None;
+                        self.reset_usage_card();
+                    } else {
+                        self.show_notice(about);
+                    }
+                }
+                // Claude usage on macOS arrives with AH-066.
+                Command::ClaudeSummary => {}
             }
         }
     }
@@ -372,15 +460,26 @@ impl Ui {
         if clicks.is_empty() {
             return;
         }
-        let (Some(composition), Some(frame)) = (&self.composition, self.frame) else {
+        let Some(frame) = self.frame else {
             return;
         };
-        let (width, height) = composition.size();
+        let (width, height, text_left) = if self.usage_window {
+            let Some(surface) = &self.usage_surface else {
+                return;
+            };
+            (surface.width, surface.height, (22.0 * self.scale) as i32)
+        } else {
+            let Some(composition) = &self.composition else {
+                return;
+            };
+            let (width, height) = composition.size();
+            (width, height, composition.text_left)
+        };
         let layout = input::Layout {
             width,
             height,
             scale: self.scale,
-            text_left: composition.text_left,
+            text_left,
         };
         let window = (frame.rect.width, frame.rect.height);
         let now = self.now();
@@ -392,7 +491,7 @@ impl Ui {
         for point in clicks {
             input::click(
                 &mut state.queue,
-                self.config.notifications.click_to_dismiss,
+                self.usage_window || self.config.notifications.click_to_dismiss,
                 &layout,
                 input::to_pixels(point, window, &layout),
             );
@@ -422,6 +521,98 @@ impl Ui {
         }
     }
 
+    fn draw_usage(&mut self, index: usize, count: usize) -> Result<(), String> {
+        let (heading, body) = self
+            .usage_text
+            .split_once('\n')
+            .unwrap_or((&self.usage_text, ""));
+        let pages = crate::usage_service::card_pages(body);
+        self.usage_page = self.usage_page.min(pages.len() - 1);
+        let controls = Card::new(
+            crate::card::Heading::from_summary(heading),
+            index,
+            count,
+            true,
+        );
+        if self.layout_count != count {
+            self.layout_count = count;
+            self.invalidate_usage();
+        }
+        let screens = panel::screens(self.mtm);
+        if screens.is_empty() {
+            return Err("no display".into());
+        }
+        let anchor = self.tray.frame();
+        let centre = anchor.map_or((0.0, 0.0), |a| (a.x + a.width / 2.0, a.y + a.height / 2.0));
+        let screen = geometry::choose(
+            &screens,
+            self.config.notifications.monitor,
+            crate::config::Position::NearCursor,
+            centre,
+        );
+        let wanted = self.config.notifications.scale * screens[screen].scale;
+        if (wanted - self.scale).abs() > 1e-9 {
+            self.scale = wanted;
+            self.composition = None;
+            self.art = None;
+            self.pending = true;
+            self.compose_due = true;
+            self.invalidate_usage();
+        }
+        let scale = self.scale;
+        if self.usage_surface.is_none() {
+            let width = (760.0 * scale) as i32;
+            let height = Surface::body_height(
+                width - (40.0 * scale) as i32,
+                scale,
+                &pages[self.usage_page],
+            )? + (114.0 * scale) as i32;
+            self.usage_surface = Some(Surface::card(
+                width,
+                height,
+                scale,
+                (22.0 * scale) as i32,
+                CardText {
+                    heading: &controls.heading,
+                    label: &pages[self.usage_page],
+                    body: true,
+                    index,
+                    count,
+                    dismiss_button: false,
+                    age: None,
+                    color: crate::config::Color([80, 165, 250]),
+                    background_color: self.config.usage_background_color(),
+                    border: self.config.usage_border_color(),
+                },
+            )?);
+        }
+        if self.presenter.next_static().is_none() {
+            return Ok(());
+        }
+        let surface = self
+            .usage_surface
+            .as_ref()
+            .ok_or("usage surface unavailable")?;
+        let size = (surface.width, surface.height);
+        let frame = match self.frame {
+            Some(frame) => frame,
+            None => {
+                let frame = match anchor {
+                    Some(anchor) => geometry::place_below(&screens[screen], anchor, size),
+                    None => geometry::place(
+                        &screens[screen],
+                        size,
+                        crate::config::Position::TopCenter,
+                        centre,
+                    ),
+                };
+                self.frame = Some(frame);
+                frame
+            }
+        };
+        self.panel.show(surface, &frame, 255)
+    }
+
     fn draw(&mut self) -> Result<(), String> {
         let now = self.now();
         let (entry, index, count, paused) = {
@@ -441,7 +632,29 @@ impl Ui {
                 paused,
             )
         };
-        let Some(entry) = entry.filter(|e| !paused && !e.is_usage()) else {
+        self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
+        if !self.usage_window {
+            self.notice = None;
+            self.usage_surface = None;
+        }
+        if self.usage_window {
+            if now >= self.usage_text_next {
+                self.usage_text_next = now.saturating_add(1000);
+                let text = self.usage_card_text();
+                if text != self.usage_text {
+                    self.usage_text = text;
+                    self.invalidate_usage();
+                }
+            }
+            let id = entry.as_ref().map(|e| e.id);
+            if self.selection != id {
+                self.usage_page = 0;
+                self.invalidate_usage();
+            }
+            self.selection = id;
+            return self.draw_usage(index, count);
+        }
+        let Some(entry) = entry.filter(|_| !paused) else {
             self.hide();
             return Ok(());
         };
@@ -690,6 +903,13 @@ fn present(
             stop: stop.clone(),
             waker: waker.clone(),
             config_path: config_path.to_owned(),
+            notice: None,
+            usage_text: String::new(),
+            usage_text_next: 0,
+            usage_page: 0,
+            usage_window: false,
+            usage_surface: None,
+            layout_count: 0,
             config,
         };
         // Events queued before the loop started are picked up by the first step.
@@ -716,6 +936,7 @@ fn present(
                 app.sendEvent(&event);
             }
             ui.handle_clicks();
+            ui.handle_scrolls();
             ui.handle_commands();
         }
         ui.jobs.take();
