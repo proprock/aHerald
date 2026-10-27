@@ -96,6 +96,32 @@ rest; a GUI-message span over 50 ms is the stall detector. Once a minute the
 resident adds `resources working_set_kb=… gdi=… user=… threads=…` to expose leaks.
 `aherald --perf-report` ranks the spans in the log files by total time.
 
+Baseline (AH-082, `tests/perf_baseline.rs`, Windows 11 build 22621, unoptimized test
+build, a debug resident showing 24 animated cards of four kinds 120 ms apart; three runs
+agreed within 5%):
+
+| span | samples | mean | p95 | max |
+|---|---|---|---|---|
+| composition.build | 69 | 7.6 ms | 9–10 ms | 16–17 ms |
+| artwork.prepare | 4 | 8.0–8.8 ms | 9–10 ms | 10 ms |
+| frame.render | 164 | 0.86 ms | 1.3 ms | 1.5–2.2 ms |
+| frame.present | 164 | 0.17 ms | 0.38 ms | 0.5–0.9 ms |
+| gui.timer | 396 | 1.27 ms | 9–10 ms | 10–11 ms |
+| gui.wake | 25 | 9.5 ms | 10–12 ms | 23–24 ms |
+| placement.compute | 69 | 0.02 ms | 0.03 ms | 0.1–0.4 ms |
+| ipc.handle | 98 | 0.01 ms | 0.05 ms | 0.1 ms |
+
+No `slow` line, no skipped frame. Artwork is prepared once per event kind (4 misses,
+20 hits). A frame costs about 1 ms against a 16 ms timer, so animation has more than
+tenfold headroom even unoptimized; the release build is faster still (not measured).
+The one finding is `composition.rebuild`: 69 rebuilds for 24 cards, nearly three per
+card. A card is composed when it is selected, again when its artwork arrives, and again
+whenever the queue count changes (a new or expired card), although a count change only
+alters the controls. That is 523 ms of 1.5 s total measured time; see AH-083. The test
+fails when a mean exceeds about three times these figures, when cache misses or rebuilds
+exceed their limits, or when any frame is skipped. The release figures are not part of the
+test: it runs the binary Cargo builds for tests.
+
 Verification includes:
 
 - Cache reuse by pointer identity, negative caching, source separation, byte and

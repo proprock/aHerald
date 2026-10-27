@@ -181,13 +181,20 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
-- [ ] **AH-082 — Read a real debug log and measure the logging overhead (split from AH-077).**
-  Depends on AH-077. Run a resident with `general.logging = "debug"` on the dev machine,
-  fire demo events with animations, and read `aherald.log` and `aherald --perf-report`:
-  confirm the lines are readable and that the top spans point at real work. Compare the
-  `frame.render` mean with `logging = "warn"` and `"debug"`. Acceptance: observed output
-  and the overhead figure recorded in `docs/milestone-5.md`; spans or thresholds adjusted
-  if a line is noisy or a threshold never fires.
+- [ ] **AH-084 — Measure the cost of debug logging itself (split from AH-082).** Run the
+  `tests/perf_baseline.rs` burst at `logging = "warn"` and `"debug"` and compare the
+  per-frame wall time (for example the time from first event to idle). Acceptance: the
+  difference is recorded in `docs/milestone-5.md`; if it is above 2% of a frame, reduce
+  the per-sample work.
+
+- [ ] **AH-083 — Compose a resident card once instead of about three times (found in AH-082).**
+  Measured: 69 `composition.build` calls (7.6 ms each, 523 ms total) for 24 cards. The
+  card is rebuilt on selection, again when its artwork arrives, and again on every queue
+  count change, which only alters the controls. Compose once when the artwork is ready
+  (or keep the text card until then) and redraw only the controls on a count change.
+  Acceptance: `tests/perf_baseline.rs` limit `composition.rebuild` lowered to about one
+  per card (24 events); the composition and resource-cycle tests still pass; standard
+  Cargo checks.
 
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and

@@ -489,6 +489,16 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   runs); `fmt`, `clippy -D warnings` and the release build clean. A live-log read and the
   overhead comparison moved to AH-082.
 
+- [x] **AH-082 — Read a real debug log and set a performance baseline (split from AH-077).**
+  A debug resident under an isolated scope showed 24 animated cards; the log and
+  `--perf-report` are readable and the top spans are real work (table and assessment in
+  `docs/milestone-5.md`): a frame costs ~1 ms, nothing is slow, no frame is skipped, the
+  artwork cache hits 20 of 24. `tests/perf_baseline.rs` now fails when a hot-path mean
+  exceeds about three times the baseline, on cache misses, rebuilds or skipped frames.
+  Finding: cards are composed ~3 times each (AH-083). The `warn` versus `debug` overhead
+  comparison was not done (AH-084). The red phase of the budget
+  assertions was not observed (budgets were set after measuring).
+
 - [x] **AH-078 — GUI-thread stall detector (from AH-077).** GUI messages are timed per
   class (`gui.timer`, `gui.wake`, `gui.input`, `gui.other`); a message over 50 ms is a
   throttled `WARN slow gui.<class>` line. Implemented as per-class spans instead of a
