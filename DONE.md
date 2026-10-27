@@ -499,6 +499,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   comparison was not done (AH-084). The red phase of the budget
   assertions was not observed (budgets were set after measuring).
 
+- [x] **AH-084 — Measure the cost of debug logging itself (split from AH-082).**
+  Seven alternating runs of the 24-card burst at `warn` and `debug`, comparing the
+  resident's CPU time: medians 172 ms (warn) and 141 ms (debug), spread about 100 ms, so
+  the cost is below the method's resolution and far under 2% of a 16 ms frame; no code
+  change. Figures in `docs/milestone-5.md`. The measuring test was temporary and is not
+  kept. Wall time from first event to idle was not used: it is set by the 120 ms event
+  spacing and card duration, not by frame cost.
+
 - [x] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
   Cause: the `idle_prompt` `Notification`, which Claude Code sends about a minute after
   `Stop`, was mapped to `input_required`, so a finished, idle session got a second card.

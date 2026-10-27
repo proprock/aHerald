@@ -174,12 +174,6 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
-- [ ] **AH-084 — Measure the cost of debug logging itself (split from AH-082).** Run the
-  `tests/perf_baseline.rs` burst at `logging = "warn"` and `"debug"` and compare the
-  per-frame wall time (for example the time from first event to idle). Acceptance: the
-  difference is recorded in `docs/milestone-5.md`; if it is above 2% of a frame, reduce
-  the per-sample work.
-
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and
   starts its own name-lookup child. Decide with the user between skipping the name

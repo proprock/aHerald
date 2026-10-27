@@ -127,6 +127,16 @@ fails when a mean exceeds about three times these figures, when cache misses or 
 exceed their limits, or when any frame is skipped. The release figures are not part of the
 test: it runs the binary Cargo builds for tests.
 
+Cost of debug logging itself (AH-084): the same 24-card burst ran seven times each at
+`logging = "warn"` and `"debug"` (alternating, unoptimized build, fresh resident per run),
+measuring the resident's CPU time (kernel + user) from the first event until idle. Sorted
+runs, ms: warn 94, 125, 156, 172, 188, 219, 266 (median 172); debug 62, 125, 141, 141, 141,
+156, 172 (median 141). The spread (about 100 ms at the 15.6 ms timer granularity) is larger
+than any difference, and debug was not higher, so the cost is below what this method can
+resolve. Against a 16 ms frame the 2% limit is 0.33 ms; one sample costs two clock reads and an in-thread
+aggregate update, orders of magnitude below that, so no reduction was made. The measurement
+was a temporary test and is not kept: it takes four minutes and has no stable threshold.
+
 Verification includes:
 
 - Cache reuse by pointer identity, negative caching, source separation, byte and
