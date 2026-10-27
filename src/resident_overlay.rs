@@ -82,6 +82,7 @@ struct Ui {
     source_labels: crate::session_source::Service,
     source_heading: String,
     presenter: crate::presenter::Presenter,
+    pacer: crate::perf::FramePacer,
 }
 impl Ui {
     /// Codex usage is shown unless only Claude usage is enabled.
@@ -442,11 +443,14 @@ impl Ui {
                 p
             }
         };
-        let surface = self
-            .composition
-            .as_mut()
-            .ok_or("missing composed card")?
-            .render(frame, shown.seconds, self.scale)?;
+        let composition = self.composition.as_mut().ok_or("missing composed card")?;
+        crate::perf::count(crate::perf::Counter::FramePresented);
+        crate::perf::add(
+            crate::perf::Counter::FramesSkipped,
+            self.pacer
+                .present(entry.id, frame, composition.frame_count()),
+        );
+        let surface = composition.render(frame, shown.seconds, self.scale)?;
         self.display_size = surface.present_placed(hwnd, placement, alpha)?;
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -813,6 +817,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
         if let Some(w) = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Window).as_ref() {
+            // Anything over 50 ms here is a UI stall, reported with the message class.
+            let _timer = crate::perf::span(match msg {
+                WM_TIMER => crate::perf::Span::GuiTimer,
+                crate::resident::WAKE => crate::perf::Span::GuiWake,
+                WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN => {
+                    crate::perf::Span::GuiInput
+                }
+                _ => crate::perf::Span::GuiOther,
+            });
             let message = Deferred {
                 msg,
                 wparam: wp.0,
@@ -969,6 +982,7 @@ pub(super) fn run_preview(
             source_labels,
             source_heading: String::new(),
             presenter: crate::presenter::Presenter::default(),
+            pacer: crate::perf::FramePacer::default(),
         }),
     });
     // A short-lived borrow per use: none may be alive while messages are dispatched,

@@ -1,6 +1,6 @@
 use aherald::config::LogLevel;
 use aherald::operational_log::{self, Level, Record};
-use aherald::perf::{self, Collector, Counter, Gauge, Span, WINDOW};
+use aherald::perf::{self, Collector, Counter, FramePacer, Gauge, Span, WINDOW};
 use std::time::{Duration, Instant};
 
 fn texts(records: &[Record]) -> Vec<String> {
@@ -141,6 +141,54 @@ fn one_slow_sample_is_reported_at_warn_immediately_and_repeats_are_throttled() {
     let mut flushed = Vec::new();
     c.flush(&mut flushed);
     assert!(flushed.is_empty());
+}
+
+#[test]
+fn a_gui_message_that_blocks_for_over_fifty_milliseconds_is_a_stall_named_by_its_class() {
+    let t = Instant::now();
+    let mut out = Vec::new();
+    let mut c = Collector::new();
+    for (span, name) in [
+        (Span::GuiTimer, "gui.timer"),
+        (Span::GuiWake, "gui.wake"),
+        (Span::GuiInput, "gui.input"),
+        (Span::GuiOther, "gui.other"),
+    ] {
+        c.record(span, 49_000, t, false, &mut out);
+        assert!(out.is_empty(), "{name} below the threshold");
+        c.record(span, 60_000, t, false, &mut out);
+        assert_eq!(texts(&out).pop().unwrap(), format!("slow {name} ms=60.00"));
+        out.clear();
+    }
+}
+
+#[test]
+fn frames_the_animation_jumped_over_are_counted_as_skipped() {
+    let mut pacer = FramePacer::default();
+    assert_eq!(pacer.present(1, 0, 10), 0, "the first frame skips nothing");
+    assert_eq!(pacer.present(1, 1, 10), 0);
+    assert_eq!(pacer.present(1, 2, 10), 0);
+    assert_eq!(
+        pacer.present(1, 2, 10),
+        0,
+        "a fade or countdown repaint of the same frame"
+    );
+    assert_eq!(
+        pacer.present(1, 5, 10),
+        2,
+        "frames 3 and 4 were never shown"
+    );
+    assert_eq!(pacer.present(1, 9, 10), 3);
+    assert_eq!(
+        pacer.present(1, 0, 10),
+        0,
+        "a loop wraps from the last frame to the first"
+    );
+    assert_eq!(pacer.present(1, 8, 10), 7);
+    // A different card starts a new run; where it begins is not a skip.
+    assert_eq!(pacer.present(2, 7, 10), 0);
+    assert_eq!(pacer.present(3, 0, 1), 0);
+    assert_eq!(pacer.present(3, 0, 1), 0, "a still card never skips");
 }
 
 #[test]

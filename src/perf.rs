@@ -26,8 +26,13 @@ pub enum Span {
     UsagePoll,
     AudioLoad,
     ConfigReload,
+    /// Handling one GUI-thread message, by class; over 50 ms is a UI stall.
+    GuiTimer,
+    GuiWake,
+    GuiInput,
+    GuiOther,
 }
-const SPANS: [Span; 11] = [
+const SPANS: [Span; 15] = [
     Span::IpcHandle,
     Span::ProcessScan,
     Span::SessionLookup,
@@ -39,6 +44,10 @@ const SPANS: [Span; 11] = [
     Span::UsagePoll,
     Span::AudioLoad,
     Span::ConfigReload,
+    Span::GuiTimer,
+    Span::GuiWake,
+    Span::GuiInput,
+    Span::GuiOther,
 ];
 impl Span {
     pub fn name(self) -> &'static str {
@@ -54,6 +63,10 @@ impl Span {
             Self::UsagePoll => "usage.poll",
             Self::AudioLoad => "audio.load",
             Self::ConfigReload => "config.reload",
+            Self::GuiTimer => "gui.timer",
+            Self::GuiWake => "gui.wake",
+            Self::GuiInput => "gui.input",
+            Self::GuiOther => "gui.other",
         }
     }
     /// A sample at or above this many microseconds is worth a warning on its own.
@@ -61,6 +74,7 @@ impl Span {
         1000 * match self {
             Self::FrameRender | Self::FramePresent => 33,
             Self::IpcHandle | Self::Placement => 50,
+            Self::GuiTimer | Self::GuiWake | Self::GuiInput | Self::GuiOther => 50,
             Self::ProcessScan | Self::ConfigReload => 100,
             Self::CompositionBuild | Self::AudioLoad | Self::SessionLookup => 250,
             Self::ArtworkPrepare => 500,
@@ -76,13 +90,18 @@ pub enum Counter {
     AssetCacheEvict,
     ArtworkBudgetFallback,
     CompositionRebuild,
+    FramePresented,
+    /// Animation frames jumped over because a draw came late.
+    FramesSkipped,
 }
-const COUNTERS: [Counter; 5] = [
+const COUNTERS: [Counter; 7] = [
     Counter::AssetCacheHit,
     Counter::AssetCacheMiss,
     Counter::AssetCacheEvict,
     Counter::ArtworkBudgetFallback,
     Counter::CompositionRebuild,
+    Counter::FramePresented,
+    Counter::FramesSkipped,
 ];
 impl Counter {
     fn name(self) -> &'static str {
@@ -92,6 +111,8 @@ impl Counter {
             Self::AssetCacheEvict => "asset_cache.evict",
             Self::ArtworkBudgetFallback => "artwork.budget_fallback",
             Self::CompositionRebuild => "composition.rebuild",
+            Self::FramePresented => "frame.presented",
+            Self::FramesSkipped => "frame.skipped",
         }
     }
 }
@@ -229,7 +250,10 @@ impl Collector {
         }
     }
     pub fn count(&mut self, counter: Counter, now: Instant, out: &mut Vec<Record>) {
-        self.counters[counter as usize] += 1;
+        self.add(counter, 1, now, out);
+    }
+    pub fn add(&mut self, counter: Counter, n: u64, now: Instant, out: &mut Vec<Record>) {
+        self.counters[counter as usize] += n;
         self.flush_if_due(now, out);
     }
     pub fn gauge(&mut self, gauge: Gauge, value: u64, now: Instant, out: &mut Vec<Record>) {
@@ -341,9 +365,33 @@ pub fn time<T>(name: Span, work: impl FnOnce() -> T) -> T {
     work()
 }
 pub fn count(counter: Counter) {
-    if operational_log::enabled(Level::Debug) {
+    add(counter, 1);
+}
+pub fn add(counter: Counter, n: u64) {
+    if n > 0 && operational_log::enabled(Level::Debug) {
         let now = Instant::now();
-        with_local(|c, out| c.count(counter, now, out));
+        with_local(|c, out| c.add(counter, n, now, out));
+    }
+}
+
+/// Spots animation frames that were never shown because the GUI thread was late: the
+/// animation follows the clock, so a late tick jumps ahead by more than one frame.
+#[derive(Default)]
+pub struct FramePacer {
+    last: Option<(u64, usize)>,
+}
+impl FramePacer {
+    /// Notes a drawn frame of card `run` (`count` frames in all) and returns how many
+    /// frames were jumped over since the previous draw of that card.
+    pub fn present(&mut self, run: u64, frame: usize, count: usize) -> u64 {
+        let skipped = match self.last {
+            Some((last_run, last)) if last_run == run && count > 0 => {
+                ((frame + count - last % count) % count).saturating_sub(1) as u64
+            }
+            _ => 0,
+        };
+        self.last = Some((run, frame));
+        skipped
     }
 }
 pub fn gauge(gauge: Gauge, value: u64) {
