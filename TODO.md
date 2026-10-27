@@ -233,6 +233,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
   Acceptance: publish the tested environment/results; label any untested platform
   explicitly instead of claiming verified support.
+  Status 2026-10-27: the automated part and hook latency on Windows 11 are recorded in
+  `docs/release-acceptance.md`. Remaining: Windows 10 smoke, the visual/manual checks,
+  long-lived waits, a GitHub release workflow run, and the unexplained `800700e9`
+  pipe error noted there.
 
 ## Milestone 6 — Claude parity (deferred)
 
