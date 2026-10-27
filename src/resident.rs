@@ -96,8 +96,8 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         visuals: config.notifications.enabled,
     }));
     let usage = crate::usage_service::Service::codex(
-        config.usage.enabled,
-        Duration::from_secs(config.usage.refresh_interval_sec),
+        config.codex.usage.enabled,
+        Duration::from_secs(config.codex.usage.refresh_interval_sec),
     );
     overlay::run_preview(
         config,
@@ -111,8 +111,8 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
 }
 
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
-    let enabled = config.usage.enabled;
-    let interval = Duration::from_secs(config.usage.refresh_interval_sec);
+    let enabled = config.codex.usage.enabled;
+    let interval = Duration::from_secs(config.codex.usage.refresh_interval_sec);
     run_with_usage(scope, config, path, move || {
         crate::usage_service::Service::codex(enabled, interval)
     })

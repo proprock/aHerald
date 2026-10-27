@@ -1,0 +1,9 @@
+{
+  "description": "aHerald notification-only Claude Code hooks; replace the executable path before manually merging into ~/.claude/settings.json",
+  "hooks": {
+    "Notification": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --agent claude --resident | Out-String\"", "timeout": 3}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --agent claude --resident | Out-String\"", "timeout": 3}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --agent claude --resident | Out-String\"", "timeout": 3}]}],
+    "StopFailure": [{"hooks": [{"type": "command", "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --agent claude --resident | Out-String\"", "timeout": 3}]}]
+  }
+}

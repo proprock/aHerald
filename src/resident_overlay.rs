@@ -49,11 +49,14 @@ struct Ui {
     tray_retry: u64,
     config_path: std::path::PathBuf,
     usage: crate::usage_service::Service,
+    claude: Option<crate::usage_service::Service>,
     usage_next: u64,
     usage_window: bool,
     activation: crate::activation::Worker,
     usage_text: String,
     usage_page: usize,
+    /// Which agent the usage card describes: Claude when true, otherwise Codex.
+    usage_claude: bool,
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
@@ -63,6 +66,51 @@ struct Ui {
     source_heading: String,
 }
 impl Ui {
+    /// Codex usage is shown unless only Claude usage is enabled.
+    fn codex_shown(&self) -> bool {
+        self.config.codex.usage.enabled || self.claude.is_none()
+    }
+    fn compact(&self, separator: &str) -> String {
+        let display = self.config.codex.usage.display;
+        let mut parts = Vec::new();
+        // Alphabetical by agent name, matching the tray menu.
+        if let Some(claude) = &self.claude {
+            parts.push(claude.compact(display));
+        }
+        if self.codex_shown() {
+            parts.push(self.usage.compact(display));
+        }
+        parts.join(separator)
+    }
+    /// Tray menu lines; each agent's line opens only that agent's details.
+    fn menu_lines(&self) -> (Option<String>, Option<String>) {
+        let display = self.config.codex.usage.display;
+        (
+            self.codex_shown().then(|| self.usage.compact(display)),
+            self.claude.as_ref().map(|c| c.compact(display)),
+        )
+    }
+    /// Details of the agent chosen from the menu.
+    fn card_text(&self) -> String {
+        match &self.claude {
+            Some(claude) if self.usage_claude => claude.card_text(),
+            _ => self.usage.card_text(),
+        }
+    }
+    /// Details are opened on demand, so ask the chosen agent for fresh data.
+    fn refresh_selected(&self) {
+        match &self.claude {
+            Some(claude) if self.usage_claude => claude.refresh(),
+            _ => self.usage.refresh(),
+        }
+    }
+    /// The tray icon bars follow Codex unless Claude is the only enabled agent.
+    fn icon_view(&self) -> crate::usage_service::View {
+        match &self.claude {
+            Some(claude) if !self.codex_shown() => claude.view(),
+            _ => self.usage.view(),
+        }
+    }
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
@@ -77,18 +125,19 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
+            let tooltip = self.compact("\n");
+            let levels = crate::tray_usage::Levels::from_view(
+                &self.icon_view(),
+                self.config.codex.usage.display,
+            );
             if let Some(tray) = &mut self.tray {
-                tray.tooltip(&self.usage.compact(self.config.usage.display));
-                let levels = crate::tray_usage::Levels::from_view(
-                    &self.usage.view(),
-                    self.config.usage.display,
-                );
+                tray.tooltip(&tooltip);
                 if let Err(error) = tray.usage(levels) {
                     eprintln!("aHerald: {error}");
                 }
             }
             if self.usage_window {
-                let text = self.usage.card_text();
+                let text = self.card_text();
                 if text != self.usage_text {
                     self.usage_text = text;
                     self.usage_surface = None;
@@ -442,16 +491,22 @@ impl Ui {
                     Err(error) => eprintln!("aHerald: {error}"),
                 });
             }
-            SUMMARY => {
+            SUMMARY | CLAUDE_SUMMARY => {
+                let claude = command == CLAUDE_SUMMARY;
                 if let Ok(mut state) = self.shared.lock() {
-                    if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                    // The same line closes its open card; the other line switches agents.
+                    if state.queue.selected().is_some_and(|e| e.is_usage())
+                        && self.usage_claude == claude
+                    {
                         state.queue.dismiss();
                     } else {
                         state.queue.show_usage();
+                        self.usage_claude = claude;
+                        self.refresh_selected();
                     }
                 }
                 self.usage_page = 0;
-                self.usage_text = self.usage.card_text();
+                self.usage_text = self.card_text();
                 self.usage_surface = None;
                 self.selection = None;
                 self.placement = None;
@@ -494,11 +549,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 {
                     let menu = {
                         let ui = &*p;
+                        let (codex, claude) = ui.menu_lines();
                         crate::tray::Menu::new(
                             ui.config.sounds.enabled,
                             ui.config.notifications.enabled,
                             ui.shared.lock().ok().is_some_and(|s| s.paused),
-                            &ui.usage.compact(ui.config.usage.display),
+                            codex.as_deref(),
+                            claude.as_deref(),
                         )
                     };
                     if let Ok(menu) = menu {
@@ -590,6 +647,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         DefWindowProcW(hwnd, msg, wp, lp)
     }
 }
+/// Claude quota polling is opt-in via `[claude.usage] enabled`.
+fn claude_usage(config: &Config) -> Option<crate::usage_service::Service> {
+    config.claude.usage.enabled.then(|| {
+        crate::usage_service::Service::claude(
+            true,
+            std::time::Duration::from_secs(config.claude.usage.refresh_interval_sec),
+        )
+    })
+}
 pub fn run(
     config: Config,
     shared: Arc<Mutex<Shared>>,
@@ -649,6 +715,7 @@ pub(super) fn run_preview(
             }
         }
     });
+    let claude = claude_usage(&config);
     let mut ui = Box::new(Ui {
         shared,
         stop: stop.clone(),
@@ -675,12 +742,14 @@ pub(super) fn run_preview(
         tray: None,
         tray_retry: 0,
         config_path,
+        claude,
         usage,
         usage_next: 0,
         usage_window: false,
         activation: crate::activation::Worker::default(),
         usage_text: String::new(),
         usage_page: 0,
+        usage_claude: false,
         usage_surface: None,
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,

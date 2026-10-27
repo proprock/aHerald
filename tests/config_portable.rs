@@ -40,7 +40,7 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     let c = Config::load(&path, false).unwrap();
     assert!(path.is_file());
     assert_eq!(c.general.mode, "transient");
-    assert!(!c.usage.enabled);
+    assert!(!c.codex.usage.enabled);
     assert!(c.notifications.activate_agent_on_click);
     assert_eq!(c.events["permission_required"].duration_ms, 0);
     assert_eq!(c.events["turn_complete"].duration_ms, 3000);

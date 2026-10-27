@@ -1,12 +1,17 @@
 # Tray usage and restart
 
 The first menu item displays `Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h`.
-`[usage] display = "remain"` is the default; `"used"` selects consumed percentages.
+`[codex.usage] display = "remain"` is the default; `"used"` selects consumed percentages.
 Unknown values use an em dash. Disabled, loading and unavailable states are
 explicit. Last received values stay current regardless of age or refresh errors.
 Countdowns show whole days and remaining whole hours from one day onward
 (`1d 0h`, `6d 11h`), H:MM below a day, and minutes below an hour. Below a day,
 positive times round up to a minute; expired reset times show `0 min`.
+
+With `[claude.usage] enabled = true`, a separate `Claude remain: …` line follows the Codex
+line; each line opens only its own agent's details, and clicking the other line switches
+the card. Opening details forces an immediate refresh for that agent (throttled to one
+request per 5 s). With only Claude usage enabled the Codex line is hidden.
 
 Clicking the summary creates/selects one persistent card in the same queue and
 window as agent notifications. It opens beside the tray even with event visuals
@@ -39,7 +44,7 @@ cards are discarded. Repeated restart strips internal handoff arguments.
 
 Two vertical columns show primary/5h on the left and secondary/week on the right.
 The Codex bucket is preferred, with the first available bucket as fallback.
-Fill follows `[usage] display`: remaining quota by default, consumed quota for
+Fill follows `[codex.usage] display`: remaining quota by default, consumed quota for
 `used`. Color always uses remaining quota: greater than 60% green, greater than
 20% yellow, otherwise red. A missing, invalid or disabled value is solid gray.
 A zero level keeps a one-pixel colored baseline so it remains distinguishable

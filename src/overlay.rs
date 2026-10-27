@@ -994,7 +994,7 @@ mod card_tests {
         ) -> LRESULT {
             unsafe { DefWindowProcW(hwnd, message, wp, lp) }
         }
-        let config = Config::parse("[notifications]\nbackground_color='#203C30'\n[events.error]\nbackground_color='#482838'\n[usage]\nbackground_color='#243C58'", std::path::Path::new(".")).unwrap();
+        let config = Config::parse("[notifications]\nbackground_color='#203C30'\n[events.error]\nbackground_color='#482838'\n[codex.usage]\nbackground_color='#243C58'", std::path::Path::new(".")).unwrap();
         let cards = [
             (
                 "Global background",

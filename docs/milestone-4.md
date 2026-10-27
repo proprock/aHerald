@@ -80,7 +80,7 @@ later moved details into the shared card, and AH-034 removed age-based stale
 states everywhere: last received values remain current, with age and errors in
 details. See [current tray behavior](tray-usage.md).
 
-Usage stays opt-in (`[usage] enabled = true`) and resident-only. The refresh
+Usage stays opt-in (`[codex.usage] enabled = true`) and resident-only. The refresh
 interval defaults to 300 seconds. A dedicated worker owns the connection and
 never takes the notification queue lock or blocks the GUI on Codex I/O. Manual
 refresh has a bounded coalescing mailbox and a five-second minimum request gap;

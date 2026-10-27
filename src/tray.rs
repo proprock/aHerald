@@ -8,6 +8,7 @@ use windows::{
 };
 pub const CALLBACK: u32 = WM_APP + 9;
 pub const SUMMARY: usize = 101;
+pub const CLAUDE_SUMMARY: usize = 102;
 pub const RESTART: usize = 206;
 pub const SOUND: usize = 201;
 pub const VISUAL: usize = 202;
@@ -186,17 +187,28 @@ impl Drop for Menu {
     }
 }
 impl Menu {
-    pub fn new(sound: bool, visual: bool, paused: bool, summary: &str) -> Result<Self, String> {
+    /// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
+    pub fn new(
+        sound: bool,
+        visual: bool,
+        paused: bool,
+        codex: Option<&str>,
+        claude: Option<&str>,
+    ) -> Result<Self, String> {
         let menu = Self(unsafe { CreatePopupMenu() }.map_err(|_| "cannot create tray menu")?);
-        for (id, label, checked) in [
-            (SUMMARY, summary, false),
+        // Alphabetical by agent name.
+        let usage = [(CLAUDE_SUMMARY, claude), (SUMMARY, codex)]
+            .into_iter()
+            .filter_map(|(id, text)| text.map(|text| (id, text, false)));
+        let items = [
             (SOUND, "Sound", sound),
             (VISUAL, "Visual notifications", visual),
             (PAUSE, "Pause notifications", paused),
             (CONFIG, "Edit configuration", false),
             (RESTART, "Restart", false),
             (EXIT, "Exit", false),
-        ] {
+        ];
+        for (id, label, checked) in usage.chain(items) {
             let wide: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
             unsafe {
                 AppendMenuW(
@@ -236,9 +248,24 @@ mod tests {
     use super::*;
     #[test]
     fn native_menu_exposes_all_actions_and_current_checkmarks() {
-        let menu = Menu::new(false, true, true, "Codex usage (unavailable)").unwrap();
+        let menu = Menu::new(
+            false,
+            true,
+            true,
+            Some("Codex usage (unavailable)"),
+            Some("Claude remain: 5h 80%"),
+        )
+        .unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 8);
+            let mut label = [0u16; 128];
+            let n = GetMenuStringW(
+                menu.0,
+                CLAUDE_SUMMARY as u32,
+                Some(&mut label),
+                MF_BYCOMMAND,
+            );
+            assert!(String::from_utf16_lossy(&label[..n as usize]).contains("Claude remain"));
             assert_eq!(
                 GetMenuState(menu.0, SOUND as u32, MF_BYCOMMAND) & MF_CHECKED.0,
                 0
@@ -260,6 +287,28 @@ mod tests {
                 let n = GetMenuStringW(menu.0, id as u32, Some(&mut label), MF_BYCOMMAND);
                 assert!(String::from_utf16_lossy(&label[..n as usize]).contains(expected));
             }
+        }
+    }
+
+    #[test]
+    fn usage_lines_appear_only_for_enabled_agents() {
+        let menu = Menu::new(true, true, false, None, Some("Claude")).unwrap();
+        unsafe {
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
+            assert_eq!(
+                GetMenuState(menu.0, SUMMARY as u32, MF_BYCOMMAND),
+                u32::MAX,
+                "no Codex line when Codex usage is hidden"
+            );
+        }
+        let menu = Menu::new(true, true, false, Some("Codex"), None).unwrap();
+        unsafe {
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 7);
+        }
+        let menu = Menu::new(true, true, false, Some("Codex"), Some("Claude")).unwrap();
+        unsafe {
+            assert_eq!(GetMenuItemID(menu.0, 0), CLAUDE_SUMMARY as u32);
+            assert_eq!(GetMenuItemID(menu.0, 1), SUMMARY as u32);
         }
     }
 }

@@ -1,12 +1,16 @@
 //! Native notification engine and its independently testable domain logic.
 
 pub mod activation;
+pub mod agent;
 pub mod app_server;
 pub mod card;
+pub mod claude_usage;
 pub mod cli;
 pub mod config;
 mod default_config;
 pub mod demo;
+#[cfg(windows)]
+pub mod https;
 pub mod session_source;
 pub mod usage;
 pub mod usage_service;

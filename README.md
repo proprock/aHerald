@@ -126,7 +126,7 @@ Cards are informational: dismissal never answers an agent request. Finite events
 show remaining whole seconds at the top right; persistent waits have no countdown.
 Set `[events.NAME] color = "#RRGGBB"` to change an event's left accent stripe.
 Set `[notifications] background_color = "#RRGGBB"` for all card backgrounds
-(default `#1C232D`). Optional `[events.NAME] background_color` and `[usage]
+(default `#1C232D`). Optional `[events.NAME] background_color` and `[codex.usage]
 background_color` override it for individual card types.
 See [pet state overrides](docs/pets.md#per-event-state-overrides) for animation settings.
 Persistent waits can be switched away from. The queue holds 64 entries, ordered by priority and then arrival.
@@ -136,9 +136,9 @@ sessions; visible time accumulates only while an event is selected.
 
 Click or right-click the aHerald tray icon (possibly under hidden icons) for usage
 summary, sound, visual notifications, pause, configuration editing, restart and
-exit. Clicking the usage summary toggles a persistent card in the notification queue. Enable the read-only Codex usage connection with `[usage] enabled = true`
+exit. Clicking the usage summary toggles a persistent card in the notification queue. Enable the read-only Codex usage connection with `[codex.usage] enabled = true`
 in the resident configuration. The tray icon has two columns: primary/5h on the
-left and secondary/week on the right. Fill follows `[usage] display` (`remain` or
+left and secondary/week on the right. Fill follows `[codex.usage] display` (`remain` or
 `used`); colors always describe remaining quota: above 60% green, above 20% yellow,
 otherwise red. Missing values are gray. The usage card lists every available
 bucket, workspace/reset credits and reset times in the Windows local timezone.

@@ -25,7 +25,7 @@ pub struct Config {
     pub events: BTreeMap<String, EventConfig>,
     pub agents: BTreeMap<String, AgentAssets>,
     pub codex: Codex,
-    pub usage: Usage,
+    pub claude: Claude,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -36,7 +36,7 @@ impl Default for Config {
             notifications: Notifications::default(),
             sounds: Sounds::default(),
             codex: Codex::default(),
-            usage: Usage::default(),
+            claude: Claude::default(),
             agents: BTreeMap::new(),
             events: EVENT_NAMES
                 .into_iter()
@@ -224,17 +224,48 @@ pub enum EventVisual {
     Pet,
     Custom,
 }
+/// Opt-in Claude Code quota polling; see `claude_usage` for the token-handling exception.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeUsage {
+    pub enabled: bool,
+    pub refresh_interval_sec: u64,
+}
+impl Default for ClaudeUsage {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            refresh_interval_sec: 300,
+        }
+    }
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Claude {
+    pub hooks_enabled: bool,
+    pub usage: ClaudeUsage,
+}
+impl Default for Claude {
+    fn default() -> Self {
+        Self {
+            hooks_enabled: true,
+            usage: ClaudeUsage::default(),
+        }
+    }
+}
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Codex {
     pub hooks_enabled: bool,
     pub input_monitoring: bool,
+    pub usage: Usage,
 }
 impl Default for Codex {
     fn default() -> Self {
         Self {
             hooks_enabled: true,
             input_monitoring: false,
+            usage: Usage::default(),
         }
     }
 }
@@ -271,7 +302,8 @@ impl Config {
     }
 
     pub fn usage_background_color(&self) -> Color {
-        self.usage
+        self.codex
+            .usage
             .background_color
             .unwrap_or(self.notifications.background_color)
     }
@@ -373,7 +405,9 @@ impl Config {
             || !["nearest", "bilinear"].contains(&n.interpolation.as_str())
             || !self.sounds.volume.is_finite()
             || !(0.0..=1.0).contains(&self.sounds.volume)
-            || !(10..=86_400).contains(&self.usage.refresh_interval_sec)
+            || !(10..=86_400).contains(&self.codex.usage.refresh_interval_sec)
+            // The endpoint is undocumented; stay polite (rate-tray also spaces requests >= 300 s).
+            || !(300..=86_400).contains(&self.claude.usage.refresh_interval_sec)
             || self.events.iter().any(|(name, event)| {
                 !EVENT_NAMES.contains(&name.as_str())
                     || event.duration_ms > 86_400_000

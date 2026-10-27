@@ -1,3 +1,4 @@
+use crate::agent::Agent;
 use std::path::PathBuf;
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -7,6 +8,8 @@ pub struct Cli {
     pub event: Option<String>,
     pub config: Option<PathBuf>,
     pub demo_pause_sec: Option<u64>,
+    /// Agent that produced a `--hook` payload; Codex when omitted.
+    pub agent: Option<Agent>,
 }
 
 impl Cli {
@@ -52,6 +55,13 @@ impl Cli {
                     }
                     cli.event = Some(event);
                 }
+                "--agent" => {
+                    if cli.agent.is_some() {
+                        return Err("duplicate --agent".into());
+                    }
+                    let name = args.next().ok_or("--agent requires a value")?;
+                    cli.agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
+                }
                 "--config" => {
                     if cli.config.is_some() {
                         return Err("duplicate --config".into());
@@ -68,7 +78,14 @@ impl Cli {
         {
             return Err("operation does not accept a mode".into());
         }
+        if cli.agent.is_some() && cli.operation.as_deref() != Some("hook") {
+            return Err("--agent is only valid with --hook".into());
+        }
         Ok(cli)
+    }
+
+    pub fn hook_agent(&self) -> Agent {
+        self.agent.unwrap_or(Agent::Codex)
     }
 
     pub fn selected_mode<'a>(&'a self, config: &'a crate::config::Config) -> &'a str {

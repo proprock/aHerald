@@ -321,6 +321,36 @@ An implementation alone is not evidence of Windows visual acceptance.
   inherited event, overridden event and usage backgrounds were visually checked.
   Standard Cargo checks and Windows x64 release build passed. See `docs/card-controls.md`.
 
+- [ ] **AH-036 — Claude Code hook notifications.**
+  `Agent` enum (`src/agent.rs`), `--hook --agent claude`, `[claude] hooks_enabled`,
+  mapping of `Notification`/`Stop`/`StopFailure`/`PermissionRequest` per
+  `docs/claude-hooks.md`; the hook never answers Claude Code. Automated tests pass.
+  Live check 2026-10-25 (Claude Code 2.1.310, `claude -p` with a temporary `--settings`
+  hook): the `Stop` payload matched the documented fields (`hook_event_name`,
+  `session_id`, plus extras that are ignored); `aherald --hook --agent claude --resident`
+  exited 0 with empty stdout.
+  Remaining: capture `Notification`/`StopFailure`/`PermissionRequest` payloads
+  (need an interactive session) and run the manual overlay check.
+
+- [ ] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
+  `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
+  `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
+  in `.credentials.json`. Agreed exception to the token-reading rule (see AGENTS.md):
+  token used only for that call, never logged, stored or refreshed. Parsing, credential,
+  status and driver behavior are tested with fakes (no network). Live check on
+  2026-10-25 (signed-in Claude Code, `anthropic-beta: oauth-2025-04-20`): HTTP 200 with
+  `five_hour`/`seven_day` `{utilization, resets_at}` as assumed (a stale token gave 401).
+  Tested with Claude Code 2.1.310. Manually confirmed 2026-10-25: separate Claude menu
+  line (alphabetical before Codex), details card with plan, 5h/Week, Extra usage and Spend,
+  forced refresh on opening details. Remaining: confirm the tray
+  tooltip/menu/card with both agents enabled.
+
+- [ ] **AH-038 — Claude follow-ups (deferred).**
+  Click-to-activate and session names for Claude; `SubagentStop`/`SessionEnd`; a
+  statusLine-based quota fallback (`rate_limits` in statusLine JSON, no token needed);
+  honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
+  Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
+
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,
