@@ -151,6 +151,18 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   sessions each raise their own window, and that a minimized window restores. Known limit:
   tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
 
+- [ ] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
+  On 2026-10-27 a card of that kind appeared twice for a Windows Terminal session that was
+  idle after its turn ended. Probably an idle `Notification` event; capture the payload
+  (`notification_type`) with the capture hook and compare with `docs/claude-hooks.md`.
+  Acceptance: an idle-after-turn notification no longer produces an input-required card
+  (or the doc records why it must), mapping changed test-first.
+
+- [ ] **AH-075 — Bound the Claude Desktop session scan by recency (found in AH-056).**
+  Optional. The lookup reads every `local_*.json` (up to 5000) for sessions that may not be
+  Desktop sessions at all; AH-056 only moved it behind the recorded window. Check whether a
+  session file's mtime follows each turn before limiting the scan to recent files.
+
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
