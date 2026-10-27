@@ -1,8 +1,10 @@
 #![cfg(windows)]
-use aherald::{events::Event, process::deliver};
+use aherald::{
+    events::Event,
+    process::{Child, deliver},
+};
 use std::{
     path::PathBuf,
-    process::Child,
     time::{Duration, Instant},
 };
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};

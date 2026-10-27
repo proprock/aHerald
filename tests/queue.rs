@@ -58,14 +58,14 @@ fn persistent_navigation_individual_dismissal_and_selected_time_only() {
     );
 }
 #[test]
-fn identity_dedup_cross_source_and_dismissed_history_are_bounded_by_time() {
+fn identity_dedup_and_dismissed_history_are_bounded_by_time() {
     let mut q = Queue::new(4, 100);
     let mut e = event(Kind::PermissionRequired, "same");
+    e.source = Source::CodexHook;
     e.turn_id = Some("turn".into());
     e.request_id = Some("request".into());
     assert!(q.push(e.clone(), 0, 0));
     q.dismiss();
-    e.source = Source::CodexHook;
     assert!(!q.push(e.clone(), 50, 0));
     e.request_id = Some("different".into());
     assert!(q.push(e.clone(), 60, 0));

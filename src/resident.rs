@@ -7,7 +7,6 @@ use crate::{
 };
 use std::{
     path::Path,
-    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -22,21 +21,29 @@ pub fn ensure(exe: &Path, config: &Path, scope: &Scope) -> Result<Response, Stri
     {
         return Ok(status);
     }
-    let mut command = Command::new(exe);
-    command
-        .args(["--resident-child", &scope.namespace, "--config"])
-        .arg(config)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    use std::os::windows::process::CommandExt;
-    command.creation_flags(0x00000008 | 0x00000200);
-    let mut child = command.spawn().map_err(|_| "cannot start resident")?;
+    let mut child = crate::detached::spawn(
+        exe,
+        &[
+            std::ffi::OsStr::new("--resident-child"),
+            std::ffi::OsStr::new(&scope.namespace),
+            std::ffi::OsStr::new("--config"),
+            config.as_os_str(),
+        ],
+        false,
+    )?;
     let deadline = Instant::now() + Duration::from_millis(1500);
     while Instant::now() < deadline {
         if let Ok(status @ Response::Status { .. }) =
             pipe::request(scope, &Request::Status, Duration::from_millis(80))
         {
+            if let Response::Status { pid, .. } = &status
+                && *pid != child.id()
+            {
+                // A concurrent launch won. Reap our own loser before it can start
+                // late and acquire ownership after that resident has been quit.
+                let _ = child.kill();
+                let _ = child.wait();
+            }
             return Ok(status);
         }
         if let Some(status) = child
@@ -119,12 +126,14 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                         if event.validate().is_err() {
                             return Response::Rejected;
                         }
+                        let resolved = state.queue.observe_terminal(&event);
                         let setting = &settings.events[event.kind.name()];
                         if !setting.enabled {
                             return Response::Accepted;
                         }
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        let duplicate = state.queue.is_duplicate(&event, now);
+                        let duplicate = state.queue.is_duplicate(&event, now)
+                            || state.queue.is_obsolete(&event);
                         if state.queue.push(
                             event,
                             now,
@@ -136,6 +145,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                                     .saturating_add(settings.notifications.fade_out_ms)
                             },
                         ) || duplicate
+                            || resolved > 0
                         {
                             Response::Accepted
                         } else {

@@ -64,23 +64,38 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         return Ok(());
     }
+    // Respond to the hook contract before any fallible configuration or delivery.
+    let hook_event = if cli.operation.as_deref() == Some("hook") {
+        let bytes =
+            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
+        let event = aherald::events::parse_hook(&bytes)?;
+        if event
+            .as_ref()
+            .is_some_and(|e| e.kind == aherald::events::Kind::TurnComplete)
+        {
+            println!("{{}}");
+        }
+        event
+    } else {
+        None
+    };
     let config = aherald::config::Config::load(&path, cli.config.is_some())?;
+    if config.codex.input_monitoring {
+        eprintln!(
+            "aHerald: Codex input monitoring unsupported for unrelated CLI/app sessions: no verified stable observation source; lifecycle hooks remain available"
+        );
+    }
+    if config.usage.enabled {
+        eprintln!("aHerald: Codex usage is not implemented until Milestone 4");
+    }
     if cli.selected_mode(&config) == "resident" && cli.operation.is_none() {
         return aherald::resident::run(scope, config, &path);
     }
-    if config.codex.input_monitoring || config.usage.enabled {
-        eprintln!("aHerald: Codex monitoring and usage are not implemented until later milestones");
-    }
     if cli.operation.as_deref() == Some("hook") {
-        let bytes =
-            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
-        if let Some(event) = aherald::events::parse_hook(&bytes)? {
-            if event.kind == aherald::events::Kind::TurnComplete {
-                println!("{{}}");
-            }
-            if config.codex.hooks_enabled {
-                dispatch(&event, &config, &path, cli.selected_mode(&config))?;
-            }
+        if let Some(event) = hook_event
+            && config.codex.hooks_enabled
+        {
+            dispatch(&event, &config, &path, cli.selected_mode(&config))?;
         }
         return Ok(());
     }
@@ -103,7 +118,7 @@ fn dispatch(
     mode: &str,
 ) -> Result<(), String> {
     let setting = &config.events[event.kind.name()];
-    if !setting.enabled {
+    if !setting.enabled && !(mode == "resident" && event.is_terminal_evidence()) {
         return Ok(());
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;

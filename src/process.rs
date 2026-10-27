@@ -1,8 +1,11 @@
+#[cfg(windows)]
+pub use crate::detached::Child;
 use crate::events::Event;
+#[cfg(not(windows))]
+use std::process::{Child, Command, Stdio};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
     sync::mpsc,
     time::Duration,
 };
@@ -32,42 +35,30 @@ pub fn deliver(executable: &Path, config: &Path, event: &Event) -> Result<Child,
 }
 
 fn spawn_ready(executable: PathBuf, config: PathBuf, payload: Vec<u8>) -> Result<Child, String> {
-    let mut command = Command::new(executable);
-    command
-        .arg("--display-child")
-        .arg("--config")
-        .arg(config)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+    #[cfg(not(windows))]
+    let mut child = {
+        let mut command = Command::new(executable);
+        command
+            .arg("--display-child")
+            .arg("--config")
+            .arg(config)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        command
+            .spawn()
+            .map_err(|_| "cannot launch notification child")?
+    };
     #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        use windows::Win32::{
-            Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation},
-            System::Console::{
-                GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-            },
-        };
-        // Command redirects child stdio, but Windows also inherits unrelated inheritable handles.
-        // Clear inheritance of this hook's original channels so collectors observe EOF promptly.
-        // SAFETY: only inheritance flags on our own standard handles change; the handles stay open.
-        unsafe {
-            for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-                if let Ok(handle) = GetStdHandle(id)
-                    && !handle.is_invalid()
-                {
-                    SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, Default::default())
-                        .map_err(|_| "cannot isolate hook channels")?;
-                }
-            }
-        }
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP; no console window.
-        command.creation_flags(0x0000_0008 | 0x0000_0200);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|_| "cannot launch notification child")?;
+    let mut child = crate::detached::spawn(
+        &executable,
+        &[
+            std::ffi::OsStr::new("--display-child"),
+            std::ffi::OsStr::new("--config"),
+            config.as_os_str(),
+        ],
+        true,
+    )?;
     let transfer = (|| {
         let mut input = child.stdin.take().ok_or("missing child input")?;
         // Below the 4 KiB Windows anonymous-pipe buffer; one bounded initial write.

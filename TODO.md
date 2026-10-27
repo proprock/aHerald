@@ -150,21 +150,21 @@ An implementation alone is not evidence of Windows visual acceptance.
 
 ## Milestone 3 — Verified Codex integration
 
-- [ ] **AH-013 — Record version and event-source compatibility.** Depends on AH-008.
+- [x] **AH-013 — Record version and event-source compatibility.** Depends on AH-008.
   Inspect current official documentation and matching release/protocol schemas.
   Record tested Codex versions, payload fixtures, capabilities, and coverage limits.
   Planning observed `codex-cli 0.164.0-alpha.11.1`; this is not proof of stable
   release support. Acceptance: a technical note distinguishes verified behavior,
   unsupported behavior, and experimental/version-dependent behavior.
 
-- [ ] **AH-014 — Deliver lifecycle hook integration and examples.** Depends on AH-010, AH-013.
+- [x] **AH-014 — Deliver lifecycle hook integration and examples.** Depends on AH-010, AH-013.
   Verify `Stop`, `PermissionRequest`, and version-supported `Interrupt`; provide
   Windows hooks.json examples with correct path quoting and response contracts.
   Never decide permissions. Acceptance: mocked and real supported hook invocations
   forward notifications promptly; instructions explain manual installation,
   trust requirements, removal, and preservation of existing hooks.
 
-- [ ] **AH-015 — Implement supported input-wait observation.** Depends on AH-013.
+- [x] **AH-015 — Implement supported input-wait observation.** Depends on AH-013.
   Investigate documented stable sources for actual wait entry and resolution,
   including app-server request/resolution events where legitimately observable.
   Share app-server transport with AH-017 if needed. Do not assume a private server
@@ -173,7 +173,7 @@ An implementation alone is not evidence of Windows visual acceptance.
   waiting, and resolved states; unobservable sessions report unsupported explicitly.
   Lack of a stable source is documented rather than replaced with heuristic detection.
 
-- [ ] **AH-016 — Correlate pending and terminal states.** Depends on AH-011, AH-014, AH-015.
+- [x] **AH-016 — Correlate pending and terminal states.** Depends on AH-011, AH-014, AH-015.
   Resolve pending notifications only on verified matching request/turn lifecycle
   evidence. Deduplicate multiple sources and handle completion/interruption.
   A failed individual tool call is not automatically an agent execution error.

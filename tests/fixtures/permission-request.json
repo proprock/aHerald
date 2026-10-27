@@ -1,0 +1,1 @@
+{"hook_event_name":"PermissionRequest","session_id":"fixture-session","turn_id":"fixture-turn","cwd":"C:\\sanitized","model":"fixture-model","permission_mode":"default","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"echo sanitized"}}
