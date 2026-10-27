@@ -55,12 +55,18 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `cfg(target_os = "macos")`; text drawn with AppKit (`NSString`) into the bitmap, so no
   CoreText crate; scope is the overlay plus a resident without a tray (tray is AH-063).
   Step 1 done: `src/card_paint.rs` holds the card's shapes (straight BGRA) and a list of
-  text runs; Windows `Surface::card` now draws those runs with GDI, with unchanged pixels
-  (the existing card tests pass) and new portable tests. Remaining: the AppKit text
-  renderer, the `NSPanel` presenter, the macOS event loop and `resident::run`, and a
-  `cargo check --target aarch64-apple-darwin` seam (ureq/ring does not cross-build here,
-  so make `ureq` an optional feature). None of it can run on this Windows machine, so it
-  should be developed on the MacBook.
+  text runs; Windows `Surface::card` draws those runs with GDI (unchanged pixels).
+  Status 2026-10-27 (branch `feature/ah-062-macos-overlay`): `src/mac/` has the AppKit
+  text renderer (`text`), the in-memory `Surface`/`Composition` (`surface`), screen
+  placement (`geometry`), the non-activating `NSPanel` (`panel`) and the resident loop
+  (`resident`: IPC thread plus AppKit loop, fades, countdown, artwork, queue). Automated:
+  unit tests for text, surface and geometry, `tests/mac_resident.rs` (status, queueing, quit,
+  single instance). Observed with `--demo`: a 402x150 pt window at level 25, no change of the
+  frontmost application. Remaining: mouse input (dismiss button, arrows, click-to-dismiss),
+  the usage card, the manual checks on the M1 MacBook (transparency, multiple displays,
+  Spaces, full-screen apps, display change), `ureq` as an optional feature for a
+  `cargo check --target aarch64-apple-darwin` seam, and moving the duplicated IPC handler
+  and `event_card_text` into shared code once Windows CI can verify the refactor.
 
 - [ ] **AH-063 — macOS tray.** Depends on AH-062.
   `NSStatusItem` and menu parity with Windows (sound, visual, pause, edit configuration,
