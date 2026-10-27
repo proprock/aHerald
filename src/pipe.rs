@@ -13,14 +13,37 @@ use windows::{
     core::PCWSTR,
 };
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
-fn error(e: windows::core::Error) -> String {
-    format!("local pipe error ({:08x})", e.code().0)
+/// Pipe failure; only the deadline is told apart because callers treat it as "nothing happened".
+enum Failure {
+    DeadlineExceeded,
+    Other(String),
+}
+impl From<Failure> for String {
+    fn from(failure: Failure) -> Self {
+        match failure {
+            Failure::DeadlineExceeded => "local pipe deadline exceeded".into(),
+            Failure::Other(message) => message,
+        }
+    }
+}
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+impl From<&str> for Failure {
+    fn from(message: &str) -> Self {
+        Self::Other(message.into())
+    }
+}
+fn error(e: windows::core::Error) -> Failure {
+    Failure::Other(format!("local pipe error ({:08x})", e.code().0))
 }
 fn operation(
     handle: HANDLE,
     deadline: Instant,
     call: impl FnOnce(*mut OVERLAPPED, &mut u32) -> windows::core::Result<()>,
-) -> Result<u32, String> {
+) -> Result<u32, Failure> {
     // SAFETY: the event, OVERLAPPED and caller's buffer stay live until completion,
     // including cancellation. No pending operation can reference released stack data.
     unsafe {
@@ -44,7 +67,7 @@ fn operation(
                     let _ = CancelIoEx(handle, Some(&pending));
                     // Drain canceled named-pipe I/O before freeing its borrowed buffers.
                     let _ = GetOverlappedResult(handle, &pending, &mut count, true);
-                    return Err("local pipe deadline exceeded".into());
+                    return Err(Failure::DeadlineExceeded);
                 }
                 GetOverlappedResult(handle, &pending, &mut count, false).map_err(error)?;
                 Ok(count)
@@ -58,11 +81,11 @@ fn transfer(
     bytes: &mut [u8],
     write: bool,
     deadline: Instant,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let mut offset = 0;
     while offset < bytes.len() {
         if Instant::now() >= deadline {
-            return Err("local pipe deadline exceeded".into());
+            return Err(Failure::DeadlineExceeded);
         }
         let n = operation(handle, deadline, |ov, count| unsafe {
             if write {
@@ -78,7 +101,7 @@ fn transfer(
     }
     Ok(())
 }
-fn receive<T: serde::de::DeserializeOwned>(handle: HANDLE) -> Result<T, String> {
+fn receive<T: serde::de::DeserializeOwned>(handle: HANDLE) -> Result<T, Failure> {
     let deadline = Instant::now() + IO_TIMEOUT;
     let mut header = [0; 6];
     transfer(handle, &mut header, false, deadline)?;
@@ -86,9 +109,9 @@ fn receive<T: serde::de::DeserializeOwned>(handle: HANDLE) -> Result<T, String> 
     let mut frame = vec![0; n + 6];
     frame[..6].copy_from_slice(&header);
     transfer(handle, &mut frame[6..], false, deadline)?;
-    ipc::decode(&frame)
+    Ok(ipc::decode(&frame)?)
 }
-fn send<T: serde::Serialize>(handle: HANDLE, value: &T) -> Result<(), String> {
+fn send<T: serde::Serialize>(handle: HANDLE, value: &T) -> Result<(), Failure> {
     let mut frame = ipc::encode(value)?;
     transfer(handle, &mut frame, true, Instant::now() + IO_TIMEOUT)
 }
@@ -118,7 +141,7 @@ pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Re
             {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Err(e) => return Err(error(e)),
+            Err(e) => return Err(error(e).into()),
         }
     };
     send(handle.0, request)?;
@@ -136,7 +159,7 @@ impl StopEvent {
         // SAFETY: plain event creation; the handle is owned and closed by `Handle`.
         unsafe { CreateEventW(None, true, false, None) }
             .map(|event| Self(Handle(event)))
-            .map_err(error)
+            .map_err(|e| String::from(error(e)))
     }
     pub fn signal(&self) {
         // SAFETY: the owned event handle is valid for the lifetime of `self`.
@@ -153,8 +176,8 @@ impl PipeServer {
             Instant::now() + Duration::from_millis(50),
             |ov, _| unsafe { ConnectNamedPipe(self.handle.0, Some(ov)) },
         ) {
-            Err(error) if error == "local pipe deadline exceeded" => return Ok(()),
-            Err(error) => return Err(error),
+            Err(Failure::DeadlineExceeded) => return Ok(()),
+            Err(failure) => return Err(failure.into()),
             Ok(_) => (),
         }
         self.serve_connected(handler)
@@ -190,7 +213,7 @@ impl PipeServer {
                     GetOverlappedResult(self.handle.0, &pending, &mut count, false)
                         .map_err(error)?;
                 }
-                Err(e) => return Err(error(e)),
+                Err(e) => return Err(error(e).into()),
             }
         }
         self.serve_connected(handler).map(|()| true)
@@ -210,6 +233,6 @@ impl PipeServer {
         unsafe {
             let _ = DisconnectNamedPipe(self.handle.0);
         }
-        result
+        result.map_err(String::from)
     }
 }

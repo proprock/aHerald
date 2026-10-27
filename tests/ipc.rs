@@ -114,6 +114,38 @@ fn idle_listener_poll_is_not_an_operational_failure() {
 }
 #[cfg(windows)]
 #[test]
+fn a_connected_client_that_stalls_is_a_failure_unlike_an_idle_poll() {
+    use aherald::local::Scope;
+    use windows::{
+        Win32::{Foundation::*, Storage::FileSystem::*},
+        core::PCWSTR,
+    };
+    let scope = Scope::current(&format!("stalled-{}", std::process::id())).unwrap();
+    let server = scope.create_pipe().unwrap();
+    let name: Vec<u16> = scope.pipe_name.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: `name` is NUL-terminated and outlives the call; the handle is closed below.
+    let client = unsafe {
+        CreateFileW(
+            PCWSTR(name.as_ptr()),
+            GENERIC_READ.0 | GENERIC_WRITE.0,
+            FILE_SHARE_MODE(0),
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            None,
+        )
+    }
+    .unwrap();
+    let result = server.serve_once(|_| panic!("the client sent no request"));
+    // SAFETY: `client` is a live handle owned by this test.
+    unsafe { CloseHandle(client).unwrap() };
+    assert!(
+        result.is_err(),
+        "a stalled client must not look like an idle poll"
+    );
+}
+#[cfg(windows)]
+#[test]
 fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
     use aherald::{
         ipc::{Request, Response, pipe},
