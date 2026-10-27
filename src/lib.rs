@@ -33,6 +33,7 @@ pub mod notification;
 pub mod operational_log;
 pub mod pet;
 pub mod placement;
+pub mod presenter;
 pub mod process;
 pub mod resource_cache;
 
