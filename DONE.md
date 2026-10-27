@@ -499,6 +499,19 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   comparison was not done (AH-084). The red phase of the budget
   assertions was not observed (budgets were set after measuring).
 
+- [x] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
+  (split from AH-049).** Measured first (release, 8 runs): a transient name lookup costs
+  130-150 ms and 20-560 ms to end the child; the resident's shared lookup costs 2-20 ms; Claude
+  has no lookup. Decision with the user: no global switch, only transient mode is affected.
+  New `[codex] transient_names` (default false): off, a transient card shows
+  `Codex: session <id suffix>` and starts no child or worker thread; on, it keeps the old
+  lookup. Resident unchanged. Test `tests/transient_names.rs` counts connection factory
+  calls with a fake transport (0 when off, 1 when on) and checks the default; the stub
+  `codex` on `PATH` process test from the ticket was replaced by this seam because the
+  discovery only accepts a native `codex.exe`. Red phase: the test did not compile before
+  the change. Automated: 307 passed, 0 failed, 14 ignored; `fmt` and `clippy -D warnings`
+  clean; release build not run. Docs: `docs/codex-hooks.md`, `aHerald.example.toml`.
+
 - [x] **AH-084 — Measure the cost of debug logging itself (split from AH-082).**
   Seven alternating runs of the 24-card burst at `warn` and `debug`, comparing the
   resident's CPU time: medians 172 ms (warn) and 141 ms (debug), spread about 100 ms, so

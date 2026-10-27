@@ -58,14 +58,40 @@ impl Service {
         }
     }
     pub fn codex() -> Self {
-        use crate::app_server::{Client, StdioTransport};
+        Self::connect(crate::app_server::StdioTransport::codex_controlled)
+    }
+    /// Names for a process that shows a single card. Looking one up starts a `codex
+    /// app-server` child, so unless `enabled` the card keeps the session-ID label and no
+    /// child or worker thread is created.
+    pub fn transient<T: crate::app_server::Transport + Send + 'static>(
+        enabled: bool,
+        connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
+    ) -> Self {
+        if enabled {
+            return Self::connect(connect);
+        }
+        let mut service = Self::new(|_| None);
+        // Without a job sender no lookup is queued; the worker sees a closed channel and ends.
+        service.jobs.take();
+        service
+    }
+    /// The Codex-backed `transient` used by the overlay.
+    pub fn transient_codex(enabled: bool) -> Self {
+        Self::transient(enabled, crate::app_server::StdioTransport::codex_controlled)
+    }
+    /// Resolves names over a connection opened on the first lookup. `connect` receives the
+    /// flag that cancels a pending read when the service is dropped.
+    fn connect<T: crate::app_server::Transport + Send + 'static>(
+        mut connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
+    ) -> Self {
+        use crate::app_server::Client;
         let stop = Arc::new(AtomicBool::new(false));
         let cancel = stop.clone();
         let mut client = None;
         Self::start(
             move |id| {
                 if client.is_none() {
-                    client = StdioTransport::codex_controlled(cancel.clone())
+                    client = connect(cancel.clone())
                         .ok()
                         .and_then(|t| Client::initialize(t, Duration::from_millis(750)).ok());
                 }

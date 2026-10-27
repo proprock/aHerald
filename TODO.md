@@ -174,13 +174,6 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   (`WM_DPICHANGED`). `preview_placement` and `--demo` are the usual ways to see cards.
   Acceptance: observed results per scale recorded in `docs/milestone-5.md`.
 
-- [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
-  (split from AH-049).** Depends on AH-049. Each transient process shows one card and
-  starts its own name-lookup child. Decide with the user between skipping the name
-  lookup in transient mode (ID fallback only) and a config option, or keeping it.
-  Acceptance: a process test with a stub `codex` on `PATH` counts the spawned children;
-  standard Cargo checks. Source: `audit-20261026.md` P5.
-
 - [ ] **AH-022 — Package and document the portable application.** Depends on AH-021.
   Produce a release ZIP containing executable, example configuration, PNG/WAV
   assets, metadata, license, and instructions. Explain resident/transient modes,
