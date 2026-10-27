@@ -9,6 +9,8 @@ tray_enabled = true
 auto_start = false
 
 [notifications]
+# Optional local Codex pet manifest; event-specific animation takes priority.
+# pet = '../characters/becky--natewanggg/pet.json'
 enabled = true
 position = "center"
 monitor = "primary"

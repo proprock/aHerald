@@ -94,6 +94,17 @@ An implementation alone is not evidence of Windows visual acceptance.
   Windows smoke test and hook-return timing under finite and indefinite duration.
   Acceptance: the engine works without Codex installed and all focused tests pass.
 
+## Additional asset support
+
+- [x] **AH-024 — Load local Codex pet packages.** Depends on AH-008.
+  Accept `notifications.pet` pointing to local `pet.json`, resolve the sprite path
+  inside the package, and decode PNG/WebP standard v1/v2 atlases. Map aHerald events
+  to the documented occupied state frames and timing. Keep explicit event animations
+  as overrides; resource errors use text fallback. Do not run installer commands.
+  Acceptance: focused tests verify paths, frames, alpha, timing, version/size bounds,
+  invalid resources and native window recovery; visually demonstrate a real pet.
+  User approved extending the existing image decoder with WebP on 2026-10-24.
+
 ## Milestone 2 — Resident architecture
 
 - [ ] **AH-009 — Enforce a single resident instance.** Depends on AH-008.
