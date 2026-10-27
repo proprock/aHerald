@@ -735,3 +735,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   it is open, on all three scales. The two-monitor mixed-DPI case moved to AH-020 (cards
   are not draggable). Not verified: the frame count of the WALL-E sheet. Results in
   `docs/milestone-5.md`.
+
+## Milestone 5a — macOS and Linux support
+
+- [x] **AH-061 — Unix common layer (IPC, spawn, HTTPS, open).** Depends on AH-060.
+  Unix-domain-socket IPC in a per-user directory (mode 0600, peer-credential check,
+  no TCP, `flock` single instance); detached child spawn with fd closing; restart;
+  `open`/`xdg-open`; an HTTPS client for usage polling (dependency comparison and user
+  approval first). Acceptance: IPC framing/lifecycle, single-instance race and
+  rejected-peer tests pass on macOS and Ubuntu; hook returns independently of the resident.
+  Status 2026-10-27: implemented in `src/unix/` (`local`, `pipe`, `detached`, `restart`,
+  `shell`, `https`; `libc` and `ureq` with rustls approved by the user, none of them in
+  the Windows build) and `src/resident_client.rs` (`ensure`/`forward`, now shared).
+  Verified on Windows (fmt, clippy, tests) and on Debian under WSL (clippy
+  `-D warnings`, `cargo test --all-targets`: `tests/unix_ipc.rs`, `tests/unix_hook.rs`,
+  `tests/https.rs` and the unit tests in `src/unix/`). Closed 2026-10-27: the same run passed on macOS 26 (aarch64-apple-darwin, M1: fmt,
+  clippy `-D warnings`, `cargo test --all-targets`) and CI run 40589344740 on master was
+  green on macos-latest, ubuntu-latest and windows-latest. Not covered yet: the
+  Unix resident loop itself needs an overlay (AH-062, AH-068); proxy behaviour of
+  `ureq` (environment variables only) is unchecked, like the Windows system-proxy item
+  in AH-045.
