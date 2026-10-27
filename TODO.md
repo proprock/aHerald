@@ -62,8 +62,9 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   (`resident`: IPC thread plus AppKit loop, fades, countdown, artwork, queue). Automated:
   unit tests for text, surface and geometry, `tests/mac_resident.rs` (status, queueing, quit,
   single instance). Observed with `--demo`: a 402x150 pt window at level 25, no change of the
-  frontmost application. Remaining: mouse input (dismiss button, arrows, click-to-dismiss),
-  the usage card, the manual checks on the M1 MacBook (transparency, multiple displays,
+  frontmost application. Mouse input (dismiss button, arrows, click-to-dismiss) works: `src/mac/input.rs` tests plus a
+  live check with synthetic clicks on `--resident` (arrow 1/3 to 2/3, body click removes one
+  card, one click one action). Remaining: the usage card, the manual checks on the M1 MacBook (transparency, multiple displays,
   Spaces, full-screen apps, display change), `ureq` as an optional feature for a
   `cargo check --target aarch64-apple-darwin` seam, and moving the duplicated IPC handler
   and `event_card_text` into shared code once Windows CI can verify the refactor.

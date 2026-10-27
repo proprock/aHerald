@@ -3,17 +3,60 @@ use super::{
     geometry::{Frame, Rect, Screen},
     surface::Surface,
 };
-use objc2::{AllocAnyThread, MainThreadMarker, MainThreadOnly, rc::Retained};
+use objc2::{
+    AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    rc::Retained,
+};
 use objc2_app_kit::{
     NSBackingStoreType, NSBitmapFormat, NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSEvent,
     NSImage, NSImageScaling, NSImageView, NSPanel, NSScreen, NSStatusWindowLevel,
     NSWindowCollectionBehavior, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize};
+use std::cell::RefCell;
+
+pub struct Clicks {
+    /// Mouse-down positions in points from the card's top-left corner, oldest first.
+    points: RefCell<Vec<(f64, f64)>>,
+}
+
+define_class!(
+    /// The card's picture, which also reports where it was clicked.
+    #[unsafe(super(NSImageView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AHeraldCardView"]
+    #[ivars = Clicks]
+    struct CardView;
+
+    impl CardView {
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            let at = event.locationInWindow();
+            let height = self.frame().size.height;
+            self.ivars().points.borrow_mut().push((at.x, height - at.y));
+        }
+
+        // A click on a card of another application's window still reaches the buttons.
+        #[unsafe(method(acceptsFirstMouse:))]
+        fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
+            true
+        }
+    }
+);
+
+impl CardView {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = mtm.alloc::<Self>().set_ivars(Clicks {
+            points: RefCell::new(Vec::new()),
+        });
+        // SAFETY: `init` of the superclass on a freshly allocated, initialised-ivar object.
+        unsafe { msg_send![super(this), init] }
+    }
+}
 
 pub struct Panel {
     panel: Retained<NSPanel>,
-    view: Retained<NSImageView>,
+    view: Retained<CardView>,
     mtm: MainThreadMarker,
 }
 
@@ -71,14 +114,14 @@ impl Panel {
             panel.setHidesOnDeactivate(false);
             panel.setCanHide(false);
             panel.setBecomesKeyOnlyIfNeeded(true);
-            panel.setIgnoresMouseEvents(true);
+            panel.setIgnoresMouseEvents(false);
             panel.setCollectionBehavior(
                 NSWindowCollectionBehavior::CanJoinAllSpaces
                     | NSWindowCollectionBehavior::FullScreenAuxiliary
                     | NSWindowCollectionBehavior::Stationary
                     | NSWindowCollectionBehavior::IgnoresCycle,
             );
-            let view = NSImageView::new(mtm);
+            let view = CardView::new(mtm);
             view.setImageScaling(NSImageScaling::ScaleAxesIndependently);
             panel.setContentView(Some(&view));
             Ok(Self { panel, view, mtm })
@@ -131,6 +174,11 @@ impl Panel {
             self.panel.orderFrontRegardless();
         }
         Ok(())
+    }
+
+    /// Mouse-down positions since the last call, in points from the card's top-left corner.
+    pub fn take_clicks(&self) -> Vec<(f64, f64)> {
+        std::mem::take(&mut *self.view.ivars().points.borrow_mut())
     }
 
     pub fn hide(&self) {

@@ -5,6 +5,7 @@
 //! and click handling arrive with their own tasks (AH-063..AH-065).
 use super::{
     geometry::{self, Frame},
+    input,
     panel::{self, Panel},
     surface::{Composition, Surface},
 };
@@ -264,6 +265,39 @@ impl Ui {
         self.panel.hide();
         self.selection = None;
         self.presenter.invalidate();
+    }
+
+    /// Applies the clicks the panel collected to the queue; the next step redraws.
+    fn handle_clicks(&mut self) {
+        let clicks = self.panel.take_clicks();
+        if clicks.is_empty() {
+            return;
+        }
+        let (Some(composition), Some(frame)) = (&self.composition, self.frame) else {
+            return;
+        };
+        let (width, height) = composition.size();
+        let layout = input::Layout {
+            width,
+            height,
+            scale: self.scale,
+            text_left: composition.text_left,
+        };
+        let window = (frame.rect.width, frame.rect.height);
+        let now = self.now();
+        let Ok(mut state) = self.shared.lock() else {
+            return;
+        };
+        let paused = state.paused;
+        state.queue.tick(now, paused);
+        for point in clicks {
+            input::click(
+                &mut state.queue,
+                self.config.notifications.click_to_dismiss,
+                &layout,
+                input::to_pixels(point, window, &layout),
+            );
+        }
     }
 
     /// Whether the next wake should come from the clock rather than from IPC.
@@ -561,6 +595,7 @@ fn present(
             if let Some(event) = event {
                 app.sendEvent(&event);
             }
+            ui.handle_clicks();
         }
         ui.jobs.take();
     });
