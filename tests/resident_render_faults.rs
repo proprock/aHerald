@@ -101,8 +101,8 @@ fn composition_failure_shows_a_text_card_and_the_resident_keeps_serving() {
     let (scope, _cleanup, pid, _root) = start("compose");
     send(&scope, "permission_required", "one");
     let bounds = wait_for_window(pid);
-    // Artwork cards are wider than three heights; the text card is not.
-    assert!(bounds.right - bounds.left <= (bounds.bottom - bounds.top) * 3);
+    // Artwork cards are wider than 2.5 heights; the text card is not.
+    assert!((bounds.right - bounds.left) * 2 <= (bounds.bottom - bounds.top) * 5);
     send(&scope, "input_required", "two");
     assert_eq!(status(&scope), (pid, 2));
 }
@@ -112,9 +112,9 @@ fn a_card_waits_for_its_artwork_and_first_appears_with_it() {
     let (scope, _cleanup, pid, _root) = start("none");
     send(&scope, "permission_required", "one");
     let bounds = wait_for_window(pid);
-    // Artwork cards are wider than three heights; the text card is not.
+    // Artwork cards are wider than 2.5 heights; the text card is not.
     assert!(
-        bounds.right - bounds.left > (bounds.bottom - bounds.top) * 3,
+        (bounds.right - bounds.left) * 2 > (bounds.bottom - bounds.top) * 5,
         "first shown card was the text card"
     );
 }
@@ -135,7 +135,7 @@ fn slow_artwork_delays_the_card_only_until_the_wait_limit() {
         "card waited for the stalled worker: {waited:?}"
     );
     assert!(
-        bounds.right - bounds.left <= (bounds.bottom - bounds.top) * 3,
+        (bounds.right - bounds.left) * 2 <= (bounds.bottom - bounds.top) * 5,
         "expected the text card after the wait limit"
     );
     assert_eq!(status(&scope).0, pid);

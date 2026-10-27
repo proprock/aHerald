@@ -13,6 +13,7 @@ fn entry(duration: u64, visible_ms: u64) -> Entry {
         duration,
         visible_ms,
         announced: true,
+        arrived_ms: 0,
     }
 }
 

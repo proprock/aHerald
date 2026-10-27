@@ -107,6 +107,36 @@ pub struct Event {
     /// The whole session ended (Claude `SessionEnd`): evidence only, never shown or sounded.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ended: bool,
+    /// Last component of the session's working directory, for the card heading. Display
+    /// only: never logged, and the full path is not kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+const MAX_FOLDER_CHARS: usize = 40;
+/// The folder name of a hook's `cwd`: its last component, safe to draw. `None` for roots,
+/// drives, share names, empty paths and names that are empty once control and
+/// bidirectional-override characters are removed.
+pub fn folder_name(cwd: &str) -> Option<String> {
+    let trimmed = cwd.trim_end_matches(['/', '\\']);
+    let (parent, name) = match trimmed.rfind(['/', '\\']) {
+        Some(at) => (&trimmed[..at], &trimmed[at + 1..]),
+        None => ("", trimmed),
+    };
+    // `C:` is a drive; `\\server\share` and `\\server` have no project folder.
+    let is_drive = name.len() == 2 && name.ends_with(':');
+    let is_share =
+        parent == r"\" || (parent.starts_with(r"\\") && !parent[2..].contains(['/', '\\']));
+    if is_drive || is_share || name == "." || name == ".." {
+        return None;
+    }
+    let text: String = name
+        .chars()
+        .filter(|c| !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text: String = text.chars().take(MAX_FOLDER_CHARS).collect();
+    (!text.is_empty()).then_some(text)
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
@@ -128,6 +158,7 @@ impl Event {
             agent_id: None,
             window: None,
             ended: false,
+            folder: None,
         })
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -161,6 +192,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: Option<String>,
         turn_id: Option<String>,
         agent_id: Option<String>,
+        cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
     let kind = match hook.hook_event_name.as_str() {
@@ -182,9 +214,18 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         },
         window: None,
         ended: false,
+        folder: hook_folder(hook.cwd),
     };
     event.validate()?;
     Ok(Some(event))
+}
+
+/// The folder for a hook's `cwd`; a missing or non-string value costs only the folder.
+pub(crate) fn hook_folder(cwd: Option<serde_json::Value>) -> Option<String> {
+    match cwd? {
+        serde_json::Value::String(path) => folder_name(&path),
+        _ => None,
+    }
 }
 
 pub fn read_bounded(

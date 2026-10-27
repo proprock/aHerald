@@ -158,7 +158,7 @@ fn body_activation_and_dismissal_are_independent_at_both_scales() {
     for dismiss in [true, false] {
         for scale in [1.0, 2.0] {
             let c = Card::new("Codex", 0, 2, dismiss);
-            let (w, h) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
+            let (w, h) = ((320.0 * scale) as i32, (150.0 * scale) as i32);
             assert!(c.body_hit_test(w, h, scale, 10, 10));
             assert_eq!(c.hit_test(w, h, scale, 10, 10).is_some(), dismiss);
             for (_, r) in c.buttons(w, h, scale) {

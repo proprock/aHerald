@@ -127,6 +127,25 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
 
 ## Milestone 5 — Polish and portable release
 
+- [ ] **AH-085 — Redesign the notification card layout.**
+  Layout (left to right): a wider accent stripe whose colour marks the event kind; the
+  artwork unchanged; the countdown top right unchanged. Text rows: (1) `<harness>, <folder>`
+  (the folder is the last component of the hook's `cwd`; only `<harness>` when there is
+  none, never a session ID); (2) the readable session name, or an empty row (the row is
+  always reserved so the card never changes height); (3) the event kind, larger and set
+  slightly apart, in the normal text colour. Bottom row: left `[Dismiss] <age>` (the button
+  only when `click_to_dismiss = false`), right `[<] n/m [>]` only when several cards are
+  queued; the arrows are bordered buttons in the Dismiss style and navigation wraps around.
+  The usage card moves to the same layout. Folder is display-only: it is not logged.
+  Acceptance: automated tests for folder extraction (separators, trailing separators, drive
+  roots, control and bidi characters, length), the heading model, button geometry, wrap-around
+  navigation and age text; Codex and Claude hooks carry the folder through the resident IPC;
+  rendering tests keep the card height equal for one and several cards; docs and example
+  config updated; manual visual check of both agents at 100% and 150% recorded.
+  Scope added 2026-10-27: `border_color` (global, per event, usage) outlines the card and
+  frames its buttons. Implemented with automated tests; remaining: the manual visual check
+  (not done; no interactive desktop run yet).
+
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop

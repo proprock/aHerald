@@ -62,7 +62,7 @@ Session names: the resident reads them over one shared `codex app-server` connec
 (2-20 ms per lookup after the first, about 140 ms for the first when usage polling is off).
 A transient process shows one card, so a name would cost a new `codex app-server` child per
 card (measured on Windows 11, release build, 8 runs: 130-150 ms until the name, 20-560 ms to
-end the child). Transient mode therefore shows `Codex: session <last 8 characters>` unless
+end the child). Transient mode therefore leaves the name row empty unless
 `[codex] transient_names = true` (AH-058, default false). Claude cards never look names up.
 
 To remove integration, delete only the aHerald handler/groups, preserving other

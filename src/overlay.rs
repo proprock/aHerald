@@ -13,13 +13,22 @@ use windows::{
     core::w,
 };
 
+/// Everything drawn on a card's base surface.
 pub(crate) struct CardText<'a> {
-    pub source: &'a str,
+    pub heading: &'a crate::card::Heading,
+    /// The event kind, drawn large on one row; with `body` the usage text instead.
     pub label: &'a str,
-    pub navigation: bool,
+    /// `label` is several lines of body text rather than the event kind.
+    pub body: bool,
+    pub index: usize,
+    pub count: usize,
     pub dismiss_button: bool,
+    /// Coarse age of the event ("2 min ago"); absent for cards that live seconds.
+    pub age: Option<&'a str>,
     pub color: crate::config::Color,
     pub background_color: crate::config::Color,
+    /// Outline of the card and frame of its buttons; absent draws no card outline.
+    pub border: Option<crate::config::Color>,
 }
 pub(crate) struct Surface {
     dc: HDC,
@@ -84,6 +93,65 @@ fn restore_alpha(pixels: &mut [u8]) {
     for pixel in pixels.as_chunks_mut::<4>().0 {
         if pixel[3] == 0 && pixel[..3].iter().any(|c| *c != 0) {
             pixel[3] = 255;
+        }
+    }
+}
+/// Draws a button face: a slightly lighter fill with a one-pixel border and rounded
+/// corners, over the card background (BGRA, not yet premultiplied).
+fn draw_button_frame(
+    pixels: &mut [u8],
+    width: i32,
+    area: &crate::card::Area,
+    background: &[u8; 4],
+    border_color: Option<crate::config::Color>,
+    scale: f64,
+) {
+    let lighten =
+        |value: u8, amount: u32| (value as u32 + (255 - value as u32) * amount / 100) as u8;
+    let fill = [
+        lighten(background[0], 8),
+        lighten(background[1], 8),
+        lighten(background[2], 8),
+        255,
+    ];
+    let border = match border_color {
+        Some(c) => [c.0[2], c.0[1], c.0[0], 255],
+        None => [
+            lighten(background[0], 32),
+            lighten(background[1], 32),
+            lighten(background[2], 32),
+            255,
+        ],
+    };
+    let (w, h) = (area.right - area.left, area.bottom - area.top);
+    let radius = ((4.0 * scale) as i32).min(w / 2).min(h / 2);
+    let line = (scale.round() as i32).max(1);
+    // Distance of a pixel outside the rounded rectangle (negative inside).
+    let inside = |x: i32, y: i32, inset: i32| {
+        let (left, top) = (inset, inset);
+        let (right, bottom) = (w - inset, h - inset);
+        let r = (radius - inset).max(0);
+        let cx = x.clamp(left + r, right - r - 1);
+        let cy = y.clamp(top + r, bottom - r - 1);
+        x >= left
+            && y >= top
+            && x < right
+            && y < bottom
+            && (x - cx).pow(2) + (y - cy).pow(2) <= r.pow(2)
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let colour = if inside(x, y, line) {
+                &fill
+            } else if inside(x, y, 0) {
+                &border
+            } else {
+                continue;
+            };
+            let i = (((area.top + y) * width + area.left + x) * 4) as usize;
+            if let Some(pixel) = pixels.get_mut(i..i + 4) {
+                pixel.copy_from_slice(colour);
+            }
         }
     }
 }
@@ -201,12 +269,16 @@ impl Surface {
             scale,
             text_left,
             CardText {
-                source,
+                heading: &crate::card::Heading::from(source),
                 label,
-                navigation: false,
+                body: false,
+                index: 0,
+                count: 1,
                 dismiss_button: false,
+                age: None,
                 color: crate::config::Color([101, 220, 178]),
                 background_color: crate::config::Notifications::default().background_color,
+                border: None,
             },
         )
     }
@@ -239,13 +311,26 @@ impl Surface {
         content: CardText<'_>,
     ) -> Result<Self, String> {
         let CardText {
-            source,
+            heading,
             label,
-            navigation,
+            body,
+            index,
+            count,
             dismiss_button,
+            age,
             color,
             background_color,
+            border,
         } = content;
+        let controls = crate::card::Card {
+            heading: heading.clone(),
+            index,
+            count,
+            navigation: count > 1,
+            dismiss_button,
+            text_left: Some(text_left),
+        };
+        let buttons = controls.buttons(width, height, scale);
         let mut surface = Self::allocate(width, height)?;
         let dc = surface.dc;
         let pixels = surface.pixels_mut();
@@ -256,6 +341,7 @@ impl Surface {
             242,
         ];
         let radius = (18.0 * scale) as i32;
+        let stripe = (8.0 * scale) as i32;
         for y in 0..height {
             for x in 0..width {
                 let cx = x.clamp(radius, width - radius - 1);
@@ -263,56 +349,99 @@ impl Surface {
                 let inside = (x - cx).pow(2) + (y - cy).pow(2) <= radius.pow(2);
                 let i = ((y * width + x) * 4) as usize;
                 pixels[i..i + 4].copy_from_slice(if inside { &background } else { &[0, 0, 0, 0] });
-                if inside && x < (5.0 * scale) as i32 {
+                if inside && x < stripe {
                     pixels[i..i + 3].copy_from_slice(&[color.0[2], color.0[1], color.0[0]]);
                 }
             }
         }
-        let font = Font::segoe(18.0 * scale).ok_or("cannot create overlay font")?;
-        // SAFETY: the memory DC is owned by `surface`; the selection is restored below,
-        // before the font is deleted.
+        if let Some(border) = border {
+            let outline = [border.0[2], border.0[1], border.0[0], 255];
+            let line = (scale.round() as i32).max(1);
+            let within = |x: i32, y: i32, inset: i32| {
+                let r = (radius - inset).max(0);
+                let cx = x.clamp(inset + r, width - inset - r - 1);
+                let cy = y.clamp(inset + r, height - inset - r - 1);
+                x >= inset
+                    && y >= inset
+                    && x < width - inset
+                    && y < height - inset
+                    && (x - cx).pow(2) + (y - cy).pow(2) <= r.pow(2)
+            };
+            for y in 0..height {
+                for x in 0..width {
+                    if within(x, y, 0) && !within(x, y, line) {
+                        let i = ((y * width + x) * 4) as usize;
+                        pixels[i..i + 4].copy_from_slice(&outline);
+                    }
+                }
+            }
+        }
+        for (_, area) in &buttons {
+            draw_button_frame(pixels, width, area, &background, border, scale);
+        }
+        let font_at = |size: f64| Font::segoe(size * scale).ok_or("cannot create overlay font");
+        let (title_font, name_font, kind_font, row_font) = (
+            font_at(18.0)?,
+            font_at(16.0)?,
+            font_at(22.0)?,
+            font_at(15.0)?,
+        );
+        // SAFETY: the memory DC is owned by `surface`; the original selection is restored
+        // below, before the fonts are deleted.
         let old_font = unsafe {
-            let old_font = SelectObject(dc, font.0.into());
             SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, COLORREF(0x00f5f5f5));
-            old_font
+            SelectObject(dc, title_font.0.into())
         };
+        let draw = |font: &Font, gray: u32, rect: &mut RECT, text: &str, format| {
+            // SAFETY: `dc` stays selected into `surface`, which outlives this closure.
+            unsafe {
+                SelectObject(dc, font.0.into());
+                SetTextColor(dc, COLORREF(gray * 0x0001_0101));
+            }
+            draw_text(dc, text, rect, format);
+        };
+        let single = DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS;
+        let px = |v: f64| (v * scale) as i32;
+        // Row 1: harness and folder; the right edge keeps clear of the countdown badge.
         let mut rect = RECT {
             left: text_left,
-            top: if label.contains('\n') {
-                (18.0 * scale) as i32
-            } else {
-                ((height - (64.0 * scale) as i32) / 2).max(0)
-            },
-            right: width - (82.0 * scale) as i32,
-            bottom: height,
+            top: px(14.0),
+            right: width - px(82.0),
+            bottom: px(38.0),
         };
-        if !source.is_empty() {
-            draw_text(
-                dc,
-                source,
-                &mut rect,
-                DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
+        draw(&title_font, 0xf5, &mut rect, &heading.title, single);
+        // Row 2 is reserved so the card never changes height; empty without a name.
+        if let Some(name) = &heading.name {
+            let mut rect = RECT {
+                left: text_left,
+                top: px(38.0),
+                right: width - px(18.0),
+                bottom: px(60.0),
+            };
+            draw(&name_font, 0xc4, &mut rect, name, single);
         }
-        rect.top += (26.0 * scale) as i32;
-        rect.right = width - (18.0 * scale) as i32;
-        rect.bottom = height
-            - (if navigation || dismiss_button {
-                36.0
-            } else {
-                10.0
-            } * scale) as i32;
+        // Row 3: the event kind, set apart and larger; usage cards show their body instead.
         if !label.is_empty() {
-            draw_text(dc, label, &mut rect, DT_LEFT | DT_NOPREFIX | DT_WORDBREAK);
+            let (font, top, format, gray) = if body {
+                (
+                    &title_font,
+                    px(66.0),
+                    DT_LEFT | DT_NOPREFIX | DT_WORDBREAK,
+                    0xf5,
+                )
+            } else {
+                (&kind_font, px(72.0), single, 0xf5)
+            };
+            let mut rect = RECT {
+                left: text_left,
+                top,
+                right: width - px(18.0),
+                bottom: height - px(40.0),
+            };
+            draw(font, gray, &mut rect, label, format);
         }
-        let controls = crate::card::Card {
-            heading: source.into(),
-            navigation,
-            dismiss_button,
-        };
-        for (action, r) in controls.buttons(width, height, scale) {
-            let label = match action {
+        for (action, r) in &buttons {
+            let caption = match action {
                 crate::card::Action::Previous => "<",
                 crate::card::Action::Next => ">",
                 crate::card::Action::Dismiss => "Dismiss",
@@ -323,11 +452,44 @@ impl Surface {
                 right: r.right,
                 bottom: r.bottom,
             };
-            draw_text(
-                dc,
-                label,
+            draw(
+                &row_font,
+                0xf5,
                 &mut area,
-                DT_CENTER | DT_NOPREFIX | DT_SINGLELINE,
+                caption,
+                DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE,
+            );
+        }
+        if let Some(counter) = controls.counter() {
+            let r = controls.counter_area(width, height, scale);
+            let mut area = RECT {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+            };
+            draw(
+                &row_font,
+                0xc4,
+                &mut area,
+                &counter,
+                DT_CENTER | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE,
+            );
+        }
+        if let Some(age) = age {
+            let r = controls.age_area(width, height, scale);
+            let mut area = RECT {
+                left: r.left,
+                top: r.top,
+                right: r.right,
+                bottom: r.bottom,
+            };
+            draw(
+                &row_font,
+                0xa0,
+                &mut area,
+                age,
+                DT_LEFT | DT_VCENTER | DT_NOPREFIX | DT_SINGLELINE | DT_END_ELLIPSIS,
             );
         }
         // SAFETY: restores the selection made above; GdiFlush completes pending drawing
@@ -343,43 +505,6 @@ impl Surface {
             for channel in &mut pixel[..3] {
                 *channel = ((*channel as u16 * alpha + 127) / 255) as u8;
             }
-        }
-        Ok(surface)
-    }
-    pub(crate) fn with_heading(
-        &self,
-        source: &str,
-        text_left: i32,
-        scale: f64,
-        background_color: crate::config::Color,
-    ) -> Result<Self, String> {
-        let heading = Self::card(
-            self.width,
-            self.height,
-            scale,
-            text_left,
-            CardText {
-                source,
-                label: "",
-                navigation: false,
-                dismiss_button: false,
-                color: crate::config::Color([0, 0, 0]),
-                background_color,
-            },
-        )?;
-        let mut surface = Self::allocate(self.width, self.height)?;
-        // All three surfaces have identical dimensions. Copy only the heading's bounded
-        // rectangle, preserving artwork, controls and event text.
-        let pixels = surface.pixels_mut();
-        pixels.copy_from_slice(self.pixels());
-        let top = ((self.height - (64.0 * scale) as i32) / 2).max(0);
-        let right = (self.width - (82.0 * scale) as i32).clamp(0, self.width);
-        for y in top..(top + (26.0 * scale) as i32).min(self.height) {
-            let left = text_left.clamp(0, right);
-            let offset = ((y * self.width + left) * 4) as usize;
-            let length = ((right - left) * 4) as usize;
-            pixels[offset..offset + length]
-                .copy_from_slice(&heading.pixels()[offset..offset + length]);
         }
         Ok(surface)
     }
@@ -494,7 +619,6 @@ struct State {
     frame_durations: Vec<u64>,
     looping: bool,
     notifications: crate::config::Notifications,
-    background_color: crate::config::Color,
     placement: (i32, i32, i32, i32),
     start: Instant,
     duration: u64,
@@ -545,19 +669,35 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                     let state = &mut *ptr;
                     let source = state.source_labels.label(&state.event);
                     if source != state.controls.heading {
-                        let updated = state.composition.update_heading(
-                            &source,
-                            state.render_scale,
-                            state.background_color,
+                        let scale = state.render_scale;
+                        let mut controls = crate::card::Card::new(
+                            source.clone(),
+                            0,
+                            1,
+                            !state.controls.dismiss_button,
                         );
+                        controls.text_left = state.controls.text_left;
+                        let (config, event) = (&state.config, &state.event);
+                        let updated = state.composition.update_card(|width, height, left| {
+                            Surface::card(
+                                width,
+                                height,
+                                scale,
+                                left,
+                                event_card_text(config, event, &controls, None),
+                            )
+                        });
                         match updated {
                             Ok(()) => {
                                 state.controls.heading = source.clone();
-                                let title: Vec<u16> =
-                                    format!("{source} - {}", state.event.kind.label())
-                                        .encode_utf16()
-                                        .chain(Some(0))
-                                        .collect();
+                                let title: Vec<u16> = format!(
+                                    "{} - {}",
+                                    source.window_text(),
+                                    state.event.kind.label()
+                                )
+                                .encode_utf16()
+                                .chain(Some(0))
+                                .collect();
                                 let _ = SetWindowTextW(hwnd, windows::core::PCWSTR(title.as_ptr()));
                             }
                             Err(_) => {
@@ -690,7 +830,7 @@ impl Composition {
     ) -> Result<Self, String> {
         let _timer = crate::perf::span(crate::perf::Span::CompositionBuild);
         crate::perf::count(crate::perf::Counter::CompositionRebuild);
-        let (base_width, base_height) = ((320.0 * scale) as i32, (110.0 * scale) as i32);
+        let (base_width, base_height) = ((320.0 * scale) as i32, crate::card::height(scale));
         let has_art = art.as_ref().is_some_and(|a| !a.frames.is_empty());
         if let Some(art) = art.as_ref().filter(|a| !a.frames.is_empty()) {
             let padding = (18.0 * scale) as i32;
@@ -767,16 +907,13 @@ impl Composition {
         }
         Ok(&self.work)
     }
-    /// Redraws the heading on the one base card; artwork, controls and event text stay.
-    pub(crate) fn update_heading(
+    /// Redraws the base card's text (heading, counter, age) at the same size; the artwork
+    /// is blended at render time, so it and its frames are untouched.
+    pub(crate) fn update_card(
         &mut self,
-        source: &str,
-        scale: f64,
-        background_color: crate::config::Color,
+        make_card: impl FnOnce(i32, i32, i32) -> Result<Surface, String>,
     ) -> Result<(), String> {
-        self.base = self
-            .base
-            .with_heading(source, self.text_left, scale, background_color)?;
+        self.base = make_card(self.base.width, self.base.height, self.text_left)?;
         self.shown = None;
         Ok(())
     }
@@ -820,6 +957,27 @@ fn placement_guard() -> Option<crate::local::Ownership> {
     }
 }
 
+/// What an event card shows: its heading, kind, queue position and (resident) age.
+pub(crate) fn event_card_text<'a>(
+    config: &Config,
+    event: &Event,
+    controls: &'a crate::card::Card,
+    age: Option<&'a str>,
+) -> CardText<'a> {
+    CardText {
+        heading: &controls.heading,
+        label: event.kind.label(),
+        body: false,
+        index: controls.index,
+        count: controls.count,
+        dismiss_button: controls.dismiss_button,
+        age,
+        color: config.event_color(event.kind),
+        background_color: config.event_background_color(event.kind),
+        border: config.event_border_color(event.kind),
+    }
+}
+
 /// Draws the card for `event` at `scale` (configured scale times the monitor's DPI
 /// scale). Artwork is prepared on a helper thread, as asset decoding stays off the
 /// thread that owns the window.
@@ -835,14 +993,7 @@ fn build_composition(
             height,
             scale,
             text_left,
-            CardText {
-                source: &controls.heading,
-                label: event.kind.label(),
-                navigation: false,
-                dismiss_button: controls.dismiss_button,
-                color: config.event_color(event.kind),
-                background_color: config.event_background_color(event.kind),
-            },
+            event_card_text(config, event, controls, None),
         )
     };
     let assets = config.clone();
@@ -876,8 +1027,10 @@ fn show_with_source(
         let scale = config.notifications.scale * crate::placement::dpi_scale(&config.notifications);
         let label = event.kind.label();
         let source = source_labels.label(event);
-        let controls = crate::card::Card::new(&source, 0, 1, config.notifications.click_to_dismiss);
+        let mut controls =
+            crate::card::Card::new(source.clone(), 0, 1, config.notifications.click_to_dismiss);
         let composition = build_composition(config, event, &controls, scale)?;
+        controls.text_left = Some(composition.text_left);
         let (frame_durations, looping) = (composition.durations.clone(), composition.looping);
         let (width, height) = composition.size();
         let position = POINT::default();
@@ -887,7 +1040,6 @@ fn show_with_source(
         let placing = placement_guard();
         let placement = crate::placement::current(&config.notifications, (width, height), Some(0))?;
         let mut state = Box::new(State {
-            background_color: config.event_background_color(event.kind),
             composition,
             render_scale: scale,
             config: config.clone(),
@@ -910,7 +1062,7 @@ fn show_with_source(
         });
         let instance = GetModuleHandleW(None).map_err(|_| "cannot find module handle")?;
         let class = register_class(instance.into())?;
-        let title: Vec<u16> = format!("{source} - {label}")
+        let title: Vec<u16> = format!("{} - {label}", source.window_text())
             .encode_utf16()
             .chain(Some(0))
             .collect();
@@ -1069,9 +1221,9 @@ mod composition_tests {
         let mut animation = numbered(2, 40, 40);
         animation.frames[1].bgra = vec![0; 40 * 40 * 4];
         let mut c = Composition::compose(1.0, shared(animation), card).unwrap();
-        let behind = card(378, 110, 76).unwrap();
+        let behind = card(378, 150, 76).unwrap();
         assert_eq!(
-            pixel(c.render(0, None, 1.0).unwrap(), 30, 50),
+            pixel(c.render(0, None, 1.0).unwrap(), 30, 75),
             [0, 0, 0, 255]
         );
         let transparent = c.render(1, None, 1.0).unwrap();
@@ -1099,15 +1251,30 @@ mod composition_tests {
     fn a_new_session_name_redraws_one_base_card_and_keeps_every_frame() {
         let mut c = Composition::compose(1.0, shared(numbered(3, 40, 40)), card).unwrap();
         let before = c.render(2, None, 1.0).unwrap().pixels().to_vec();
-        c.update_heading(
-            "Codex: Проверка aHerald",
-            1.0,
-            crate::config::Notifications::default().background_color,
-        )
+        c.update_card(|w, h, left| {
+            Surface::card(
+                w,
+                h,
+                1.0,
+                left,
+                super::CardText {
+                    heading: &crate::card::Heading::new("Codex", Some("aHerald"), Some("Проверка")),
+                    label: "Error",
+                    body: false,
+                    index: 0,
+                    count: 1,
+                    dismiss_button: false,
+                    age: None,
+                    color: crate::config::Color([101, 220, 178]),
+                    background_color: crate::config::Notifications::default().background_color,
+                    border: None,
+                },
+            )
+        })
         .unwrap();
         let after = c.render(2, None, 1.0).unwrap();
         assert_ne!(before.as_slice(), after.pixels(), "heading text changed");
-        assert_eq!(pixel(after, 30, 50), [2, 0, 0, 255], "artwork survives");
+        assert_eq!(pixel(after, 30, 75), [2, 0, 0, 255], "artwork survives");
         assert_eq!(c.render(0, None, 1.0).unwrap().pixels()[..4], [0, 0, 0, 0]);
     }
 }
@@ -1115,42 +1282,172 @@ mod composition_tests {
 #[cfg(test)]
 mod card_tests {
     use super::Surface;
-    #[test]
-    fn metadata_heading_preserves_artwork_signal_and_controls() {
-        let card = Surface::text(
-            530,
-            244,
+    fn drawn(
+        heading: &crate::card::Heading,
+        count: usize,
+        dismiss: bool,
+        age: Option<&str>,
+    ) -> Vec<u8> {
+        let surface = Surface::card(
+            320,
+            150,
             1.0,
-            "Codex: session 12345678",
-            "Permission required",
-            228,
+            22,
+            super::CardText {
+                heading,
+                label: "Permission required",
+                body: false,
+                index: 0,
+                count,
+                dismiss_button: dismiss,
+                age,
+                color: crate::config::Color([250, 180, 55]),
+                background_color: crate::config::Notifications::default().background_color,
+                border: None,
+            },
         )
         .unwrap();
-        let updated = card
-            .with_heading(
-                "Codex: Проверка aHerald",
-                228,
+        surface.pixels().to_vec()
+    }
+    /// Pixels of the card inside `x`, `y` ranges.
+    fn region(data: &[u8], x: std::ops::Range<usize>, y: std::ops::Range<usize>) -> Vec<u8> {
+        y.flat_map(|y| data[(y * 320 + x.start) * 4..(y * 320 + x.end) * 4].to_vec())
+            .collect()
+    }
+    #[test]
+    fn a_configured_border_outlines_the_card_and_its_buttons() {
+        let border = crate::config::Color([255, 0, 0]);
+        let make = |border| {
+            Surface::card(
+                320,
+                150,
                 1.0,
-                crate::config::Notifications::default().background_color,
+                22,
+                super::CardText {
+                    heading: &"Codex".into(),
+                    label: "Turn complete",
+                    body: false,
+                    index: 0,
+                    count: 3,
+                    dismiss_button: false,
+                    age: None,
+                    color: crate::config::Color([65, 210, 140]),
+                    background_color: crate::config::Notifications::default().background_color,
+                    border,
+                },
             )
-            .unwrap();
-        // SAFETY: both owned DIBs contain width * height BGRA pixels.
-        unsafe {
-            let old = std::slice::from_raw_parts(card.pixels, 530 * 244 * 4);
-            let new = std::slice::from_raw_parts(updated.pixels, old.len());
-            let mut changed = 0;
-            for y in 0..244 {
-                for x in 0..530 {
-                    let i = (y * 530 + x) * 4;
-                    if (90..116).contains(&y) && (228..448).contains(&x) {
-                        changed += usize::from(old[i..i + 4] != new[i..i + 4]);
-                    } else {
-                        assert_eq!(old[i..i + 4], new[i..i + 4]);
-                    }
-                }
-            }
-            assert!(changed > 100);
+            .unwrap()
+        };
+        let (plain, framed) = (make(None), make(Some(border)));
+        let at = |s: &Surface, x: usize, y: usize| s.pixels()[(y * 320 + x) * 4..][..4].to_vec();
+        // Straight edges, away from the rounded corners and the stripe: opaque border colour.
+        for (x, y) in [(160, 0), (160, 149), (319, 75)] {
+            assert_eq!(at(&framed, x, y), [0, 0, 255, 255], "edge {x},{y}");
+            assert_ne!(at(&plain, x, y), at(&framed, x, y));
         }
+        // The pixel just inside is untouched card background.
+        assert_eq!(at(&framed, 160, 3), at(&plain, 160, 3));
+        // Buttons take the same colour for their frame.
+        let next = crate::card::Card::new("Codex", 0, 3, true)
+            .buttons(320, 150, 1.0)
+            .into_iter()
+            .find(|(a, _)| *a == crate::card::Action::Next)
+            .unwrap()
+            .1;
+        assert_eq!(
+            at(&framed, next.left as usize + 10, next.top as usize),
+            [0, 0, 255, 255]
+        );
+    }
+    #[test]
+    fn the_stripe_is_wide_and_carries_the_event_colour() {
+        let data = drawn(&"Codex".into(), 1, false, None);
+        let at = |x: usize, y: usize| data[(y * 320 + x) * 4..][..4].to_vec();
+        // Premultiplied BGRA of #FAB437 at the card alpha.
+        assert_eq!(
+            at(7, 75)[..3],
+            at(1, 75)[..3],
+            "stripe is at least 8 px wide"
+        );
+        assert_ne!(
+            at(7, 75)[..3],
+            at(12, 75)[..3],
+            "and ends before the text column"
+        );
+    }
+    #[test]
+    fn name_row_is_reserved_and_the_name_changes_only_that_row() {
+        let without = drawn(&"Codex".into(), 1, false, None);
+        let named = crate::card::Heading::new("Codex", None, Some("Fix the build"));
+        let with = drawn(&named, 1, false, None);
+        assert_eq!(
+            region(&without, 0..320, 0..38),
+            region(&with, 0..320, 0..38),
+            "title row"
+        );
+        assert_ne!(
+            region(&without, 22..300, 38..60),
+            region(&with, 22..300, 38..60)
+        );
+        assert_eq!(
+            region(&without, 0..320, 60..150),
+            region(&with, 0..320, 60..150),
+            "below"
+        );
+    }
+    #[test]
+    fn several_cards_add_framed_arrows_and_a_counter_without_moving_the_text() {
+        let one = drawn(&"Codex".into(), 1, false, None);
+        let many = drawn(&"Codex".into(), 5, false, None);
+        assert_eq!(
+            region(&one, 0..320, 0..110),
+            region(&many, 0..320, 0..110),
+            "text rows"
+        );
+        let buttons = crate::card::Card::new("Codex", 0, 5, true).buttons(320, 150, 1.0);
+        for (_, area) in buttons {
+            let (l, t, r, b) = (
+                area.left as usize,
+                area.top as usize,
+                area.right as usize,
+                area.bottom as usize,
+            );
+            let changed = |x: usize, y: usize| {
+                one[(y * 320 + x) * 4..][..4] != many[(y * 320 + x) * 4..][..4]
+            };
+            // The border pixels on all four edges differ from the plain card.
+            assert!(
+                changed(l + 8, t) && changed(l + 8, b - 1),
+                "top and bottom edges"
+            );
+            assert!(
+                changed(l, (t + b) / 2) && changed(r - 1, (t + b) / 2),
+                "side edges"
+            );
+        }
+    }
+    #[test]
+    fn dismiss_button_and_age_share_the_bottom_left() {
+        let plain = drawn(&"Codex".into(), 1, false, None);
+        let dismiss = drawn(&"Codex".into(), 1, true, None);
+        let aged = drawn(&"Codex".into(), 1, true, Some("2 min ago"));
+        assert_ne!(
+            region(&plain, 22..118, 116..140),
+            region(&dismiss, 22..118, 116..140)
+        );
+        assert_ne!(
+            region(&dismiss, 128..220, 116..140),
+            region(&aged, 128..220, 116..140)
+        );
+        assert_eq!(
+            region(&dismiss, 0..320, 0..110),
+            region(&aged, 0..320, 0..110)
+        );
+        assert_eq!(
+            region(&plain, 250..320, 116..140),
+            region(&aged, 250..320, 116..140),
+            "right side stays clear"
+        );
     }
 
     #[test]
@@ -1170,6 +1467,7 @@ mod card_tests {
         let mut event = Event::demo("permission_required").unwrap();
         event.source = crate::events::Source::CodexHook;
         event.session_id = Some("019a0000-0000-0000-0000-000012345678".into());
+        event.folder = Some("aHerald".into());
         let mut config = Config::default();
         config.sounds.enabled = false;
         let job = std::thread::spawn(move || {
@@ -1220,9 +1518,9 @@ mod card_tests {
             let len = unsafe { GetWindowTextW(hwnd, &mut text) };
             String::from_utf16_lossy(&text[..len as usize])
         };
-        assert_eq!(title(), "Codex: session 12345678 - Permission required");
+        assert_eq!(title(), "Codex, aHerald - Permission required");
         release.send(()).unwrap();
-        while title() != "Codex: Проверка aHerald - Permission required" {
+        while title() != "Codex, aHerald: Проверка aHerald - Permission required" {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }
@@ -1274,16 +1572,20 @@ mod card_tests {
         .map(|(source, background_color)| {
             Surface::card(
                 320,
-                110,
+                150,
                 1.0,
                 22,
                 CardText {
-                    source,
+                    heading: &crate::card::Heading::from(source),
                     label: "Custom card background",
-                    navigation: false,
+                    body: false,
+                    index: 0,
+                    count: 1,
                     dismiss_button: false,
+                    age: None,
                     color: crate::config::Color([65, 210, 140]),
                     background_color,
+                    border: None,
                 },
             )
             .unwrap()
@@ -1353,23 +1655,45 @@ mod card_tests {
         let background_color = crate::config::Color([16, 32, 48]);
         let card = Surface::card(
             320,
-            110,
+            150,
             1.0,
             22,
             super::CardText {
-                source: "Codex",
+                heading: &crate::card::Heading::from("Codex"),
                 label: "Error",
-                navigation: false,
+                body: false,
+                index: 0,
+                count: 1,
                 dismiss_button: false,
+                age: None,
                 color: crate::config::Color([245, 85, 100]),
                 background_color,
+                border: None,
             },
         )
         .unwrap();
-        let updated = card.with_heading("New", 22, 1.0, background_color).unwrap();
+        let updated = Surface::card(
+            320,
+            150,
+            1.0,
+            22,
+            super::CardText {
+                heading: &crate::card::Heading::from("New"),
+                label: "Error",
+                body: false,
+                index: 0,
+                count: 1,
+                dismiss_button: false,
+                age: None,
+                color: crate::config::Color([245, 85, 100]),
+                background_color,
+                border: None,
+            },
+        )
+        .unwrap();
         for surface in [&card, &updated] {
-            // SAFETY: each surface owns a live 320x110 BGRA DIB.
-            let pixels = unsafe { std::slice::from_raw_parts(surface.pixels, 320 * 110 * 4) };
+            // SAFETY: each surface owns a live 320x150 BGRA DIB.
+            let pixels = unsafe { std::slice::from_raw_parts(surface.pixels, 320 * 150 * 4) };
             assert_eq!(&pixels[(90 * 320 + 100) * 4..][..4], &[46, 30, 15, 242]);
             assert_eq!(&pixels[(25 * 320 + 150) * 4..][..4], &[46, 30, 15, 242]);
             assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
@@ -1381,16 +1705,20 @@ mod card_tests {
         let make = |navigation, dismiss_button| {
             Surface::card(
                 320,
-                110,
+                150,
                 1.0,
                 22,
                 super::CardText {
-                    source: "Codex",
+                    heading: &crate::card::Heading::from("Codex"),
                     label: "Turn complete",
-                    navigation,
+                    body: false,
+                    index: 0,
+                    count: if navigation { 3 } else { 1 },
                     dismiss_button,
+                    age: None,
                     color: crate::config::Color([16, 32, 48]),
                     background_color: crate::config::Notifications::default().background_color,
+                    border: None,
                 },
             )
             .unwrap()
@@ -1398,9 +1726,9 @@ mod card_tests {
         let single = make(false, false);
         let multiple = make(true, false);
         let explicit = make(false, true);
-        // SAFETY: every surface owns a 320x110 BGRA DIB and lives through inspection.
+        // SAFETY: every surface owns a 320x150 BGRA DIB and lives through inspection.
         let pixels = |surface: &Surface| unsafe {
-            std::slice::from_raw_parts(surface.pixels, 320 * 110 * 4).to_vec()
+            std::slice::from_raw_parts(surface.pixels, 320 * 150 * 4).to_vec()
         };
         let base = pixels(&single);
         let region = |data: &[u8], left: usize, top: usize, right: usize, bottom: usize| {
@@ -1410,18 +1738,28 @@ mod card_tests {
                 .count()
         };
         assert_eq!(&base[(55 * 320 + 2) * 4..][..4], &[46, 30, 15, 242]);
-        assert_eq!(region(&base, 215, 78, 303, 101), 0);
-        assert!(region(&pixels(&multiple), 215, 78, 303, 101) > 10);
-        assert!(region(&pixels(&explicit), 205, 78, 303, 101) > 40);
+        assert_eq!(
+            region(&base, 22, 116, 303, 140),
+            0,
+            "no controls on a single card"
+        );
+        assert!(
+            region(&pixels(&multiple), 190, 116, 303, 140) > 10,
+            "arrows and counter"
+        );
+        assert!(
+            region(&pixels(&explicit), 22, 116, 118, 140) > 40,
+            "dismiss button"
+        );
         let mut previous = base.clone();
         for second in [3, 2, 1] {
-            let mut drawn = Surface::allocate(320, 110).unwrap();
+            let mut drawn = Surface::allocate(320, 150).unwrap();
             drawn.copy_from(&single);
             drawn.draw_countdown(second, 1.0).unwrap();
             let timed = pixels(&drawn);
             assert!(region(&timed, 240, 16, 303, 40) > 20);
             assert_ne!(timed, previous);
-            for y in 40..110 {
+            for y in 40..150 {
                 assert_eq!(
                     &timed[y * 320 * 4..(y + 1) * 320 * 4],
                     &base[y * 320 * 4..(y + 1) * 320 * 4]
@@ -1518,11 +1856,9 @@ mod card_tests {
                         .unwrap();
                 }
                 animated
-                    .update_heading(
-                        "Codex: renamed",
-                        1.0,
-                        crate::config::Notifications::default().background_color,
-                    )
+                    .update_card(|w, h, left| {
+                        Surface::text(w, h, 1.0, "Codex: renamed", "Error", left)
+                    })
                     .unwrap();
                 let mut shown = Surface::allocate(320, 110).unwrap();
                 shown.copy_from(&card);

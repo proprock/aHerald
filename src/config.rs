@@ -237,6 +237,8 @@ pub struct Resident {
 #[serde(default, deny_unknown_fields)]
 pub struct Notifications {
     pub background_color: Color,
+    /// Outline of the card and its buttons; absent draws no card outline.
+    pub border_color: Option<Color>,
     pub visual: Visual,
     pub pet: Option<PathBuf>,
     pub pet_animations: BTreeMap<String, PetAnimation>,
@@ -254,6 +256,7 @@ impl Default for Notifications {
     fn default() -> Self {
         Self {
             background_color: Color([28, 35, 45]),
+            border_color: None,
             visual: Visual::Auto,
             enabled: true,
             position: Position::default(),
@@ -289,6 +292,7 @@ impl Default for Sounds {
 #[serde(default, deny_unknown_fields)]
 pub struct EventConfig {
     pub background_color: Option<Color>,
+    pub border_color: Option<Color>,
     pub visual: EventVisual,
     pub enabled: bool,
     pub animation: Option<PathBuf>,
@@ -301,6 +305,7 @@ impl Default for EventConfig {
     fn default() -> Self {
         Self {
             background_color: None,
+            border_color: None,
             visual: EventVisual::Inherit,
             enabled: true,
             animation: None,
@@ -381,6 +386,7 @@ impl Default for Codex {
 #[serde(default, deny_unknown_fields)]
 pub struct Usage {
     pub background_color: Option<Color>,
+    pub border_color: Option<Color>,
     pub enabled: bool,
     pub refresh_interval_sec: u64,
     pub display: UsageDisplay,
@@ -396,6 +402,7 @@ impl Default for Usage {
     fn default() -> Self {
         Self {
             background_color: None,
+            border_color: None,
             enabled: false,
             refresh_interval_sec: 300,
             display: UsageDisplay::Remain,
@@ -407,6 +414,19 @@ impl Config {
         self.events[kind]
             .background_color
             .unwrap_or(self.notifications.background_color)
+    }
+
+    pub fn event_border_color(&self, kind: crate::events::Kind) -> Option<Color> {
+        self.events[kind]
+            .border_color
+            .or(self.notifications.border_color)
+    }
+
+    pub fn usage_border_color(&self) -> Option<Color> {
+        self.codex
+            .usage
+            .border_color
+            .or(self.notifications.border_color)
     }
 
     pub fn usage_background_color(&self) -> Color {

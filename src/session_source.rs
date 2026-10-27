@@ -1,5 +1,5 @@
 //! Bounded, read-only title lookup. Hooks and GUI never wait for Codex metadata.
-use crate::events::Event;
+use crate::{card::Heading, events::Event};
 use std::{
     collections::HashMap,
     sync::{
@@ -113,10 +113,19 @@ impl Service {
         let cancel = stop.clone();
         Self::start(move |id| lookup.name(id, &cancel), stop)
     }
-    pub fn label(&mut self, event: &Event) -> String {
+    pub fn label(&mut self, event: &Event) -> Heading {
         self.label_at(event, self.start.elapsed())
     }
-    pub fn label_at(&mut self, event: &Event, now: Duration) -> String {
+    /// The card heading: `<harness>[, <folder>]` and the stored session name once known.
+    pub fn label_at(&mut self, event: &Event, now: Duration) -> Heading {
+        let name = self.name_at(event, now);
+        Heading::new(
+            event.source.label(),
+            event.folder.as_deref(),
+            name.as_deref(),
+        )
+    }
+    fn name_at(&mut self, event: &Event, now: Duration) -> Option<String> {
         while let Ok((id, name)) = self.results.try_recv() {
             if let Some(entry) = self.entries.get_mut(&id) {
                 entry.pending = false;
@@ -129,27 +138,21 @@ impl Service {
             .agent()
             .is_some_and(|agent| agent.names_sessions())
         {
-            return event.source.label().into();
+            return None;
         }
-        let Some(id) = event.session_id.as_deref() else {
-            return event.source.label().into();
-        };
+        let id = event.session_id.as_deref()?;
         if event.validate().is_err() {
-            return event.source.label().into();
+            return None;
         }
         if !self.entries.contains_key(id) && self.entries.len() >= 64 {
             // Do not evict in-flight work: a later result must never label another session.
-            if let Some(oldest) = self
+            let oldest = self
                 .entries
                 .iter()
                 .filter(|(_, v)| !v.pending)
                 .min_by_key(|(_, v)| v.refresh_at)
-                .map(|(k, _)| k.clone())
-            {
-                self.entries.remove(&oldest);
-            } else {
-                return fallback(id);
-            }
+                .map(|(k, _)| k.clone())?;
+            self.entries.remove(&oldest);
         }
         let entry = self.entries.entry(id.into()).or_insert(Entry {
             name: None,
@@ -165,23 +168,8 @@ impl Service {
         {
             entry.pending = true;
         }
-        entry
-            .name
-            .as_ref()
-            .map(|name| format!("Codex: {name}"))
-            .unwrap_or_else(|| fallback(id))
+        entry.name.clone()
     }
-}
-fn fallback(id: &str) -> String {
-    let suffix: String = id
-        .chars()
-        .rev()
-        .take(8)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("Codex: session {suffix}")
 }
 fn clean(name: &str) -> Option<String> {
     let text: String = name
