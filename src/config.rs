@@ -362,6 +362,9 @@ impl Default for Claude {
 pub struct Codex {
     pub hooks_enabled: bool,
     pub input_monitoring: bool,
+    /// Look up the session name in transient mode. Each card then starts its own
+    /// `codex app-server` child (about 140 ms), so it is off unless asked for.
+    pub transient_names: bool,
     pub usage: Usage,
 }
 impl Default for Codex {
@@ -369,6 +372,7 @@ impl Default for Codex {
         Self {
             hooks_enabled: true,
             input_monitoring: false,
+            transient_names: false,
             usage: Usage::default(),
         }
     }

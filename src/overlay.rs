@@ -858,7 +858,11 @@ fn build_composition(
 }
 
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
-    show_with_source(event, config, crate::session_source::Service::codex())
+    show_with_source(
+        event,
+        config,
+        crate::session_source::Service::transient_codex(config.codex.transient_names),
+    )
 }
 fn show_with_source(
     event: &Event,
