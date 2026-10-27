@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-27
+
 First release candidate. Windows 10/11 x64 is the supported runtime; the crate also
 builds on macOS and Linux behind stub platform modules, where only hook parsing and
 configuration work.
@@ -70,8 +72,9 @@ configuration work.
 ### Known limitations
 - Codex input waits are observed only through hooks; unrelated CLI/app sessions are
   not visible (accepted release limitation).
-- Mixed-DPI multi-monitor behaviour, the Windows 10 smoke matrix and the system-proxy
-  check for the Claude quota request are not yet verified (AH-020, AH-023, AH-045).
+- Tested on Windows 11 (build 22621) only; this release was **not tested on Windows 10**.
+- Mixed-DPI multi-monitor behaviour and the system-proxy check for the Claude quota
+  request are not yet verified (AH-020, AH-045).
 - macOS and Linux build and have IPC, spawn and HTTPS, but no overlay, tray or audio, so
   the notification service does not run there yet (AH-062 onward). Unix IPC isolates
   by user id only; there is no logon-session equivalent.

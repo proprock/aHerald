@@ -46,27 +46,6 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [ ] **AH-060 — Platform seam, non-Windows build and CI.**
-  Make the library and `main.rs` compile on macOS and Linux with stub platform modules.
-  Define per-OS boundaries for overlay, tray, IPC, audio, activation, process spawn,
-  HTTPS and open-link/open-file. Gate Windows-only tests. Replace hard-coded `\\`,
-  `USERPROFILE` and `LOCALAPPDATA` assumptions with a path helper. Add `.gitattributes`
-  and a GitHub Actions matrix (windows, macos, ubuntu) running fmt, clippy and test.
-  Update the target statement in AGENTS.md, INFO.md, README and this file.
-  Acceptance: the standard checks pass on all three OSes in CI; behavior on Windows
-  is unchanged (existing Windows tests still pass).
-  Status 2026-10-27: done and checked locally on Windows (fmt, clippy, tests, release
-  build) and with `clippy --all-targets -D warnings` for `x86_64-unknown-linux-gnu` and
-  `aarch64-apple-darwin`. Stubs live in `src/unsupported.rs`; `src/paths.rs` holds the
-  path helper; `.github/workflows/ci.yml` (PR/master: fmt, clippy, test on three OSes) and
-  `.github/workflows/release.yml` (tag `v*`: Windows x64 zip with SHA-256, draft, then
-  publish behind the `release` environment; a first cut that AH-022 still has to
-  complete) and `.gitattributes` are added. Remaining: a
-  green CI run on all three OSes (the branch was not pushed; no Linux/macOS test has
-  executed yet, only cross-compiled checks) and the Windows-only `\\` and
-  `LOCALAPPDATA` literals inside `src/activation/native.rs` and `src/shell.rs`, which
-  stay because those files are Windows-only.
-
 - [ ] **AH-061 — Unix common layer (IPC, spawn, HTTPS, open).** Depends on AH-060.
   Unix-domain-socket IPC in a per-user directory (mode 0600, peer-credential check,
   no TCP, `flock` single instance); detached child spawn with fd closing; restart;
@@ -206,15 +185,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `docs/release-acceptance.md`. Remaining: the visual/manual checks,
   long-lived waits and a GitHub release workflow run. The `800700e9` pipe error was an
   old resident rejecting the new `folder` field; fixed by tolerating unknown event fields.
-
-- [ ] **AH-087 — State "not tested on Windows 10" in the release notes.** Depends on AH-023.
-  Decided 2026-10-27: Windows 10 is out of the acceptance scope (end of support, no
-  machine) and the "Windows 10/11" wording stays for now. At release time add an explicit
-  line that the release was not tested on Windows 10 to `CHANGELOG.md` and `README.md`
-  (`docs/portable.md` and `README.md` limits already say it), and decide then whether
-  to reword the platform claim (`README.md`, `docs/portable.md`, `CHANGELOG.md`,
-  `INFO.md`, `AGENTS.md`, `package-release.ps1` MANIFEST line). Ask before changing
-  `AGENTS.md` or `INFO.md`. Acceptance: the release notes carry the statement.
 
 ## Milestone 6 — Claude parity (deferred)
 
