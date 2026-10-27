@@ -20,6 +20,7 @@ fn status_reports_that_no_service_is_running() {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn starting_the_resident_fails_with_a_clear_message() {
     let output = run(&["--resident"]);
     assert_eq!(output.status.code(), Some(2));
