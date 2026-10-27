@@ -63,6 +63,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         println!("{}", aherald::help());
         return Ok(());
     }
+    if cli.operation.as_deref() == Some("version") {
+        println!("{}", aherald::version_line());
+        return Ok(());
+    }
     let path = cli
         .config
         .clone()

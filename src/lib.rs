@@ -17,9 +17,22 @@ pub mod usage;
 pub mod usage_service;
 
 pub const NAME: &str = "aHerald";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The `--version` line.
+pub fn version_line() -> String {
+    format!("{NAME} {VERSION}")
+}
+
+/// Text of the tray's About card: heading line, then the body in the usage-card format.
+pub fn about_card_text() -> String {
+    format!(
+        "{NAME}\nVersion {VERSION}\nNotification companion for Codex and Claude Code.\nMIT license."
+    )
+}
 
 pub fn help() -> &'static str {
-    "aHerald — native notification companion (Windows; macOS and Linux build but are not supported yet)\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report] [--resident | --transient] [--config PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
+    "aHerald — native notification companion (Windows; macOS and Linux build but are not supported yet)\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report | --version] [--resident | --transient] [--config PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
 }
 pub mod animation;
 pub mod artwork;

@@ -115,7 +115,12 @@ See [demo verification and limitations](docs/demo.md).
 .\target\x86_64-pc-windows-msvc\release\aherald.exe --resident --event input_required --config .\examples\resources.toml
 .\target\x86_64-pc-windows-msvc\release\aherald.exe --status
 .\target\x86_64-pc-windows-msvc\release\aherald.exe --quit
+.\target\x86_64-pc-windows-msvc\release\aherald.exe --version
 ```
+
+`--version` prints `aHerald <version>` and needs no configuration. The tray's
+**About aHerald** item opens a card in the usage-card style with the same version;
+choosing it again closes the card.
 
 An event starts a detached resident when needed. `--resident` without an event
 runs the service directly. Set `[general] mode = "resident"` to use it for hooks

@@ -157,6 +157,13 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   frames its buttons. Implemented with automated tests; remaining: the manual visual check
   (not done; no interactive desktop run yet).
 
+- [ ] **AH-086 — `--version` and a tray About card.**
+  `aherald --version` prints `aHerald <version>` (no configuration needed); the tray
+  item "About aHerald" shows the version on a usage-style card and a second choice
+  closes it. Implemented with automated tests (CLI output and conflicts, the card text,
+  menu entry, and a native test that the card opens and closes). Remaining: look at the
+  card on a real desktop at 100% and 150%.
+
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop

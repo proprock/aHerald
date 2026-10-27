@@ -10,6 +10,7 @@ pub const CALLBACK: u32 = WM_APP + 9;
 pub const SUMMARY: usize = 101;
 pub const CLAUDE_SUMMARY: usize = 102;
 pub const RESTART: usize = 206;
+pub const ABOUT: usize = 207;
 pub const SOUND: usize = 201;
 pub const VISUAL: usize = 202;
 pub const PAUSE: usize = 203;
@@ -215,6 +216,7 @@ impl Menu {
             (PAUSE, "Pause notifications", paused),
             (CONFIG, "Edit configuration", false),
             (RESTART, "Restart", false),
+            (ABOUT, "About aHerald", false),
             (EXIT, "Exit", false),
         ];
         for (id, label, checked) in usage.chain(items) {
@@ -271,7 +273,7 @@ mod tests {
         )
         .unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 11);
             assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             assert_ne!(GetMenuState(menu.0, 6, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             let mut label = [0u16; 128];
@@ -298,6 +300,7 @@ mod tests {
                 (SUMMARY, "unavailable"),
                 (CONFIG, "Edit configuration"),
                 (RESTART, "Restart"),
+                (ABOUT, "About aHerald"),
             ] {
                 let mut label = [0u16; 128];
                 let n = GetMenuStringW(menu.0, id as u32, Some(&mut label), MF_BYCOMMAND);
@@ -310,7 +313,7 @@ mod tests {
     fn usage_lines_appear_only_for_enabled_agents() {
         let menu = Menu::new(true, true, false, None, Some("Claude")).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 9);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
             assert_eq!(
                 GetMenuState(menu.0, SUMMARY as u32, MF_BYCOMMAND),
                 u32::MAX,
@@ -319,7 +322,7 @@ mod tests {
         }
         let menu = Menu::new(true, true, false, Some("Codex"), None).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 9);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
         }
         let menu = Menu::new(true, true, false, Some("Codex"), Some("Claude")).unwrap();
         unsafe {
