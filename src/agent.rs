@@ -49,6 +49,31 @@ impl Agent {
             Self::Claude => parse_claude_hook(bytes),
         }
     }
+    /// Whether a session has at most one unresolved wait and its turn end is told by session.
+    /// Codex waits are told apart by turn id; Claude hooks carry none.
+    pub fn waits_are_per_session(self) -> bool {
+        matches!(self, Self::Claude)
+    }
+    /// Whether session names can be looked up for this agent's cards.
+    pub fn names_sessions(self) -> bool {
+        matches!(self, Self::Codex)
+    }
+    /// Whether the hook process records its terminal window for click-to-activate.
+    pub fn records_console_window(self) -> bool {
+        matches!(self, Self::Claude)
+    }
+    /// Whether `event` proves that its session's turn (or the whole session) ended.
+    pub fn ends_turn(self, event: &Event) -> bool {
+        match self {
+            // Codex ends are correlated by turn.
+            Self::Codex => {
+                matches!(event.kind, Kind::TurnComplete | Kind::Interrupted)
+                    && event.turn_id.is_some()
+            }
+            // Stop/StopFailure end the session's turn; a session end ends all of it.
+            Self::Claude => event.ended || matches!(event.kind, Kind::TurnComplete | Kind::Error),
+        }
+    }
     /// Whether the hook contract expects `{}` on stdout for this event.
     pub fn hook_reply(self, event: &Event) -> Option<&'static str> {
         match self {
@@ -70,8 +95,15 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         notification_type: Option<String>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
+    let mut ended = false;
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,
+        // The kind is a placeholder: an ended event is evidence only and is never shown.
+        // A subagent finishing is not the user's turn ending, so `SubagentStop` stays ignored.
+        "SessionEnd" if hook.session_id.is_some() => {
+            ended = true;
+            Kind::TurnComplete
+        }
         "StopFailure" => Kind::Error,
         "PermissionRequest" => Kind::PermissionRequired,
         "Notification" => match hook.notification_type.as_deref() {
@@ -89,6 +121,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         request_id: None,
         agent_id: None,
         window: None,
+        ended,
     };
     event.validate()?;
     Ok(Some(event))

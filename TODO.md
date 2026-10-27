@@ -62,12 +62,6 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   sessions each raise their own window, and that a minimized window restores. Known limit:
   tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
 
-- [ ] **AH-038 — Claude follow-ups (deferred).**
-  Session names for Claude; `SubagentStop`/`SessionEnd`; a
-  statusLine-based quota fallback (`rate_limits` in statusLine JSON, no token needed);
-  honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
-  Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
-
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
   `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
@@ -116,6 +110,22 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   tray, Explorer restart, DPI/monitors, hook latency, and long-lived waits.
   Acceptance: publish the tested environment/results; label any untested platform
   explicitly instead of claiming verified support.
+
+## Milestone 6 — Claude parity (deferred)
+
+- [ ] **AH-059 — Claude session names and statusLine quota fallback (split from AH-038).**
+  Priority: low. Deferred to the next milestone (decided 2026-10-27); not started.
+  Both items need the Claude `statusLine` command, the only place `session_name` and
+  `rate_limits` (`five_hour`/`seven_day` `used_percentage`, `resets_at` in Unix seconds)
+  are delivered; hooks carry neither, and transcripts are off limits (AGENTS.md). Claude
+  Code allows one `statusLine` command, so aHerald must not replace the user's.
+  Candidate design, to confirm with the user first: `aherald.exe --statusline
+  [--then <command>]` forwards only `session_id`, `session_name` and `rate_limits` to the
+  resident, then pipes stdin to the user's previous command and prints its output; manual
+  setup only, with an example and removal steps. Alternative to check for Desktop only:
+  whether a readable title exists in `local_*.json` (needs a new privacy exception).
+  Acceptance: tests for the forwarded fields and the pass-through; the name shown on the
+  Claude card; a quota card without reading the OAuth token; docs updated.
 
 ## Standard verification
 

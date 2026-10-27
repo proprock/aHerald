@@ -428,6 +428,8 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T
         push
     }
 }
+/// Longest wait a `Retry-After` can impose; a longer refresh interval still wins.
+const RATE_LIMIT_CAP: Duration = Duration::from_secs(900);
 pub struct Driver<S> {
     source: S,
     pub view: View,
@@ -472,9 +474,14 @@ impl<S: UsageSource> Driver<S> {
         }
     }
     fn failure(&mut self, now: Duration, error: Error) {
-        // A rate-limited service is asked again no sooner than the refresh interval.
+        // A rate-limited service is asked again no sooner than its `Retry-After` (capped)
+        // and never sooner than the refresh interval.
         let delay = match error {
-            Error::RateLimited(_) => self.backoff.max(self.view.interval),
+            Error::RateLimited(_, retry_after) => self
+                .backoff
+                .max(retry_after.unwrap_or_default())
+                .min(RATE_LIMIT_CAP)
+                .max(self.view.interval),
             _ => self.backoff,
         };
         self.view.error = Some(error.to_string());

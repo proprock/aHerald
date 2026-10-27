@@ -1,6 +1,6 @@
 use super::{Agent, click};
 use crate::{
-    events::{Event, Source},
+    events::Event,
     operational_log::{Log, Record},
 };
 use std::{path::Path, sync::mpsc, thread::JoinHandle};
@@ -159,10 +159,14 @@ impl Worker {
                 .spawn(move || {
                     let mut log = Log::new(&log_directory, log_level);
                     for event in rx {
-                        let result = if event.source == Source::CodexHook {
-                            click(&event, true, true, &mut Codex)
-                        } else {
-                            click(&event, true, true, &mut Claude)
+                        let result = match event.source.agent() {
+                            Some(crate::agent::Agent::Codex) => {
+                                click(&event, true, true, &mut Codex)
+                            }
+                            Some(crate::agent::Agent::Claude) => {
+                                click(&event, true, true, &mut Claude)
+                            }
+                            None => Ok(()),
                         };
                         if result.is_err() {
                             let _ = log.record(Record::AgentActivationFailure);

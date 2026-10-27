@@ -104,19 +104,16 @@ pub struct Event {
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,
+    /// The whole session ended (Claude `SessionEnd`): evidence only, never shown or sounded.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ended: bool,
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
-        let turn_ended = match self.source {
-            // Codex ends are correlated by turn.
-            Source::CodexHook => {
-                matches!(self.kind, Kind::TurnComplete | Kind::Interrupted)
-                    && self.turn_id.is_some()
-            }
-            // Claude hooks have no turn id; Stop/StopFailure end the session's turn.
-            Source::ClaudeHook => matches!(self.kind, Kind::TurnComplete | Kind::Error),
-            _ => false,
-        };
+        let turn_ended = self
+            .source
+            .agent()
+            .is_some_and(|agent| agent.ends_turn(self));
         turn_ended && self.session_id.is_some() && self.validate().is_ok()
     }
     pub fn demo(name: &str) -> Result<Self, String> {
@@ -130,6 +127,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             window: None,
+            ended: false,
         })
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -183,6 +181,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
             None
         },
         window: None,
+        ended: false,
     };
     event.validate()?;
     Ok(Some(event))

@@ -22,7 +22,8 @@ touching settings with `[claude] hooks_enabled = false` in `config.toml`.
 | `PermissionRequest` | always | `permission_required` |
 | `Notification` | `notification_type = permission_prompt` | `permission_required` |
 | `Notification` | `idle_prompt`, `elicitation_dialog`, `agent_needs_input` | `input_required` |
-| other hooks / notification types | | ignored |
+| `SessionEnd` | any `reason` (`clear`, `logout`, `prompt_input_exit`, ...) | none: clears that session's pending cards |
+| `SubagentStop` and other hooks / notification types | | ignored |
 
 Only `hook_event_name`, `session_id` and `notification_type` are read. Prompts, `message`,
 `tool_input` and `last_assistant_message` are never stored or logged.
@@ -43,9 +44,17 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
   `PermissionRequest` + `Notification` pair, seen 6 s apart). A second prompt in the same
   session shows a new card only after `Stop`/`StopFailure` or dismissal of the first.
 - Every new event plays its sound once, even when a persistent card keeps the selection.
-- Session names are Codex-only; Claude cards show "Claude". Click-to-activate is described in
+- Session names are Codex-only; Claude cards show "Claude" (the name is only delivered to a
+  `statusLine` command, tracked in AH-038). Click-to-activate is described in
   `docs/notification-click.md` (Desktop session link or the terminal window; no tab selection).
-- Subagent events (`SubagentStop`) and `SessionEnd` are not covered yet.
+- `SessionEnd` never shows a card or plays a sound. In resident mode it resolves the pending
+  permission/input cards of that `session_id` (so quitting Claude Code at a prompt leaves no
+  stale card), even when those events are disabled, and it never starts a resident that is
+  not already running. Transient mode ignores it. Payload fields other than `session_id`
+  (including `reason`) are not read. Add the `SessionEnd` entry from the example; Claude Code
+  allows its hooks 1.5 s unless the entry sets a longer `timeout`, as the example does.
+- `SubagentStop` is deliberately ignored: a subagent finishing does not end the user's turn,
+  and the main `Stop` follows on its own.
 
 ## Quota (opt-in)
 
@@ -67,7 +76,9 @@ Request safety: redirects are never followed (WinHTTP redirect policy "never"), 
 token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected
 (refused)". Proxy settings come from the system (WinHTTP automatic proxy: Windows proxy
 settings, WPAD and PAC). After HTTP 429 the next request waits at least
-`refresh_interval_sec`, manual refresh included. aHerald zeroes the buffers it owns that
+`refresh_interval_sec`, manual refresh included, and at least the `Retry-After` delay
+(seconds form only; an HTTP-date is ignored) capped at 15 minutes. A longer
+`refresh_interval_sec` still wins over the cap. aHerald zeroes the buffers it owns that
 hold the token (file contents, token, request headers) after the request; copies made by
 the JSON parser, the standard library or WinHTTP are not covered.
 

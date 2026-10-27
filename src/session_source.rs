@@ -1,5 +1,5 @@
 //! Bounded, read-only title lookup. Hooks and GUI never wait for Codex metadata.
-use crate::events::{Event, Source};
+use crate::events::Event;
 use std::{
     collections::HashMap,
     sync::{
@@ -98,14 +98,18 @@ impl Service {
                 entry.name = name;
             }
         }
-        if event.source != Source::CodexHook {
+        if !event
+            .source
+            .agent()
+            .is_some_and(|agent| agent.names_sessions())
+        {
             return event.source.label().into();
         }
         let Some(id) = event.session_id.as_deref() else {
-            return "Codex".into();
+            return event.source.label().into();
         };
         if event.validate().is_err() {
-            return "Codex".into();
+            return event.source.label().into();
         }
         if !self.entries.contains_key(id) && self.entries.len() >= 64 {
             // Do not evict in-flight work: a later result must never label another session.

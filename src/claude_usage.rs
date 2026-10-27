@@ -233,13 +233,13 @@ pub fn access_token(json: &[u8], now_ms: i64) -> Result<String, CredentialError>
 }
 
 /// Maps an HTTP status to the message shown in the usage card.
-pub fn status_error(status: u16) -> Option<Error> {
+pub fn status_error(status: u16, retry_after: Option<Duration>) -> Option<Error> {
     match status {
         200 => None,
         401 | 403 => Some(Error::Service(
             "Claude usage unauthorized (sign in to Claude Code again)",
         )),
-        429 => Some(Error::RateLimited("Claude usage rate limited")),
+        429 => Some(Error::RateLimited("Claude usage rate limited", retry_after)),
         // Redirects are never followed, so the token cannot leave the usage host.
         300..=399 => Some(Error::Service("Claude usage request redirected (refused)")),
         _ => Some(Error::Service("Claude usage service error")),
@@ -292,13 +292,12 @@ pub fn fetch_live() -> Result<Snapshot, Error> {
         "Authorization: Bearer {}\r\nanthropic-beta: oauth-2025-04-20\r\nAccept: application/json\r\n",
         token.0
     ));
-    let (status, body) =
-        crate::https::get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
-            .map_err(|_| Error::Service("Claude usage request failed"))?;
-    if let Some(error) = status_error(status) {
+    let response = crate::https::get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
+        .map_err(|_| Error::Service("Claude usage request failed"))?;
+    if let Some(error) = status_error(response.status, response.retry_after) {
         return Err(error);
     }
-    parse_response(&body, subscription_type(&bytes.0).as_deref())
+    parse_response(&response.body, subscription_type(&bytes.0).as_deref())
 }
 
 #[cfg(test)]
@@ -463,13 +462,13 @@ mod tests {
 
     #[test]
     fn http_statuses_map_to_sanitized_errors() {
-        assert_eq!(status_error(200), None);
+        assert_eq!(status_error(200, None), None);
         for status in [301, 302, 307, 308, 401, 403, 429, 500] {
-            let text = status_error(status).unwrap().to_string();
+            let text = status_error(status, None).unwrap().to_string();
             assert!(text.starts_with("Claude"), "{text}");
         }
         assert!(
-            status_error(302)
+            status_error(302, None)
                 .unwrap()
                 .to_string()
                 .contains("redirected")

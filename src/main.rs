@@ -117,7 +117,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         if let Some(mut event) = hook_event
             && cli.hook_agent().hooks_enabled(&config)
         {
-            if event.source == aherald::events::Source::ClaudeHook {
+            if cli.hook_agent().records_console_window() {
                 event.window = aherald::console_window::current();
             }
             dispatch(&event, &config, &path, cli.selected_mode(&config))?;
@@ -142,6 +142,16 @@ fn dispatch(
     path: &std::path::Path,
     mode: aherald::config::Mode,
 ) -> Result<(), String> {
+    if event.ended {
+        // Only a resident holds waits to clear; a transient card has no later session state.
+        return match mode {
+            aherald::config::Mode::Resident => aherald::resident::forward_if_running(
+                &aherald::local::Scope::current("resident")?,
+                event,
+            ),
+            _ => Ok(()),
+        };
+    }
     let setting = &config.events[event.kind];
     if !setting.enabled
         && !(mode == aherald::config::Mode::Resident && event.is_terminal_evidence())

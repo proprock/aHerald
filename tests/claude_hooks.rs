@@ -36,6 +36,52 @@ fn claude_hooks_never_write_a_decision_to_stdout() {
 }
 
 #[test]
+fn session_end_becomes_an_evidence_only_event_of_its_session() {
+    use aherald::{agent::Agent, events::Source};
+    for reason in ["clear", "logout", "prompt_input_exit", "other"] {
+        let hook = format!(
+            r#"{{"hook_event_name":"SessionEnd","session_id":"s","reason":"{reason}","transcript_path":"DO_NOT_KEEP"}}"#
+        );
+        let event = Agent::Claude
+            .parse_hook(hook.as_bytes())
+            .unwrap()
+            .unwrap_or_else(|| panic!("{reason}"));
+        assert_eq!(event.source, Source::ClaudeHook);
+        assert_eq!(event.session_id.as_deref(), Some("s"));
+        assert!(event.ended, "{reason}");
+        assert!(event.is_terminal_evidence(), "{reason}");
+    }
+}
+
+#[test]
+fn session_end_without_a_session_and_subagent_stop_are_ignored() {
+    use aherald::agent::Agent;
+    for hook in [
+        r#"{"hook_event_name":"SessionEnd","reason":"other"}"#,
+        r#"{"hook_event_name":"SubagentStop","session_id":"s","agent_id":"x","agent_type":"Explore"}"#,
+    ] {
+        assert_eq!(
+            Agent::Claude.parse_hook(hook.as_bytes()),
+            Ok(None),
+            "{hook}"
+        );
+    }
+}
+
+#[test]
+fn session_end_hook_process_stays_silent_and_succeeds() {
+    for name in ["SessionEnd", "SubagentStop"] {
+        let result = invoke(
+            &["--hook", "--agent", "claude"],
+            format!(r#"{{"hook_event_name":"{name}","session_id":"s","reason":"logout"}}"#)
+                .as_bytes(),
+        );
+        assert!(result.status.success(), "{name}");
+        assert!(result.stdout.is_empty(), "{name}");
+    }
+}
+
+#[test]
 fn claude_hook_ignores_malformed_and_unknown_input_silently() {
     for bytes in [b"{".as_slice(), br#"{"hook_event_name":"PostToolUse"}"#] {
         let result = invoke(&["--hook", "--agent", "claude"], bytes);
