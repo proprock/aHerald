@@ -1,6 +1,7 @@
 //! Fixed operational codes only: this API cannot accept payloads or external errors.
 use crate::config::LogLevel;
 use std::{
+    borrow::Cow,
     fs::{File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
@@ -13,6 +14,10 @@ pub enum Record {
     IpcFailure,
     QueueRejected,
     AgentActivationFailure,
+    /// Click-to-window latency; a duration is not payload data.
+    AgentActivated {
+        millis: u64,
+    },
     RenderFailure,
     RenderFallback,
     InvalidConfiguration,
@@ -20,19 +25,23 @@ pub enum Record {
     UsageFailure,
 }
 impl Record {
-    fn message(&self) -> (u8, &'static str) {
-        match self {
+    fn message(&self) -> (u8, Cow<'static, str>) {
+        let (level, text) = match self {
             Self::Started => (3, "info resident_started"),
             Self::Stopped => (3, "info resident_stopped"),
             Self::IpcFailure => (2, "warn ipc_failure"),
             Self::AgentActivationFailure => (2, "warn agent_activation_failed"),
+            Self::AgentActivated { millis } => {
+                return (4, format!("debug agent_activated ms={millis}").into());
+            }
             Self::QueueRejected => (2, "warn queue_rejected"),
             Self::RenderFailure => (2, "warn render_failed"),
             Self::RenderFallback => (2, "warn render_fallback"),
             Self::InvalidConfiguration => (2, "warn invalid_configuration"),
             Self::ResidentStartupFailure => (1, "error resident_startup_failed"),
             Self::UsageFailure => (2, "warn usage_failed"),
-        }
+        };
+        (level, text.into())
     }
 }
 pub struct Log {

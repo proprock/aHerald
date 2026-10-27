@@ -3,7 +3,7 @@ use crate::{
     events::Event,
     operational_log::{Log, Record},
 };
-use std::{path::Path, sync::mpsc, thread::JoinHandle};
+use std::{path::Path, sync::mpsc, thread::JoinHandle, time::Instant};
 use windows::Win32::{Foundation::*, System::Threading::*, UI::WindowsAndMessaging::*};
 
 fn open_link(url: &str) -> Result<(), String> {
@@ -135,7 +135,7 @@ impl Agent for Claude {
 /// One owned worker and one pending click; the GUI never waits for shell or process queries.
 #[derive(Default)]
 pub struct Worker {
-    sender: Option<mpsc::SyncSender<Event>>,
+    sender: Option<mpsc::SyncSender<(Event, Instant)>>,
     handle: Option<JoinHandle<()>>,
 }
 impl Worker {
@@ -151,14 +151,14 @@ impl Worker {
             return;
         }
         if self.sender.is_none() {
-            let (tx, rx) = mpsc::sync_channel::<Event>(1);
+            let (tx, rx) = mpsc::sync_channel::<(Event, Instant)>(1);
             let log_directory = directory.to_owned();
             let log_level = level;
             match std::thread::Builder::new()
                 .name("agent-activation".into())
                 .spawn(move || {
                     let mut log = Log::new(&log_directory, log_level);
-                    for event in rx {
+                    for (event, clicked) in rx {
                         let result = match event.source.agent() {
                             Some(crate::agent::Agent::Codex) => {
                                 click(&event, true, true, &mut Codex)
@@ -168,9 +168,13 @@ impl Worker {
                             }
                             None => Ok(()),
                         };
-                        if result.is_err() {
-                            let _ = log.record(Record::AgentActivationFailure);
-                        }
+                        let _ = log.record(if result.is_err() {
+                            Record::AgentActivationFailure
+                        } else {
+                            Record::AgentActivated {
+                                millis: clicked.elapsed().as_millis() as u64,
+                            }
+                        });
                     }
                 }) {
                 Ok(handle) => {
@@ -183,7 +187,7 @@ impl Worker {
             }
         }
         if let Some(tx) = &self.sender {
-            let _ = tx.try_send(event.clone());
+            let _ = tx.try_send((event.clone(), Instant::now()));
         }
     }
 }
