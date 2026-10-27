@@ -193,6 +193,31 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> Connection<T, F> {
         }
         result
     }
+    /// Reads a thread name over the shared connection, connecting first when needed.
+    /// A thread that is unknown to the server or unnamed is `Ok(None)` and keeps the
+    /// connection; a lost or malformed connection is dropped and retried after the backoff.
+    pub fn thread_name(&mut self, now: Duration, id: &str) -> Result<Option<String>, Error> {
+        if now < self.retry_at {
+            return Err(Error::Backoff);
+        }
+        let result = (|| {
+            if self.client.is_none() {
+                self.client = Some(Client::initialize((self.factory)()?, REQUEST_TIMEOUT)?);
+            }
+            self.client
+                .as_mut()
+                .ok_or(Error::Disconnected)?
+                .read_thread_name(id)
+        })();
+        match result {
+            Err(Error::Remote(_)) => Ok(None),
+            Err(error) => {
+                self.failed(now);
+                Err(error)
+            }
+            ok => ok,
+        }
+    }
     pub fn failed(&mut self, now: Duration) {
         self.client.take();
         self.retry_at = now.saturating_add(self.delay);

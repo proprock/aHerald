@@ -894,6 +894,12 @@ pub(super) fn run_preview(
         }
     });
     let claude = claude_usage(&config);
+    // With Codex usage polling on, session names share its app-server child.
+    let source_labels = if config.codex.usage.enabled {
+        crate::session_source::Service::shared(usage.names())
+    } else {
+        crate::session_source::Service::codex()
+    };
     let window = Box::new(Window {
         gate: Gate::default(),
         taskbar_created: Cell::new(0),
@@ -940,7 +946,7 @@ pub(super) fn run_preview(
             usage_failing: [false; 2],
             demo,
             countdown: None,
-            source_labels: crate::session_source::Service::codex(),
+            source_labels,
             source_heading: String::new(),
             presenter: crate::presenter::Presenter::default(),
         }),

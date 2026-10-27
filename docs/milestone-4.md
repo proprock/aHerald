@@ -40,8 +40,9 @@ not a claim of stable-release compatibility. The matching release commit is
 `6905ecede7816e91373e9eabda3f6b0368fc747b` (see codex-compatibility.md).
 
 The adapter owns a single `codex.exe app-server --listen stdio://` child, performs
-`initialize`/`initialized`, then reads `account/rateLimits/read`. A separate
-[session-name worker](session-source.md) uses metadata-only `thread/read`. Messages
+`initialize`/`initialized`, then reads `account/rateLimits/read`. The resident's
+[session names](session-source.md) use metadata-only `thread/read` over this same
+connection (a separate child only when usage polling is off). Messages
 are bounded to 256 KiB, incoming queues to 32 messages, requests to five seconds,
 and reconnect delays to 1–60 seconds. Request IDs increase per connection. An
 unexpected server request closes the connection without responding; aHerald never

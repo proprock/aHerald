@@ -80,6 +80,13 @@ impl Service {
             stop,
         )
     }
+    /// Names come from the usage worker's `codex app-server` connection, so no second
+    /// child process runs. Only useful while Codex usage polling is enabled.
+    pub fn shared(lookup: crate::usage_service::NameLookup) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let cancel = stop.clone();
+        Self::start(move |id| lookup.name(id, &cancel), stop)
+    }
     pub fn label(&mut self, event: &Event) -> String {
         self.label_at(event, self.start.elapsed())
     }
