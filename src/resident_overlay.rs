@@ -363,11 +363,29 @@ impl Ui {
             count,
             self.config.notifications.click_to_dismiss,
         );
-        if changed
+        // Buttons (and so the body layout) exist only when several cards are queued; any
+        // other count or index change alters just the heading text.
+        let layout_changed = (self.layout_count > 1) != (count > 1);
+        let heading_changed = self.source_heading != controls.heading;
+        if !(changed || loaded || layout_changed || self.composition.is_none())
+            && heading_changed
+            && let Some(composition) = self.composition.as_mut()
+            && composition
+                .update_heading(
+                    &controls.heading,
+                    self.scale,
+                    self.config.event_background_color(entry.event.kind),
+                )
+                .is_ok()
+        {
+            self.source_heading = controls.heading.clone();
+            self.layout_count = count;
+            self.presenter.invalidate();
+        } else if changed
             || loaded
             || self.composition.is_none()
             || self.layout_count != count
-            || self.source_heading != controls.heading
+            || heading_changed
         {
             self.source_heading = controls.heading.clone();
             self.layout_count = count;

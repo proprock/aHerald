@@ -195,6 +195,11 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   Acceptance: `tests/perf_baseline.rs` limit `composition.rebuild` lowered to about one
   per card (24 events); the composition and resource-cycle tests still pass; standard
   Cargo checks.
+  Progress: the count/index-change rebuild is gone (heading-only redraw unless the
+  buttons appear or vanish): 69 -> 49 rebuilds, limit lowered 90 -> 60. Remaining: the
+  text card composed at selection before the artwork arrives (second build per card).
+  Needs a product decision: hold the card until the artwork is ready (about 0-9 ms on
+  a cache hit/miss, unbounded for a slow custom pet) or keep the instant text card.
 
 - [ ] **AH-058 — Transient mode: avoid a `codex app-server` child per Codex card
   (split from AH-049).** Depends on AH-049. Each transient process shows one card and
