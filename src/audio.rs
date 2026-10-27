@@ -153,7 +153,7 @@ fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, String> {
         .get(path, volume)
 }
 pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
-    let settings = config.events.get(event.kind.name())?;
+    let settings = &config.events[event.kind];
     (config.sounds.enabled
         && config.sounds.volume > 0.0
         && settings.enabled

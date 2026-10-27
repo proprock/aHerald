@@ -1,6 +1,7 @@
 use aherald::{
     cli::Cli,
     config::{Config, Interpolation, LogLevel, Mode, Monitor, Position},
+    events::Kind,
 };
 use std::{fs, path::PathBuf, process::Command};
 
@@ -216,9 +217,12 @@ fn defaults_paths_and_mode_override() {
         &dir,
     )
     .unwrap();
-    assert_eq!(config.events["error"].sound, Some(dir.join("sound.wav")));
-    assert_eq!(config.events["permission_required"].duration_ms, 0);
-    assert!(config.events["turn_complete"].enabled);
+    assert_eq!(
+        config.events[Kind::Error].sound,
+        Some(dir.join("sound.wav"))
+    );
+    assert_eq!(config.events[Kind::PermissionRequired].duration_ms, 0);
+    assert!(config.events[Kind::TurnComplete].enabled);
     assert_eq!(Cli::default().selected_mode(&config), Mode::Resident);
     assert_eq!(
         Cli::parse(args(&["--transient"]))
@@ -307,7 +311,7 @@ fn partial_wait_configuration_keeps_indefinite_duration() {
         &PathBuf::from("."),
     )
     .unwrap();
-    assert_eq!(config.events["permission_required"].duration_ms, 0);
+    assert_eq!(config.events[Kind::PermissionRequired].duration_ms, 0);
 }
 
 #[test]

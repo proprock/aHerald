@@ -846,7 +846,7 @@ fn show_with_source(
             notifications: config.notifications.clone(),
             placement,
             start: Instant::now(),
-            duration: config.events[event.kind.name()].duration_ms,
+            duration: config.events[event.kind].duration_ms,
             fade_in: config.notifications.fade_in_ms,
             fade_out: config.notifications.fade_out_ms,
             controls,

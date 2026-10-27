@@ -55,7 +55,7 @@ impl Cli {
                         return Err("conflicting explicit operations".into());
                     }
                     let event = args.next().ok_or("--event requires a value")?;
-                    if !crate::config::EVENT_NAMES.contains(&event.as_str()) {
+                    if crate::events::Kind::from_name(&event).is_none() {
                         return Err("unknown event".into());
                     }
                     cli.event = Some(event);

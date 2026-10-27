@@ -195,7 +195,7 @@ fn run_with_usage(
                         if event.validate().is_err() {
                             return Response::Rejected;
                         }
-                        let setting = &settings.events[event.kind.name()];
+                        let setting = &settings.events[event.kind];
                         if !setting.enabled {
                             // A disabled kind shows nothing but still ends its turn's waits.
                             state.queue.observe_terminal(&event);

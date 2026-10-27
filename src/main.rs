@@ -142,7 +142,7 @@ fn dispatch(
     path: &std::path::Path,
     mode: aherald::config::Mode,
 ) -> Result<(), String> {
-    let setting = &config.events[event.kind.name()];
+    let setting = &config.events[event.kind];
     if !setting.enabled
         && !(mode == aherald::config::Mode::Resident && event.is_terminal_evidence())
     {
