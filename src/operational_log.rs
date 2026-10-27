@@ -106,28 +106,94 @@ pub enum Record {
     InvalidConfiguration,
     ResidentStartupFailure,
     UsageFailure,
+    /// Aggregated timings of one span over a window, in microseconds. Names are static
+    /// and values numeric, so no event data can reach the log through these.
+    Perf {
+        span: &'static str,
+        n: u64,
+        avg: u64,
+        sd: u64,
+        min: u64,
+        p95: u64,
+        max: u64,
+    },
+    /// One operation that took longer than its span's threshold.
+    Slow {
+        span: &'static str,
+        micros: u64,
+        suppressed: u64,
+    },
+    Count {
+        name: &'static str,
+        n: u64,
+    },
+    Gauge {
+        name: &'static str,
+        value: u64,
+    },
+}
+/// Microseconds as milliseconds with two decimals (`12.34`), without floating point.
+fn millis(micros: u64) -> String {
+    format!("{}.{:02}", micros / 1000, micros % 1000 / 10)
+}
+fn ms(micros: u64) -> String {
+    format!("{}ms", millis(micros))
 }
 impl Record {
     pub fn level(&self) -> Level {
-        self.message().0
+        self.describe().0
     }
-    fn message(&self) -> (Level, Cow<'static, str>) {
-        let (level, text) = match self {
-            Self::Started => (Level::Info, "resident.started"),
-            Self::Stopped => (Level::Info, "resident.stopped"),
-            Self::IpcFailure => (Level::Warn, "ipc.failure"),
-            Self::AgentActivationFailure => (Level::Warn, "agent.activation_failed"),
-            Self::AgentActivated { millis } => {
-                return (Level::Debug, format!("agent.activated ms={millis}").into());
+    /// Level and message text, as written after the timestamp.
+    pub fn describe(&self) -> (Level, Cow<'static, str>) {
+        match self {
+            Self::Perf {
+                span,
+                n,
+                avg,
+                sd,
+                min,
+                p95,
+                max,
+            } => {
+                let text = format!(
+                    "perf {span} n={n} avg={} sd={} min={} p95={} max={}",
+                    ms(*avg),
+                    ms(*sd),
+                    ms(*min),
+                    ms(*p95),
+                    ms(*max)
+                );
+                (Level::Debug, text.into())
             }
-            Self::QueueRejected => (Level::Warn, "ipc.queue_rejected"),
-            Self::RenderFailure => (Level::Warn, "render.failed"),
-            Self::RenderFallback => (Level::Warn, "render.fallback"),
-            Self::InvalidConfiguration => (Level::Warn, "config.invalid"),
-            Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed"),
-            Self::UsageFailure => (Level::Warn, "usage.failed"),
-        };
-        (level, text.into())
+            Self::Slow {
+                span,
+                micros,
+                suppressed,
+            } => {
+                let mut text = format!("slow {span} ms={}", millis(*micros));
+                if *suppressed > 0 {
+                    text.push_str(&format!(" suppressed={suppressed}"));
+                }
+                (Level::Warn, text.into())
+            }
+            Self::Count { name, n } => (Level::Debug, format!("count {name} n={n}").into()),
+            Self::Gauge { name, value } => {
+                (Level::Debug, format!("gauge {name} value={value}").into())
+            }
+            Self::Started => (Level::Info, "resident.started".into()),
+            Self::Stopped => (Level::Info, "resident.stopped".into()),
+            Self::IpcFailure => (Level::Warn, "ipc.failure".into()),
+            Self::AgentActivationFailure => (Level::Warn, "agent.activation_failed".into()),
+            Self::AgentActivated { millis } => {
+                (Level::Debug, format!("agent.activated ms={millis}").into())
+            }
+            Self::QueueRejected => (Level::Warn, "ipc.queue_rejected".into()),
+            Self::RenderFailure => (Level::Warn, "render.failed".into()),
+            Self::RenderFallback => (Level::Warn, "render.fallback".into()),
+            Self::InvalidConfiguration => (Level::Warn, "config.invalid".into()),
+            Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed".into()),
+            Self::UsageFailure => (Level::Warn, "usage.failed".into()),
+        }
     }
 }
 pub struct Log {
@@ -153,7 +219,7 @@ impl Log {
         }
     }
     pub fn record(&mut self, record: Record) -> io::Result<()> {
-        let (level, message) = record.message();
+        let (level, message) = record.describe();
         if self.level < level as u8 {
             return Ok(());
         }

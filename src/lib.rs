@@ -31,6 +31,7 @@ mod detached;
 pub mod events;
 pub mod notification;
 pub mod operational_log;
+pub mod perf;
 pub mod pet;
 pub mod placement;
 pub mod presenter;
