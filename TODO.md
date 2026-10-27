@@ -144,13 +144,6 @@ AH-060 rewrites the Windows-only target statements in AGENTS.md, INFO.md and thi
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
-  Depends on AH-055. Only the classic console host was checked live. With Windows Terminal
-  installed, confirm that a Claude CLI card raises the Windows Terminal window (the hook
-  records the owner of the pseudo-console window), that two terminal windows of different
-  sessions each raise their own window, and that a minimized window restores. Known limit:
-  tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
-
 - [ ] **AH-074 — Claude "input required" card in an idle terminal session (found in AH-056).**
   On 2026-10-27 a card of that kind appeared twice for a Windows Terminal session that was
   idle after its turn ended. Probably an idle `Notification` event; capture the payload

@@ -458,6 +458,17 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   cards, and each click switched to its own session. Not verified: Windows Terminal and two
   terminal windows (tracked in AH-056).
 
+- [x] **AH-056 — Verify Claude click in Windows Terminal (split from AH-055).**
+  Depends on AH-055. Manual 2026-10-27 (Windows Terminal 1.24.12741.0, Claude CLI): a card
+  raised the Windows Terminal window; with two sessions in two windows, each click raised
+  its own window, and both restored from minimized. The first click was 6.7 s late because
+  the Desktop session scan (703 files, cold cache) ran before the recorded window; the
+  window is now tried first (`tests/activation.rs`), and clicks log
+  `debug agent_activated ms=N` (`tests/operational_log.rs`); clicks after the fix took
+  1 to 226 ms. Known limit, accepted: tabs are not selected, UI Automation tab selection
+  is not built (fragile across Windows Terminal versions). Automated: 270 passed, 0 failed,
+  14 ignored; `fmt` and `clippy -D warnings` clean. Follow-ups: AH-074, AH-075.
+
 - [x] **AH-037 — Opt-in Claude 5h/7d quota.** Depends on AH-036.
   `[claude.usage] enabled` (default false, interval 300..86400 s) polls the undocumented
   `GET api.anthropic.com/api/oauth/usage` over WinHTTP with the token Claude Code stores
