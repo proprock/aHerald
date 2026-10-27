@@ -691,6 +691,19 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   separate C runtime). Not verified: the workflow itself has not run on GitHub (not pushed);
   Windows 10 extraction belongs to AH-023.
 
+- [x] **AH-060 — Platform seam, non-Windows build and CI.**
+  Done (2026-10-27): the library and `main.rs` compile on macOS and Linux behind stub
+  platform modules (`src/unsupported.rs`); `src/paths.rs` is the path helper;
+  `.github/workflows/ci.yml` runs fmt, clippy and tests on windows, macos and ubuntu
+  (green on all three, PR #38); `.gitattributes` added; target statements updated.
+  The Windows-only `\\` and `LOCALAPPDATA` literals in `src/activation/native.rs` and
+  `src/shell.rs` stay because those files are Windows-only.
+
+- [x] **AH-087 — State "not tested on Windows 10" in the release notes.**
+  Done (2026-10-27): the 0.1.0 section of `CHANGELOG.md` says the release was not tested
+  on Windows 10 (`README.md` and `docs/portable.md` limits already did). The
+  "Windows 10/11" platform wording was left unchanged by decision.
+
 - [x] **AH-085 — Redesign the notification card layout.**
   Layout: wider accent stripe by event kind; artwork and countdown unchanged; rows
   `<harness>, <folder>`, session name (row always reserved), larger event kind; bottom row
