@@ -381,6 +381,7 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> CodexSource<T, F> {
 }
 impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T, F> {
     fn read(&mut self, now: Duration) -> Result<Snapshot, Error> {
+        let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
         Snapshot::parse(self.connection.read(now)?).map_err(Error::Service)
     }
     fn is_live(&self) -> bool {

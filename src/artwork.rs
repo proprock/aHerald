@@ -58,6 +58,7 @@ pub fn prepare_at(
     builtin_root: &Path,
     scale: f64,
 ) -> Result<Option<crate::animation::PreparedAnimation>, String> {
+    let _timer = crate::perf::span(crate::perf::Span::ArtworkPrepare);
     let Some(animation) = resolve(config, event, builtin_root)? else {
         return Ok(None);
     };
@@ -74,7 +75,13 @@ pub fn prepare_at(
     Ok(animation
         .prepare(scale, bilinear)
         .ok()
-        .or_else(|| at_base(&selected))
+        .or_else(|| {
+            let smaller = at_base(&selected);
+            if smaller.is_some() {
+                crate::perf::count(crate::perf::Counter::ArtworkBudgetFallback);
+            }
+            smaller
+        })
         .or_else(|| builtin().and_then(|a| a.prepare(scale, bilinear).ok()))
         .or_else(|| at_base(&builtin)))
 }

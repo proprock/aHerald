@@ -18,8 +18,8 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    let _ = aherald::operational_log::Log::new(directory, aherald::config::LogLevel::Warn)
-        .record(record);
+    aherald::operational_log::init(directory, aherald::config::LogLevel::Warn);
+    aherald::operational_log::log(record);
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
@@ -68,6 +68,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         .clone()
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
+    if cli.operation.as_deref() == Some("perf-report") {
+        let directory = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(std::path::Path::new("."));
+        print!("{}", aherald::perf_report::report(directory)?);
+        return Ok(());
+    }
     let scope = aherald::local::Scope::current("resident")?;
     if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
         let request = if cli.operation.as_deref() == Some("quit") {

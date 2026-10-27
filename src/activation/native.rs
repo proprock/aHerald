@@ -1,7 +1,7 @@
 use super::{Agent, click};
 use crate::{
     events::Event,
-    operational_log::{Log, Record},
+    operational_log::{Record, log},
 };
 use std::{path::Path, sync::mpsc, thread::JoinHandle, time::Instant};
 use windows::Win32::{Foundation::*, System::Threading::*, UI::WindowsAndMessaging::*};
@@ -152,12 +152,10 @@ impl Worker {
         }
         if self.sender.is_none() {
             let (tx, rx) = mpsc::sync_channel::<(Event, Instant)>(1);
-            let log_directory = directory.to_owned();
-            let log_level = level;
+            crate::operational_log::init(directory, level);
             match std::thread::Builder::new()
                 .name("agent-activation".into())
                 .spawn(move || {
-                    let mut log = Log::new(&log_directory, log_level);
                     for (event, clicked) in rx {
                         let result = match event.source.agent() {
                             Some(crate::agent::Agent::Codex) => {
@@ -168,7 +166,7 @@ impl Worker {
                             }
                             None => Ok(()),
                         };
-                        let _ = log.record(if result.is_err() {
+                        log(if result.is_err() {
                             Record::AgentActivationFailure
                         } else {
                             Record::AgentActivated {
@@ -181,9 +179,7 @@ impl Worker {
                     self.sender = Some(tx);
                     self.handle = Some(handle);
                 }
-                Err(_) => {
-                    let _ = Log::new(directory, level).record(Record::AgentActivationFailure);
-                }
+                Err(_) => log(Record::AgentActivationFailure),
             }
         }
         if let Some(tx) = &self.sender {

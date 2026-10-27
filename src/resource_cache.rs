@@ -1,5 +1,8 @@
 //! Worker-owned LRU cache. Active cards share immutable decoded frames.
-use crate::animation::PreparedAnimation;
+use crate::{
+    animation::PreparedAnimation,
+    perf::{self, Counter, Gauge},
+};
 use std::{collections::VecDeque, sync::Arc};
 type Key = (&'static str, &'static str);
 struct Entry {
@@ -35,8 +38,10 @@ impl AssetCache {
         {
             let value = entry.value.clone();
             self.entries.push_back(entry);
+            perf::count(Counter::AssetCacheHit);
             return value;
         }
+        perf::count(Counter::AssetCacheMiss);
         let value = load().map(Arc::new);
         let bytes = value
             .as_ref()
@@ -50,11 +55,13 @@ impl AssetCache {
             while self.entries.len() >= self.capacity || self.bytes > self.budget - bytes {
                 if let Some(entry) = self.entries.pop_front() {
                     self.bytes -= entry.bytes;
+                    perf::count(Counter::AssetCacheEvict);
                 } else {
                     break;
                 }
             }
             self.bytes += bytes;
+            perf::gauge(Gauge::AssetCacheBytes, self.bytes as u64);
             self.entries.push_back(Entry {
                 key,
                 value: value.clone(),

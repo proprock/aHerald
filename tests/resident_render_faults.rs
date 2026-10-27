@@ -108,6 +108,40 @@ fn composition_failure_shows_a_text_card_and_the_resident_keeps_serving() {
 }
 
 #[test]
+fn a_card_waits_for_its_artwork_and_first_appears_with_it() {
+    let (scope, _cleanup, pid, _root) = start("none");
+    send(&scope, "permission_required", "one");
+    let bounds = wait_for_window(pid);
+    // Artwork cards are wider than three heights; the text card is not.
+    assert!(
+        bounds.right - bounds.left > (bounds.bottom - bounds.top) * 3,
+        "first shown card was the text card"
+    );
+}
+
+#[test]
+fn slow_artwork_delays_the_card_only_until_the_wait_limit() {
+    let (scope, _cleanup, pid, _root) = start("slowart");
+    let sent = Instant::now();
+    send(&scope, "permission_required", "one");
+    let bounds = wait_for_window(pid);
+    let waited = sent.elapsed();
+    assert!(
+        waited >= Duration::from_millis(250),
+        "card did not wait for artwork: {waited:?}"
+    );
+    assert!(
+        waited < Duration::from_millis(700),
+        "card waited for the stalled worker: {waited:?}"
+    );
+    assert!(
+        bounds.right - bounds.left <= (bounds.bottom - bounds.top) * 3,
+        "expected the text card after the wait limit"
+    );
+    assert_eq!(status(&scope).0, pid);
+}
+
+#[test]
 fn placement_failure_keeps_the_resident_accepting_events_and_recovers() {
     let (scope, _cleanup, pid, root) = start("placement");
     send(&scope, "permission_required", "one");

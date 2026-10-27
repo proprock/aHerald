@@ -90,6 +90,7 @@ impl Wave {
         })
     }
     pub fn load(path: &Path, volume: f64) -> Result<Self, String> {
+        let _timer = crate::perf::span(crate::perf::Span::AudioLoad);
         let mut bytes = Vec::new();
         File::open(path)
             .map_err(|_| "cannot open WAV")?

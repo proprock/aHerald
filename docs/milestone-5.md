@@ -65,15 +65,67 @@ not a claim that the entire process uses only 32 MiB. PNG input is bounded to
 16 MiB; animation metadata to 16 KiB; pet resources and WAV have their documented
 independent limits. No new dependency or GUI runtime is introduced.
 
-The resident IPC worker writes optional `aherald.log` beside its configuration.
-`general.logging` controls filtering (`off` disables files). Only Unix seconds,
-severity and fixed operational codes are permitted. No API accepts event data,
-paths, remote error strings, account data or credentials. Rotate at 64 KiB into
-one `aherald.previous.log`; at most 128 KiB is retained. Unwritable destinations
-degrade silently without changing hook responses. File operations run on the
-listener, outside the GUI thread and queue lock. Idle accept polls are normal
-success, so an idle resident does not fill the error log. Queue rejection and
-broken/malformed IPC use fixed warning codes; lifecycle start/stop use info.
+The resident writes optional `aherald.log` beside its configuration through one
+process-wide logger (`operational_log::init` / `log`). A line is
+`<local ISO-8601 time with milliseconds and UTC offset> <LEVEL> <component.event> [key=number …]`,
+for example `2026-10-27T14:03:22.481+03:00 WARN  ipc.failure`. `general.logging`
+controls filtering (`off` disables files). Only the timestamp, severity, fixed
+component/event names and numbers are permitted. No API accepts event data, paths,
+remote error strings, account data or credentials. Rotate at 64 KiB (512 KiB at
+`debug`) into one `aherald.previous.log`, so at most twice the cap is retained.
+Unwritable destinations degrade silently without changing hook responses. Idle
+accept polls are normal success, so an idle resident does not fill the error log.
+Queue rejection and broken/malformed IPC use fixed warning codes; lifecycle
+start/stop use info.
+
+At `debug` the log also carries performance data (`src/perf.rs`). Hot paths are
+timed by a closed set of spans (IPC handling, process scan, Claude Desktop session
+lookup, artwork preparation, composition build, frame render and present, placement,
+usage reads, WAV load, configuration load, and GUI messages by class). Samples are
+aggregated per thread and written as one line per span and 5-second window:
+`perf frame.render n=120 avg=0.41ms sd=0.06ms min=0.33ms p95=0.52ms max=1.90ms`
+(p95 comes from a histogram with 1/8-octave buckets, so it is within about 12% and
+never above the maximum). Windows close on the first sample after they elapse, when
+the animation timer stops, from the idle IPC loop, and when a thread ends. Counters
+(`count asset_cache.hit n=18`; cache hit/miss/evict, budget fallback, composition
+rebuilds, frames presented and skipped) and gauges (`gauge composition.bytes`)
+share the window. A single sample over its span's threshold (33 ms for frames, 50 ms
+for GUI messages, 100 ms for scans, …) is a `WARN slow <span> ms=…` line even
+without `debug`, at most once a second per span with `suppressed=` counting the
+rest; a GUI-message span over 50 ms is the stall detector. Once a minute the
+resident adds `resources working_set_kb=… gdi=… user=… threads=…` to expose leaks.
+`aherald --perf-report` ranks the spans in the log files by total time.
+
+Baseline (AH-082, `tests/perf_baseline.rs`, Windows 11 build 22621, unoptimized test
+build, a debug resident showing 24 animated cards of four kinds 120 ms apart; three runs
+agreed within 5%):
+
+| span | samples | mean | p95 | max |
+|---|---|---|---|---|
+| composition.build | 69 | 7.6 ms | 9–10 ms | 16–17 ms |
+| artwork.prepare | 4 | 8.0–8.8 ms | 9–10 ms | 10 ms |
+| frame.render | 164 | 0.86 ms | 1.3 ms | 1.5–2.2 ms |
+| frame.present | 164 | 0.17 ms | 0.38 ms | 0.5–0.9 ms |
+| gui.timer | 396 | 1.27 ms | 9–10 ms | 10–11 ms |
+| gui.wake | 25 | 9.5 ms | 10–12 ms | 23–24 ms |
+| placement.compute | 69 | 0.02 ms | 0.03 ms | 0.1–0.4 ms |
+| ipc.handle | 98 | 0.01 ms | 0.05 ms | 0.1 ms |
+
+No `slow` line, no skipped frame. Artwork is prepared once per event kind (4 misses,
+20 hits). A frame costs about 1 ms against a 16 ms timer, so animation has more than
+tenfold headroom even unoptimized; the release build is faster still (not measured).
+The one finding is `composition.rebuild`: 69 rebuilds for 24 cards, nearly three per
+card. A card is composed when it is selected, again when its artwork arrives, and again
+whenever the queue count changes (a new or expired card), although a count change only
+alters the controls. That was 523 ms of 1.5 s total measured time. AH-083 redraws only
+the heading when the count or index changes without adding or removing the buttons, and a
+new card waits up to 300 ms for its artwork instead of being drawn as a text card first:
+25 rebuilds (201 ms) for 24 cards. Preparing ten installed pets took 14-130 ms per event
+kind in the release build (mean about 60 ms; 0.85-1.1 s unoptimized), only on a cache
+miss. A stalled worker shows the text card after 300 ms. The test
+fails when a mean exceeds about three times these figures, when cache misses or rebuilds
+exceed their limits, or when any frame is skipped. The release figures are not part of the
+test: it runs the binary Cargo builds for tests.
 
 Verification includes:
 

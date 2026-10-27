@@ -33,6 +33,8 @@ fn fault(directory: &std::path::Path, name: &str) -> bool {
 fn fault(_: &std::path::Path, _: &str) -> bool {
     false
 }
+/// How long a newly selected card waits for its artwork before showing the text card.
+const ART_WAIT_MS: u64 = 300;
 /// Event id, the render scale the artwork was prepared at, and the artwork.
 type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
 struct Ui {
@@ -51,6 +53,11 @@ struct Ui {
     start: Instant,
     animation_start: u64,
     pending: bool,
+    /// Deadline (GUI clock, ms) until which a newly selected card waits for its artwork
+    /// instead of being drawn as a text card first.
+    art_wait: Option<u64>,
+    /// The selected card still has to be composed (selection changed, artwork arrived).
+    compose_due: bool,
     audio: Vec<std::thread::JoinHandle<()>>,
     text_left: i32,
     width: i32,
@@ -82,6 +89,7 @@ struct Ui {
     source_labels: crate::session_source::Service,
     source_heading: String,
     presenter: crate::presenter::Presenter,
+    pacer: crate::perf::FramePacer,
 }
 impl Ui {
     /// Codex usage is shown unless only Claude usage is enabled.
@@ -130,11 +138,11 @@ impl Ui {
     }
     /// Fixed operational codes only; never payloads or external error text.
     fn log(&self, record: crate::operational_log::Record) {
-        let _ = crate::operational_log::Log::new(
+        crate::operational_log::init(
             &self.config.diagnostic_directory,
             self.config.general.logging,
-        )
-        .record(record);
+        );
+        crate::operational_log::log(record);
     }
     /// Redraws everything at the DPI of the monitor the next card will appear on. Cards
     /// are drawn at that DPI rather than stretched, so a monitor change or a DPI change
@@ -191,16 +199,24 @@ impl Ui {
             .shared
             .lock()
             .is_ok_and(|s| !s.paused && s.queue.selected().is_some_and(|e| e.duration > 0));
-        let wanted =
-            if self.demo.is_some() || counting || unsafe { IsWindowVisible(hwnd) }.as_bool() {
-                Some(16)
-            } else if self.config.codex.usage.enabled || self.claude.is_some() {
-                Some(15_000)
-            } else {
-                None
-            };
+        let wanted = if self.demo.is_some()
+            || counting
+            || self.art_wait.is_some()
+            || unsafe { IsWindowVisible(hwnd) }.as_bool()
+        {
+            Some(16)
+        } else if self.config.codex.usage.enabled || self.claude.is_some() {
+            Some(15_000)
+        } else {
+            None
+        };
         if wanted == self.timer_ms {
             return;
+        }
+        if wanted != Some(16) {
+            // The animation burst is over; close its performance window now rather than
+            // at the next card.
+            crate::perf::flush();
         }
         // SAFETY: the timer belongs to this GUI thread's window.
         unsafe {
@@ -233,15 +249,13 @@ impl Ui {
                     .as_ref()
                     .is_some_and(|c| c.view().error.is_some()),
             ];
+            let mut started = 0;
             for (was, now) in self.usage_failing.iter_mut().zip(failing) {
-                if now && !*was {
-                    let _ = crate::operational_log::Log::new(
-                        &self.config.diagnostic_directory,
-                        self.config.general.logging,
-                    )
-                    .record(crate::operational_log::Record::UsageFailure);
-                }
+                started += usize::from(now && !*was);
                 *was = now;
+            }
+            for _ in 0..started {
+                self.log(crate::operational_log::Record::UsageFailure);
             }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
@@ -330,6 +344,10 @@ impl Ui {
             self.art = None;
             self.pending = true;
             self.animation_start = now;
+            self.compose_due = true;
+            // Artwork usually takes 0-130 ms; a stalled or missing worker must not hide
+            // the notification, so the text card follows after the limit.
+            self.art_wait = self.jobs.as_ref().map(|_| now + ART_WAIT_MS);
         }
         if self.pending
             && self.jobs.as_ref().is_some_and(|tx| {
@@ -352,6 +370,16 @@ impl Ui {
                 self.pending = true;
             }
         }
+        if loaded {
+            self.compose_due = true;
+            self.art_wait = None;
+        }
+        if self.art_wait.is_some_and(|deadline| now >= deadline) {
+            self.art_wait = None;
+        } else if self.art_wait.is_some() {
+            // Keep the previous picture (if any); the 16 ms timer polls for the artwork.
+            return Ok(());
+        }
         let source = self.source_labels.label(&entry.event);
         let controls = crate::card::Card::new(
             &source,
@@ -359,12 +387,30 @@ impl Ui {
             count,
             self.config.notifications.click_to_dismiss,
         );
-        if changed
-            || loaded
+        // Buttons (and so the body layout) exist only when several cards are queued; any
+        // other count or index change alters just the heading text.
+        let layout_changed = (self.layout_count > 1) != (count > 1);
+        let heading_changed = self.source_heading != controls.heading;
+        if !(self.compose_due || layout_changed || self.composition.is_none())
+            && heading_changed
+            && let Some(composition) = self.composition.as_mut()
+            && composition
+                .update_heading(
+                    &controls.heading,
+                    self.scale,
+                    self.config.event_background_color(entry.event.kind),
+                )
+                .is_ok()
+        {
+            self.source_heading = controls.heading.clone();
+            self.layout_count = count;
+            self.presenter.invalidate();
+        } else if self.compose_due
             || self.composition.is_none()
             || self.layout_count != count
-            || self.source_heading != controls.heading
+            || heading_changed
         {
+            self.compose_due = false;
             self.source_heading = controls.heading.clone();
             self.layout_count = count;
             self.relayout();
@@ -439,11 +485,14 @@ impl Ui {
                 p
             }
         };
-        let surface = self
-            .composition
-            .as_mut()
-            .ok_or("missing composed card")?
-            .render(frame, shown.seconds, self.scale)?;
+        let composition = self.composition.as_mut().ok_or("missing composed card")?;
+        crate::perf::count(crate::perf::Counter::FramePresented);
+        crate::perf::add(
+            crate::perf::Counter::FramesSkipped,
+            self.pacer
+                .present(entry.id, frame, composition.frame_count()),
+        );
+        let surface = composition.render(frame, shown.seconds, self.scale)?;
         self.display_size = surface.present_placed(hwnd, placement, alpha)?;
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -810,6 +859,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
         if let Some(w) = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Window).as_ref() {
+            // Anything over 50 ms here is a UI stall, reported with the message class.
+            let _timer = crate::perf::span(match msg {
+                WM_TIMER => crate::perf::Span::GuiTimer,
+                crate::resident::WAKE => crate::perf::Span::GuiWake,
+                WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN => {
+                    crate::perf::Span::GuiInput
+                }
+                _ => crate::perf::Span::GuiOther,
+            });
             let message = Deferred {
                 msg,
                 wparam: wp.0,
@@ -886,6 +944,10 @@ pub(super) fn run_preview(
                         cache = new_cache();
                         cached_scale = scale;
                     }
+                    // Debug-build fault injection: artwork preparation stalls.
+                    if fault(&assets.diagnostic_directory, "slowart") {
+                        std::thread::sleep(std::time::Duration::from_millis(800));
+                    }
                     let art =
                         cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
                             crate::artwork::prepared_for_event(&assets, &event, scale)
@@ -937,6 +999,8 @@ pub(super) fn run_preview(
             start,
             animation_start: 0,
             pending: false,
+            art_wait: None,
+            compose_due: false,
             audio: Vec::new(),
             text_left: 22,
             width: 320,
@@ -966,6 +1030,7 @@ pub(super) fn run_preview(
             source_labels,
             source_heading: String::new(),
             presenter: crate::presenter::Presenter::default(),
+            pacer: crate::perf::FramePacer::default(),
         }),
     });
     // A short-lived borrow per use: none may be alive while messages are dispatched,
