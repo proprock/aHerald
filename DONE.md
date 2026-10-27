@@ -690,3 +690,27 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   hooks and autostart, uninstall, build commands and limits. `check-release.ps1` passes (no
   separate C runtime). Not verified: the workflow itself has not run on GitHub (not pushed);
   Windows 10 extraction belongs to AH-023.
+
+- [x] **AH-085 — Redesign the notification card layout.**
+  Layout: wider accent stripe by event kind; artwork and countdown unchanged; rows
+  `<harness>, <folder>`, session name (row always reserved), larger event kind; bottom row
+  `[Dismiss] <age>` and `[<] n/m [>]` with wrap-around; usage card on the same layout;
+  `border_color` (global, per event, usage). Automated tests cover folder extraction, the
+  heading model, button geometry, navigation, age text, IPC carrying the folder and equal
+  card height. Done 2026-10-27: manual visual check of both agents at 100% and 150%
+  observed by the user (see `docs/milestone-5.md`).
+
+- [x] **AH-086 — `--version` and a tray About card.**
+  `aherald --version` prints `aHerald <version>`; the tray item "About aHerald" shows the
+  version on a usage-style card and a second choice closes it. Automated tests cover the
+  CLI, the card text, the menu entry and a native open/close test. Done 2026-10-27: the
+  card was observed at 100% and 150%, and redrew correctly when the Windows scale was
+  changed while it was open.
+
+- [x] **AH-076 — Visual check of native-DPI cards at 100/150/200% (split from AH-048).**
+  Done 2026-10-27 (criterion narrowed with the user): text sharp at 100%, 150% and 200%;
+  pixel art crisp and the largest local pet (WALL-E, 2.3 MB spritesheet) shows its artwork
+  instead of the text fallback; the card redraws when the Windows scale is changed while
+  it is open, on all three scales. The two-monitor mixed-DPI case moved to AH-020 (cards
+  are not draggable). Not verified: the frame count of the WALL-E sheet. Results in
+  `docs/milestone-5.md`.

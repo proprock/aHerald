@@ -51,6 +51,20 @@ all passed outside the sandbox. Six interactive/live tests remain ignored.
 The sandbox run encountered a pre-existing stdio mock startup timeout; the
 unsandboxed run passed without changing its assertions or timeouts.
 
+## Manual visual acceptance (AH-076, AH-085, AH-086)
+
+Observed by the user on 2026-10-27, Windows 11 build 22621, single monitor:
+
+- AH-085: both agents' cards looked correct at 100% and 150%.
+- AH-086: the About card looked correct at 100% and 150% and redrew correctly when the
+  Windows scale was changed while it was open.
+- AH-076: `preview_placement` (set `AHERALD_PREVIEW_PET` to a `pet.json` to preview a pet)
+  showed sharp text at 100%, 150% and 200%. With the WALL-E pet (largest local
+  spritesheet, 2.3 MB) the artwork was drawn crisp, not replaced by the text fallback, at
+  scale 1.5. The card redrew correctly when the Windows scale was switched among the three
+  scales while it was open. The frame count of that sheet was not measured.
+- Not covered: a card opening on a second monitor with a different DPI (tracked in AH-020).
+
 ## AH-021 — Bounded resources and recovery
 
 The resident asset worker owns a 16-entry, 32 MiB LRU of prepared artwork, keyed
