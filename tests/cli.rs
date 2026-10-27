@@ -53,3 +53,35 @@ fn status_does_not_require_loading_the_notification_configuration() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(value.get("running").is_some() || value["result"] == "status");
 }
+
+#[test]
+fn perf_report_prints_the_ranked_table_from_the_log_beside_the_configuration() {
+    let root = std::env::temp_dir().join(format!("aherald-perf-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(&config, "[invalid TOML").unwrap(); // not needed, so never parsed
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--perf-report", "--config"])
+            .arg(&config)
+            .output()
+            .unwrap()
+    };
+    let missing = run();
+    assert!(!missing.status.success(), "no log means nothing to report");
+    std::fs::write(
+        root.join("aherald.log"),
+        "2026-10-27T14:00:00.000+00:00 DEBUG perf frame.render n=4 avg=2.00ms sd=0.00ms min=2.00ms p95=2.00ms max=2.00ms\n",
+    )
+    .unwrap();
+    let output = run();
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    let row: Vec<_> = text.lines().nth(1).unwrap().split_whitespace().collect();
+    assert_eq!(
+        row,
+        ["frame.render", "4", "8.00", "2.00", "2.00", "2.00", "0"]
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

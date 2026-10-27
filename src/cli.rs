@@ -35,7 +35,7 @@ impl Cli {
                     }
                     cli.demo_pause_sec = Some(seconds);
                 }
-                "--hook" | "--status" | "--quit" | "--help" => {
+                "--hook" | "--status" | "--quit" | "--help" | "--perf-report" => {
                     if cli.operation.replace(arg[2..].to_owned()).is_some() {
                         return Err("conflicting explicit operations".into());
                     }

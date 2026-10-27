@@ -140,11 +140,11 @@ pub enum Record {
     },
 }
 /// Microseconds as milliseconds with two decimals (`12.34`), without floating point.
-fn millis(micros: u64) -> String {
+pub fn format_millis(micros: u64) -> String {
     format!("{}.{:02}", micros / 1000, micros % 1000 / 10)
 }
 fn ms(micros: u64) -> String {
-    format!("{}ms", millis(micros))
+    format!("{}ms", format_millis(micros))
 }
 impl Record {
     pub fn level(&self) -> Level {
@@ -177,7 +177,7 @@ impl Record {
                 micros,
                 suppressed,
             } => {
-                let mut text = format!("slow {span} ms={}", millis(*micros));
+                let mut text = format!("slow {span} ms={}", format_millis(*micros));
                 if *suppressed > 0 {
                     text.push_str(&format!(" suppressed={suppressed}"));
                 }
