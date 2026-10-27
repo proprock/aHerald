@@ -22,6 +22,8 @@ pub enum Error {
     Backoff,
     /// A fixed, sanitized message from a non-Codex usage provider.
     Service(&'static str),
+    /// HTTP 429 from a non-Codex provider; the driver slows down to the refresh interval.
+    RateLimited(&'static str),
 }
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,7 +36,7 @@ impl std::fmt::Display for Error {
             Self::Remote(_) => "Codex usage unavailable (authentication or service error)",
             Self::UnexpectedRequest => "Unexpected Codex server request; connection closed",
             Self::Backoff => "Codex reconnect delayed",
-            Self::Service(message) => message,
+            Self::Service(message) | Self::RateLimited(message) => message,
         })
     }
 }

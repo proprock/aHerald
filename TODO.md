@@ -367,7 +367,11 @@ An implementation alone is not evidence of Windows visual acceptance.
   honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
   Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
 
-- [ ] **AH-040 — Resolve stale Claude pending cards.** Depends on AH-036.
+- [x] **AH-040 — Resolve stale Claude pending cards.** Depends on AH-036.
+  Done: Claude `Stop`/`StopFailure` resolve same-session pending cards; Claude pending
+  events dedupe per session; every new event sounds once (agreed with the user).
+  The live double-fire of `PermissionRequest` + `Notification` is still unobserved;
+  dedup is safe either way. Original brief:
   Claude permission/input cards are persistent and never receive terminal evidence
   (`turn_id` is absent; `is_terminal_evidence` accepts only Codex hooks). They stay
   until dismissed, hold the High-rank selection and silence every later sound; with
@@ -380,7 +384,13 @@ An implementation alone is not evidence of Windows visual acceptance.
   cross-agent isolation, the duplicate pair, and a later sound after a hidden
   persistent card; standard Cargo checks. Source: `audit-20261026.md` E1.
 
-- [ ] **AH-041 — Keep the resident alive on card render failures.** Depends on AH-021.
+- [x] **AH-041 — Keep the resident alive on card render failures.** Depends on AH-021.
+  Done: shared `Composition::compose` (largest frame, byte budget, text fallback) used by
+  both modes; a resident draw failure hides the window, logs `render_failed` once,
+  keeps the queue and retries next tick. Placement failure shows no card until placement
+  succeeds (no fabricated position). Native fault tests use a debug-build-only
+  `aherald.fault` file beside the configuration. Transient already cached countdown
+  frames, set the title and scaled mouse input. Original brief:
   Card, artwork, placement and countdown errors propagate through `Ui::draw` and
   stop the resident, while transient mode falls back to a text card. Extract one
   card composition shared by both modes: size by the largest frame, enforce the
@@ -391,7 +401,24 @@ An implementation alone is not evidence of Windows visual acceptance.
   a text card; native rendering and leak tests and standard Cargo checks pass.
   Source: `audit-20261026.md` E2, A1.
 
-- [ ] **AH-042 — Wake the resident only for pending work.** Depends on AH-041.
+- [ ] **AH-051 — Pure card presenter and reentrancy-safe Ui (split from AH-042).**
+  Depends on AH-042. Move "which card, frame, alpha and sounds now" into a pure
+  presenter driven by queue state and a controlled clock, leaving `Ui` a thin Win32
+  adapter; stop the window procedure from borrowing `Ui` while `draw` holds it across
+  reentrant `ShowWindow`/`SetWindowTextW`. Present a static card only when frame,
+  alpha, countdown second or placement changes; cache usage-card layout and tray
+  placement while the card is open. Acceptance: presenter unit tests; lifecycle, tray
+  and leak tests; standard Cargo checks. Source: `audit-20261026.md` A6, E7, P2.
+
+- [x] **AH-042 — Wake the resident only for pending work.** Depends on AH-041.
+  Done (part 1, agreed with the user; the rest is AH-051): `serve_until` waits on
+  overlapped accept plus a stop event; IPC posts `WAKE` to the window; the 16 ms timer
+  runs only while a card is visible or a timed card counts down (a 15 s housekeeping
+  timer remains only while usage polling is enabled, so the tray tooltip/icon may lag
+  by up to 15 s when idle); `Driver::wait` lets the usage worker sleep to its deadline
+  (a live app-server connection is still polled every 500 ms for pushed updates);
+  tooltip text is applied only on change. A test counts `WM_TIMER` deliveries on the
+  idle GUI thread. Original brief:
   An idle resident wakes about 100 times per second: the 16 ms GUI timer, the 50 ms
   pipe accept poll with a new event per attempt, and the 50 ms usage worker loop per
   enabled agent. Post new IPC events to the window, run the timer only while a card
@@ -407,7 +434,11 @@ An implementation alone is not evidence of Windows visual acceptance.
   event; lifecycle, tray and leak tests and standard Cargo checks pass.
   Source: `audit-20261026.md` P1, P2, A6, E7.
 
-- [ ] **AH-043 — Report configuration errors and guard Restart.**
+- [x] **AH-043 — Report configuration errors and guard Restart.**
+  Done: `invalid configuration: <table.key> <reason>` messages without values (see
+  `docs/configuration.md`); tray Restart validates first and shows the error on the
+  details card; fixed log codes for invalid configuration, render fallback/failure,
+  resident startup failure and usage failure. Original brief:
   Parsing reports only "invalid configuration fields" and validation one generic
   message; the resident and Restart run without a console, so errors vanish and an
   invalid file makes Restart exit silently. Name the failing field and reason
@@ -419,7 +450,23 @@ An implementation alone is not evidence of Windows visual acceptance.
   Restart and observes the original resident still serving; standard Cargo checks.
   Source: `audit-20261026.md` E5, A8.
 
-- [ ] **AH-044 — Separate usage sources and slow Claude retries.** Depends on AH-037.
+- [ ] **AH-052 — Finish the usage-source cleanup (split from AH-044).**
+  Depends on AH-044. Remove the test-only `View::summary`/`details`/`brief` path and
+  move its assertions to the shown card text; type `Bucket.details` (for example as
+  structured extra-usage and spend fields) instead of pre-formatted lines; drop the
+  Codex-shaped JSON that `claude_usage::snapshot_from_response` still builds before
+  `Snapshot::parse`. Acceptance: tests assert the card text; no production code is
+  kept only for tests; standard Cargo checks. Source: `audit-20261026.md` A3, A4.
+
+- [x] **AH-044 — Separate usage sources and slow Claude retries.** Depends on AH-037.
+  Done (agreed with the user; the tail is AH-052): `usage_service::UsageSource`
+  (`read`, `listen`, `updates`, `is_live`) is implemented by `CodexSource` (the
+  unchanged `Connection` and rolling updates) and `claude_usage::ClaudeSource` (one
+  typed HTTPS read, no JSON-RPC emulation, no second backoff layer);
+  `View` carries an `Agent`, and card text is chosen by it, not by label. HTTP 429 maps
+  to `Error::RateLimited`, and the driver then waits at least `refresh_interval_sec`
+  (manual refresh included); other failures keep the 10 s..300 s backoff. Fake-clock
+  driver tests cover both; Codex tests and texts are unchanged. Original brief:
   `ClaudeTransport` emulates the Codex JSON-RPC app-server and reshapes HTTP data
   into Codex JSON, which adds pre-formatted `Bucket.details`, a second backoff layer
   and Codex-worded errors for Claude. Introduce a `UsageSource` boundary implemented
@@ -433,7 +480,12 @@ An implementation alone is not evidence of Windows visual acceptance.
   A4, E4.
 
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
-  WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
+  Implemented and tested; left open only for the manual system-proxy check (steps in
+  `docs/claude-hooks.md`, "Manual checks"), which was not run. Done: redirect policy
+  "never" plus 3xx mapped to "Claude usage request redirected (refused)", proven by a
+  loopback test where a 302 gets exactly one request; `AUTOMATIC_PROXY`; `Wiped`
+  buffers for the credentials file, token and headers (copies made by the parser,
+  std or WinHTTP are not covered). Original brief: WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
   ignores system and PAC proxies. Disable redirects so the bearer token reaches only
   `api.anthropic.com` and report 3xx as a sanitized service error; switch to
   `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`. Clear header buffers holding the token after

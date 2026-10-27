@@ -46,3 +46,17 @@ Formatting, Clippy, all-target tests and a Windows x64 release build are require
 The earlier real-card, queue-navigation, restart and chat-transition acceptance
 is recorded in tray-usage.md and notification-click.md. No user hook file or old
 configuration was migrated as part of this implementation.
+
+## Errors and diagnostics
+
+An invalid file is reported as `invalid configuration: <table.key> <reason>` (or
+`invalid TOML syntax at line N`); the message never contains the offending value. The
+tray **Restart** command validates the file first. If it is invalid, the running
+resident keeps its current configuration and shows the error on the details card.
+
+`aherald.log` (beside the configuration, 64 KiB with one backup) records fixed codes
+only, never payloads: `resident_started`, `resident_stopped`, `resident_startup_failed`,
+`invalid_configuration`, `render_failed`, `render_fallback`, `usage_failed` (once per
+failing episode), `ipc_failure`, `queue_rejected` and `agent_activation_failed`.
+Invalid-configuration and startup codes are written at `warn` level regardless of
+`general.logging`, because that setting cannot be read from an invalid file.

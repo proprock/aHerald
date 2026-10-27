@@ -2,7 +2,7 @@
 use crate::{
     animation::PreparedAnimation,
     config::Config,
-    notification::overlay::{CardText, Surface},
+    notification::overlay::{CardText, Composition, Surface},
     resident::Shared,
 };
 use std::{
@@ -21,6 +21,16 @@ use windows::{
     },
     core::{PCWSTR, w},
 };
+/// Debug builds only: lets native tests inject a render failure by writing its name
+/// to `aherald.fault` beside the configuration (isolated per resident instance).
+#[cfg(debug_assertions)]
+fn fault(directory: &std::path::Path, name: &str) -> bool {
+    std::fs::read_to_string(directory.join("aherald.fault")).is_ok_and(|v| v.trim() == name)
+}
+#[cfg(not(debug_assertions))]
+fn fault(_: &std::path::Path, _: &str) -> bool {
+    false
+}
 type RenderResult = (u64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
@@ -39,7 +49,6 @@ struct Ui {
     animation_start: u64,
     pending: bool,
     audio: Vec<std::thread::JoinHandle<()>>,
-    sounded: std::collections::HashSet<u64>,
     text_left: i32,
     width: i32,
     height: i32,
@@ -60,6 +69,12 @@ struct Ui {
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
+    render_failed: bool,
+    timer_ms: Option<u32>,
+    tooltip: String,
+    /// Replaces the usage card text, e.g. a refused Restart; cleared when the card closes.
+    notice: Option<String>,
+    usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
     countdown: Option<(usize, u64, Surface)>,
     source_labels: crate::session_source::Service,
@@ -92,6 +107,9 @@ impl Ui {
     }
     /// Details of the agent chosen from the menu.
     fn card_text(&self) -> String {
+        if let Some(notice) = &self.notice {
+            return notice.clone();
+        }
         match &self.claude {
             Some(claude) if self.usage_claude => claude.card_text(),
             _ => self.usage.card_text(),
@@ -107,7 +125,66 @@ impl Ui {
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
-    fn draw(&mut self, hwnd: HWND) -> Result<(), String> {
+    /// Fixed operational codes only; never payloads or external error text.
+    fn log(&self, record: crate::operational_log::Record) {
+        let _ = crate::operational_log::Log::new(
+            &self.config.diagnostic_directory,
+            &self.config.general.logging,
+        )
+        .record(record);
+    }
+    /// A card that cannot be drawn must not end the resident: hide the window, keep
+    /// the queue and retry from scratch on the next wake.
+    fn draw(&mut self, hwnd: HWND) {
+        if self.draw_now(hwnd).is_err() {
+            self.selection = None;
+            self.placement = None;
+            self.surfaces.clear();
+            // SAFETY: hiding this thread's own window.
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
+            if !std::mem::replace(&mut self.render_failed, true) {
+                self.log(crate::operational_log::Record::RenderFailure);
+            }
+        } else {
+            self.render_failed = false;
+        }
+        self.schedule(hwnd);
+    }
+    /// The 16 ms timer runs only while a card is visible or a timed card is counting
+    /// down; otherwise IPC posts `WAKE`. Enabled usage polling keeps a slow housekeeping
+    /// timer for the tray tooltip and icon.
+    fn schedule(&mut self, hwnd: HWND) {
+        let counting = self
+            .shared
+            .lock()
+            .is_ok_and(|s| !s.paused && s.queue.selected().is_some_and(|e| e.duration > 0));
+        let wanted =
+            if self.demo.is_some() || counting || unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                Some(16)
+            } else if self.config.codex.usage.enabled || self.claude.is_some() {
+                Some(15_000)
+            } else {
+                None
+            };
+        if wanted == self.timer_ms {
+            return;
+        }
+        // SAFETY: the timer belongs to this GUI thread's window.
+        unsafe {
+            match wanted {
+                Some(ms) => {
+                    let _ = SetTimer(Some(hwnd), 1, ms, None);
+                }
+                None => {
+                    let _ = KillTimer(Some(hwnd), 1);
+                }
+            }
+        }
+        self.timer_ms = wanted;
+    }
+    fn draw_now(&mut self, hwnd: HWND) -> Result<(), String> {
         if self.stop.load(Ordering::Acquire) {
             self.tray.take();
             unsafe {
@@ -118,6 +195,23 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
+            // One log line per failing episode, never per poll.
+            let failing = [
+                self.codex_shown() && self.usage.view().error.is_some(),
+                self.claude
+                    .as_ref()
+                    .is_some_and(|c| c.view().error.is_some()),
+            ];
+            for (was, now) in self.usage_failing.iter_mut().zip(failing) {
+                if now && !*was {
+                    let _ = crate::operational_log::Log::new(
+                        &self.config.diagnostic_directory,
+                        &self.config.general.logging,
+                    )
+                    .record(crate::operational_log::Record::UsageFailure);
+                }
+                *was = now;
+            }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
                 &self.usage.view(),
@@ -126,7 +220,10 @@ impl Ui {
                 self.config.codex.usage.display,
             );
             if let Some(tray) = &mut self.tray {
-                tray.tooltip(&tooltip);
+                if tooltip != self.tooltip {
+                    tray.tooltip(&tooltip);
+                    self.tooltip = tooltip;
+                }
                 if let Err(error) = tray.usage(levels) {
                     eprintln!("aHerald: {error}");
                 }
@@ -157,6 +254,9 @@ impl Ui {
             )
         };
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
+        if !self.usage_window {
+            self.notice = None;
+        }
         if self.usage_window {
             if self.selection != entry.as_ref().map(|e| e.id) {
                 self.usage_surface = None;
@@ -173,22 +273,22 @@ impl Ui {
             return Ok(());
         };
         self.audio.retain(|job| !job.is_finished());
-        if self.sounded.insert(entry.id)
-            && self.audio.len() < 4
-            && let Some(audio) = crate::audio::start_controlled(
-                &entry.event,
+        // Every new event sounds once, even behind a selected persistent card.
+        let room = 4usize.saturating_sub(self.audio.len());
+        let fresh = self
+            .shared
+            .lock()
+            .map(|mut state| state.queue.take_unannounced(room))
+            .unwrap_or_default();
+        for fresh in fresh {
+            if let Some(audio) = crate::audio::start_controlled(
+                &fresh.event,
                 &self.config,
                 self.audio_cancel.clone(),
-            )
-        {
-            self.audio.push(audio);
+            ) {
+                self.audio.push(audio);
+            }
         }
-        self.sounded.retain(|id| {
-            self.shared
-                .lock()
-                .ok()
-                .is_some_and(|state| state.queue.items().iter().any(|e| e.id == *id))
-        });
         if !self.config.notifications.enabled {
             unsafe {
                 let _ = ShowWindow(hwnd, SW_HIDE);
@@ -234,74 +334,46 @@ impl Ui {
             self.countdown = None;
             self.layout_count = count;
             self.placement = None;
-            let pad = (18.0 * self.scale) as i32;
-            let aw = self
-                .art
-                .as_ref()
-                .and_then(|a| a.frames.first())
-                .map(|f| f.width as i32)
-                .unwrap_or(0);
-            let ah = self
-                .art
-                .as_ref()
-                .and_then(|a| a.frames.first())
-                .map(|f| f.height as i32)
-                .unwrap_or(0);
-            self.width = (320.0 * self.scale) as i32 + if aw > 0 { aw + pad } else { 0 };
-            self.height = ((110.0 * self.scale) as i32).max(ah + if ah > 0 { pad * 2 } else { 0 });
-            self.text_left = if aw > 0 {
-                aw + pad * 2
-            } else {
-                (22.0 * self.scale) as i32
-            };
             let source = &controls.heading;
-            let card = Surface::card(
-                self.width,
-                self.height,
-                self.scale,
-                self.text_left,
-                CardText {
-                    source,
-                    label: entry.event.kind.label(),
-                    navigation: controls.navigation,
-                    dismiss_button: controls.dismiss_button,
-                    color: self.config.event_color(entry.event.kind),
-                    background_color: self.config.event_background_color(entry.event.kind),
-                },
-            )?;
-            self.durations = vec![1000];
-            self.looping = false;
-            let bytes = self.width as u64
-                * self.height as u64
-                * 4
-                * self.art.as_ref().map(|a| a.frames.len()).unwrap_or(1) as u64;
-            let composed = self
-                .art
-                .as_ref()
-                .filter(|_| bytes <= crate::animation::MAX_BYTES)
-                .map(|a| {
-                    a.frames
-                        .iter()
-                        .map(|f| card.with_artwork(f, pad, (self.height - f.height as i32) / 2))
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .transpose()?;
-            self.surfaces = if let Some(frames) = composed.filter(|f| !f.is_empty()) {
-                if let Some(a) = &self.art {
-                    self.durations = a.durations_ms.clone();
-                    self.looping = a.looping;
+            let scale = self.scale;
+            let config = &self.config;
+            let kind = entry.event.kind;
+            let composed = Composition::compose(scale, self.art.as_deref(), |w, h, left| {
+                // Debug-build fault injection: artwork-sized cards fail to build.
+                if fault(&config.diagnostic_directory, "compose") && left != (22.0 * scale) as i32 {
+                    return Err("injected composition failure".into());
                 }
-                frames
-            } else {
-                vec![card]
-            };
+                Surface::card(
+                    w,
+                    h,
+                    scale,
+                    left,
+                    CardText {
+                        source,
+                        label: kind.label(),
+                        navigation: controls.navigation,
+                        dismiss_button: controls.dismiss_button,
+                        color: config.event_color(kind),
+                        background_color: config.event_background_color(kind),
+                    },
+                )
+            })?;
+            self.width = composed.surfaces[0].width;
+            self.height = composed.surfaces[0].height;
+            self.text_left = composed.text_left;
+            if composed.degraded {
+                self.log(crate::operational_log::Record::RenderFallback);
+            }
+            self.durations = composed.durations;
+            self.looping = composed.looping;
+            self.surfaces = composed.surfaces;
             let title: Vec<u16> = format!("{} - {}", source, entry.event.kind.label(),)
                 .encode_utf16()
                 .chain(Some(0))
                 .collect();
+            // The title is informational; a failure must not stop the card.
             unsafe {
-                SetWindowTextW(hwnd, PCWSTR(title.as_ptr()))
-                    .map_err(|_| "cannot update event title")?;
+                let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
             }
         }
         let frame = crate::animation::frame_index(
@@ -321,6 +393,9 @@ impl Ui {
         let placement = match self.placement {
             Some(p) => p,
             None => {
+                if fault(&self.config.diagnostic_directory, "placement") {
+                    return Err("injected placement failure".into());
+                }
                 let p = crate::placement::current(
                     &self.config.notifications,
                     (self.width, self.height),
@@ -449,7 +524,7 @@ impl Ui {
             }
         }
     }
-    fn command(&mut self, _hwnd: HWND, command: usize) {
+    fn command(&mut self, hwnd: HWND, command: usize) {
         use crate::tray::*;
         match command {
             SOUND | VISUAL | PAUSE => {
@@ -480,13 +555,36 @@ impl Ui {
                 });
             }
             RESTART => {
+                // A replacement that cannot load its configuration would exit silently
+                // and leave no resident: validate first and keep this one running.
+                if let Err(error) = Config::load(&self.config_path, true) {
+                    self.log(crate::operational_log::Record::InvalidConfiguration);
+                    self.notice = Some(format!(
+                        "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                    ));
+                    if let Ok(mut state) = self.shared.lock() {
+                        state.queue.show_usage();
+                    }
+                    self.usage_text = self.card_text();
+                    self.usage_page = 0;
+                    self.usage_surface = None;
+                    self.selection = None;
+                    self.placement = None;
+                    return;
+                }
                 let stop = self.stop.clone();
+                let window = hwnd.0 as isize;
                 std::thread::spawn(move || match crate::restart::launch() {
-                    Ok(()) => stop.store(true, Ordering::Release),
+                    Ok(()) => {
+                        stop.store(true, Ordering::Release);
+                        // No timer runs while idle: wake the window so it sees the stop.
+                        crate::resident::wake(window);
+                    }
                     Err(error) => eprintln!("aHerald: {error}"),
                 });
             }
             SUMMARY | CLAUDE_SUMMARY => {
+                self.notice = None;
                 let claude = command == CLAUDE_SUMMARY;
                 if let Ok(mut state) = self.shared.lock() {
                     // The same line closes its open card; the other line switches agents.
@@ -561,10 +659,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         if let Some(tray) = &ui.tray {
                             tray.focus();
                         }
-                        if let Err(error) = ui.draw(hwnd) {
-                            ui.error = Some(error);
-                            ui.stop.store(true, Ordering::Release);
-                        }
+                        ui.draw(hwnd);
                     }
                 }
                 return LRESULT(0);
@@ -583,19 +678,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         .rem_euclid(pages as isize) as usize;
                 }
                 ui.usage_surface = None;
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
             if msg == WM_COMMAND {
                 let ui = &mut *p;
                 ui.command(hwnd, wp.0 & 0xffff);
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
         }
@@ -612,7 +701,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 let _ = DestroyWindow(hwnd);
                 return LRESULT(0);
             }
-            WM_TIMER | WM_LBUTTONUP | WM_KEYDOWN | WM_DISPLAYCHANGE | WM_DPICHANGED
+            WM_TIMER
+            | crate::resident::WAKE
+            | WM_LBUTTONUP
+            | WM_KEYDOWN
+            | WM_DISPLAYCHANGE
+            | WM_DPICHANGED
             | WM_SETTINGCHANGE
                 if !p.is_null() =>
             {
@@ -629,12 +723,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if matches!(msg, WM_LBUTTONUP | WM_KEYDOWN) {
                     ui.input(msg, wp, lp);
                 }
-                if let Err(error) = ui.draw(hwnd) {
-                    ui.error = Some(error);
-                    ui.stop.store(true, Ordering::Release);
-                    ui.tray.take();
-                    let _ = DestroyWindow(hwnd);
-                }
+                ui.draw(hwnd);
                 return LRESULT(0);
             }
             _ => {}
@@ -728,7 +817,6 @@ pub(super) fn run_preview(
         animation_start: 0,
         pending: false,
         audio: Vec::new(),
-        sounded: std::collections::HashSet::new(),
         text_left: 22,
         width: 320,
         height: 110,
@@ -748,6 +836,11 @@ pub(super) fn run_preview(
         usage_surface: None,
         audio_cancel: Arc::new(AtomicBool::new(false)),
         error: None,
+        render_failed: false,
+        timer_ms: None,
+        tooltip: String::new(),
+        notice: None,
+        usage_failing: [false; 2],
         demo,
         countdown: None,
         source_labels: crate::session_source::Service::codex(),
@@ -763,7 +856,8 @@ pub(super) fn run_preview(
             hCursor: LoadCursorW(None, IDC_ARROW).map_err(|_| "cannot load cursor")?,
             ..Default::default()
         };
-        if RegisterClassW(&wc) == 0 {
+        // A second run in one process (in-process tests) finds the class registered.
+        if RegisterClassW(&wc) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
             return Err("cannot register resident window".into());
         }
         let hwnd = CreateWindowExW(
@@ -792,11 +886,12 @@ pub(super) fn run_preview(
                 return Err(error);
             }
         }
-        if SetTimer(Some(hwnd), 1, 16, None) == 0 {
-            ui.tray.take();
-            let _ = DestroyWindow(hwnd);
-            return Err("cannot start resident timer".into());
+        if let Ok(mut state) = ui.shared.lock() {
+            state.window = hwnd.0 as isize;
         }
+        // The first draw also arms or skips the timer; events queued before the window
+        // existed are picked up here.
+        let _ = PostMessageW(Some(hwnd), crate::resident::WAKE, WPARAM(0), LPARAM(0));
         let mut msg = MSG::default();
         loop {
             let code = GetMessageW(&mut msg, None, 0, 0).0;

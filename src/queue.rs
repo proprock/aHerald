@@ -7,6 +7,8 @@ pub struct Entry {
     pub event: Event,
     pub duration: u64,
     pub visible_ms: u64,
+    /// Set once the entry's sound was handed out, selected or not.
+    pub announced: bool,
 }
 impl Entry {
     pub fn is_usage(&self) -> bool {
@@ -39,7 +41,9 @@ fn same(a: &Event, b: &Event) -> bool {
         && a.source.agent_key() == b.source.agent_key()
         && a.agent_id == b.agent_id
         // Hooks expose no request ID: identical turn IDs can be distinct waits.
-        && (!pending(a) || a.source == Source::Demo || a.request_id.is_some())
+        // Claude hooks carry no turn either, so one session has one pending card
+        // (a PermissionRequest/permission_prompt pair is one prompt).
+        && (!pending(a) || a.source != Source::CodexHook || a.request_id.is_some())
         && a.session_id == b.session_id
         && a.turn_id == b.turn_id
         && a.request_id == b.request_id
@@ -81,6 +85,16 @@ impl Queue {
         if !event.is_terminal_evidence() {
             return 0;
         }
+        if event.source == Source::ClaudeHook {
+            // Claude turns in one session are sequential, so the end of a turn
+            // resolves every pending card of that session (and no other agent's).
+            return self.resolve(|e| {
+                pending(e)
+                    && e.source == Source::ClaudeHook
+                    && e.agent_id == event.agent_id
+                    && e.session_id == event.session_id
+            });
+        }
         // Another Stop hook can continue the same turn. Only interruption proves
         // that a later-delivered wait belongs to an already terminated turn.
         if event.kind == Kind::Interrupted
@@ -91,10 +105,12 @@ impl Queue {
                 self.terminal_history.pop_front();
             }
         }
+        self.resolve(|e| pending(e) && same_turn(e, event))
+    }
+    fn resolve(&mut self, matches: impl Fn(&Event) -> bool) -> usize {
         let previous_index = self.selected_index();
         let count = self.items.len();
-        self.items
-            .retain(|entry| !(pending(&entry.event) && same_turn(&entry.event, event)));
+        self.items.retain(|entry| !matches(&entry.event));
         if self.selected().is_none() {
             self.selected = self
                 .items
@@ -102,6 +118,19 @@ impl Queue {
                 .map(|e| e.id);
         }
         count - self.items.len()
+    }
+    /// Entries whose sound has not played yet, at most `limit`, in queue order.
+    /// Every new agent event is announced once, whether or not it is selected.
+    pub fn take_unannounced(&mut self, limit: usize) -> Vec<Entry> {
+        let mut taken = Vec::new();
+        for entry in self.items.iter_mut().filter(|e| !e.announced) {
+            if taken.len() == limit {
+                break;
+            }
+            entry.announced = true;
+            taken.push(entry.clone());
+        }
+        taken
     }
     pub fn is_duplicate(&self, event: &Event, now: u64) -> bool {
         self.dedup_ms > 0
@@ -151,6 +180,7 @@ impl Queue {
             event,
             duration,
             visible_ms: 0,
+            announced: false,
         });
         self.items.sort_by_key(|e| (rank(&e.event), e.id));
         let selected = self.selected();
@@ -180,6 +210,7 @@ impl Queue {
             event,
             duration: 0,
             visible_ms: 0,
+            announced: true,
         });
         self.selected = Some(self.sequence);
     }

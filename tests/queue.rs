@@ -128,3 +128,117 @@ fn usage_is_one_persistent_queue_entry_and_dismissal_selects_next_message() {
     q.show_usage();
     assert!(q.selected().unwrap().is_usage());
 }
+
+fn claude(kind: Kind, session: &str) -> Event {
+    Event {
+        kind,
+        source: Source::ClaudeHook,
+        session_id: Some(session.into()),
+        turn_id: None,
+        request_id: None,
+        agent_id: None,
+    }
+}
+fn codex_wait(session: &str) -> Event {
+    Event {
+        source: Source::CodexHook,
+        ..claude(Kind::PermissionRequired, session)
+    }
+}
+fn sessions(q: &Queue) -> Vec<(Kind, String)> {
+    q.items()
+        .iter()
+        .map(|e| (e.event.kind, e.event.session_id.clone().unwrap()))
+        .collect()
+}
+
+#[test]
+fn claude_stop_and_stop_failure_resolve_only_pending_cards_of_the_same_session() {
+    for end in [Kind::TurnComplete, Kind::Error] {
+        let mut q = Queue::new(8, 0);
+        q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+        q.push(claude(Kind::InputRequired, "a"), 0, 0);
+        q.push(claude(Kind::PermissionRequired, "b"), 0, 0);
+        q.push(codex_wait("a"), 0, 0);
+        q.push(claude(end, "a"), 1, 5000);
+        let left = sessions(&q);
+        assert_eq!(
+            q.items()
+                .iter()
+                .filter(|e| e.event.source == Source::ClaudeHook
+                    && e.event.session_id.as_deref() == Some("a")
+                    && matches!(e.event.kind, Kind::PermissionRequired | Kind::InputRequired))
+                .count(),
+            0
+        );
+        assert!(left.contains(&(Kind::PermissionRequired, "b".into())));
+        assert_eq!(
+            q.items()
+                .iter()
+                .filter(|e| e.event.source == Source::CodexHook)
+                .count(),
+            1,
+            "a Claude Stop must not clear Codex cards"
+        );
+        assert!(left.contains(&(end, "a".into())));
+    }
+}
+
+#[test]
+fn claude_stop_resolves_hidden_persistent_card_even_when_waits_are_disabled() {
+    let mut q = Queue::new(8, 0);
+    q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+    assert!(claude(Kind::TurnComplete, "a").is_terminal_evidence());
+    assert_eq!(q.observe_terminal(&claude(Kind::TurnComplete, "a")), 1);
+    assert!(q.items().is_empty());
+}
+
+#[test]
+fn claude_stop_without_session_resolves_nothing() {
+    let mut q = Queue::new(8, 0);
+    q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+    let mut stop = claude(Kind::TurnComplete, "a");
+    stop.session_id = None;
+    assert!(!stop.is_terminal_evidence());
+    assert_eq!(q.observe_terminal(&stop), 0);
+    assert_eq!(q.items().len(), 1);
+}
+
+#[test]
+fn claude_permission_request_and_notification_pair_make_one_card() {
+    let mut q = Queue::new(8, 1500);
+    assert!(q.push(claude(Kind::PermissionRequired, "a"), 0, 0));
+    assert!(!q.push(claude(Kind::PermissionRequired, "a"), 200, 0));
+    assert!(q.push(claude(Kind::PermissionRequired, "b"), 200, 0));
+    assert_eq!(q.items().len(), 2);
+    // Codex hooks carry no request id, so identical waits stay distinct.
+    assert!(q.push(codex_wait("a"), 300, 0));
+    assert!(q.push(codex_wait("a"), 400, 0));
+}
+
+#[test]
+fn every_new_event_is_announced_once_even_behind_a_persistent_card() {
+    let mut q = Queue::new(8, 0);
+    q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+    assert_eq!(q.take_unannounced(4).len(), 1);
+    assert!(q.take_unannounced(4).is_empty());
+    // Same rank, so the persistent card keeps the selection.
+    q.push(claude(Kind::TurnComplete, "b"), 1, 5000);
+    assert_eq!(q.selected().unwrap().event.kind, Kind::PermissionRequired);
+    let fresh = q.take_unannounced(4);
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(fresh[0].event.session_id.as_deref(), Some("b"));
+    assert!(q.take_unannounced(4).is_empty());
+}
+
+#[test]
+fn announcements_respect_the_limit_and_skip_usage() {
+    let mut q = Queue::new(8, 0);
+    q.show_usage();
+    for s in ["a", "b", "c"] {
+        q.push(claude(Kind::Error, s), 0, 5000);
+    }
+    assert_eq!(q.take_unannounced(2).len(), 2);
+    assert_eq!(q.take_unannounced(2).len(), 1);
+    assert!(q.take_unannounced(2).is_empty());
+}

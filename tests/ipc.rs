@@ -112,3 +112,47 @@ fn idle_listener_poll_is_not_an_operational_failure() {
     let server = scope.create_pipe().unwrap();
     assert!(server.serve_once(|_| panic!("no client connected")).is_ok());
 }
+#[cfg(windows)]
+#[test]
+fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
+    use aherald::{
+        ipc::{Request, Response, pipe},
+        local::Scope,
+    };
+    use std::time::{Duration, Instant};
+    let scope = Scope::current(&format!("stop-event-{}", std::process::id())).unwrap();
+    let stop = std::sync::Arc::new(pipe::StopEvent::new().unwrap());
+    let thread_stop = stop.clone();
+    let thread_scope = scope.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let listener = std::thread::spawn(move || {
+        // The server handle stays on its owning thread, as in the resident.
+        let server = thread_scope.create_pipe().unwrap();
+        ready_tx.send(()).unwrap();
+        let started = Instant::now();
+        let idle = server
+            .serve_until(&thread_stop, |_| Response::Accepted)
+            .unwrap();
+        let idle_for = started.elapsed();
+        // A request arriving while waiting is served and reported.
+        let fresh = pipe::StopEvent::new().unwrap();
+        let served = server.serve_until(&fresh, |_| Response::Accepted).unwrap();
+        (idle, idle_for, served)
+    });
+    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !listener.is_finished(),
+        "an idle listener must keep waiting"
+    );
+    stop.signal();
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(matches!(
+        pipe::request(&scope, &Request::Status, Duration::from_millis(1000)).unwrap(),
+        Response::Accepted
+    ));
+    let (idle, idle_for, served) = listener.join().unwrap();
+    assert!(!idle, "stop wakes the listener without serving");
+    assert!(idle_for >= Duration::from_millis(250));
+    assert!(served);
+}

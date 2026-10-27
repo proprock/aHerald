@@ -1,6 +1,8 @@
 use aherald::{
+    agent::Agent,
     app_server::{Error, Transport},
-    usage_service::Driver,
+    usage::Snapshot,
+    usage_service::{Driver, UsageSource},
 };
 use serde_json::{Value, json};
 use std::{
@@ -83,7 +85,7 @@ fn polling_manual_refresh_failure_and_recovery_are_bounded() {
 fn unavailable_polling_does_not_spin_or_expose_private_errors() {
     let count = Arc::new(AtomicUsize::new(0));
     let calls = count.clone();
-    let mut driver = Driver::<Mock, _>::new(Duration::from_secs(300), move || {
+    let mut driver = Driver::new(Duration::from_secs(300), move || -> Result<Mock, Error> {
         calls.fetch_add(1, Ordering::SeqCst);
         Err(Error::Unavailable)
     });
@@ -177,4 +179,97 @@ fn periodic_refresh_reuses_one_connection_and_disabled_service_never_connects() 
             .refresh_interval_sec,
         300
     );
+}
+
+#[test]
+fn idle_worker_sleeps_until_its_next_deadline() {
+    let mut failing = Driver::new(Duration::from_secs(300), || {
+        Err::<Mock, _>(Error::Unavailable)
+    });
+    failing.step(Duration::ZERO, false);
+    assert_eq!(failing.wait(Duration::ZERO), Duration::from_secs(10));
+    assert_eq!(failing.wait(Duration::from_secs(4)), Duration::from_secs(6));
+    failing.step(Duration::from_secs(10), false);
+    assert_eq!(
+        failing.wait(Duration::from_secs(10)),
+        Duration::from_secs(20),
+        "backoff doubles"
+    );
+    // Never zero, so an overdue deadline cannot spin.
+    assert!(failing.wait(Duration::from_secs(3600)) >= Duration::from_millis(1));
+}
+
+#[test]
+fn live_connection_is_polled_for_updates_without_a_busy_loop() {
+    let mut driver = Driver::new(Duration::from_secs(300), || {
+        Ok(Mock {
+            incoming: VecDeque::from([
+                Ok(json!({"id":1,"result":{}})),
+                Ok(json!({"id":2,"result":{"rateLimits":{"primary":{"usedPercent":25}}}})),
+            ]),
+        })
+    });
+    driver.step(Duration::ZERO, false);
+    let wait = driver.wait(Duration::ZERO);
+    assert!(wait >= Duration::from_millis(100) && wait <= Duration::from_secs(1));
+}
+
+/// A non-Codex source: no JSON-RPC, it returns a typed result per request.
+struct Scripted {
+    calls: Arc<AtomicUsize>,
+    error: Error,
+}
+impl UsageSource for Scripted {
+    fn read(&mut self, _now: Duration) -> Result<Snapshot, Error> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(self.error.clone())
+    }
+}
+fn scripted(error: Error) -> (Driver<Scripted>, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = Scripted {
+        calls: calls.clone(),
+        error,
+    };
+    (
+        Driver::with_source(Agent::Claude, Duration::from_secs(300), source),
+        calls,
+    )
+}
+#[test]
+fn rate_limited_source_waits_for_the_refresh_interval_even_for_manual_refresh() {
+    let (mut driver, calls) = scripted(Error::RateLimited("Claude usage rate limited"));
+    driver.step(Duration::from_secs(1), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    for (second, manual) in [(11, false), (100, true), (299, false), (300, true)] {
+        driver.step(Duration::from_secs(second), manual);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "early request at {second}s"
+        );
+    }
+    assert_eq!(
+        driver.view.error.as_deref(),
+        Some("Claude usage rate limited")
+    );
+    driver.step(Duration::from_secs(301), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(driver.wait(Duration::from_secs(301)) >= Duration::from_secs(299));
+}
+#[test]
+fn ordinary_source_failures_keep_the_short_backoff() {
+    let (mut driver, calls) = scripted(Error::Service("Claude usage service error"));
+    driver.step(Duration::from_secs(1), false);
+    driver.step(Duration::from_secs(5), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    driver.step(Duration::from_secs(11), false);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+#[test]
+fn claude_view_uses_the_simple_card_selected_by_agent_not_label() {
+    let (mut driver, _) = scripted(Error::Service("x"));
+    driver.step(Duration::from_secs(1), false);
+    let text = driver.view.card_text(Duration::from_secs(1), 0);
+    assert!(text.starts_with("Claude usage"), "{text}");
 }

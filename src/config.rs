@@ -345,11 +345,28 @@ impl Config {
             .ok_or_else(|| "executable has no parent directory; use --config".into())
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
-        let value: toml::Value = toml::from_str(text).map_err(|_| "invalid TOML configuration")?;
-        let mut config: Self = value
-            .clone()
-            .try_into()
-            .map_err(|_| "invalid configuration fields")?;
+        let value: toml::Value = toml::from_str(text).map_err(|error| {
+            let line = error.span().map_or(0, |s| {
+                text[..s.start.min(text.len())].matches('\n').count() + 1
+            });
+            match line {
+                0 => "invalid TOML syntax".to_owned(),
+                line => format!("invalid TOML syntax at line {line}"),
+            }
+        })?;
+        // Only the key path and a fixed reason are reported; values may be private.
+        let mut config: Self = toml::from_str(text).map_err(|error| {
+            let reason = match error.message() {
+                m if m.starts_with("unknown field") => "is not a supported setting",
+                m if m.starts_with("invalid type") => "has the wrong type",
+                m if m.starts_with("missing field") => "is missing",
+                _ => "has an unsupported value",
+            };
+            match error.span().and_then(|s| field_path(text, s.start)) {
+                Some(path) => format!("invalid configuration: {path} {reason}"),
+                None => format!("invalid configuration: a setting {reason}"),
+            }
+        })?;
         config.validate()?;
         config.diagnostic_directory = directory.to_owned();
         for (name, default) in Self::default().events {
@@ -409,41 +426,158 @@ impl Config {
     }
     fn validate(&self) -> Result<(), String> {
         let n = &self.notifications;
-        if !["resident", "transient"].contains(&self.general.mode.as_str())
-            || !["off", "error", "warn", "info", "debug", "trace"]
-                .contains(&self.general.logging.as_str())
-            || self.general.deduplicate_ms > 60_000
-            || !["center", "top_center", "bottom_right", "near_cursor"]
-                .contains(&n.position.as_str())
-            || !(n.monitor == "primary" || n.monitor.parse::<u32>().is_ok())
-            || !n.scale.is_finite()
-            || !(0.25..=4.0).contains(&n.scale)
-            || n.fade_in_ms > 10_000
-            || n.fade_out_ms > 10_000
-            || !["nearest", "bilinear"].contains(&n.interpolation.as_str())
-            || !self.sounds.volume.is_finite()
-            || !(0.0..=1.0).contains(&self.sounds.volume)
-            || !(10..=86_400).contains(&self.codex.usage.refresh_interval_sec)
+        // (valid, setting, requirement); messages never include the offending value.
+        let checks = [
+            (
+                ["resident", "transient"].contains(&self.general.mode.as_str()),
+                "general.mode",
+                "must be \"resident\" or \"transient\"",
+            ),
+            (
+                ["off", "error", "warn", "info", "debug", "trace"]
+                    .contains(&self.general.logging.as_str()),
+                "general.logging",
+                "must be off, error, warn, info, debug or trace",
+            ),
+            (
+                self.general.deduplicate_ms <= 60_000,
+                "general.deduplicate_ms",
+                "must be at most 60000",
+            ),
+            (
+                ["center", "top_center", "bottom_right", "near_cursor"]
+                    .contains(&n.position.as_str()),
+                "notifications.position",
+                "must be center, top_center, bottom_right or near_cursor",
+            ),
+            (
+                n.monitor == "primary" || n.monitor.parse::<u32>().is_ok(),
+                "notifications.monitor",
+                "must be \"primary\" or a monitor number",
+            ),
+            (
+                n.scale.is_finite() && (0.25..=4.0).contains(&n.scale),
+                "notifications.scale",
+                "must be between 0.25 and 4",
+            ),
+            (
+                n.fade_in_ms <= 10_000,
+                "notifications.fade_in_ms",
+                "must be at most 10000",
+            ),
+            (
+                n.fade_out_ms <= 10_000,
+                "notifications.fade_out_ms",
+                "must be at most 10000",
+            ),
+            (
+                ["nearest", "bilinear"].contains(&n.interpolation.as_str()),
+                "notifications.interpolation",
+                "must be \"nearest\" or \"bilinear\"",
+            ),
+            (
+                self.sounds.volume.is_finite() && (0.0..=1.0).contains(&self.sounds.volume),
+                "sounds.volume",
+                "must be between 0 and 1",
+            ),
+            (
+                (10..=86_400).contains(&self.codex.usage.refresh_interval_sec),
+                "codex.usage.refresh_interval_sec",
+                "must be between 10 and 86400",
+            ),
             // The endpoint is undocumented; stay polite (rate-tray also spaces requests >= 300 s).
-            || !(300..=86_400).contains(&self.claude.usage.refresh_interval_sec)
-            || self.events.iter().any(|(name, event)| {
-                !EVENT_NAMES.contains(&name.as_str())
-                    || event.duration_ms > 86_400_000
-                    || (event.visual == EventVisual::Custom && event.animation.is_none())
-            })
-            || std::iter::once(&n.pet_animations)
-                .chain(self.agents.values().map(|a| &a.pet_animations))
-                .any(|mapping| {
-                    mapping
-                        .keys()
-                        .any(|name| !EVENT_NAMES.contains(&name.as_str()))
-                })
-            || self.resident.auto_start
-        {
-            return Err(
-                "unsupported or out-of-range configuration (auto_start must be false)".into(),
-            );
+            (
+                (300..=86_400).contains(&self.claude.usage.refresh_interval_sec),
+                "claude.usage.refresh_interval_sec",
+                "must be between 300 and 86400",
+            ),
+            (
+                !self.resident.auto_start,
+                "resident.auto_start",
+                "must be false (autostart is configured manually)",
+            ),
+        ];
+        if let Some((_, setting, requirement)) = checks.iter().find(|(ok, ..)| !ok) {
+            return Err(format!("invalid configuration: {setting} {requirement}"));
+        }
+        for (name, event) in &self.events {
+            if !EVENT_NAMES.contains(&name.as_str()) {
+                return Err(format!(
+                    "invalid configuration: events.{} is not a supported event",
+                    safe_key(name)
+                ));
+            }
+            if event.duration_ms > 86_400_000 {
+                return Err(format!(
+                    "invalid configuration: events.{name}.duration_ms must be at most 86400000"
+                ));
+            }
+            if event.visual == EventVisual::Custom && event.animation.is_none() {
+                return Err(format!(
+                    "invalid configuration: events.{name}.animation is required when visual is \"custom\""
+                ));
+            }
+        }
+        for (owner, mapping) in std::iter::once(("notifications", &n.pet_animations)).chain(
+            self.agents
+                .iter()
+                .map(|(agent, a)| (agent.as_str(), &a.pet_animations)),
+        ) {
+            if let Some(name) = mapping
+                .keys()
+                .find(|name| !EVENT_NAMES.contains(&name.as_str()))
+            {
+                return Err(format!(
+                    "invalid configuration: {}.pet_animations.{} is not a supported event",
+                    safe_key(owner),
+                    safe_key(name)
+                ));
+            }
         }
         Ok(())
     }
+}
+
+/// A user-written key is echoed only when it is a plain identifier of sane length.
+fn safe_key(key: &str) -> &str {
+    if key.len() <= 40
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        key
+    } else {
+        "<invalid>"
+    }
+}
+
+/// Dotted key path (`table.key`) of the TOML line containing `offset`, if plain.
+fn field_path(text: &str, offset: usize) -> Option<String> {
+    let offset = offset.min(text.len());
+    let start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    let line = text[start..end].trim();
+    let header = |l: &str| {
+        let l = l.trim();
+        l.strip_prefix('[')
+            .and_then(|l| l.strip_suffix(']'))
+            .map(|l| l.trim_matches(['[', ']']).trim().to_owned())
+    };
+    let table = text[..start].lines().rev().find_map(header);
+    let path = match header(line) {
+        Some(table) => table,
+        None => {
+            let key = line.split('=').next()?.trim();
+            match table {
+                Some(table) if !table.is_empty() => format!("{table}.{key}"),
+                _ => key.to_owned(),
+            }
+        }
+    };
+    let plain = !path.is_empty()
+        && path.len() <= 80
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    plain.then_some(path)
 }
