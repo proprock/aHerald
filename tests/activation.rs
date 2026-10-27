@@ -88,7 +88,7 @@ fn claude_desktop_session_opens_its_own_link() {
     // A failed link falls back to the Desktop window, never to a terminal window.
     a.calls.clear();
     a.fail_open = true;
-    click(&claude(Some("cli-1"), Some(9)), true, true, &mut a).unwrap();
+    click(&claude(Some("cli-1"), None), true, true, &mut a).unwrap();
     assert_eq!(a.calls.last().unwrap(), "window");
     assert!(!a.calls.iter().any(|c| c.starts_with("focus")));
 }
@@ -107,9 +107,13 @@ fn claude_desktop_ids_that_are_not_plain_local_ids_never_become_links() {
 fn claude_terminal_session_focuses_its_recorded_window() {
     let mut a = Fake::default();
     click(&claude(Some("cli-2"), Some(4242)), true, true, &mut a).unwrap();
-    assert_eq!(a.calls, ["lookup cli-2", "focus 4242"]);
+    // The recorded window wins without the slow Desktop session scan.
+    assert_eq!(a.calls, ["focus 4242"]);
+    // A window that no longer exists falls back to the Desktop lookup.
+    a.calls.clear();
     a.fail_focus = true;
     assert!(click(&claude(Some("cli-2"), Some(4242)), true, true, &mut a).is_err());
+    assert_eq!(a.calls, ["focus 4242", "lookup cli-2"]);
     // Without a recorded window or a Desktop session nothing is guessed.
     let mut a = Fake::default();
     assert!(click(&claude(Some("cli-3"), None), true, true, &mut a).is_err());

@@ -51,7 +51,13 @@ fn click_codex(event: &Event, agent: &mut impl Agent) -> Result<(), String> {
 }
 /// Desktop sessions have an app link; terminal sessions only have the window their hook ran in.
 /// Without either, nothing is guessed: raising an unrelated Claude window would mislead.
+/// A recorded window goes first: the Desktop lookup scans every session file and a terminal
+/// session never matches, so it cost seconds on a cold disk cache.
 fn click_claude(event: &Event, agent: &mut impl Agent) -> Result<(), String> {
+    let focus = event.window.map(|window| agent.focus_window(window));
+    if matches!(focus, Some(Ok(()))) {
+        return Ok(());
+    }
     let desktop = valid_session(event)
         .and_then(|id| agent.desktop_session(id))
         .filter(|local| claude_desktop::is_local_id(local));
@@ -61,10 +67,7 @@ fn click_claude(event: &Event, agent: &mut impl Agent) -> Result<(), String> {
             Err(_) => agent.activate_window(),
         };
     }
-    match event.window {
-        Some(window) => agent.focus_window(window),
-        None => Err("agent_window_unavailable".into()),
-    }
+    focus.unwrap_or_else(|| Err("agent_window_unavailable".into()))
 }
 
 #[cfg(windows)]
