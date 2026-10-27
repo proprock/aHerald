@@ -64,9 +64,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   single instance). Observed with `--demo`: a 402x150 pt window at level 25, no change of the
   frontmost application. Mouse input (dismiss button, arrows, click-to-dismiss) works: `src/mac/input.rs` tests plus a
   live check with synthetic clicks on `--resident` (arrow 1/3 to 2/3, body click removes one
-  card, one click one action). Remaining: the manual checks on the M1 MacBook (transparency, multiple displays,
-  Spaces, full-screen apps, display change), `ureq` as an optional feature for a
-  `cargo check --target aarch64-apple-darwin` seam, and moving the duplicated IPC handler
+  card, one click one action). `ureq` is now behind the default `https-client` feature, so `cargo check --no-default-features
+  --target aarch64-apple-darwin` needs no C toolchain (checked natively on the M1; not yet from
+  Windows). Remaining: the manual checks on the M1 MacBook (transparency, multiple displays,
+  Spaces, full-screen apps, display change), moving the duplicated IPC handler
   and `event_card_text` into shared code once Windows CI can verify the refactor.
 
 - [ ] **AH-063 — macOS tray.** Depends on AH-062.

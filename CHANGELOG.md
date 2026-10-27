@@ -9,6 +9,13 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- macOS overlay (AH-062, in progress): a non-activating floating card on `NSPanel`, drawn with
+  AppKit text, with fades, countdown, artwork, mouse navigation and `--demo`; tray, audio,
+  click-to-activate and the usage card follow in AH-063–AH-066. Not yet checked on multiple
+  displays, Spaces or full-screen apps.
+- `https-client` Cargo feature (default on) for the Unix HTTPS client.
+
 ## [0.1.0] - 2026-10-27
 
 First release candidate. Windows 10/11 x64 is the supported runtime; the crate also
