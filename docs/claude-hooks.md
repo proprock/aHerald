@@ -44,7 +44,8 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
   `PermissionRequest` + `Notification` pair, seen 6 s apart). A second prompt in the same
   session shows a new card only after `Stop`/`StopFailure` or dismissal of the first.
 - Every new event plays its sound once, even when a persistent card keeps the selection.
-- Session names are Codex-only; Claude cards show "Claude". Click-to-activate is described in
+- Session names are Codex-only; Claude cards show "Claude" (the name is only delivered to a
+  `statusLine` command, tracked in AH-038). Click-to-activate is described in
   `docs/notification-click.md` (Desktop session link or the terminal window; no tab selection).
 - `SessionEnd` never shows a card or plays a sound. In resident mode it resolves the pending
   permission/input cards of that `session_id` (so quitting Claude Code at a prompt leaves no

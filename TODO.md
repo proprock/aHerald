@@ -63,10 +63,20 @@ Completed tasks move to `DONE.md`; follow-ups and deferred items stay here under
   tabs are not selected; decide whether UI Automation tab selection is worth its fragility.
 
 - [ ] **AH-038 — Claude follow-ups (deferred).**
-  Session names for Claude; `SubagentStop`/`SessionEnd`; a
-  statusLine-based quota fallback (`rate_limits` in statusLine JSON, no token needed);
-  honor `Retry-After` and a 15-minute backoff cap for Claude polling; move remaining
-  Codex-specific sites (activation, session labels, terminal evidence) behind `Agent`.
+  Open: session names for Claude and a statusLine-based quota fallback. Both need the
+  Claude `statusLine` command (the only place `session_name` and `rate_limits` —
+  `five_hour`/`seven_day` `used_percentage`, `resets_at` in Unix seconds — are delivered;
+  hooks carry neither). Decision 2026-10-27: not now, because Claude Code allows one
+  `statusLine` command and aHerald would replace the user's. Candidate design, to confirm
+  with the user: `aherald.exe --statusline [--then <command>]` forwards only `session_id`,
+  `session_name` and `rate_limits` to the resident, then pipes stdin to the user's previous
+  command and prints its output; manual setup only. Acceptance: tests for the forwarded
+  fields and the pass-through, name shown on the Claude card, quota card without a token.
+  Done on `feature/AH-038` (2026-10-27): `Retry-After` (seconds form) with a 15-minute cap
+  and the `refresh_interval_sec` floor; `SessionEnd` clears that session's pending cards
+  without a card or sound; `SubagentStop` stays ignored by decision; terminal evidence,
+  per-session waits, session names, console window capture and activation selection now
+  go through `Agent`.
 
 - [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
   Implemented and tested; left open only for the manual system-proxy check (steps in
