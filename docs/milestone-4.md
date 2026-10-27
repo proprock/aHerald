@@ -1,5 +1,35 @@
 # Milestone 4 — Usage and quotas
 
+## Codex discovery correction — 2026-10-25
+
+The ordinary Windows PATH exposed npm's `codex.cmd`, while `codex.exe` was only
+available in the desktop app's inherited environment. The existing live usage
+test reproduced `Unavailable` with the ordinary machine + user PATH.
+
+Discovery now prefers `codex.exe` across absolute PATH directories, then checks
+prefixes containing `codex.cmd` for the npm package's native x64 binary. The npm
+launcher in the installed `@openai/codex` 0.160.0 resolves the platform package
+`@openai/codex-win32-x64`, using its `vendor/x86_64-pc-windows-msvc/bin/codex.exe`,
+with a bundled `@openai/codex/vendor` fallback. Nested and hoisted platform package
+locations are supported. Relative/empty PATH entries and the working directory
+are not searched. No package-manager commands, Node processes, binary copies, or
+global PATH changes are involved; discovery runs again on reconnection.
+
+Six filesystem-based tests cover native precedence/order, npm layouts, spaces,
+incomplete installations, and missing/relative paths. Red: five discovery tests
+failed with no resolver; Green: all six passed after implementation. On Windows
+11 Pro 10.0.22621, the rebuilt `usage_live` test passed with the ordinary Windows
+PATH and npm Codex 0.160.0, receiving one usage bucket. The same test previously
+passed with desktop Codex 0.164.0-alpha.11.1. No protocol behavior changed:
+the existing adapter still uses the documented
+[`account/rateLimits/read`](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt).
+Both live discovery scenarios passed after the fix. Formatting, Clippy with
+warnings denied, all-target tests, and the x64 MSVC release build also passed.
+The live resident was updated with an executable backup and restarted with the
+ordinary Windows PATH; its configuration hash remained unchanged.
+Only the installed npm layout was inspected; future package layouts and package
+managers other than npm are outside this verification.
+
 ## AH-017 — Official stdio connection
 
 Protocol checked on 2026-10-24 against `codex-cli 0.164.0-alpha.11.1`.
