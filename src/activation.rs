@@ -1,5 +1,5 @@
 //! Notification click policy; external operations are isolated from event data.
-use crate::events::{Event, Source};
+use crate::events::Event;
 pub mod claude_desktop;
 
 pub trait Agent {
@@ -23,10 +23,10 @@ pub fn click(
     if !enabled || !body {
         return Ok(());
     }
-    match event.source {
-        Source::CodexHook => click_codex(event, agent),
-        Source::ClaudeHook => click_claude(event, agent),
-        Source::Usage | Source::Demo => Ok(()),
+    match event.source.agent() {
+        Some(crate::agent::Agent::Codex) => click_codex(event, agent),
+        Some(crate::agent::Agent::Claude) => click_claude(event, agent),
+        None => Ok(()),
     }
 }
 fn valid_session(event: &Event) -> Option<&str> {

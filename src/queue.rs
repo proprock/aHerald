@@ -68,11 +68,25 @@ fn same(a: &Event, b: &Event) -> bool {
         // Hooks expose no request ID: identical turn IDs can be distinct waits.
         // Claude hooks carry no turn either, so one session has one pending card
         // (a PermissionRequest/permission_prompt pair is one prompt).
-        && (!pending(a) || a.source != Source::CodexHook || a.request_id.is_some())
+        && (!pending(a) || !waits_by_turn(a) || a.request_id.is_some())
         && a.session_id == b.session_id
         && a.turn_id == b.turn_id
         && a.request_id == b.request_id
         && (a.session_id.is_some() || (a.source == Source::Demo && b.source == Source::Demo))
+}
+/// The agent's waits are one per session instead of one per turn.
+fn per_session(event: &Event) -> bool {
+    event
+        .source
+        .agent()
+        .is_some_and(|agent| agent.waits_are_per_session())
+}
+/// An agent event whose waits are told apart by turn (Codex); demo and usage events are not.
+fn waits_by_turn(event: &Event) -> bool {
+    event
+        .source
+        .agent()
+        .is_some_and(|agent| !agent.waits_are_per_session())
 }
 fn pending(event: &Event) -> bool {
     matches!(event.kind, Kind::PermissionRequired | Kind::InputRequired)
@@ -111,12 +125,12 @@ impl Queue {
         if !event.is_terminal_evidence() {
             return 0;
         }
-        if event.source == Source::ClaudeHook {
+        if per_session(event) {
             // Claude turns in one session are sequential, so the end of a turn
             // resolves every pending card of that session (and no other agent's).
             return self.resolve(|e| {
                 pending(e)
-                    && e.source == Source::ClaudeHook
+                    && e.source == event.source
                     && e.agent_id == event.agent_id
                     && e.session_id == event.session_id
             });
@@ -189,7 +203,7 @@ impl Queue {
         }
         // Claude's PermissionRequest and permission_prompt Notification for one prompt can
         // arrive seconds apart (6 s observed), so an unresolved card absorbs the repeat.
-        let repeats_open_claude_wait = event.source == Source::ClaudeHook
+        let repeats_open_claude_wait = per_session(&event)
             && pending(&event)
             && self.items.iter().any(|e| same(&e.event, &event));
         if repeats_open_claude_wait || self.is_duplicate(&event, now) {

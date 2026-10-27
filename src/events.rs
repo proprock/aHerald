@@ -110,17 +110,10 @@ pub struct Event {
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
-        let turn_ended = match self.source {
-            Source::ClaudeHook if self.ended => true,
-            // Codex ends are correlated by turn.
-            Source::CodexHook => {
-                matches!(self.kind, Kind::TurnComplete | Kind::Interrupted)
-                    && self.turn_id.is_some()
-            }
-            // Claude hooks have no turn id; Stop/StopFailure end the session's turn.
-            Source::ClaudeHook => matches!(self.kind, Kind::TurnComplete | Kind::Error),
-            _ => false,
-        };
+        let turn_ended = self
+            .source
+            .agent()
+            .is_some_and(|agent| agent.ends_turn(self));
         turn_ended && self.session_id.is_some() && self.validate().is_ok()
     }
     pub fn demo(name: &str) -> Result<Self, String> {
