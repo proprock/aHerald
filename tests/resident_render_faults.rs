@@ -131,7 +131,7 @@ fn slow_artwork_delays_the_card_only_until_the_wait_limit() {
         "card did not wait for artwork: {waited:?}"
     );
     assert!(
-        waited < Duration::from_millis(2000),
+        waited < Duration::from_millis(700),
         "card waited for the stalled worker: {waited:?}"
     );
     assert!(

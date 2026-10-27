@@ -946,7 +946,7 @@ pub(super) fn run_preview(
                     }
                     // Debug-build fault injection: artwork preparation stalls.
                     if fault(&assets.diagnostic_directory, "slowart") {
-                        std::thread::sleep(std::time::Duration::from_millis(2500));
+                        std::thread::sleep(std::time::Duration::from_millis(800));
                     }
                     let art =
                         cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
