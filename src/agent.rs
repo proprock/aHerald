@@ -70,8 +70,15 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         notification_type: Option<String>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
+    let mut ended = false;
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,
+        // The kind is a placeholder: an ended event is evidence only and is never shown.
+        // A subagent finishing is not the user's turn ending, so `SubagentStop` stays ignored.
+        "SessionEnd" if hook.session_id.is_some() => {
+            ended = true;
+            Kind::TurnComplete
+        }
         "StopFailure" => Kind::Error,
         "PermissionRequest" => Kind::PermissionRequired,
         "Notification" => match hook.notification_type.as_deref() {
@@ -89,6 +96,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         request_id: None,
         agent_id: None,
         window: None,
+        ended,
     };
     event.validate()?;
     Ok(Some(event))

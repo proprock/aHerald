@@ -1,6 +1,6 @@
 use aherald::{
     events::{Event, Kind, Source},
-    queue::Queue,
+    queue::{Outcome, Queue},
 };
 fn event(kind: Kind, session: &str) -> Event {
     let mut e = Event::demo(kind.name()).unwrap();
@@ -160,6 +160,7 @@ fn claude(kind: Kind, session: &str) -> Event {
         request_id: None,
         agent_id: None,
         window: None,
+        ended: false,
     }
 }
 fn codex_wait(session: &str) -> Event {
@@ -214,6 +215,58 @@ fn claude_stop_resolves_hidden_persistent_card_even_when_waits_are_disabled() {
     assert!(claude(Kind::TurnComplete, "a").is_terminal_evidence());
     assert_eq!(q.observe_terminal(&claude(Kind::TurnComplete, "a")), 1);
     assert!(q.items().is_empty());
+}
+
+fn session_end(session: &str) -> Event {
+    Event {
+        ended: true,
+        ..claude(Kind::TurnComplete, session)
+    }
+}
+
+#[test]
+fn claude_session_end_clears_every_pending_card_of_that_session_only() {
+    let mut q = Queue::new(8, 0);
+    q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+    q.push(claude(Kind::InputRequired, "a"), 0, 0);
+    q.push(claude(Kind::PermissionRequired, "b"), 0, 0);
+    q.push(codex_wait("a"), 0, 0);
+    assert_eq!(q.push(session_end("a"), 1, 5000), Outcome::Resolved);
+    let left: Vec<_> = q
+        .items()
+        .iter()
+        .map(|e| (e.event.source.clone(), e.event.session_id.clone().unwrap()))
+        .collect();
+    assert_eq!(
+        left,
+        [
+            (Source::ClaudeHook, "b".to_string()),
+            (Source::CodexHook, "a".to_string())
+        ]
+    );
+}
+
+#[test]
+fn claude_session_end_is_never_shown_or_announced() {
+    let mut q = Queue::new(8, 0);
+    assert!(q.push(session_end("a"), 0, 5000).is_accepted());
+    assert!(q.items().is_empty());
+    assert!(q.take_unannounced(4).is_empty());
+    // Evidence alone (a disabled kind in the resident) still clears the waits.
+    q.push(claude(Kind::PermissionRequired, "a"), 1, 0);
+    assert_eq!(q.observe_terminal(&session_end("a")), 1);
+    assert!(q.items().is_empty());
+}
+
+#[test]
+fn a_session_may_ask_again_after_it_ended() {
+    let mut q = Queue::new(8, 0);
+    q.push(claude(Kind::PermissionRequired, "a"), 0, 0);
+    q.push(session_end("a"), 1, 0);
+    assert!(
+        q.push(claude(Kind::PermissionRequired, "a"), 2, 0)
+            .is_queued()
+    );
 }
 
 #[test]

@@ -484,3 +484,62 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         std::thread::yield_now();
     }
 }
+
+struct EndCleanup(Scope, PathBuf);
+impl Drop for EndCleanup {
+    fn drop(&mut self) {
+        let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none() {
+            std::thread::yield_now();
+        }
+        let _ = std::fs::remove_dir_all(&self.1);
+    }
+}
+
+fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Event {
+    aherald::events::Event {
+        kind,
+        source: aherald::events::Source::ClaudeHook,
+        session_id: Some("s".into()),
+        turn_id: None,
+        request_id: None,
+        agent_id: None,
+        window: None,
+        ended,
+    }
+}
+
+#[test]
+fn session_end_clears_a_running_residents_wait_and_never_starts_one() {
+    use aherald::events::Kind;
+    let scope = Scope::current(&format!("session-end-{}", std::process::id())).unwrap();
+    let root = std::env::temp_dir().join(&scope.namespace);
+    std::fs::create_dir_all(&root).unwrap();
+    let config = root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[notifications]\nenabled=false\n[sounds]\nenabled=false",
+    )
+    .unwrap();
+    let _cleanup = EndCleanup(scope.clone(), root);
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
+    let end = claude_event(Kind::TurnComplete, true);
+    // Nothing is running: there is nothing to clear and no resident is launched for it.
+    resident::forward_if_running(&scope, &end).unwrap();
+    assert!(pipe::request(&scope, &Request::Status, Duration::from_millis(200)).is_err());
+    resident::forward(
+        &exe,
+        &config,
+        &scope,
+        &claude_event(Kind::PermissionRequired, false),
+    )
+    .unwrap();
+    let queued = || match pipe::request(&scope, &Request::Status, Duration::from_millis(300)) {
+        Ok(Response::Status { queued, .. }) => queued,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(queued(), 1);
+    resident::forward_if_running(&scope, &end).unwrap();
+    assert_eq!(queued(), 0);
+}

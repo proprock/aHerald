@@ -23,7 +23,7 @@ impl Entry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Queued,
-    /// Not queued, but it resolved waiting cards of a finished turn.
+    /// Not queued: it resolved waiting cards of a finished turn, or it ended a session.
     Resolved,
     /// Repeats an event already shown or shown recently.
     Duplicate,
@@ -172,6 +172,10 @@ impl Queue {
             return Outcome::Invalid;
         }
         let resolved = self.observe_terminal(&event);
+        if event.ended {
+            // A session end only clears waits; it is never a card or a sound.
+            return Outcome::Resolved;
+        }
         // Not queued, but it did clear waiting cards: that is still progress.
         let refused = |reason| {
             if resolved > 0 {
@@ -246,6 +250,7 @@ impl Queue {
             request_id: None,
             agent_id: None,
             window: None,
+            ended: false,
         };
         self.items.push(Entry {
             id: self.sequence,

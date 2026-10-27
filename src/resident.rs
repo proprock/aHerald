@@ -72,6 +72,21 @@ pub fn forward(exe: &Path, config: &Path, scope: &Scope, event: &Event) -> Resul
     }
 }
 
+/// Sends `event` to a resident that is already running; with none, there is nothing to
+/// tell and none is started (for example on a session end, where only waits are cleared).
+pub fn forward_if_running(scope: &Scope, event: &Event) -> Result<(), String> {
+    match pipe::request(
+        scope,
+        &Request::Event {
+            event: event.clone(),
+        },
+        Duration::from_millis(150),
+    ) {
+        Ok(Response::Accepted) | Err(_) => Ok(()),
+        Ok(_) => Err("resident event queue rejected notification".into()),
+    }
+}
+
 pub struct Shared {
     pub queue: crate::queue::Queue,
     pub paused: bool,

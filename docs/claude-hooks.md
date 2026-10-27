@@ -22,7 +22,8 @@ touching settings with `[claude] hooks_enabled = false` in `config.toml`.
 | `PermissionRequest` | always | `permission_required` |
 | `Notification` | `notification_type = permission_prompt` | `permission_required` |
 | `Notification` | `idle_prompt`, `elicitation_dialog`, `agent_needs_input` | `input_required` |
-| other hooks / notification types | | ignored |
+| `SessionEnd` | any `reason` (`clear`, `logout`, `prompt_input_exit`, ...) | none: clears that session's pending cards |
+| `SubagentStop` and other hooks / notification types | | ignored |
 
 Only `hook_event_name`, `session_id` and `notification_type` are read. Prompts, `message`,
 `tool_input` and `last_assistant_message` are never stored or logged.
@@ -45,7 +46,14 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 - Every new event plays its sound once, even when a persistent card keeps the selection.
 - Session names are Codex-only; Claude cards show "Claude". Click-to-activate is described in
   `docs/notification-click.md` (Desktop session link or the terminal window; no tab selection).
-- Subagent events (`SubagentStop`) and `SessionEnd` are not covered yet.
+- `SessionEnd` never shows a card or plays a sound. In resident mode it resolves the pending
+  permission/input cards of that `session_id` (so quitting Claude Code at a prompt leaves no
+  stale card), even when those events are disabled, and it never starts a resident that is
+  not already running. Transient mode ignores it. Payload fields other than `session_id`
+  (including `reason`) are not read. Add the `SessionEnd` entry from the example; Claude Code
+  allows its hooks 1.5 s unless the entry sets a longer `timeout`, as the example does.
+- `SubagentStop` is deliberately ignored: a subagent finishing does not end the user's turn,
+  and the main `Stop` follows on its own.
 
 ## Quota (opt-in)
 
