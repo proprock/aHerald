@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (for example, v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  # Only Windows x64 runs the application today, so it is the only packaged target.
+  package:
+    name: Package Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify the tag matches the crate version
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          if ("$env:RELEASE_TAG" -ne "v$version") {
+            throw "Tag $env:RELEASE_TAG does not match Cargo.toml version $version"
+          }
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Build release executable
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Check the executable is portable
+        shell: pwsh
+        run: ./check-release.ps1
+
+      - name: Assemble the portable archive
+        shell: pwsh
+        run: |
+          $name = "aherald-$env:RELEASE_TAG-windows-x64"
+          $root = Join-Path $PWD "dist/$name"
+          New-Item -ItemType Directory -Path $root | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/aherald.exe $root
+          Copy-Item aHerald.example.toml, LICENSE, README.md $root
+          Copy-Item assets, examples, docs -Destination $root -Recurse
+          Compress-Archive -Path $root -DestinationPath "dist/$name.zip"
+          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Set-Content -Encoding ascii "dist/$name.zip.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+
+  draft_release:
+    name: Draft GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: release-artifacts
+      - name: Create or verify the draft and attach the archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            test "$draft" = true || { echo "GitHub Release $RELEASE_TAG already exists and is not a draft." >&2; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --draft --title "$RELEASE_TAG" --verify-tag --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release-artifacts/* --clobber
+
+  publish:
+    name: Publish GitHub Release
+    needs: draft_release
+    runs-on: ubuntu-latest
+    # Add required reviewers to the `release` environment to approve each publication.
+    environment: release
+    steps:
+      - name: Publish the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$RELEASE_TAG" --draft=false

@@ -58,7 +58,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Status 2026-10-27: done and checked locally on Windows (fmt, clippy, tests, release
   build) and with `clippy --all-targets -D warnings` for `x86_64-unknown-linux-gnu` and
   `aarch64-apple-darwin`. Stubs live in `src/unsupported.rs`; `src/paths.rs` holds the
-  path helper; `.github/workflows/ci.yml` and `.gitattributes` are added. Remaining: a
+  path helper; `.github/workflows/ci.yml` (PR/master: fmt, clippy, test on three OSes) and
+  `.github/workflows/release.yml` (tag `v*`: Windows x64 zip with SHA-256, draft, then
+  publish behind the `release` environment; a first cut that AH-022 still has to
+  complete) and `.gitattributes` are added. Remaining: a
   green CI run on all three OSes (the branch was not pushed; no Linux/macOS test has
   executed yet, only cross-compiled checks) and the Windows-only `\\` and
   `LOCALAPPDATA` literals inside `src/activation/native.rs` and `src/shell.rs`, which
