@@ -139,10 +139,10 @@ fn session_labels_resolve_through_the_usage_connection() {
     let mut event = Event::demo("turn_complete").unwrap();
     event.source = Source::CodexHook;
     event.session_id = Some("named".into());
-    // The first label is the immediate fallback; the name arrives from the shared child.
-    assert!(labels.label(&event).starts_with("Codex: session "));
+    // The first label has no name yet; it arrives from the shared child.
+    assert_eq!(labels.label(&event).name, None);
     let deadline = Instant::now() + Duration::from_secs(3);
-    while labels.label(&event) != "Codex: My task" {
+    while labels.label(&event).name.as_deref() != Some("My task") {
         assert!(Instant::now() < deadline, "name never resolved");
         std::thread::sleep(Duration::from_millis(5));
     }

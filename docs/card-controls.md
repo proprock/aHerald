@@ -5,8 +5,17 @@ never responds to an agent request. With the default `click_to_dismiss = true`,
 any click except a navigation arrow dismisses the selected event. Dismiss is hidden.
 With body dismissal disabled, an explicit Dismiss button remains available.
 
-A single event has no count or navigation. Multiple events show `[index/count]`
-beside the source and `<` / `>` at the bottom right. Navigation keeps events queued.
+## Layout (AH-085)
+
+A card has a fixed height, so it never jumps when the queue changes. Top to bottom:
+`<harness>, <folder>` (the folder is the last component of the hook's working
+directory), the session name (the row stays when empty), then the event kind, larger
+and set apart. The stripe on the left is 8 px wide and carries the event colour; the
+countdown stays at the top right. The bottom row holds, on the left, the Dismiss
+button (only with `click_to_dismiss = false`) followed by the event's age (`just now`,
+`2 min ago`, `3 h ago`; resident only), and, on the right, `[<] 2/5 [>]`. The arrows
+show only when several cards are queued and wrap around. Buttons are framed; see
+`border_color` below. Navigation keeps events queued.
 The resident and transient renderer share button geometry and hit testing.
 
 Finite events display ceiling remaining seconds at the top right, without `0s`.
@@ -27,6 +36,10 @@ interruption `#B482F0`. This does not recolor external sprites.
 Set `[notifications] background_color = '#RRGGBB'` for the shared card background
 (default `#1C232D`). An optional `background_color` in `[events.NAME]` or `[codex.usage]`
 overrides it for that card type; omitted values inherit the global setting.
+Set `border_color = '#RRGGBB'` under `[notifications]` (optionally overridden in
+`[events.NAME]` and `[codex.usage]`) to outline the card and frame its buttons. It is
+absent by default: no card outline, and the buttons use a lighter shade of the
+background.
 The existing card opacity, transparent rounded corners, accent stripe and sprite
 colors are preserved. This applies in resident, transient and demo modes, including
 background title updates. Text remains its existing light color; choose backgrounds

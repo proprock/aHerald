@@ -37,29 +37,32 @@ fn labels_are_immediate_isolated_cached_and_refreshed() {
     });
     let first = event("019a0000-0000-0000-0000-000012345678");
     let second = event("019a0000-0000-0000-0000-000087654321");
-    assert_eq!(
-        labels.label_at(&first, Duration::ZERO),
-        "Codex: session 12345678"
-    );
-    assert_eq!(
-        labels.label_at(&second, Duration::ZERO),
-        "Codex: session 87654321"
-    );
+    // No name yet: the heading is the harness alone, never a session ID.
+    for e in [&first, &second] {
+        let heading = labels.label_at(e, Duration::ZERO);
+        assert_eq!((heading.title.as_str(), heading.name), ("Codex", None));
+    }
     release.send(()).unwrap();
     release.send(()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(2);
-    while labels.label_at(&second, Duration::ZERO) != "Codex: Second chat" {
+    while labels.label_at(&second, Duration::ZERO).name.as_deref() != Some("Second chat") {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
     assert_eq!(
-        labels.label_at(&first, Duration::from_secs(59)),
-        "Codex: First chat"
+        labels
+            .label_at(&first, Duration::from_secs(59))
+            .name
+            .as_deref(),
+        Some("First chat")
     );
     assert_eq!(calls.load(Ordering::Relaxed), 2);
     assert_eq!(
-        labels.label_at(&first, Duration::from_secs(61)),
-        "Codex: First chat"
+        labels
+            .label_at(&first, Duration::from_secs(61))
+            .name
+            .as_deref(),
+        Some("First chat")
     );
     release.send(()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -74,16 +77,32 @@ fn labels_are_immediate_isolated_cached_and_refreshed() {
 #[test]
 fn unavailable_titles_and_demo_keep_useful_fallbacks() {
     let mut labels = Service::new(|_| None);
-    assert_eq!(
-        labels.label_at(&event("short-id"), Duration::ZERO),
-        "Codex: session short-id"
-    );
+    let mut with_folder = event("short-id");
+    with_folder.folder = Some("aHerald".into());
+    let heading = labels.label_at(&with_folder, Duration::ZERO);
+    assert_eq!(heading.title, "Codex, aHerald");
+    assert_eq!(heading.name, None);
     let mut anonymous = event("unused");
     anonymous.session_id = None;
-    assert_eq!(labels.label_at(&anonymous, Duration::ZERO), "Codex");
+    assert_eq!(labels.label_at(&anonymous, Duration::ZERO).title, "Codex");
     assert_eq!(
-        labels.label_at(&Event::demo("error").unwrap(), Duration::ZERO),
+        labels
+            .label_at(&Event::demo("error").unwrap(), Duration::ZERO)
+            .title,
         "aHerald demo"
+    );
+}
+
+#[test]
+fn claude_cards_show_the_folder_and_never_look_a_name_up() {
+    let mut labels = Service::new(|_| Some("must not be asked".into()));
+    let mut claude = event("abc");
+    claude.source = Source::ClaudeHook;
+    claude.folder = Some("api".into());
+    let heading = labels.label_at(&claude, Duration::ZERO);
+    assert_eq!(
+        (heading.title.as_str(), heading.name),
+        ("Claude, api", None)
     );
 }
 

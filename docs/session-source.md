@@ -1,12 +1,15 @@
 # Session source labels
 
 Codex hook events retain their existing `session_id`; no hook or IPC format change
-is needed. Both resident and transient notifications show `Codex: <thread.name>`.
-Until a lookup completes, for unnamed/inaccessible threads, and with unavailable
-Codex, they show `Codex: session <last 8 ID characters>`. The suffix avoids the
-shared time prefix of UUIDv7 IDs. With no ID, the source remains `Codex`; demo
-cards retain `aHerald demo`. Short suffixes are convenient labels, not globally
-unique identifiers. Long names are visually ellipsized within the existing card.
+is needed (AH-085 added the optional `folder`: the last component of the hook's `cwd`).
+A card's first row is `<harness>, <folder>` (`Codex, aHerald`; only the harness when
+there is no usable folder, and `aHerald demo` for demo cards). The second row is the
+Codex `<thread.name>`; it stays empty, and keeps its height, until a lookup completes,
+for unnamed/inaccessible threads, and with unavailable Codex. A session ID is never
+shown. Claude cards have no name row content (AH-059). Long text is ellipsized within
+the card. The folder is display-only: only the last path component is kept, control and
+bidirectional-override characters are removed, it is cut at 40 characters, and it is
+never logged.
 
 In the resident with Codex usage polling enabled, names are read over the usage
 worker's own app-server connection (`usage_service::NameLookup`): requests are

@@ -97,15 +97,15 @@ fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_a
             GetWindowRect(search.hwnd, &mut rect).unwrap();
             let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
             if is_image {
-                // A 64x64 decoration joins the 320x110 card with an 18px gap.
+                // A 64x64 decoration joins the 320x150 card with an 18px gap (ratio 2.68).
                 assert!(
-                    width > height * 3,
+                    width * 2 > height * 5,
                     "text space must remain beside the frame"
                 );
             } else {
                 assert!(width > height * 2);
                 assert!(
-                    width <= height * 3,
+                    width * 2 <= height * 5,
                     "artwork must not load from the working directory"
                 );
             }

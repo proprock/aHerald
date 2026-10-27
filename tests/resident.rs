@@ -331,13 +331,14 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     let bounds = loop {
         let mut bounds = RECT::default();
         unsafe { GetWindowRect(window, &mut bounds).unwrap() };
-        if bounds.right - bounds.left > (bounds.bottom - bounds.top) * 3 {
+        if (bounds.right - bounds.left) * 2 > (bounds.bottom - bounds.top) * 5 {
             break bounds;
         }
         assert!(Instant::now() < deadline, "resident artwork did not load");
         std::thread::yield_now();
     };
-    let x = bounds.right - bounds.left - 39;
+    // Centre of the framed "next" arrow in the bottom row (scale 1).
+    let x = bounds.right - bounds.left - 32;
     let y = bounds.bottom - bounds.top - 22;
     unsafe {
         assert_ne!(GetForegroundWindow(), window);
@@ -512,6 +513,7 @@ fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Ev
         agent_id: None,
         window: None,
         ended,
+        folder: None,
     }
 }
 

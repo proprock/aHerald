@@ -63,12 +63,13 @@ Explicit `--transient` or `--resident` overrides configured mode. Input-wait
 monitoring is unsupported for unrelated Codex sessions; usage polling awaits
 Milestone 4. Enabling those settings reports limits without stopping notifications.
 
-Codex hook notifications identify their originating chat as `Codex: <thread name>`.
+Cards show `<harness>, <folder>` on the first row (the folder is the last component of
+the hook's working directory) and the Codex thread name on the second row.
 Names are read in the background through the official metadata-only `thread/read`
 API; hooks and the window do not wait for that request. While loading, or when no
-stored name is available, the source is `Codex: session <last 8 ID characters>`.
-The automatic sidebar caption is not always a stored thread name. No session ID
-means the source stays `Codex`. Titles refresh after 60 seconds while displayed;
+stored name is available, the name row stays empty; a session ID is never shown.
+The automatic sidebar caption is not always a stored thread name.
+Titles refresh after 60 seconds while displayed;
 the notification timer and animation continue unchanged. Long names are ellipsized.
 See [session source labels](docs/session-source.md) for protocol verification and limits.
 
@@ -127,7 +128,9 @@ show remaining whole seconds at the top right; persistent waits have no countdow
 Set `[events.NAME] color = "#RRGGBB"` to change an event's left accent stripe.
 Set `[notifications] background_color = "#RRGGBB"` for all card backgrounds
 (default `#1C232D`). Optional `[events.NAME] background_color` and `[codex.usage]
-background_color` override it for individual card types.
+background_color` override it for individual card types. `border_color` (same three
+places, default absent) outlines the card and frames its buttons; the stripe colour is
+`color` in each `[events.NAME]`.
 See [pet state overrides](docs/pets.md#per-event-state-overrides) for animation settings.
 Persistent waits can be switched away from. The queue holds 64 entries, ordered by priority and then arrival.
 Higher-priority overflow evicts the oldest lowest-priority entry; other overflow

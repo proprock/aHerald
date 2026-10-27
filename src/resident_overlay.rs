@@ -3,7 +3,7 @@ use crate::reentry::{Deferred, Gate};
 use crate::{
     animation::PreparedAnimation,
     config::Config,
-    notification::overlay::{CardText, Composition, Surface},
+    notification::overlay::{CardText, Composition, Surface, event_card_text},
     resident::Shared,
 };
 use std::{
@@ -87,7 +87,8 @@ struct Ui {
     usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
     source_labels: crate::session_source::Service,
-    source_heading: String,
+    /// Heading, queue position and age text the composed event card currently shows.
+    shown_card: (crate::card::Heading, usize, usize, String),
     presenter: crate::presenter::Presenter,
     pacer: crate::perf::FramePacer,
 }
@@ -380,44 +381,42 @@ impl Ui {
             // Keep the previous picture (if any); the 16 ms timer polls for the artwork.
             return Ok(());
         }
-        let source = self.source_labels.label(&entry.event);
+        let heading = self.source_labels.label(&entry.event);
+        let age = crate::card::age_text(self.now().saturating_sub(entry.arrived_ms));
         let controls = crate::card::Card::new(
-            &source,
+            heading,
             index,
             count,
             self.config.notifications.click_to_dismiss,
         );
-        // Buttons (and so the body layout) exist only when several cards are queued; any
-        // other count or index change alters just the heading text.
-        let layout_changed = (self.layout_count > 1) != (count > 1);
-        let heading_changed = self.source_heading != controls.heading;
-        if !(self.compose_due || layout_changed || self.composition.is_none())
-            && heading_changed
+        // The card keeps one size whatever the queue holds, so a change of heading, queue
+        // position or age redraws only the text.
+        let shown = (controls.heading.clone(), index, count, age);
+        let text_changed = self.shown_card != shown;
+        if !(self.compose_due || self.composition.is_none())
+            && text_changed
             && let Some(composition) = self.composition.as_mut()
             && composition
-                .update_heading(
-                    &controls.heading,
-                    self.scale,
-                    self.config.event_background_color(entry.event.kind),
-                )
+                .update_card(|w, h, left| {
+                    Surface::card(
+                        w,
+                        h,
+                        self.scale,
+                        left,
+                        event_card_text(&self.config, &entry.event, &controls, Some(&shown.3)),
+                    )
+                })
                 .is_ok()
         {
-            self.source_heading = controls.heading.clone();
+            self.shown_card = shown;
             self.layout_count = count;
             self.presenter.invalidate();
-        } else if self.compose_due
-            || self.composition.is_none()
-            || self.layout_count != count
-            || heading_changed
-        {
+        } else if self.compose_due || self.composition.is_none() || text_changed {
             self.compose_due = false;
-            self.source_heading = controls.heading.clone();
             self.layout_count = count;
             self.relayout();
-            let source = &controls.heading;
             let scale = self.scale;
             let config = &self.config;
-            let kind = entry.event.kind;
             let composed = Composition::compose(scale, self.art.clone(), |w, h, left| {
                 // Debug-build fault injection: artwork-sized cards fail to build.
                 if fault(&config.diagnostic_directory, "compose") && left != (22.0 * scale) as i32 {
@@ -428,16 +427,10 @@ impl Ui {
                     h,
                     scale,
                     left,
-                    CardText {
-                        source,
-                        label: kind.label(),
-                        navigation: controls.navigation,
-                        dismiss_button: controls.dismiss_button,
-                        color: config.event_color(kind),
-                        background_color: config.event_background_color(kind),
-                    },
+                    event_card_text(config, &entry.event, &controls, Some(&shown.3)),
                 )
             })?;
+            self.shown_card = shown;
             (self.width, self.height) = composed.size();
             self.text_left = composed.text_left;
             if composed.degraded {
@@ -446,10 +439,20 @@ impl Ui {
             self.durations = composed.durations.clone();
             self.looping = composed.looping;
             self.composition = Some(composed);
-            let title: Vec<u16> = format!("{} - {}", source, entry.event.kind.label(),)
-                .encode_utf16()
-                .chain(Some(0))
-                .collect();
+            // The counter is drawn on the card; the title repeats it for assistive tools.
+            let position = if controls.count > 1 {
+                format!(" [{}/{}]", controls.index + 1, controls.count)
+            } else {
+                String::new()
+            };
+            let title: Vec<u16> = format!(
+                "{} - {}{position}",
+                controls.heading.window_text(),
+                entry.event.kind.label()
+            )
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
             // The title is informational; a failure must not stop the card.
             unsafe {
                 let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
@@ -506,7 +509,12 @@ impl Ui {
             .unwrap_or((&self.usage_text, ""));
         let pages = crate::usage_service::card_pages(body);
         self.usage_page = self.usage_page.min(pages.len() - 1);
-        let controls = crate::card::Card::new(heading, index, count, true);
+        let controls = crate::card::Card::new(
+            crate::card::Heading::from_summary(heading),
+            index,
+            count,
+            true,
+        );
         if self.layout_count != count {
             self.layout_count = count;
             self.invalidate_usage();
@@ -522,19 +530,23 @@ impl Ui {
                 self.width - (40.0 * self.scale) as i32,
                 self.scale,
                 &pages[self.usage_page],
-            )? + (94.0 * self.scale) as i32;
+            )? + (114.0 * self.scale) as i32;
             self.usage_surface = Some(Surface::card(
                 self.width,
                 self.height,
                 self.scale,
                 (22.0 * self.scale) as i32,
                 CardText {
-                    source: &controls.heading,
+                    heading: &controls.heading,
                     label: &pages[self.usage_page],
-                    navigation: controls.navigation,
+                    body: true,
+                    index,
+                    count,
                     dismiss_button: false,
+                    age: None,
                     color: crate::config::Color([80, 165, 250]),
                     background_color: self.config.usage_background_color(),
+                    border: self.config.usage_border_color(),
                 },
             )?);
         }
@@ -581,12 +593,13 @@ impl Ui {
         } else {
             let x = (lp.0 as u16) as i16 as i32 * self.width / self.display_size.0.max(1);
             let y = ((lp.0 >> 16) as u16) as i16 as i32 * self.height / self.display_size.1.max(1);
-            let controls = crate::card::Card::new(
+            let mut controls = crate::card::Card::new(
                 "",
                 state.queue.selected_index(),
                 state.queue.items().len(),
                 self.usage_window || self.config.notifications.click_to_dismiss,
             );
+            controls.text_left = Some(self.text_left);
             if let Some(entry) = state.queue.selected() {
                 self.activation.submit(
                     &entry.event,
@@ -1028,7 +1041,7 @@ pub(super) fn run_preview(
             usage_failing: [false; 2],
             demo,
             source_labels,
-            source_heading: String::new(),
+            shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
             pacer: crate::perf::FramePacer::default(),
         }),

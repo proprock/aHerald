@@ -9,6 +9,8 @@ pub struct Entry {
     pub visible_ms: u64,
     /// Set once the entry's sound was handed out, selected or not.
     pub announced: bool,
+    /// Queue clock value when the entry was admitted, for the card's age text.
+    pub arrived_ms: u64,
 }
 impl Entry {
     pub fn is_usage(&self) -> bool {
@@ -240,6 +242,7 @@ impl Queue {
             duration,
             visible_ms: 0,
             announced: false,
+            arrived_ms: now,
         });
         self.items.sort_by_key(|e| (rank(&e.event), e.id));
         let selected = self.selected();
@@ -265,6 +268,7 @@ impl Queue {
             agent_id: None,
             window: None,
             ended: false,
+            folder: None,
         };
         self.items.push(Entry {
             id: self.sequence,
@@ -272,6 +276,7 @@ impl Queue {
             duration: 0,
             visible_ms: 0,
             announced: true,
+            arrived_ms: 0,
         });
         self.selected = Some(self.sequence);
     }

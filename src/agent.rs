@@ -93,6 +93,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         hook_event_name: String,
         session_id: Option<String>,
         notification_type: Option<String>,
+        cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
     let mut ended = false;
@@ -124,6 +125,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         agent_id: None,
         window: None,
         ended,
+        folder: crate::events::hook_folder(hook.cwd),
     };
     event.validate()?;
     Ok(Some(event))

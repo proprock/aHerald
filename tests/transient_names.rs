@@ -63,7 +63,7 @@ fn a_transient_card_starts_no_codex_child_unless_names_are_enabled() {
     let event = codex_event();
     let until = Instant::now() + Duration::from_millis(300);
     while Instant::now() < until {
-        assert!(service.label(&event).starts_with("Codex: session "));
+        assert_eq!(service.label(&event).name, None);
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(starts.load(Ordering::SeqCst), 0, "a child was started");
@@ -74,7 +74,7 @@ fn an_enabled_transient_card_resolves_the_name_with_one_child() {
     let (mut service, starts) = labels(true);
     let event = codex_event();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while service.label(&event) != "Codex: My task" {
+    while service.label(&event).name.as_deref() != Some("My task") {
         assert!(Instant::now() < deadline, "name never resolved");
         std::thread::sleep(Duration::from_millis(5));
     }

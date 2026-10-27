@@ -32,6 +32,9 @@ graph = "auto"
 # Card background in #RRGGBB; default #1C232D. Existing card opacity is preserved.
 # Events and usage may override this color; omitted overrides inherit it.
 background_color = "#1C232D"
+# Outline of the card and frame of its buttons in #RRGGBB; default absent (no card outline,
+# buttons use a lighter shade of the background). Events and usage may override it.
+# border_color = "#3A4656"
 # Main artwork source: "auto" (default: pet if configured, otherwise builtin),
 # "builtin" (standard aHerald animation) or "pet" (configured agent/shared pet).
 # Per-event visual overrides take priority. Loading failure tries builtin, then text.
@@ -93,7 +96,7 @@ suppress_repeats = true
 # Custom artwork/sound paths are absent by default; builtin artwork loads automatically.
 # Color accepts exactly "#RRGGBB". Values below match automatic event colors;
 # omitting color also uses the automatic color. Color changes only the left stripe.
-# Optional background_color = "#RRGGBB" overrides the global card background.
+# Optional background_color and border_color = "#RRGGBB" override the global card ones.
 # Duration counts selected visible time in resident mode; pause freezes that clock.
 
 [events.turn_complete]
@@ -148,6 +151,8 @@ color = "#50A5FA"
 [events.error]
 # Optional card background override; omitted means inherit notifications.background_color.
 # background_color = "#402020"
+# Optional card border override; omitted means inherit notifications.border_color.
+# border_color = "#802020"
 # Artwork: "inherit" (default), "builtin", "pet" or "custom" (requires animation).
 visual = "inherit"
 # Enable error notifications; default true.
@@ -209,8 +214,8 @@ hooks_enabled = true
 # of unrelated Codex CLI/app sessions; it does not enable input-wait detection.
 input_monitoring = false
 # Transient mode (no resident) shows one card per process. true looks up the Codex session
-# name, which starts a `codex app-server` child for every card (about 140 ms); false keeps
-# the session-ID label. The resident always looks names up over a shared connection.
+# name, which starts a `codex app-server` child for every card (about 140 ms); false leaves
+# the name row empty. The resident always looks names up over a shared connection.
 transient_names = false
 
 [claude]
@@ -230,6 +235,8 @@ refresh_interval_sec = 300
 [codex.usage]
 # Optional usage card background; omitted means inherit notifications.background_color.
 # background_color = "#202D40"
+# Optional usage card border; omitted means inherit notifications.border_color.
+# border_color = "#304860"
 # Read-only usage polling in resident/demo mode; default false. Requires codex.exe
 # or the npm codex.cmd installation on PATH and an existing sign-in.
 # Usage failures leave event notifications working.

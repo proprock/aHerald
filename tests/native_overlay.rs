@@ -335,9 +335,11 @@ fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
 fn simultaneous_transient_cards_do_not_overlap() {
     let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-stack-{}.toml", std::process::id()));
-    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
+    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\nposition=\"top_center\"\n[sounds]\nenabled=false").unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let event = Event::demo("permission_required").unwrap();
+    // Top-centre stacks downward from the work-area top, so three cards fit on a short
+    // display; centred cards stop stacking (by design) once the next one would not fit.
     let children: Vec<_> = (0..3)
         .map(|_| Owned(deliver(&exe, &path, &event).unwrap()))
         .collect();
