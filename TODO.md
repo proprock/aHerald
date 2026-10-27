@@ -92,6 +92,16 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 - [ ] **AH-064 — macOS audio.** Depends on AH-061.
   CoreAudio/AudioQueue playback with the serialized-playback gate. Acceptance: no
   overlapping playback across processes (process test), audible check on macOS.
+  Status 2026-10-28 (branch `feature/ah-064-macos-audio`): `src/unix/audio.rs`
+  (`audio::serial`: `flock` gates for serial playback and repeat suppression, cancel-aware,
+  reusable by Linux) and `src/mac/audio.rs` (AudioQueue through declared AudioToolbox calls, no
+  new crate). Automated: gate and dedup unit tests with a fake output, `tests/unix_audio.rs`
+  (a sound waits for another process's sound; a killed process frees the gate; the test fails
+  when the gate is removed). The resident plays each new event once and mutes on Sound/Pause.
+  Audible check: the manual smoke test plays the sample (`cargo test --lib
+  mac::audio::tests::the_default_device -- --ignored`); the maintainer heard the three sounds of a resident
+  in turn (turn_complete, input_required, error), with the cards, on 2026-10-28. Sounds are off
+  unless an event sets `sound = '<wav>'`. Transient mode stays unsupported on macOS.
 
 - [ ] **AH-065 — macOS click-to-activate.** Depends on AH-062.
   Replace the HWND capture with PID/TTY-based terminal identification and

@@ -144,7 +144,7 @@ impl SoundCache {
     }
 }
 /// The sounds of one process: the resident replays the same few files all day.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, String> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<SoundCache>> = std::sync::OnceLock::new();
     CACHE
@@ -153,6 +153,10 @@ fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, String> {
         .map_err(|_| "sound cache unavailable")?
         .get(path, volume)
 }
+#[cfg(unix)]
+#[path = "unix/audio.rs"]
+pub mod serial;
+
 pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
     let settings = &config.events[event.kind];
     (config.sounds.enabled
@@ -165,7 +169,33 @@ pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
 #[cfg(windows)]
 #[path = "audio_windows.rs"]
 mod native;
-#[cfg(windows)]
+
+/// One sound through the platform's output, serialized across processes.
+#[cfg(any(windows, target_os = "macos"))]
+fn play(
+    wave: &Wave,
+    key: &[u8],
+    dedup_ms: u64,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        native::play(wave, key, dedup_ms, cancel)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        serial::play_with(
+            serial::SERIAL_GATE,
+            wave,
+            key,
+            dedup_ms,
+            cancel,
+            crate::mac::audio::output,
+        )
+    }
+}
+
+#[cfg(any(windows, target_os = "macos"))]
 pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<()>> {
     start_controlled(
         event,
@@ -173,7 +203,7 @@ pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<(
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     )
 }
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn start_controlled(
     event: &Event,
     config: &Config,
@@ -189,7 +219,7 @@ pub fn start_controlled(
     let key = serde_json::to_vec(event).ok()?;
     Some(std::thread::spawn(move || {
         if let Ok(wave) = cached(&path, volume) {
-            let _ = native::play(&wave, &key, dedup, &cancel);
+            let _ = play(&wave, &key, dedup, &cancel);
         }
     }))
 }

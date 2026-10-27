@@ -14,6 +14,7 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   AppKit text, with fades, countdown, artwork, mouse navigation and `--demo`; tray, audio,
   click-to-activate and the usage card follow in AH-063–AH-066. Not yet checked on multiple
   displays, Spaces or full-screen apps.
+- macOS sound (AH-064): AudioQueue playback serialized across processes, repeats suppressed.
 - `https-client` Cargo feature (default on) for the Unix HTTPS client.
 
 ## [0.1.0] - 2026-10-27

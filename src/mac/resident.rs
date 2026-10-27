@@ -274,6 +274,8 @@ struct Ui {
     usage_window: bool,
     usage_surface: Option<Surface>,
     layout_count: usize,
+    audio: Vec<std::thread::JoinHandle<()>>,
+    audio_cancel: Arc<AtomicBool>,
 }
 
 impl Ui {
@@ -388,6 +390,13 @@ impl Ui {
                         }
                         self.config.sounds.enabled = state.sounds;
                         self.config.notifications.enabled = state.visuals;
+                        // Muting or pausing silences what is playing; the next sound
+                        // starts with a fresh flag.
+                        if !state.sounds || state.paused {
+                            self.audio_cancel.store(true, Ordering::Release);
+                        } else if self.audio_cancel.load(Ordering::Acquire) {
+                            self.audio_cancel = Arc::new(AtomicBool::new(false));
+                        }
                     }
                 }
                 Command::Config => {
@@ -658,9 +667,22 @@ impl Ui {
             self.hide();
             return Ok(());
         };
-        // Sounds belong to AH-064; mark the events so the queue does not hold them back.
-        if let Ok(mut state) = self.shared.lock() {
-            let _ = state.queue.take_unannounced(usize::MAX);
+        self.audio.retain(|job| !job.is_finished());
+        // Every new event sounds once, even behind a selected persistent card.
+        let room = crate::presenter::sound_slots(self.audio.len());
+        let fresh = self
+            .shared
+            .lock()
+            .map(|mut state| state.queue.take_unannounced(room))
+            .unwrap_or_default();
+        for fresh in fresh {
+            if let Some(job) = crate::audio::start_controlled(
+                &fresh.event,
+                &self.config,
+                self.audio_cancel.clone(),
+            ) {
+                self.audio.push(job);
+            }
         }
         if !self.config.notifications.enabled {
             self.hide();
@@ -910,6 +932,8 @@ fn present(
             usage_window: false,
             usage_surface: None,
             layout_count: 0,
+            audio: Vec::new(),
+            audio_cancel: Arc::new(AtomicBool::new(false)),
             config,
         };
         // Events queued before the loop started are picked up by the first step.
@@ -940,6 +964,10 @@ fn present(
             ui.handle_commands();
         }
         ui.jobs.take();
+        ui.audio_cancel.store(true, Ordering::Release);
+        for job in ui.audio.drain(..) {
+            let _ = job.join();
+        }
     });
     stop.store(true, Ordering::Release);
     let _ = worker.join();
