@@ -897,3 +897,25 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   signing or notarization, Intel unsupported. The release workflow's `package_macos` job (added after
   this ticket, unrun until the next tag) builds the archive.
 
+- [x] **AH-088 — Share the code the macOS port duplicated from Windows.** Depends on AH-062,
+  AH-065.
+  The resident IPC request handler, `event_card_text`, the activation worker and the card
+  surface/composition exist twice (`src/resident.rs`, `overlay.rs`, `activation/native.rs` and
+  `src/mac/`) because the Windows code could not be compiled while the macOS port was written.
+  Extract them into portable modules used by both. Acceptance: no behavior change, Windows CI
+  and the native Windows tests green.
+  Status 2026-10-28 (branch `refactor/ah-088-share-code`): the IPC request handler is
+  `resident_request::respond` (unit-tested; both residents call it), `event_card_text` lives in
+  `card_paint`, and `activation::Worker` is portable with a per-platform runner (unit-tested).
+  The Windows side was type-checked and linted from the Mac with
+  `cargo clippy --target x86_64-pc-windows-msvc --all-targets`; Windows CI is the run check.
+  Remaining: the card surface and composition (`overlay.rs` `Surface`/`Composition` against
+  `mac/surface.rs`), which needs the GDI surface moved onto a shared pixel buffer.
+  Done 2026-10-28 (branch `refactor/ah-088-surface`): the card surface contract and the artwork
+  composition are `card_surface::{CardSurface, Composition<S>}`, used by `overlay.rs` (GDI DIB
+  `Surface`) and `mac/surface.rs` (memory `Surface`); each keeps only its pixel storage and countdown
+  text. The composition tests run on every OS against a plain test surface. macOS: `cargo test
+  --all-targets` and clippy pass. Windows: type-checked and linted from the Mac with
+  `cargo clippy --target x86_64-pc-windows-msvc --all-targets`; the native Windows tests run only in
+  Windows CI, which is the acceptance check for "no behavior change".
+
