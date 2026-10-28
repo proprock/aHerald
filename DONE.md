@@ -815,8 +815,6 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   event switched it back to this session (title checked on a screenshot). With a second
   Desktop session of the same project, events for each session's id moved Desktop to that
   session and back (titles checked on screenshots).
-  Not verified: iTerm2 (not installed), Warp and the other terminals, tab or window selection
-  in a terminal (would need Automation).
   Closed 2026-10-28: Terminal.app and Warp (a hook run inside each, click from Finder brings it
   forward), Claude Desktop (two sessions of the project switched by their ids) and Codex.app
   passed. iTerm2, the other listed terminals and tab or window selection are not verified; the
