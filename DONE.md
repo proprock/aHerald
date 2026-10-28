@@ -755,3 +755,69 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Unix resident loop itself needs an overlay (AH-062, AH-068); proxy behaviour of
   `ureq` (environment variables only) is unchecked, like the Windows system-proxy item
   in AH-045.
+
+- [x] **AH-063 — macOS tray.** Depends on AH-062.
+  Includes the usage card: it is opened and paged from the tray's usage rows and anchored
+  under the status item (as on Windows), so it has no trigger before the tray exists.
+  `NSStatusItem` and menu parity with Windows (sound, visual, pause, edit configuration,
+  restart, exit, usage rows). Acceptance: manual menu check on macOS.
+  Status 2026-10-28 (branch `feature/ah-063-macos-tray`): `src/mac/tray.rs` (`NSStatusItem`,
+  quota-bar icon, tooltip), `menu.rs` (menu model with the Windows order, separators and check
+  marks, unit-tested), the About and Codex usage cards under the item (`geometry::place_below`,
+  scroll wheel pages), and the Restart-refused notice. Observed on the M1 with synthetic clicks:
+  the menu opens, Pause toggles and shows its check mark, About and the Codex line open their
+  card, a click closes it, Exit stops the resident. Usage with live quota data was checked against Codex 0.133 from the
+  desktop app (95% / 95%, plus plan, matching the app); the CLI is found in
+  `/Applications/Codex.app` or `~/Applications` when it is not on `PATH`, and reset times use the
+  local zone. Checked by hand 2026-10-28: Edit configuration opens the file in the default
+  editor; Restart replaces the process (the old one exits, a new pid answers `--status`, the
+  icon disappears and returns). The menu bar icon was also read in dark and light system
+  appearance (the bar keeps the wallpaper tint, the green bars stay readable in both; a light
+  wallpaper was not tried). Not verified: the status item on a second display. Claude usage rows wait for AH-066.
+  Closed 2026-10-28 with the maintainer: the acceptance (manual menu check) and the extra checks
+  above passed. The status item on a second display moved to AH-062 and the light-wallpaper
+  icon to AH-089.
+
+- [x] **AH-064 — macOS audio.** Depends on AH-061.
+  CoreAudio/AudioQueue playback with the serialized-playback gate. Acceptance: no
+  overlapping playback across processes (process test), audible check on macOS.
+  Status 2026-10-28 (branch `feature/ah-064-macos-audio`): `src/unix/audio.rs`
+  (`audio::serial`: `flock` gates for serial playback and repeat suppression, cancel-aware,
+  reusable by Linux) and `src/mac/audio.rs` (AudioQueue through declared AudioToolbox calls, no
+  new crate). Automated: gate and dedup unit tests with a fake output, `tests/unix_audio.rs`
+  (a sound waits for another process's sound; a killed process frees the gate; the test fails
+  when the gate is removed). The resident plays each new event once and mutes on Sound/Pause.
+  Audible check: the manual smoke test plays the sample (`cargo test --lib
+  mac::audio::tests::the_default_device -- --ignored`); the maintainer heard the three sounds of a resident
+  in turn (turn_complete, input_required, error), with the cards, on 2026-10-28. Sounds are off
+  unless an event sets `sound = '<wav>'`. Transient mode stays unsupported on macOS.
+  Closed 2026-10-28: both acceptance checks passed. Playback while the output device changes
+  (for example Bluetooth) moved to AH-089.
+
+- [x] **AH-065 — macOS click-to-activate.** Depends on AH-062.
+  Replace the HWND capture with PID/TTY-based terminal identification and
+  `NSRunningApplication` activation; Codex and Claude Desktop URL schemes; Claude Desktop
+  session lookup under `~/Library/Application Support/Claude` (still `cliSessionId` only).
+  Document Accessibility/Automation prompts. Acceptance: manual check with Terminal,
+  iTerm2 and Claude Desktop; policy tests stay platform-neutral.
+  Acceptance narrowed 2026-10-28 with the maintainer: Warp replaces iTerm2, which is not
+  installed on the test machine.
+  Status 2026-10-28 (branch `feature/ah-065-macos-activate`): `src/mac/terminal.rs` (parent
+  chain from `proc_pidinfo`, falling back to `ps` for root-owned `login`; first ancestor whose
+  bundle id is Terminal, iTerm2, Ghostty, Warp, kitty, Alacritty or WezTerm; its pid travels in
+  `Event::window`; raised through `open -b`, re-checked at click time) and `src/mac/activation.rs`
+  (macOS agents and the worker; the policy is the shared `activation::click`). No Accessibility
+  or Automation permission is needed because nothing is scripted; only the application comes
+  forward, not a window or tab. Checked by hand on the M1: a hook run from Terminal.app, a click
+  from Finder brings Terminal forward; a Claude event with a Desktop session id brings Claude
+  Desktop forward (link `claude://claude.ai/epitaxy/local_*`); a Codex event brings Codex.app
+  forward. With Desktop showing another session, a click on a card of this session's hook
+  event switched it back to this session (title checked on a screenshot). With a second
+  Desktop session of the same project, events for each session's id moved Desktop to that
+  session and back (titles checked on screenshots).
+  Not verified: iTerm2 (not installed), Warp and the other terminals, tab or window selection
+  in a terminal (would need Automation).
+  Closed 2026-10-28: Terminal.app and Warp (a hook run inside each, click from Finder brings it
+  forward), Claude Desktop (two sessions of the project switched by their ids) and Codex.app
+  passed. iTerm2, the other listed terminals and tab or window selection are not verified; the
+  latter would need Automation.
