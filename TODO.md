@@ -84,8 +84,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   request, no failure carries the token) and a manual create/read/delete of a test item. Live on
   the M1: the system prompt for the item appeared and was answered by the maintainer, the item
   was read and parsed, and the card showed "Claude token expired (open Claude Code to refresh)".
-  Open: a successful quota read needs a fresh token (open Claude Code once, then check the tray
-  line and the card); `[claude.usage]` stays off by default.
+  Restarting Claude Desktop does not refresh that item (it belongs to the Claude Code CLI, which is
+  not installed on the test Mac), so a successful quota read is not seen live. Open: run the CLI once
+  where it exists, then check the tray line, the icon bars and the card; `[claude.usage]` stays off
+  by default.
 
 - [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
   `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
