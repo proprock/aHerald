@@ -219,6 +219,7 @@ struct Ui {
     compose_due: bool,
     animation_start: u64,
     frame: Option<Frame>,
+    screen_watch: geometry::ScreenWatch,
     shown_card: (crate::card::Heading, usize, usize, String),
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
@@ -471,6 +472,20 @@ impl Ui {
         }
     }
 
+    /// The displays now. When the set changed since the last look, the card is placed again,
+    /// whichever display it was on.
+    fn current_screens(&mut self) -> Result<Vec<geometry::Screen>, String> {
+        let screens = panel::screens(self.mtm);
+        if screens.is_empty() {
+            return Err("no display".into());
+        }
+        if self.screen_watch.changed(&screens) {
+            self.frame = None;
+            self.presenter.invalidate();
+        }
+        Ok(screens)
+    }
+
     /// Applies the clicks the panel collected to the queue; the next step redraws.
     fn handle_clicks(&mut self) {
         let clicks = self.panel.take_clicks();
@@ -574,10 +589,7 @@ impl Ui {
             self.layout_count = count;
             self.invalidate_usage();
         }
-        let screens = panel::screens(self.mtm);
-        if screens.is_empty() {
-            return Err("no display".into());
-        }
+        let screens = self.current_screens()?;
         let anchor = self.tray.frame();
         let centre = anchor.map_or((0.0, 0.0), |a| (a.x + a.width / 2.0, a.y + a.height / 2.0));
         let screen = geometry::choose(
@@ -715,10 +727,7 @@ impl Ui {
             self.hide();
             return Ok(());
         }
-        let screens = panel::screens(self.mtm);
-        if screens.is_empty() {
-            return Err("no display".into());
-        }
+        let screens = self.current_screens()?;
         let cursor = panel::cursor();
         let changed = self.selection != Some(entry.id);
         let screen = geometry::choose(
@@ -944,6 +953,7 @@ fn present(
             compose_due: false,
             animation_start: 0,
             frame: None,
+            screen_watch: geometry::ScreenWatch::default(),
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
             source_labels: if usage_enabled {
