@@ -11,6 +11,9 @@ layer is partly a stand-in: hooks are parsed and IPC, process spawning and HTTPS
 while the overlay, tray and audio report "not supported yet" until the macOS and Linux
 ports (AH-062 onward) land.
 
+On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
+`./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.
+
 New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
 first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.
 

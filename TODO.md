@@ -46,12 +46,6 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
-  `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
-  examples, setup and removal steps, release check script. Decide arm64-only versus
-  universal. Signing and notarization are deferred and documented as a limitation.
-  Acceptance: bundle launches on the M1 MacBook; docs list tested macOS and Codex versions.
-
 - [ ] **AH-088 — Share the code the macOS port duplicated from Windows.** Depends on AH-062,
   AH-065.
   The resident IPC request handler, `event_card_text`, the activation worker and the card

@@ -290,6 +290,17 @@ fn missing_explicit_configuration_is_an_error() {
 }
 
 #[test]
+fn a_missing_default_configuration_creates_its_folder() {
+    let root = std::env::temp_dir().join(format!("aherald-fresh-{}", std::process::id()));
+    let path = root.join("Library/Application Support/aHerald/config.toml");
+    assert!(Config::load(&path, true).is_err());
+    assert!(!root.exists());
+    assert!(Config::load(&path, false).is_ok());
+    assert!(path.is_file());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn hook_configuration_error_is_silent_and_successful() {
     let path = std::env::temp_dir().join(format!("aherald-invalid-{}.toml", std::process::id()));
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
