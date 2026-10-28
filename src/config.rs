@@ -100,6 +100,17 @@ impl Default for Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Tray {
     pub graph: TrayGraph,
+    pub style: TrayStyle,
+}
+
+/// How the quota icon is drawn. `Bw` is a template image that macOS tints black or white to
+/// match the menu bar; other platforms draw `Color` whatever is configured.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TrayStyle {
+    #[default]
+    Color,
+    Bw,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]

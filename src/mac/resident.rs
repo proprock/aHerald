@@ -326,7 +326,7 @@ impl Ui {
                 self.config.tray.graph,
                 display,
             );
-            if let Err(error) = self.tray.set_levels(levels) {
+            if let Err(error) = self.tray.set_levels(levels, self.config.tray.style) {
                 eprintln!("aHerald: {error}");
             }
         }

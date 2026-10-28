@@ -978,14 +978,10 @@ mod card_tests {
         let data = drawn(&"Codex".into(), 1, false, None);
         let at = |x: usize, y: usize| data[(y * 320 + x) * 4..][..4].to_vec();
         // Premultiplied BGRA of #FAB437 at the card alpha.
-        assert_eq!(
-            at(7, 75)[..3],
-            at(1, 75)[..3],
-            "stripe is at least 8 px wide"
-        );
+        assert_eq!(at(13, 75)[..3], at(1, 75)[..3], "stripe is 14 px wide");
         assert_ne!(
-            at(7, 75)[..3],
-            at(12, 75)[..3],
+            at(14, 75)[..3],
+            at(1, 75)[..3],
             "and ends before the text column"
         );
     }
