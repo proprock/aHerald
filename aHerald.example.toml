@@ -235,6 +235,10 @@ hooks_enabled = true
 enabled = false
 # Refresh interval in seconds: 300..86400; default 300.
 refresh_interval_sec = 300
+# Where the quota comes from: "auto" (default) tries the login token and falls back to what Claude
+# Code's statusLine last reported (see `aherald --install-statusline`); "token" reads only the
+# login; "statusline" never reads the login and waits for a statusLine report.
+source = "auto"
 
 [codex.usage]
 # Optional usage card background; omitted means inherit notifications.background_color.

@@ -350,14 +350,27 @@ pub enum EventVisual {
 pub struct ClaudeUsage {
     pub enabled: bool,
     pub refresh_interval_sec: u64,
+    pub source: ClaudeUsageSource,
 }
 impl Default for ClaudeUsage {
     fn default() -> Self {
         Self {
             enabled: false,
             refresh_interval_sec: 300,
+            source: ClaudeUsageSource::Auto,
         }
     }
+}
+
+/// Where the Claude quota comes from. `Statusline` never reads the stored login.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeUsageSource {
+    /// The login token first, the statusLine report when the token cannot be used.
+    #[default]
+    Auto,
+    Token,
+    Statusline,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]

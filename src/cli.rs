@@ -16,6 +16,8 @@ pub struct Cli {
     pub apply: bool,
     /// Hook file to use instead of the agent's default one.
     pub hooks_file: Option<PathBuf>,
+    /// Command `--statusline` runs with the same input, to keep a status line the user has.
+    pub then: Option<String>,
 }
 
 impl Cli {
@@ -41,7 +43,15 @@ impl Cli {
                     }
                     cli.demo_pause_sec = Some(seconds);
                 }
-                "--hook" | "--status" | "--quit" | "--help" | "--version" | "--perf-report" => {
+                "--hook"
+                | "--status"
+                | "--quit"
+                | "--help"
+                | "--version"
+                | "--perf-report"
+                | "--statusline"
+                | "--install-statusline"
+                | "--uninstall-statusline" => {
                     if cli.operation.replace(arg[2..].to_owned()).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
@@ -74,6 +84,12 @@ impl Cli {
                     cli.hooks_agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
                 }
                 "--apply" => cli.apply = true,
+                "--then" => {
+                    if cli.then.is_some() {
+                        return Err("duplicate --then".into());
+                    }
+                    cli.then = Some(args.next().ok_or("--then requires a command")?);
+                }
                 "--hooks-file" => {
                     if cli.hooks_file.is_some() {
                         return Err("duplicate --hooks-file".into());
@@ -106,10 +122,20 @@ impl Cli {
         }
         let setup = matches!(
             cli.operation.as_deref(),
-            Some("install-hooks" | "uninstall-hooks")
+            Some(
+                "install-hooks" | "uninstall-hooks" | "install-statusline" | "uninstall-statusline"
+            )
         );
         if setup && (cli.mode.is_some() || cli.agent.is_some()) {
             return Err("hook setup does not accept a mode or --agent".into());
+        }
+        if cli.then.is_some() && cli.operation.as_deref() != Some("statusline") {
+            return Err("--then is only valid with --statusline".into());
+        }
+        if cli.operation.as_deref() == Some("statusline")
+            && (cli.mode.is_some() || cli.agent.is_some())
+        {
+            return Err("--statusline does not accept a mode or --agent".into());
         }
         if (cli.apply || cli.hooks_file.is_some()) && !setup {
             return Err(

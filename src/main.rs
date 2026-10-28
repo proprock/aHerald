@@ -67,6 +67,37 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         println!("{}", aherald::version_line());
         return Ok(());
     }
+    if cli.operation.as_deref() == Some("statusline") {
+        return statusline(cli.then.as_deref());
+    }
+    if let Some(action) = match cli.operation.as_deref() {
+        Some("install-statusline") => Some(aherald::hook_setup::Action::Install),
+        Some("uninstall-statusline") => Some(aherald::hook_setup::Action::Uninstall),
+        _ => None,
+    } {
+        if cfg!(windows) {
+            return Err("--install-statusline is not supported on Windows yet".into());
+        }
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        let file = match cli.hooks_file.clone() {
+            Some(file) => file,
+            None => aherald::hook_setup::default_file(
+                aherald::agent::Agent::Claude,
+                &aherald::paths::home_dir_with(|name| std::env::var_os(name))
+                    .ok_or("cannot locate the home directory; use --hooks-file")?,
+            ),
+        };
+        print!(
+            "{}",
+            aherald::hook_setup::run_statusline(
+                action,
+                &file,
+                &aherald::hook_setup::statusline_command(&exe),
+                cli.apply,
+            )?
+        );
+        return Ok(());
+    }
     if let Some(action) = match cli.operation.as_deref() {
         Some("install-hooks") => Some(aherald::hook_setup::Action::Install),
         Some("uninstall-hooks") => Some(aherald::hook_setup::Action::Uninstall),
@@ -213,4 +244,27 @@ fn dispatch(
     }
     let _child = aherald::process::deliver(&executable, path, event)?;
     Ok(())
+}
+
+/// Claude Code's `statusLine` command: tells a running resident the session name and quota, and
+/// passes the payload to the user's own command (`--then`) so their status line is unchanged.
+/// It never starts a resident and never fails the status line.
+fn statusline(then: Option<&str>) -> Result<(), String> {
+    use std::io::Write;
+    let input =
+        aherald::events::read_bounded(std::io::stdin(), std::time::Duration::from_millis(500))
+            .unwrap_or_default();
+    let outcome = aherald::statusline::run(&input, then, |report| {
+        if let Ok(scope) = aherald::local::Scope::current("resident") {
+            let _ = aherald::ipc::pipe::request(
+                &scope,
+                &aherald::ipc::Request::StatusLine { report },
+                std::time::Duration::from_millis(150),
+            );
+        }
+    });
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(&outcome.stdout);
+    let _ = stdout.flush();
+    std::process::exit(outcome.code);
 }

@@ -21,6 +21,26 @@ aHerald edits Claude Code settings only when you run the command above. To do it
 after replacing the executable path. Remove the entries to uninstall. Disable processing without
 touching settings with `[claude] hooks_enabled = false` in `config.toml`.
 
+## Session names and quota (statusLine)
+
+Hooks carry neither the session's name nor the quota; Claude Code's `statusLine` command receives
+both. `aherald --install-statusline` previews (dry run) and `--apply` writes a `statusLine` entry in
+`~/.claude/settings.json` that runs `aherald --statusline`. If you already have a status line, it is kept:
+the entry becomes `aherald --statusline --then '<your command>'`, your command gets the same input and
+its output is shown unchanged, and `--uninstall-statusline --apply` restores it exactly. A `*.aherald-backup`
+copy is made. Use `--hooks-file PATH` for another settings file. Windows is not supported yet.
+
+`aherald --statusline` reads only `session_id`, `session_name` and `rate_limits` (5-hour and 7-day
+percentages and reset times) from the payload, hands them to a running resident and never starts one.
+Nothing else in the payload is stored or logged. The resident then shows the name on Claude cards and,
+with `[claude.usage] enabled = true`, can show the quota without reading the login token:
+`source = "auto"` (default) tries the token first and falls back to the last statusLine report,
+`"token"` never uses it, `"statusline"` never reads the login. `rate_limits` exists only for Pro and Max
+accounts and only after the first model response; a report older than an hour, or a window that has
+already reset, is not shown. The wrapper adds about 10 ms to a status line refresh, which happens after
+each assistant message, and cannot slow the agent's turn. Whether Claude Desktop runs `statusLine` is not
+established; the terminal and IDE integrations do.
+
 ## Event mapping
 
 | Claude hook | Condition | aHerald event |

@@ -246,6 +246,23 @@ pub fn status_error(status: u16, retry_after: Option<Duration>) -> Option<Error>
     }
 }
 
+/// One quota read from the configured source. `token` reads the stored login and asks the
+/// endpoint; `statusline` is what Claude Code's statusLine last reported. With `Statusline` the
+/// token function is never called, so the login is never touched.
+pub fn read_with(
+    source: crate::config::ClaudeUsageSource,
+    token: impl FnOnce() -> Result<Snapshot, Error>,
+    statusline: impl FnOnce() -> Option<Snapshot>,
+) -> Result<Snapshot, Error> {
+    use crate::config::ClaudeUsageSource as Source;
+    const WAITING: Error = Error::Service("Waiting for a Claude Code statusLine report");
+    match source {
+        Source::Token => token(),
+        Source::Statusline => statusline().ok_or(WAITING),
+        Source::Auto => token().or_else(|error| statusline().ok_or(error)),
+    }
+}
+
 /// Claude quota source: one HTTPS request per read, no connection and no pushed updates.
 pub struct ClaudeSource<F> {
     fetch: F,
@@ -351,6 +368,57 @@ pub fn fetch_with(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_configured_source_decides_which_reads_happen() {
+        use crate::config::ClaudeUsageSource::{Auto, Statusline, Token};
+        let snap = |id: &str| {
+            Snapshot::single(
+                "claude",
+                Bucket {
+                    limit_id: Some(id.into()),
+                    primary: Some(crate::usage::Window {
+                        used_percent: Some(1.0),
+                        window_duration_mins: Some(300),
+                        resets_at: None,
+                    }),
+                    ..Bucket::default()
+                },
+            )
+            .unwrap()
+        };
+        let id =
+            |r: Result<Snapshot, Error>| r.map(|s| s.buckets["claude"].limit_id.clone().unwrap());
+        let boom = || -> Result<Snapshot, Error> { panic!("the token must not be read") };
+        // statusline alone never touches the token and says so when it has nothing yet.
+        assert_eq!(
+            id(read_with(Statusline, boom, || Some(snap("s")))).unwrap(),
+            "s"
+        );
+        assert!(matches!(
+            read_with(Statusline, boom, || None),
+            Err(Error::Service(_))
+        ));
+        // token alone never looks at the statusLine.
+        let no_sl = || -> Option<Snapshot> { panic!("the statusLine must not be read") };
+        assert_eq!(id(read_with(Token, || Ok(snap("t")), no_sl)).unwrap(), "t");
+        assert!(read_with(Token, || Err(Error::Malformed), no_sl).is_err());
+        // auto: the token wins, the statusLine only fills in when the token fails.
+        assert_eq!(id(read_with(Auto, || Ok(snap("t")), no_sl)).unwrap(), "t");
+        assert_eq!(
+            id(read_with(
+                Auto,
+                || Err(Error::Malformed),
+                || Some(snap("s"))
+            ))
+            .unwrap(),
+            "s"
+        );
+        assert!(matches!(
+            read_with(Auto, || Err(Error::Service("denied")), || None),
+            Err(Error::Service("denied"))
+        ));
+    }
+
     use super::*;
 
     #[test]

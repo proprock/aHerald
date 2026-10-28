@@ -138,3 +138,34 @@ fn an_aherald_notice_is_headed_by_aherald_with_its_message_and_never_looks_up_a_
     std::thread::sleep(Duration::from_millis(50));
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
+
+#[test]
+fn a_claude_card_takes_its_name_from_the_statusline_report_and_still_never_looks_one_up() {
+    use aherald::statusline::{Report, with_store};
+    let mut labels = Service::new(|_| Some("must not be asked".into()));
+    let mut claude = event("claude-named-session");
+    claude.source = Source::ClaudeHook;
+    claude.folder = Some("api".into());
+    let before = labels.label_at(&claude, Duration::ZERO);
+    assert_eq!(before.name, None);
+    with_store(|store| {
+        store.record(
+            Report {
+                session_id: "claude-named-session".into(),
+                session_name: Some("Fix the parser".into()),
+                quota: None,
+            },
+            0,
+        )
+    });
+    let heading = labels.label_at(&claude, Duration::ZERO);
+    assert_eq!(heading.title, "Claude, api");
+    assert_eq!(heading.name.as_deref(), Some("Fix the parser"));
+    // A Codex card with the same id is not affected.
+    let mut codex = event("claude-named-session");
+    codex.source = Source::CodexHook;
+    assert_ne!(
+        labels.label_at(&codex, Duration::ZERO).name.as_deref(),
+        Some("Fix the parser")
+    );
+}

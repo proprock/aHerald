@@ -170,6 +170,106 @@ pub fn plan(
     Ok(Plan { text, changes })
 }
 
+/// `'<exe>' --statusline`, quoted for `sh`.
+pub fn statusline_command(exe: &Path) -> String {
+    format!(
+        "'{}' --statusline",
+        exe.display().to_string().replace('\'', "'\\''")
+    )
+}
+
+fn quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// The wrapped command of a statusLine command this program wrote, if it is one:
+/// `Some(None)` for the bare wrapper, `Some(Some(original))` for `--then '<original>'`.
+fn wrapped(command: &str) -> Option<Option<String>> {
+    let lower = command.to_ascii_lowercase();
+    if !lower.contains("aherald") || !command.contains(" --statusline") {
+        return None;
+    }
+    let Some((_, rest)) = command.split_once(" --statusline --then ") else {
+        return Some(None);
+    };
+    let inner = rest.strip_prefix('\'')?.strip_suffix('\'')?;
+    Some(Some(inner.replace("'\\''", "'")))
+}
+
+/// Plans putting aHerald's `statusLine` wrapper into the settings text, keeping the user's own
+/// status line command as `--then`, or taking it out again.
+pub fn plan_statusline(
+    existing: Option<&str>,
+    exe_command: &str,
+    action: Action,
+) -> Result<Plan, String> {
+    let mut root: Value = match existing {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|_| "the settings file is not valid JSON; nothing was changed")?,
+        None => Value::Object(Map::new()),
+    };
+    let object = root
+        .as_object_mut()
+        .ok_or_else(|| malformed("not an object"))?;
+    let mut changes = Vec::new();
+    let current = object.get("statusLine").cloned();
+    let current_command = match &current {
+        None => None,
+        Some(value) if value["type"] == "command" => Some(
+            value["command"]
+                .as_str()
+                .ok_or_else(|| malformed("statusLine has no command"))?
+                .to_owned(),
+        ),
+        Some(_) => return Err(malformed("statusLine is not a command")),
+    };
+    match action {
+        Action::Install => match current_command {
+            Some(command) if wrapped(&command).is_some() => {
+                let wanted = match wrapped(&command).flatten() {
+                    Some(original) => format!("{exe_command} --then {}", quote(&original)),
+                    None => exe_command.to_owned(),
+                };
+                if command != wanted {
+                    return Err("a different aHerald statusLine is set; uninstall it first".into());
+                }
+            }
+            Some(command) => {
+                object["statusLine"]["command"] =
+                    format!("{exe_command} --then {}", quote(&command)).into();
+                changes.push("wrap your statusLine command".into());
+            }
+            None => {
+                object.insert(
+                    "statusLine".into(),
+                    json!({"type": "command", "command": exe_command}),
+                );
+                changes.push("add statusLine".into());
+            }
+        },
+        Action::Uninstall => {
+            if let Some(command) = current_command
+                && let Some(original) = wrapped(&command)
+            {
+                match original {
+                    Some(original) => {
+                        object["statusLine"]["command"] = original.into();
+                        changes.push("restore your statusLine command".into());
+                    }
+                    None => {
+                        object.shift_remove("statusLine");
+                        changes.push("remove statusLine".into());
+                    }
+                }
+            }
+        }
+    }
+    let mut text =
+        serde_json::to_string_pretty(&root).map_err(|_| "cannot encode the settings file")?;
+    text.push('\n');
+    Ok(Plan { text, changes })
+}
+
 /// Plans the change to `file` and, with `apply`, writes it. Returns the report to print.
 /// A dry run (`apply == false`) never touches the disk.
 pub fn run(
@@ -179,13 +279,47 @@ pub fn run(
     command: &str,
     apply: bool,
 ) -> Result<String, String> {
+    let reminder = (matches!(action, Action::Install) && agent == Agent::Codex)
+        .then_some("Start a new Codex session, open /hooks and trust the aHerald hooks.");
+    run_with(
+        &format!("{} hook file", agent.label()),
+        file,
+        apply,
+        |existing| plan(existing, agent, command, action),
+        reminder,
+    )
+}
+
+/// As [`run`] for Claude Code's `statusLine` in the settings file.
+pub fn run_statusline(
+    action: Action,
+    file: &Path,
+    exe_command: &str,
+    apply: bool,
+) -> Result<String, String> {
+    run_with(
+        "Claude settings file",
+        file,
+        apply,
+        |existing| plan_statusline(existing, exe_command, action),
+        None,
+    )
+}
+
+fn run_with(
+    label: &str,
+    file: &Path,
+    apply: bool,
+    plan: impl FnOnce(Option<&str>) -> Result<Plan, String>,
+    reminder: Option<&str>,
+) -> Result<String, String> {
     let existing = match std::fs::read_to_string(file) {
         Ok(text) => Some(text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("cannot read {}: {e}", file.display())),
     };
-    let plan = plan(existing.as_deref(), agent, command, action)?;
-    let mut report = format!("{} hook file: {}\n", agent.label(), file.display());
+    let plan = plan(existing.as_deref())?;
+    let mut report = format!("{label}: {}\n", file.display());
     if plan.changes.is_empty() {
         report.push_str("Nothing to change.\n");
         return Ok(report);
@@ -204,8 +338,9 @@ pub fn run(
         report.push_str(" The previous file was kept next to it as *.aherald-backup.");
     }
     report.push('\n');
-    if matches!(action, Action::Install) && agent == Agent::Codex {
-        report.push_str("Start a new Codex session, open /hooks and trust the aHerald hooks.\n");
+    if let Some(reminder) = reminder {
+        report.push_str(reminder);
+        report.push('\n');
     }
     Ok(report)
 }
@@ -394,6 +529,87 @@ mod tests {
         assert_eq!(
             default_file(Agent::Codex, home),
             Path::new("/Users/me/.codex/hooks.json")
+        );
+    }
+
+    const EXE: &str = "'/Applications/aHerald.app/Contents/MacOS/aherald' --statusline";
+
+    #[test]
+    fn a_missing_status_line_gets_the_bare_wrapper_and_other_settings_stay() {
+        let plan =
+            plan_statusline(Some(r#"{"zeta":1,"theme":"dark"}"#), EXE, Action::Install).unwrap();
+        let value = parse(&plan.text);
+        assert_eq!(
+            value["statusLine"],
+            json!({"type": "command", "command": EXE})
+        );
+        let keys: Vec<_> = value.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["zeta", "theme", "statusLine"]);
+        assert_eq!(plan.changes.len(), 1);
+    }
+
+    #[test]
+    fn an_existing_status_line_is_wrapped_keeping_its_other_fields_and_restored_exactly() {
+        let own = "~/bin/bar.sh --who 'me' | tr a b";
+        let before = json!({"statusLine": {"type": "command", "command": own, "padding": 2, "refreshInterval": 5}}).to_string();
+        let wrapped = plan_statusline(Some(&before), EXE, Action::Install).unwrap();
+        let value = parse(&wrapped.text);
+        let command = value["statusLine"]["command"].as_str().unwrap();
+        assert!(command.starts_with(&format!("{EXE} --then '")), "{command}");
+        assert_eq!(
+            (
+                &value["statusLine"]["padding"],
+                &value["statusLine"]["refreshInterval"]
+            ),
+            (&json!(2), &json!(5))
+        );
+        // Installing again is a no-op; uninstalling gives the original command back.
+        let again = plan_statusline(Some(&wrapped.text), EXE, Action::Install).unwrap();
+        assert!(again.changes.is_empty());
+        let restored = plan_statusline(Some(&wrapped.text), EXE, Action::Uninstall).unwrap();
+        assert_eq!(parse(&restored.text), parse(&before));
+    }
+
+    #[test]
+    fn uninstalling_the_bare_wrapper_removes_the_status_line_and_foreign_ones_are_left_alone() {
+        let installed = plan_statusline(None, EXE, Action::Install).unwrap();
+        let removed = plan_statusline(Some(&installed.text), EXE, Action::Uninstall).unwrap();
+        assert!(parse(&removed.text).get("statusLine").is_none());
+        let foreign = r#"{"statusLine":{"type":"command","command":"my-bar"}}"#;
+        let untouched = plan_statusline(Some(foreign), EXE, Action::Uninstall).unwrap();
+        assert!(untouched.changes.is_empty());
+        assert_eq!(parse(&untouched.text), parse(foreign));
+    }
+
+    #[test]
+    fn unsupported_or_conflicting_status_lines_are_refused() {
+        for bad in [
+            r#"{"statusLine":"my-bar"}"#,
+            r#"{"statusLine":{"type":"text"}}"#,
+            r#"{"statusLine":{"type":"command"}}"#,
+            "{broken",
+            "[]",
+        ] {
+            assert!(
+                plan_statusline(Some(bad), EXE, Action::Install).is_err(),
+                "{bad}"
+            );
+        }
+        let other = r#"{"statusLine":{"type":"command","command":"'/old/aherald' --statusline"}}"#;
+        assert!(plan_statusline(Some(other), EXE, Action::Install).is_err());
+    }
+
+    #[test]
+    fn the_wrapper_command_quotes_the_path_for_the_shell() {
+        assert_eq!(
+            statusline_command(Path::new(
+                "/Applications/aHerald.app/Contents/MacOS/aherald"
+            )),
+            EXE
+        );
+        assert_eq!(
+            statusline_command(Path::new("/Users/me/it's/aherald")),
+            "'/Users/me/it'\\''s/aherald' --statusline"
         );
     }
 
