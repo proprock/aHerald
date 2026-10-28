@@ -17,6 +17,20 @@ On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build th
 New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
 first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.
 
+## Claude Code plugin (macOS)
+
+This repository is also a Claude Code plugin marketplace. With `aHerald.app` installed:
+
+```bash
+claude plugin marketplace add proprock/aHerald
+claude plugin install aherald@aherald
+```
+
+The plugin registers the hooks and finds the app itself (`/Applications`, `~/Applications`, Spotlight,
+or `AHERALD_APP`); it exits quietly when the app is missing. Alternatively
+`aherald --install-hooks claude --apply` writes the hooks into `~/.claude/settings.json`; use one of the
+two, not both. Codex uses `aherald --install-hooks codex`. See [the macOS guide](docs/portable-macos.md).
+
 ## Build and verify
 
 Use stable Rust with the MSVC toolchain and Windows SDK:

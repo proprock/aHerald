@@ -10,6 +10,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- `aherald --install-hooks|--uninstall-hooks claude|codex` (AH-091): adds or removes only aHerald's
+  hook entries in the agent's own file; dry run unless `--apply`, with a backup.
 - macOS overlay (AH-062, in progress): a non-activating floating card on `NSPanel`, drawn with
   AppKit text, with fades, countdown, artwork, mouse navigation and `--demo`; tray, audio,
   click-to-activate and the usage card follow in AH-063–AH-066. Not yet checked on multiple

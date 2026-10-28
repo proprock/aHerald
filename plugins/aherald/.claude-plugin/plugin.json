@@ -1,0 +1,12 @@
+{
+  "name": "aherald",
+  "displayName": "aHerald",
+  "version": "0.1.0",
+  "description": "Desktop cards when Claude Code finishes, needs permission or fails. Needs the aHerald app installed.",
+  "license": "MIT",
+  "repository": "https://github.com/proprock/aHerald",
+  "hooks": "./hooks/hooks.json",
+  "author": {
+    "name": "proprock"
+  }
+}

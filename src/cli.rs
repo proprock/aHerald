@@ -10,6 +10,12 @@ pub struct Cli {
     pub demo_pause_sec: Option<u64>,
     /// Agent that produced a `--hook` payload; Codex when omitted.
     pub agent: Option<Agent>,
+    /// Agent whose hook file `--install-hooks` / `--uninstall-hooks` changes.
+    pub hooks_agent: Option<Agent>,
+    /// Write the change; without it hook setup is a dry run.
+    pub apply: bool,
+    /// Hook file to use instead of the agent's default one.
+    pub hooks_file: Option<PathBuf>,
 }
 
 impl Cli {
@@ -60,6 +66,21 @@ impl Cli {
                     }
                     cli.event = Some(event);
                 }
+                "--install-hooks" | "--uninstall-hooks" => {
+                    if cli.operation.replace(arg[2..].to_owned()).is_some() {
+                        return Err("conflicting explicit operations".into());
+                    }
+                    let name = args.next().ok_or("--install-hooks requires an agent")?;
+                    cli.hooks_agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
+                }
+                "--apply" => cli.apply = true,
+                "--hooks-file" => {
+                    if cli.hooks_file.is_some() {
+                        return Err("duplicate --hooks-file".into());
+                    }
+                    cli.hooks_file =
+                        Some(args.next().ok_or("--hooks-file requires a path")?.into());
+                }
                 "--agent" => {
                     if cli.agent.is_some() {
                         return Err("duplicate --agent".into());
@@ -82,6 +103,19 @@ impl Cli {
         ) && cli.mode.is_some()
         {
             return Err("operation does not accept a mode".into());
+        }
+        let setup = matches!(
+            cli.operation.as_deref(),
+            Some("install-hooks" | "uninstall-hooks")
+        );
+        if setup && (cli.mode.is_some() || cli.agent.is_some()) {
+            return Err("hook setup does not accept a mode or --agent".into());
+        }
+        if (cli.apply || cli.hooks_file.is_some()) && !setup {
+            return Err(
+                "--apply and --hooks-file are only valid with --install-hooks or --uninstall-hooks"
+                    .into(),
+            );
         }
         if cli.agent.is_some() && cli.operation.as_deref() != Some("hook") {
             return Err("--agent is only valid with --hook".into());

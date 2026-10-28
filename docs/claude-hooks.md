@@ -7,9 +7,16 @@ documented. `idle_prompt` arrived about a minute after `Stop` and showed a bogus
 for an idle session (AH-074), so it is ignored; `StopFailure` is still unobserved; verify against your installed version.
 `PermissionRequest` and the `permission_prompt` notification arrived 6 s apart for one prompt.
 
+## Setup with a command
+
+`aherald --install-hooks claude` shows what it would add to `~/.claude/settings.json` (a dry run);
+`--apply` writes it with a `settings.json.aherald-backup` copy and leaves every other setting and hook
+alone. `--uninstall-hooks claude --apply` removes only aHerald's entries; `--hooks-file PATH` picks
+another settings file. The commands refuse a file that is not valid JSON or has an unexpected shape.
+
 ## Setup (manual)
 
-aHerald never edits Claude Code settings. Merge the `hooks` object from
+aHerald edits Claude Code settings only when you run the command above. To do it by hand, merge the `hooks` object from
 `examples/claude-settings.json` into `~/.claude/settings.json` (or a project `.claude/settings.json`)
 after replacing the executable path. Remove the entries to uninstall. Disable processing without
 touching settings with `[claude] hooks_enabled = false` in `config.toml`.
