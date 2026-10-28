@@ -23,7 +23,7 @@ This repository is also a Claude Code plugin marketplace. With `aHerald.app` ins
 
 ```bash
 claude plugin marketplace add proprock/aHerald
-claude plugin install aherald@aherald
+claude plugin install aherald@proprock
 ```
 
 The plugin registers the hooks and finds the app itself (`/Applications`, `~/Applications`, Spotlight,
