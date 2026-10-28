@@ -735,26 +735,7 @@ fn placement_guard() -> Option<crate::local::Ownership> {
     }
 }
 
-/// What an event card shows: its heading, kind, queue position and (resident) age.
-pub(crate) fn event_card_text<'a>(
-    config: &Config,
-    event: &Event,
-    controls: &'a crate::card::Card,
-    age: Option<&'a str>,
-) -> CardText<'a> {
-    CardText {
-        heading: &controls.heading,
-        label: event.kind.label(),
-        body: false,
-        index: controls.index,
-        count: controls.count,
-        dismiss_button: controls.dismiss_button,
-        age,
-        color: config.event_color(event.kind),
-        background_color: config.event_background_color(event.kind),
-        border: config.event_border_color(event.kind),
-    }
-}
+pub(crate) use crate::card_paint::event_card_text;
 
 /// Draws the card for `event` at `scale` (configured scale times the monitor's DPI
 /// scale). Artwork is prepared on a helper thread, as asset decoding stays off the

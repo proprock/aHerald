@@ -1,7 +1,7 @@
 //! Resident lifecycle; IPC never waits for notification presentation.
 use crate::{
     config::Config,
-    ipc::{Request, Response, pipe},
+    ipc::{Response, pipe},
     local::Scope,
 };
 use std::{
@@ -16,6 +16,8 @@ use std::{
 
 #[cfg(test)]
 use crate::events::Event;
+#[cfg(test)]
+use crate::ipc::Request;
 pub use crate::resident_client::{ensure, forward, forward_if_running};
 
 pub struct Shared {
@@ -25,6 +27,20 @@ pub struct Shared {
     pub visuals: bool,
     /// Raw handle of the resident window (0 until created); IPC posts `WAKE` to it.
     pub window: isize,
+}
+impl crate::resident_request::Controls for Shared {
+    fn queue(&mut self) -> &mut crate::queue::Queue {
+        &mut self.queue
+    }
+    fn paused(&self) -> bool {
+        self.paused
+    }
+    fn sounds(&self) -> bool {
+        self.sounds
+    }
+    fn visuals(&self) -> bool {
+        self.visuals
+    }
 }
 /// Posted to the resident window when IPC changed the queue or requested shutdown.
 pub const WAKE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
@@ -130,48 +146,21 @@ fn run_with_usage(
                 let Ok(mut state) = state.lock() else {
                     return Response::Rejected;
                 };
-                match request {
-                    Request::Status => Response::Status {
-                        pid: std::process::id(),
-                        queued: state.queue.items().len(),
-                        paused: state.paused,
-                        sounds: state.sounds,
-                        visuals: state.visuals,
-                    },
-                    Request::Quit => {
-                        shutdown.store(true, Ordering::Release);
-                        wake(state.window);
-                        Response::Bye
-                    }
-                    Request::Event { event } => {
-                        if event.validate().is_err() {
-                            return Response::Rejected;
-                        }
-                        let setting = &settings.events[event.kind];
-                        if !setting.enabled {
-                            // A disabled kind shows nothing but still ends its turn's waits.
-                            state.queue.observe_terminal(&event);
-                            return Response::Accepted;
-                        }
-                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        let window = state.window;
-                        let duration = if setting.duration_ms == 0 {
-                            0
-                        } else {
-                            setting
-                                .duration_ms
-                                .saturating_add(settings.notifications.fade_out_ms)
-                        };
-                        if state.queue.push(event, now, duration).is_accepted() {
-                            wake(window);
-                            Response::Accepted
-                        } else {
-                            drop(state);
-                            log(Record::QueueRejected);
-                            Response::Rejected
-                        }
-                    }
+                let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let (response, effects) =
+                    crate::resident_request::respond(request, &mut *state, &settings, now);
+                let window = state.window;
+                drop(state);
+                if effects.quit {
+                    shutdown.store(true, Ordering::Release);
                 }
+                if effects.wake {
+                    wake(window);
+                }
+                if effects.rejected {
+                    log(Record::QueueRejected);
+                }
+                response
             });
             if result.is_err() {
                 log(Record::IpcFailure);

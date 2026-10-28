@@ -5,7 +5,8 @@
 //! and the same run geometry, so the cards cannot drift apart.
 use crate::{
     card::{Action, Area, Card, Heading},
-    config::Color,
+    config::{Color, Config},
+    events::Event,
 };
 
 /// Everything drawn on a card's base surface.
@@ -24,6 +25,27 @@ pub struct CardText<'a> {
     pub background_color: Color,
     /// Outline of the card and frame of its buttons; absent draws no card outline.
     pub border: Option<Color>,
+}
+
+/// What an event card shows: its heading, kind, queue position and (resident) age.
+pub fn event_card_text<'a>(
+    config: &Config,
+    event: &Event,
+    controls: &'a Card,
+    age: Option<&'a str>,
+) -> CardText<'a> {
+    CardText {
+        heading: &controls.heading,
+        label: event.kind.label(),
+        body: false,
+        index: controls.index,
+        count: controls.count,
+        dismiss_button: controls.dismiss_button,
+        age,
+        color: config.event_color(event.kind),
+        background_color: config.event_background_color(event.kind),
+        border: config.event_border_color(event.kind),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -432,5 +454,25 @@ mod tests {
         assert_eq!(run.align, Align::Right);
         assert_eq!((run.area.right, run.area.top), (W - 18, 16));
         assert!(run.area.left > W / 2 && run.area.bottom > run.area.top);
+    }
+
+    #[test]
+    fn an_event_card_shows_the_kind_the_queue_position_and_the_configured_colours() {
+        let mut config = Config::default();
+        let event = Event::demo("input_required").unwrap();
+        config.events[event.kind].color = Some(Color([1, 2, 3]));
+        let controls = Card::new("Codex", 1, 3, false);
+        let text = event_card_text(&config, &event, &controls, Some("2 min ago"));
+        assert_eq!(text.label, event.kind.label());
+        assert_eq!((text.index, text.count), (1, 3));
+        assert!(text.dismiss_button && !text.body);
+        assert_eq!(text.age, Some("2 min ago"));
+        assert_eq!(text.color, Color([1, 2, 3]));
+        assert_eq!(
+            text.background_color,
+            config.event_background_color(event.kind)
+        );
+        assert_eq!(text.border, config.event_border_color(event.kind));
+        assert_eq!(text.heading, &controls.heading);
     }
 }
