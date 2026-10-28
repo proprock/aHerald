@@ -173,3 +173,21 @@ fn the_shared_logger_gates_by_level_and_follows_reconfiguration() {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[test]
+fn a_dropped_event_is_a_debug_line_and_a_refused_hook_a_warning() {
+    let root = temp("dropped");
+    let mut log = Log::new(&root, LogLevel::Warn);
+    log.record(Record::EventDropped("duplicate")).unwrap();
+    log.record(Record::HookRejected("invalid")).unwrap();
+    let quiet = lines(&root, "aherald.log");
+    assert_eq!(quiet.len(), 1, "{quiet:?}");
+    assert_eq!(parse(&quiet[0]).2, "hook.rejected invalid");
+
+    let mut log = Log::new(&root, LogLevel::Debug);
+    log.record(Record::EventDropped("disabled")).unwrap();
+    let all = lines(&root, "aherald.log");
+    let (_, level, message) = parse(all.last().unwrap());
+    assert_eq!((level, message), ("DEBUG", "event.dropped disabled"));
+    let _ = std::fs::remove_dir_all(&root);
+}

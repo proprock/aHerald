@@ -115,6 +115,11 @@ pub enum Record {
     SoundFailed,
     /// The configured `monitor` is not connected; cards use the main display.
     MonitorMissing,
+    /// A hook input was refused before it became an event; the word is one of
+    /// `events::hook_error_code`.
+    HookRejected(&'static str),
+    /// A valid event produced no card on purpose (`disabled`, `duplicate`, `obsolete`).
+    EventDropped(&'static str),
     /// Configured artwork cannot be used and the built-in picture is shown instead; the word
     /// says which setting (`custom` animation or `pet`).
     ArtworkRejected(&'static str),
@@ -226,6 +231,8 @@ impl Record {
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
             Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),
             Self::SoundFailed => (Level::Warn, "audio.failed".into()),
+            Self::HookRejected(why) => (Level::Warn, format!("hook.rejected {why}").into()),
+            Self::EventDropped(why) => (Level::Debug, format!("event.dropped {why}").into()),
             Self::MonitorMissing => (Level::Warn, "display.monitor_missing".into()),
             Self::ArtworkRejected(which) => {
                 (Level::Warn, format!("artwork.rejected {which}").into())

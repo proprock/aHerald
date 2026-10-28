@@ -1,3 +1,5 @@
 /target/
 /dist/
 .DS_Store
+# Hook tests that feed bad input log beside their fixture config.
+/tests/fixtures/*.log

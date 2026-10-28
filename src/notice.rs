@@ -41,6 +41,34 @@ pub fn report_file(topic: &'static str, path: &Path, record: Record, what: &str)
     }
 }
 
+/// Remembers which missing `monitor` was already reported, so a card placed on the main display
+/// at every event is one report for each combination of the setting and the connected displays.
+#[derive(Debug, Default)]
+pub struct MonitorWatch(Option<(usize, usize)>);
+
+impl MonitorWatch {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    /// Call at every placement with the configured monitor number and the connected count. A
+    /// monitor that is not connected is logged and shown as a card the first time.
+    pub fn check(&mut self, configured: crate::config::Monitor, connected: usize) {
+        match configured {
+            crate::config::Monitor::Index(n) if n >= connected => {
+                if self.0 != Some((n, connected)) {
+                    self.0 = Some((n, connected));
+                    crate::operational_log::log(Record::MonitorMissing);
+                    post(&format!(
+                        "Monitor {n} is not connected; using the main display"
+                    ));
+                }
+            }
+            _ => self.0 = None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
