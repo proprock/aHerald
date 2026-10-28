@@ -118,8 +118,12 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   forward, not a window or tab. Checked by hand on the M1: a hook run from Terminal.app, a click
   from Finder brings Terminal forward; a Claude event with a Desktop session id brings Claude
   Desktop forward (link `claude://claude.ai/epitaxy/local_*`); a Codex event brings Codex.app
-  forward. Not verified: iTerm2 (not installed), Warp and the other terminals, that Desktop
-  lands on the right session, tab or window selection in a terminal (would need Automation).
+  forward. With Desktop showing another session, a click on a card of this session's hook
+  event switched it back to this session (title checked on a screenshot). With a second
+  Desktop session of the same project, events for each session's id moved Desktop to that
+  session and back (titles checked on screenshots).
+  Not verified: iTerm2 (not installed), Warp and the other terminals, tab or window selection
+  in a terminal (would need Automation).
 
 - [ ] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
   Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth
