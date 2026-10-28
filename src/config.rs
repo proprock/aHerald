@@ -448,10 +448,8 @@ impl Config {
     pub fn default_path() -> Result<PathBuf, String> {
         let executable =
             std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
-        executable
-            .parent()
+        crate::paths::data_dir_with(&executable, |name| std::env::var_os(name))
             .map(|directory| directory.join("config.toml"))
-            .ok_or_else(|| "executable has no parent directory; use --config".into())
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
         let value: toml::Value = toml::from_str(text).map_err(|error| {

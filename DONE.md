@@ -881,3 +881,19 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   after the fix the card fell back to the main display, moved to the iPad when it was connected
   again and came back when it was disconnected (observed by the maintainer). Not tested
   separately: a full-screen app on the main display. Code shared with Windows moved to AH-088.
+
+- [x] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
+  `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
+  examples, setup and removal steps, release check script. Decide arm64-only versus
+  universal. Signing and notarization are deferred and documented as a limitation.
+  Acceptance: bundle launches on the M1 MacBook; docs list tested macOS and Codex versions.
+  Done 2026-10-28: `package-macos.sh` builds `aHerald.app` (arm64 only, ad-hoc signature, `LSUIElement`)
+  and `dist/aherald-vX-macos-arm64.zip`; `check-release-macos.sh` verifies it from a clean
+  extraction. Inside a bundle the configuration and log live in
+  `~/Library/Application Support/aHerald` and artwork in `Contents/Resources/assets`; a bare
+  executable keeps the portable layout. Docs: `docs/portable-macos.md`, `examples/*.macos.json`,
+  `examples/*.sh`. Checked on the M1 (macOS 26.6): the extracted bundle starts through `open`,
+  creates its configuration, shows the menu-bar icon and a card. Limitations: no Developer ID
+  signing or notarization, Intel unsupported, and the release workflow does not build the macOS
+  archive yet (manual `./package-macos.sh`).
+

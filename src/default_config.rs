@@ -14,6 +14,10 @@ impl Drop for Temporary {
 }
 pub(crate) fn create(path: &Path) -> Result<(), String> {
     let result = (|| -> std::io::Result<()> {
+        // Application Support/aHerald does not exist on the first start of a bundle.
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
         let mut name = path
             .file_name()
             .ok_or_else(|| std::io::Error::other("configuration has no filename"))?

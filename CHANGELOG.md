@@ -17,6 +17,10 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 - macOS click-to-activate (AH-065): a click on a card raises the agent's terminal, Claude Desktop
   (its session link) or Codex.app.
 - macOS sound (AH-064): AudioQueue playback serialized across processes, repeats suppressed.
+- macOS packaging (AH-067): `package-macos.sh` builds `aHerald.app` (Apple Silicon, ad-hoc signed,
+  no Dock icon) and a zip; `check-release-macos.sh` checks it. In a bundle the configuration and
+  log live in `~/Library/Application Support/aHerald`. Hook scripts and `docs/portable-macos.md`
+  added. Not notarized; Intel Macs unsupported.
 - `https-client` Cargo feature (default on) for the Unix HTTPS client.
 
 ## [0.1.0] - 2026-10-27

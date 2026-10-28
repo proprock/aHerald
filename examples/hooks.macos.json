@@ -1,0 +1,38 @@
+{
+  "description": "aHerald notification-only hooks for macOS; replace the script path before manually merging into ~/.codex/hooks.json",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-codex-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-codex-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-codex-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

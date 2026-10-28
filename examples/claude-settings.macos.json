@@ -1,0 +1,60 @@
+{
+  "description": "aHerald notification-only Claude Code hooks for macOS; replace the script path before manually merging into ~/.claude/settings.json",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

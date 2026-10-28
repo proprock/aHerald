@@ -75,6 +75,10 @@ pub fn for_event(config: &Config, event: &Event) -> Result<Option<Animation>, St
 
 fn builtin_root() -> Result<PathBuf, String> {
     let executable = std::env::current_exe().map_err(|_| "cannot locate application resources")?;
+    // A bundle keeps its read-only resources in Contents/Resources, never beside the program.
+    if let Some(resources) = crate::paths::bundle_resources(&executable) {
+        return Ok(resources.join("assets"));
+    }
     let directory = executable
         .parent()
         .ok_or("application directory is unavailable")?;
