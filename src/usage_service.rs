@@ -575,7 +575,7 @@ impl Service {
         })
     }
     /// Opt-in Claude quota poller; see `claude_usage` for the data source and its limits.
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     pub fn claude(enabled: bool, interval: Duration) -> Self {
         Self::spawn_source(
             Agent::Claude,

@@ -258,6 +258,9 @@ struct Ui {
     demo: Option<crate::demo::Demo>,
     tray: Tray,
     usage: crate::usage_service::Service,
+    claude: Option<crate::usage_service::Service>,
+    /// Which agent the usage card describes: Claude when true, otherwise Codex.
+    usage_claude: bool,
     usage_next: u64,
     /// What the menu was last built from, so it is rebuilt only when that changes.
     menu_key: Option<(bool, bool, bool, String)>,
@@ -299,28 +302,62 @@ impl Ui {
             .map(|s| (s.sounds, s.visuals, s.paused))
             .unwrap_or((false, false, false));
         let display = self.config.codex.usage.display;
-        let line = self.usage.compact(display);
-        let key = (sound, visual, paused, line.clone());
+        let codex = self.codex_shown().then(|| self.usage.compact(display));
+        let claude = self.claude.as_ref().map(|c| c.compact(display));
+        // Alphabetical by agent name, matching the menu.
+        let tooltip: Vec<&str> = [claude.as_deref(), codex.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let tooltip = tooltip.join("\n");
+        let key = (
+            sound,
+            visual,
+            paused,
+            format!(
+                "{}\n{}",
+                codex.as_deref().unwrap_or(""),
+                claude.as_deref().unwrap_or("")
+            ),
+        );
         if self.menu_key.as_ref() != Some(&key) {
-            self.tray
-                .set_menu(&menu::items(sound, visual, paused, Some(&line), None));
+            self.tray.set_menu(&menu::items(
+                sound,
+                visual,
+                paused,
+                codex.as_deref(),
+                claude.as_deref(),
+            ));
             self.menu_key = Some(key);
         }
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
-            if line != self.tooltip {
-                self.tray.set_tooltip(&line);
-                self.tooltip = line;
+            if tooltip != self.tooltip {
+                self.tray.set_tooltip(&tooltip);
+                self.tooltip = tooltip;
             }
             let levels = crate::tray_usage::Levels::from_views(
                 &self.usage.view(),
-                None,
+                self.claude.as_ref().map(|c| c.view()).as_ref(),
                 self.config.tray.graph,
                 display,
             );
             if let Err(error) = self.tray.set_levels(levels) {
                 eprintln!("aHerald: {error}");
             }
+        }
+    }
+
+    /// Codex is listed when its usage is on, or when it is the only agent there is.
+    fn codex_shown(&self) -> bool {
+        self.config.codex.usage.enabled || self.claude.is_none()
+    }
+
+    /// Asks the agent whose details are open for fresh data.
+    fn refresh_selected(&self) {
+        match &self.claude {
+            Some(claude) if self.usage_claude => claude.refresh(),
+            _ => self.usage.refresh(),
         }
     }
 
@@ -342,9 +379,10 @@ impl Ui {
     }
 
     fn usage_card_text(&self) -> String {
-        self.notice
-            .clone()
-            .unwrap_or_else(|| self.usage.card_text())
+        self.notice.clone().unwrap_or_else(|| match &self.claude {
+            Some(claude) if self.usage_claude => claude.card_text(),
+            _ => self.usage.card_text(),
+        })
     }
 
     /// The usage card's text, page, size or place changed: redraw it from scratch.
@@ -432,15 +470,19 @@ impl Ui {
                 Command::Exit => {
                     self.stop.store(true, Ordering::Release);
                 }
-                Command::CodexSummary => {
+                Command::CodexSummary | Command::ClaudeSummary => {
+                    let claude = command == Command::ClaudeSummary;
                     self.notice = None;
                     if let Ok(mut state) = self.shared.lock() {
-                        // The same line closes its open card.
-                        if state.queue.selected().is_some_and(|e| e.is_usage()) {
+                        // The same line closes its open card; the other line switches agents.
+                        if state.queue.selected().is_some_and(|e| e.is_usage())
+                            && self.usage_claude == claude
+                        {
                             state.queue.dismiss();
                         } else {
                             state.queue.show_usage();
-                            self.usage.refresh();
+                            self.usage_claude = claude;
+                            self.refresh_selected();
                         }
                     }
                     self.reset_usage_card();
@@ -458,8 +500,6 @@ impl Ui {
                         self.show_notice(about);
                     }
                 }
-                // Claude usage on macOS arrives with AH-066.
-                Command::ClaudeSummary => {}
             }
         }
     }
@@ -912,6 +952,14 @@ fn present(
         usage_enabled,
         Duration::from_secs(config.codex.usage.refresh_interval_sec),
     );
+    // Claude quota polling is opt-in via `[claude.usage] enabled`; it reads the Keychain item
+    // only while it is on (AH-066).
+    let claude = config.claude.usage.enabled.then(|| {
+        crate::usage_service::Service::claude(
+            true,
+            Duration::from_secs(config.claude.usage.refresh_interval_sec),
+        )
+    });
     let result = Panel::new(mtm).map(|panel| {
         let mut ui = Ui {
             shared,
@@ -939,6 +987,8 @@ fn present(
             demo,
             tray: Tray::new(mtm),
             usage,
+            claude,
+            usage_claude: false,
             usage_next: 0,
             menu_key: None,
             tooltip: String::new(),

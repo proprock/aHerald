@@ -262,23 +262,75 @@ impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
     }
 }
 
-/// Reads the stored token and queries the live endpoint.
+/// Reads the stored credentials and queries the live endpoint.
 #[cfg(any(windows, unix))]
 pub fn fetch_live() -> Result<Snapshot, Error> {
-    let dir = crate::paths::claude_config_dir()
-        .ok_or(Error::Service("Claude credentials unavailable"))?;
-    // The credentials file, the token and the request headers are zeroed when dropped.
-    let mut bytes = crate::https::Wiped(Vec::new());
-    {
-        use std::io::Read;
-        std::fs::File::open(dir.join(".credentials.json"))
-            .and_then(|f| f.take(65_536).read_to_end(&mut bytes.0))
-            .map_err(|_| Error::Service("Claude credentials unavailable"))?;
-    }
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    fetch_with(stored_credentials, crate::https::get, now_ms)
+}
+
+type Credentials = crate::https::Wiped<Vec<u8>>;
+
+/// Claude Code's credentials JSON: the Keychain item on macOS, `.credentials.json` elsewhere.
+/// The bytes are zeroed when dropped.
+#[cfg(target_os = "macos")]
+fn stored_credentials() -> Result<Credentials, Error> {
+    use crate::mac::keychain::{Failure, read};
+    read(KEYCHAIN_SERVICE).map_err(|failure| {
+        Error::Service(match failure {
+            Failure::Denied => {
+                "Claude credentials access denied (allow aHerald in the Keychain prompt)"
+            }
+            Failure::Unavailable => "Claude credentials unavailable (the Keychain is locked)",
+            Failure::NotFound | Failure::Other(_) => "Claude credentials unavailable",
+        })
+    })
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn stored_credentials() -> Result<Credentials, Error> {
+    file_credentials()
+}
+
+#[cfg(windows)]
+fn stored_credentials() -> Result<Credentials, Error> {
+    file_credentials()
+}
+
+/// The Keychain service Claude Code stores its credentials under on macOS.
+#[cfg(target_os = "macos")]
+const KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
+#[cfg(any(windows, unix))]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn file_credentials() -> Result<Credentials, Error> {
+    use std::io::Read;
+    let dir = crate::paths::claude_config_dir()
+        .ok_or(Error::Service("Claude credentials unavailable"))?;
+    let mut bytes = crate::https::Wiped(Vec::new());
+    std::fs::File::open(dir.join(".credentials.json"))
+        .and_then(|f| f.take(65_536).read_to_end(&mut bytes.0))
+        .map_err(|_| Error::Service("Claude credentials unavailable"))?;
+    Ok(bytes)
+}
+
+/// One quota read. `credentials` supplies the stored JSON and `get` performs the HTTPS GET
+/// (`host`, `path`, CRLF-separated headers, timeout); the token, the credentials and the request
+/// headers are zeroed when dropped, and no error carries token material.
+pub fn fetch_with(
+    credentials: impl FnOnce() -> Result<Credentials, Error>,
+    get: impl FnOnce(
+        &str,
+        &str,
+        &str,
+        Duration,
+    ) -> Result<crate::https::Response, crate::https::HttpError>,
+    now_ms: i64,
+) -> Result<Snapshot, Error> {
+    let bytes = credentials()?;
     let token = crate::https::Wiped(access_token(&bytes.0, now_ms).map_err(|e| {
         Error::Service(match e {
             CredentialError::Missing => "Claude credentials unavailable",
@@ -289,7 +341,7 @@ pub fn fetch_live() -> Result<Snapshot, Error> {
         "Authorization: Bearer {}\r\nanthropic-beta: oauth-2025-04-20\r\nAccept: application/json\r\n",
         token.0
     ));
-    let response = crate::https::get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
+    let response = get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
         .map_err(|_| Error::Service("Claude usage request failed"))?;
     if let Some(error) = status_error(response.status, response.retry_after) {
         return Err(error);
@@ -513,5 +565,128 @@ mod tests {
                 .unwrap()
                 .contains("unauthorized")
         );
+    }
+
+    mod fetch {
+        use super::*;
+        use crate::https::{HttpError, Response, Wiped};
+        use std::cell::RefCell;
+
+        const TOKEN: &str = "sk-ant-secret-TOKEN-0123";
+        const NOW: i64 = 1_800_000_000_000;
+
+        fn credentials(expires_at: i64) -> Result<Wiped<Vec<u8>>, Error> {
+            Ok(Wiped(
+                format!(
+                    r#"{{"claudeAiOauth":{{"accessToken":"{TOKEN}","expiresAt":{expires_at},"subscriptionType":"max"}}}}"#
+                )
+                .into_bytes(),
+            ))
+        }
+        fn ok_body() -> Vec<u8> {
+            br#"{"five_hour":{"utilization":12,"resets_at":"2026-10-26T00:59:59+00:00"},"seven_day":{"utilization":30,"resets_at":null}}"#.to_vec()
+        }
+        fn response(status: u16, body: Vec<u8>) -> Result<Response, HttpError> {
+            Ok(Response {
+                status,
+                body,
+                retry_after: None,
+            })
+        }
+
+        #[test]
+        fn a_valid_token_is_sent_to_the_usage_endpoint_only_and_the_plan_comes_from_the_item() {
+            let seen = RefCell::new(None);
+            let snapshot = fetch_with(
+                || credentials(NOW + 60_000),
+                |host, path, headers, _| {
+                    *seen.borrow_mut() =
+                        Some((host.to_owned(), path.to_owned(), headers.to_owned()));
+                    response(200, ok_body())
+                },
+                NOW,
+            )
+            .unwrap();
+            let (host, path, headers) = seen.into_inner().unwrap();
+            assert_eq!((host.as_str(), path.as_str()), (HOST, PATH));
+            assert!(headers.contains(&format!("Authorization: Bearer {TOKEN}\r\n")));
+            assert!(headers.contains("anthropic-beta: oauth-2025-04-20"));
+            assert_eq!(
+                snapshot.buckets["claude"]
+                    .primary
+                    .as_ref()
+                    .unwrap()
+                    .used_percent,
+                Some(12.0)
+            );
+            assert_eq!(snapshot.buckets["claude"].plan_type.as_deref(), Some("max"));
+        }
+
+        #[test]
+        fn an_expired_token_is_refused_without_a_request() {
+            let called = std::cell::Cell::new(false);
+            let error = fetch_with(
+                || credentials(NOW - 1),
+                |_, _, _, _| {
+                    called.set(true);
+                    response(200, ok_body())
+                },
+                NOW,
+            )
+            .unwrap_err();
+            assert!(!called.get());
+            assert!(format!("{error:?}").contains("expired"), "{error:?}");
+        }
+
+        #[test]
+        fn missing_credentials_and_unusable_items_make_no_request() {
+            for stored in [
+                Err(Error::Service("Claude credentials unavailable")),
+                Ok(Wiped(b"not json".to_vec())),
+                Ok(Wiped(br#"{"claudeAiOauth":{"accessToken":""}}"#.to_vec())),
+            ] {
+                let called = std::cell::Cell::new(false);
+                let result = fetch_with(
+                    || stored,
+                    |_, _, _, _| {
+                        called.set(true);
+                        response(200, ok_body())
+                    },
+                    NOW,
+                );
+                assert!(result.is_err());
+                assert!(!called.get());
+            }
+        }
+
+        #[test]
+        fn failures_never_carry_the_token() {
+            let outcomes: Vec<Result<Response, HttpError>> = vec![
+                response(401, TOKEN.as_bytes().to_vec()),
+                response(429, Vec::new()),
+                response(302, Vec::new()),
+                response(500, TOKEN.as_bytes().to_vec()),
+                response(200, TOKEN.as_bytes().to_vec()),
+                Err(HttpError::Network),
+                Err(HttpError::TooLarge),
+            ];
+            for outcome in outcomes {
+                let error =
+                    fetch_with(|| credentials(NOW + 1000), |_, _, _, _| outcome, NOW).unwrap_err();
+                assert!(!format!("{error:?}").contains(TOKEN));
+                assert!(!error.to_string().contains(TOKEN));
+            }
+        }
+
+        #[test]
+        fn an_unauthorized_answer_asks_to_sign_in_again() {
+            let error = fetch_with(
+                || credentials(NOW + 1000),
+                |_, _, _, _| response(401, Vec::new()),
+                NOW,
+            )
+            .unwrap_err();
+            assert!(format!("{error:?}").contains("unauthorized"), "{error:?}");
+        }
     }
 }
