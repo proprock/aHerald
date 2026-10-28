@@ -9,24 +9,51 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-29
+
+First release for macOS (Apple Silicon) next to Windows 10/11 x64. The macOS build is
+ad-hoc signed and not notarized.
+
 ### Added
-- Claude session names and a token-free quota (AH-059): `aherald --statusline [--then COMMAND]`
-  with `--install-statusline` / `--uninstall-statusline`, and `[claude.usage] source`.
-- `[tray] style = "bw"` draws the macOS menu-bar quota icon in the system's black or white.
+- macOS support (AH-062–AH-066, AH-061): a non-activating floating card on `NSPanel` with fades,
+  countdown, artwork, mouse navigation and `--demo`; a menu-bar status item with the tray menu, usage
+  and about cards; sounds through AudioQueue; click-to-activate for terminals, Claude Desktop and
+  Codex.app; placement that follows display changes (checked with a second display on an M1).
+- Claude quota on macOS from the Claude Code login in the Keychain (`[claude.usage]`, off by default;
+  the system prompt is never bypassed and the token is never logged, copied or stored).
+- `aHerald.app` for Apple Silicon (AH-067): `package-macos.sh`, `check-release-macos.sh`, a bundle
+  without a Dock icon whose configuration and log live in `~/Library/Application Support/aHerald`,
+  hook scripts and `docs/portable-macos.md`; the release workflow builds the archive.
 - `aherald --install-hooks|--uninstall-hooks claude|codex` (AH-091): adds or removes only aHerald's
-  hook entries in the agent's own file; dry run unless `--apply`, with a backup.
-- macOS overlay (AH-062, in progress): a non-activating floating card on `NSPanel`, drawn with
-  AppKit text, with fades, countdown, artwork, mouse navigation and `--demo`; tray, audio,
-  click-to-activate and the usage card follow in AH-063–AH-066. Not yet checked on multiple
-  displays, Spaces or full-screen apps.
-- macOS click-to-activate (AH-065): a click on a card raises the agent's terminal, Claude Desktop
-  (its session link) or Codex.app.
-- macOS sound (AH-064): AudioQueue playback serialized across processes, repeats suppressed.
-- macOS packaging (AH-067): `package-macos.sh` builds `aHerald.app` (Apple Silicon, ad-hoc signed,
-  no Dock icon) and a zip; `check-release-macos.sh` checks it. In a bundle the configuration and
-  log live in `~/Library/Application Support/aHerald`. Hook scripts and `docs/portable-macos.md`
-  added. Not notarized; Intel Macs unsupported.
+  hook entries in the agent's own file; a dry run unless `--apply`, with a backup.
+- A Claude Code plugin and marketplace in this repository: `claude plugin marketplace add
+  proprock/aHerald`, then `claude plugin install aherald@proprock`.
+- Claude session names and a token-free quota (AH-059): `aherald --statusline [--then COMMAND]`,
+  `--install-statusline` / `--uninstall-statusline`, and `[claude.usage] source = auto|token|statusline`.
+- `[tray] style = "bw"` draws the macOS menu-bar quota icon in the system's black or white.
+- aHerald notice cards (AH-090): problems the user can fix (an unusable sound or picture, a missing
+  monitor, a sound that cannot be played) show once as a card headed "aHerald notice" and are logged,
+  instead of failing silently. Refused hook input and dropped events are logged with fixed codes.
+- Log timestamps carry the local UTC offset on Unix.
 - `https-client` Cargo feature (default on) for the Unix HTTPS client.
+
+### Changed
+- The colour stripe on the card is 14 px wide (was 8) and the built-in turn-complete tick is centred
+  in its circle (Windows and macOS).
+- The resident request handler, the card text, the activation worker, the card surface and the
+  artwork composition are shared between Windows and macOS (AH-088); no intended behaviour change.
+
+### Known limitations
+- Windows: the wider stripe and the notice card were checked only by tests and CI in this release,
+  not by eye, and the missing-monitor notice exists on macOS only; `--install-statusline` and the plugin launcher are macOS-only for now (Windows reports
+  "not supported yet"); Windows 10 is still untested (AH-023).
+- macOS: not signed with a Developer ID and not notarized, so Gatekeeper warns on a downloaded
+  copy; Intel Macs are unsupported; not yet checked in iTerm2 or other terminals, nor with a
+  full-screen app on the main display.
+- Claude Desktop does not run `statusLine`, so session names and the statusLine quota reach cards
+  only for terminal and IDE sessions; the token quota works for Desktop.
+- Codex input waits are observed only through hooks; unrelated CLI/app sessions are not visible.
+- Linux builds and has IPC, spawn and HTTPS but no overlay, tray or audio yet (AH-068 onward).
 
 ## [0.1.0] - 2026-10-27
 
