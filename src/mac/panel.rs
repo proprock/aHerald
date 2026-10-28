@@ -3,6 +3,7 @@ use super::{
     geometry::{Frame, Rect, Screen},
     surface::Surface,
 };
+use crate::card_surface::CardSurface;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
     NSBackingStoreType, NSColor, NSEvent, NSImageScaling, NSImageView, NSPanel, NSScreen,

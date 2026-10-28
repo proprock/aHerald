@@ -58,21 +58,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   when verified on those machines. Acceptance: on the M1 the plugin installs from the repo with
   `claude plugin marketplace add` and delivers a card; `--install-hooks` round-trips on a real file.
 
-- [ ] **AH-088 — Share the code the macOS port duplicated from Windows.** Depends on AH-062,
-  AH-065.
-  The resident IPC request handler, `event_card_text`, the activation worker and the card
-  surface/composition exist twice (`src/resident.rs`, `overlay.rs`, `activation/native.rs` and
-  `src/mac/`) because the Windows code could not be compiled while the macOS port was written.
-  Extract them into portable modules used by both. Acceptance: no behavior change, Windows CI
-  and the native Windows tests green.
-  Status 2026-10-28 (branch `refactor/ah-088-share-code`): the IPC request handler is
-  `resident_request::respond` (unit-tested; both residents call it), `event_card_text` lives in
-  `card_paint`, and `activation::Worker` is portable with a per-platform runner (unit-tested).
-  The Windows side was type-checked and linted from the Mac with
-  `cargo clippy --target x86_64-pc-windows-msvc --all-targets`; Windows CI is the run check.
-  Remaining: the card surface and composition (`overlay.rs` `Surface`/`Composition` against
-  `mac/surface.rs`), which needs the GDI surface moved onto a shared pixel buffer.
-
 - [ ] **AH-068 — Linux X11 overlay.** Depends on AH-061.
   `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
   Works under XWayland. Acceptance: manual check on Ubuntu (Xorg login and XWayland):

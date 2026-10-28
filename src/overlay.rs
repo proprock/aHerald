@@ -14,6 +14,8 @@ use windows::{
 };
 
 pub(crate) use crate::card_paint::CardText;
+use crate::card_surface::CardSurface;
+pub(crate) type Composition = crate::card_surface::Composition<Surface>;
 use crate::card_paint::{Align, TextRun};
 pub(crate) struct Surface {
     dc: HDC,
@@ -143,19 +145,7 @@ fn draw_runs(dc: HDC, runs: &[TextRun]) -> Result<(), String> {
     }
     result
 }
-impl Surface {
-    fn byte_len(&self) -> usize {
-        self.width as usize * self.height as usize * 4
-    }
-    fn pixels(&self) -> &[u8] {
-        // SAFETY: the DIB section owns `byte_len` bytes until `self` drops, and GDI never
-        // draws while a borrow of the surface is alive (drawing needs the DC calls below).
-        unsafe { std::slice::from_raw_parts(self.pixels, self.byte_len()) }
-    }
-    fn pixels_mut(&mut self) -> &mut [u8] {
-        // SAFETY: as in `pixels`; `&mut self` makes this the only live view of the bytes.
-        unsafe { std::slice::from_raw_parts_mut(self.pixels, self.byte_len()) }
-    }
+impl CardSurface for Surface {
     fn allocate(width: i32, height: i32) -> Result<Self, String> {
         // SAFETY: dimensions come from bounded frame preparation or bounded fallback sizing.
         unsafe {
@@ -200,47 +190,36 @@ impl Surface {
             Ok(surface)
         }
     }
-    /// Replaces this surface's pixels with `base` (same dimensions) and drops the
-    /// cached resized copy, which no longer matches.
-    fn copy_from(&mut self, base: &Surface) {
-        debug_assert_eq!((self.width, self.height), (base.width, base.height));
-        self.pixels_mut().copy_from_slice(base.pixels());
+    fn width(&self) -> i32 {
+        self.width
+    }
+    fn height(&self) -> i32 {
+        self.height
+    }
+    fn pixels(&self) -> &[u8] {
+        // SAFETY: the DIB section owns `byte_len` bytes until `self` drops, and GDI never
+        // draws while a borrow of the surface is alive (drawing needs the DC calls below).
+        unsafe { std::slice::from_raw_parts(self.pixels, self.byte_len()) }
+    }
+    fn pixels_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as in `pixels`; `&mut self` makes this the only live view of the bytes.
+        unsafe { std::slice::from_raw_parts_mut(self.pixels, self.byte_len()) }
+    }
+    /// The cached resized copy no longer matches.
+    fn pixels_changed(&mut self) {
         *self.resized.get_mut() = None;
     }
-    /// Draws `base` with one artwork frame blended over it into this surface, which
-    /// must have the same dimensions as `base`.
-    pub(crate) fn blend_artwork(
-        &mut self,
-        base: &Surface,
-        frame: &crate::animation::PreparedFrame,
-        left: i32,
-        top: i32,
-    ) -> Result<(), String> {
-        if (self.width, self.height) != (base.width, base.height)
-            || left < 0
-            || top < 0
-            || left as u32 + frame.width > self.width as u32
-            || top as u32 + frame.height > self.height as u32
-            || frame.bgra.len() != frame.width as usize * frame.height as usize * 4
-        {
-            return Err("artwork does not fit notification card".into());
-        }
-        self.copy_from(base);
-        // Frames and card pixels are premultiplied BGRA; the bounds were checked above.
-        let width = self.width as usize;
-        let pixels = self.pixels_mut();
-        for y in 0..frame.height as usize {
-            for x in 0..frame.width as usize {
-                let src = &frame.bgra[(y * frame.width as usize + x) * 4..][..4];
-                let offset = ((y + top as usize) * width + x + left as usize) * 4;
-                for c in 0..4 {
-                    pixels[offset + c] = (src[c] as u16
-                        + (pixels[offset + c] as u16 * (255 - src[3] as u16) + 127) / 255)
-                        .min(255) as u8;
-                }
-            }
-        }
+    fn draw_countdown(&mut self, seconds: u64, scale: f64) -> Result<(), String> {
+        let run = crate::card_paint::countdown_run(self.width, seconds, scale);
+        draw_runs(self.dc, std::slice::from_ref(&run))?;
+        restore_alpha(self.pixels_mut());
+        self.pixels_changed();
         Ok(())
+    }
+}
+impl Surface {
+    fn byte_len(&self) -> usize {
+        self.width as usize * self.height as usize * 4
     }
     #[cfg(test)]
     fn text(
@@ -311,15 +290,6 @@ impl Surface {
             }
         }
         Ok(surface)
-    }
-    /// Draws the remaining-seconds badge over the pixels already in this surface.
-    pub(crate) fn draw_countdown(&mut self, seconds: u64, scale: f64) -> Result<(), String> {
-        let surface = self;
-        let run = crate::card_paint::countdown_run(surface.width, seconds, scale);
-        draw_runs(surface.dc, std::slice::from_ref(&run))?;
-        restore_alpha(surface.pixels_mut());
-        *surface.resized.get_mut() = None;
-        Ok(())
     }
     pub(crate) fn present_placed(
         &self,
@@ -580,120 +550,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
 /// artwork frames, blended into a single working surface only when a frame (or the
 /// countdown second) changes. Memory is two card surfaces plus the artwork, however
 /// many frames there are.
-pub(crate) struct Composition {
-    base: Surface,
-    work: Surface,
-    art: Option<std::sync::Arc<crate::animation::PreparedAnimation>>,
-    art_left: i32,
-    /// What `work` currently shows: frame and countdown second.
-    shown: Option<(usize, Option<u64>)>,
-    pub durations: Vec<u64>,
-    pub looping: bool,
-    pub text_left: i32,
-    /// Artwork was available but the text card was used instead.
-    pub degraded: bool,
-}
-impl Composition {
-    /// Sizes the card by the largest artwork frame. Any composition failure, or a
-    /// card too large to hold twice within the byte budget, falls back to the plain
-    /// text card; only a failing text card is an error. The artwork's own size is
-    /// already bounded when it is prepared.
-    pub(crate) fn compose(
-        scale: f64,
-        art: Option<std::sync::Arc<crate::animation::PreparedAnimation>>,
-        make_card: impl Fn(i32, i32, i32) -> Result<Surface, String>,
-    ) -> Result<Self, String> {
-        let _timer = crate::perf::span(crate::perf::Span::CompositionBuild);
-        crate::perf::count(crate::perf::Counter::CompositionRebuild);
-        let (base_width, base_height) = ((320.0 * scale) as i32, crate::card::height(scale));
-        let has_art = art.as_ref().is_some_and(|a| !a.frames.is_empty());
-        if let Some(art) = art.as_ref().filter(|a| !a.frames.is_empty()) {
-            let padding = (18.0 * scale) as i32;
-            let art_width = art.frames.iter().map(|f| f.width).max().unwrap_or(0) as i32;
-            let art_height = art.frames.iter().map(|f| f.height).max().unwrap_or(0) as i32;
-            let width = base_width + art_width + padding;
-            let height = base_height.max(art_height + padding * 2);
-            let bytes = width as u64 * height as u64 * 4 * 2;
-            if bytes <= crate::animation::MAX_BYTES
-                && let Ok(base) = make_card(width, height, art_width + padding * 2)
-                && let Ok(work) = Surface::allocate(width, height)
-            {
-                crate::perf::gauge(crate::perf::Gauge::CompositionBytes, bytes);
-                return Ok(Self {
-                    base,
-                    work,
-                    art: Some(art.clone()),
-                    art_left: padding,
-                    shown: None,
-                    durations: art.durations_ms.clone(),
-                    looping: art.looping,
-                    text_left: art_width + padding * 2,
-                    degraded: false,
-                });
-            }
-        }
-        let text_left = (22.0 * scale) as i32;
-        crate::perf::gauge(
-            crate::perf::Gauge::CompositionBytes,
-            base_width as u64 * base_height as u64 * 4 * 2,
-        );
-        Ok(Self {
-            base: make_card(base_width, base_height, text_left)?,
-            work: Surface::allocate(base_width, base_height)?,
-            art: None,
-            art_left: 0,
-            shown: None,
-            durations: vec![1000],
-            looping: false,
-            text_left,
-            degraded: has_art,
-        })
-    }
-    pub(crate) fn frame_count(&self) -> usize {
-        self.art.as_ref().map_or(1, |a| a.frames.len())
-    }
-    pub(crate) fn size(&self) -> (i32, i32) {
-        (self.base.width, self.base.height)
-    }
-    /// Draws `frame`, with the countdown badge when `seconds` is given, into the
-    /// working surface and returns it. Asking again for what is shown costs nothing.
-    pub(crate) fn render(
-        &mut self,
-        frame: usize,
-        seconds: Option<u64>,
-        scale: f64,
-    ) -> Result<&Surface, String> {
-        let frame = frame.min(self.frame_count() - 1);
-        if self.shown != Some((frame, seconds)) {
-            let _timer = crate::perf::span(crate::perf::Span::FrameRender);
-            self.shown = None;
-            match &self.art {
-                Some(art) => {
-                    let f = &art.frames[frame];
-                    let top = (self.base.height - f.height as i32) / 2;
-                    self.work.blend_artwork(&self.base, f, self.art_left, top)?;
-                }
-                None => self.work.copy_from(&self.base),
-            }
-            if let Some(seconds) = seconds {
-                self.work.draw_countdown(seconds, scale)?;
-            }
-            self.shown = Some((frame, seconds));
-        }
-        Ok(&self.work)
-    }
-    /// Redraws the base card's text (heading, counter, age) at the same size; the artwork
-    /// is blended at render time, so it and its frames are untouched.
-    pub(crate) fn update_card(
-        &mut self,
-        make_card: impl FnOnce(i32, i32, i32) -> Result<Surface, String>,
-    ) -> Result<(), String> {
-        self.base = make_card(self.base.width, self.base.height, self.text_left)?;
-        self.shown = None;
-        Ok(())
-    }
-}
-
 /// Registers the transient card class; an existing registration (a second card in the
 /// same process) is reused. Must match `placement::TRANSIENT_CLASS`.
 pub(crate) fn register_class(
@@ -888,6 +744,7 @@ mod class_tests {
 mod composition_tests {
     use super::{Composition, Surface};
     use crate::animation::{PreparedAnimation, PreparedFrame};
+    use crate::card_surface::CardSurface;
     fn frame(width: u32, height: u32) -> PreparedFrame {
         PreparedFrame {
             width,
@@ -1038,6 +895,7 @@ mod composition_tests {
 #[cfg(test)]
 mod card_tests {
     use super::Surface;
+    use crate::card_surface::CardSurface;
     fn drawn(
         heading: &crate::card::Heading,
         count: usize,
