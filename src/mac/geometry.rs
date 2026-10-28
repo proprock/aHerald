@@ -114,6 +114,25 @@ pub fn place_below(screen: &Screen, anchor: Rect, card: (i32, i32)) -> Frame {
     }
 }
 
+/// Remembers the displays a card was placed for, so a change of the set (an iPad leaving, a
+/// resolution or Dock change) is noticed and the card is placed again instead of staying where
+/// a display no longer is.
+#[derive(Default)]
+pub struct ScreenWatch {
+    last: Option<Vec<Screen>>,
+}
+
+impl ScreenWatch {
+    /// Whether `screens` differ from the last call (always for the first one).
+    pub fn changed(&mut self, screens: &[Screen]) -> bool {
+        if self.last.as_deref() == Some(screens) {
+            return false;
+        }
+        self.last = Some(screens.to_vec());
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +281,24 @@ mod tests {
         let f = place_below(&laptop(), rect(1300.0, 875.0, 40.0, 25.0), (1520, 4000));
         assert!(f.rect.height <= 875.0 - 6.0 && f.rect.y >= 0.0);
         assert!((f.rect.width / f.rect.height - 1520.0 / 4000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_watch_reports_the_first_look_and_every_change_of_the_displays_only() {
+        let mut watch = ScreenWatch::default();
+        let both = [laptop(), external()];
+        assert!(watch.changed(&both));
+        assert!(!watch.changed(&both));
+        // The second display leaves.
+        assert!(watch.changed(&[laptop()]));
+        assert!(!watch.changed(&[laptop()]));
+        // The Dock grows on the remaining display.
+        let mut docked = laptop();
+        docked.visible.height -= 40.0;
+        assert!(watch.changed(&[docked]));
+        // Back to the first arrangement, then the displays are swapped in order.
+        assert!(watch.changed(&both));
+        assert!(watch.changed(&[external(), laptop()]));
+        assert!(watch.changed(&[]));
     }
 }
