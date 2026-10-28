@@ -70,12 +70,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   and its cards on a second one, Spaces, full-screen apps, display change). Code shared with
   Windows moved to AH-088.
 
-- [ ] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
-  Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth
-  item from the Keychain and use it only for the usage endpoint. Needs an explicit
-  AGENTS.md exception (extends AH-037) agreed first. Never log, copy or write back.
-  Acceptance: parsing tests with fixtures; manual check; token never appears in logs.
-
 - [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
   `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
   examples, setup and removal steps, release check script. Decide arm64-only versus
@@ -96,10 +90,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `cargo clippy --target x86_64-pc-windows-msvc --all-targets`; Windows CI is the run check.
   Remaining: the card surface and composition (`overlay.rs` `Surface`/`Composition` against
   `mac/surface.rs`), which needs the GDI surface moved onto a shared pixel buffer.
-
-- [ ] **AH-089 — macOS audio device change and light menu bar (split from AH-064, AH-063).**
-  Manual checks only: a sound while the output device changes (for example Bluetooth), and the
-  status icon on a light wallpaper. Acceptance: observed on the M1; fix what fails.
 
 - [ ] **AH-068 — Linux X11 overlay.** Depends on AH-061.
   `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
@@ -141,6 +131,23 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
   Also carries the case split from AH-076: a card that opens on a second monitor with a
   different DPI is drawn at that monitor's scale (cards are not draggable by design).
+
+- [ ] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
+  the ones the user can fix.**
+  aHerald sometimes drops or degrades what was configured or sent without a trace: a sound
+  longer than five seconds, larger than 2 MiB, not 16-bit PCM or missing is ignored
+  (`audio::cached` and `Wave::parse` errors vanish), and other `let _ =` or `if let Ok` sites
+  swallow a failure. First, audit every such site (sounds, artwork, configuration values that
+  fall back to defaults, events refused by validation or the queue, clicks that find no agent,
+  usage polls, Keychain and file reads) and list them here. Then, at least: one operational log
+  line per case with a fixed code (never a payload, a prompt, a token or a full path), once per
+  failing episode rather than per event. Second channel, for failures the user can act on (a
+  refused sound or artwork file, an invalid configuration value): the standard notification card
+  with the error icon, shown once per episode and never from the hook process, which must stay
+  fast and silent. Acceptance: each audited case has a test that the record is written and,
+  where it applies, the card is queued; hook behavior and its stdout contract are unchanged.
+  Decide when the card is built: whether it is a normal `error` event from aHerald itself and how
+  repeats are throttled.
 
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
