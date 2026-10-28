@@ -25,6 +25,7 @@ pub mod resident {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 pub mod console_window {
     /// No console window is recorded off Windows.
     pub fn current() -> Option<u64> {

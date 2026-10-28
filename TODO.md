@@ -109,6 +109,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   session lookup under `~/Library/Application Support/Claude` (still `cliSessionId` only).
   Document Accessibility/Automation prompts. Acceptance: manual check with Terminal,
   iTerm2 and Claude Desktop; policy tests stay platform-neutral.
+  Status 2026-10-28 (branch `feature/ah-065-macos-activate`): `src/mac/terminal.rs` (parent
+  chain from `proc_pidinfo`, falling back to `ps` for root-owned `login`; first ancestor whose
+  bundle id is Terminal, iTerm2, Ghostty, Warp, kitty, Alacritty or WezTerm; its pid travels in
+  `Event::window`; raised through `open -b`, re-checked at click time) and `src/mac/activation.rs`
+  (macOS agents and the worker; the policy is the shared `activation::click`). No Accessibility
+  or Automation permission is needed because nothing is scripted; only the application comes
+  forward, not a window or tab. Checked by hand on the M1: a hook run from Terminal.app, a click
+  from Finder brings Terminal forward; a Claude event with a Desktop session id brings Claude
+  Desktop forward (link `claude://claude.ai/epitaxy/local_*`); a Codex event brings Codex.app
+  forward. Not verified: iTerm2 (not installed), Warp and the other terminals, that Desktop
+  lands on the right session, tab or window selection in a terminal (would need Automation).
 
 - [ ] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
   Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth

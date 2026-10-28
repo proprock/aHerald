@@ -276,6 +276,7 @@ struct Ui {
     layout_count: usize,
     audio: Vec<std::thread::JoinHandle<()>>,
     audio_cancel: Arc<AtomicBool>,
+    activation: super::activation::Worker,
 }
 
 impl Ui {
@@ -498,6 +499,25 @@ impl Ui {
         let paused = state.paused;
         state.queue.tick(now, paused);
         for point in clicks {
+            let pixels = input::to_pixels(point, window, &layout);
+            // A click on the card's body raises the agent; the buttons keep their own meaning.
+            if !self.usage_window
+                && input::on_body(
+                    &state.queue,
+                    self.config.notifications.click_to_dismiss,
+                    &layout,
+                    pixels,
+                )
+                && let Some(entry) = state.queue.selected()
+            {
+                self.activation.submit(
+                    &entry.event,
+                    self.config.notifications.activate_agent_on_click,
+                    true,
+                    self.config_path.parent().unwrap_or_else(|| Path::new(".")),
+                    self.config.general.logging,
+                );
+            }
             input::click(
                 &mut state.queue,
                 self.usage_window || self.config.notifications.click_to_dismiss,
@@ -934,6 +954,7 @@ fn present(
             layout_count: 0,
             audio: Vec::new(),
             audio_cancel: Arc::new(AtomicBool::new(false)),
+            activation: super::activation::Worker::default(),
             config,
         };
         // Events queued before the loop started are picked up by the first step.
