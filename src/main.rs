@@ -98,9 +98,16 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     // Respond to the hook contract before any fallible configuration or delivery.
     let hook_event = if cli.operation.as_deref() == Some("hook") {
-        let bytes =
-            aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)?;
-        let event = cli.hook_agent().parse_hook(&bytes)?;
+        let event = aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
+            .and_then(|bytes| cli.hook_agent().parse_hook(&bytes))
+            .inspect_err(|error| {
+                log_code(
+                    &path,
+                    aherald::operational_log::Record::HookRejected(
+                        aherald::events::hook_error_code(error),
+                    ),
+                )
+            })?;
         if let Some(reply) = event.as_ref().and_then(|e| cli.hook_agent().hook_reply(e)) {
             println!("{reply}");
         }

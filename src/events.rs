@@ -295,6 +295,16 @@ pub fn read_bounded(
         .map_err(|_| "hook input deadline exceeded".to_owned())?
 }
 
+/// Fixed log word for why a hook input was refused (`read_bounded` and `parse_hook` errors).
+pub fn hook_error_code(error: &str) -> &'static str {
+    match error {
+        "hook input exceeds 64 KiB" => "too_large",
+        "hook input deadline exceeded" => "timeout",
+        "invalid hook JSON" => "invalid",
+        _ => "unreadable",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

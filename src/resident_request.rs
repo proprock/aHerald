@@ -4,7 +4,7 @@ use crate::{
     config::Config,
     events::Source,
     ipc::{Request, Response},
-    queue::Queue,
+    queue::{Outcome, Queue},
 };
 
 /// The resident state a request reads or changes.
@@ -27,6 +27,9 @@ pub struct Effects {
     pub wake: bool,
     /// The queue refused a valid event; log it once the state lock is released.
     pub rejected: bool,
+    /// A valid event produced no card on purpose; log why (`disabled`, `duplicate`, `obsolete`)
+    /// once the state lock is released.
+    pub dropped: Option<&'static str>,
 }
 
 /// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
@@ -44,6 +47,13 @@ pub fn notice_sink<S: Controls + Send + 'static>(
         if effects.wake {
             wake(&state);
         }
+    }
+}
+
+fn dropped(why: &'static str) -> Effects {
+    Effects {
+        dropped: Some(why),
+        ..Effects::default()
     }
 }
 
@@ -70,7 +80,7 @@ pub fn respond(
             Effects {
                 quit: true,
                 wake: true,
-                rejected: false,
+                ..Effects::default()
             },
         ),
         Request::Event { event } => {
@@ -102,7 +112,13 @@ pub fn respond(
             if !setting.enabled {
                 // A disabled kind shows nothing but still ends its turn's waits.
                 state.queue().observe_terminal(&event);
-                return (Response::Accepted, Effects::default());
+                return (
+                    Response::Accepted,
+                    Effects {
+                        dropped: Some("disabled"),
+                        ..Effects::default()
+                    },
+                );
             }
             let duration = if setting.duration_ms == 0 {
                 0
@@ -111,22 +127,23 @@ pub fn respond(
                     .duration_ms
                     .saturating_add(settings.notifications.fade_out_ms)
             };
-            if state.queue().push(event, now, duration).is_accepted() {
-                (
-                    Response::Accepted,
-                    Effects {
-                        wake: true,
-                        ..Effects::default()
-                    },
-                )
-            } else {
-                (
+            match state.queue().push(event, now, duration) {
+                Outcome::Full | Outcome::Invalid => (
                     Response::Rejected,
                     Effects {
                         rejected: true,
                         ..Effects::default()
                     },
-                )
+                ),
+                Outcome::Duplicate => (Response::Accepted, dropped("duplicate")),
+                Outcome::Obsolete => (Response::Accepted, dropped("obsolete")),
+                Outcome::Queued | Outcome::Resolved => (
+                    Response::Accepted,
+                    Effects {
+                        wake: true,
+                        ..Effects::default()
+                    },
+                ),
             }
         }
     }
@@ -203,7 +220,7 @@ mod tests {
             Effects {
                 quit: true,
                 wake: true,
-                rejected: false
+                ..Effects::default()
             }
         );
     }
@@ -216,9 +233,8 @@ mod tests {
         assert_eq!(
             effects,
             Effects {
-                quit: false,
                 wake: true,
-                rejected: false
+                ..Effects::default()
             }
         );
         assert_eq!(s.queue.items().len(), 1);
@@ -257,8 +273,56 @@ mod tests {
         let mut s = state(8);
         let (response, effects) = send(&mut s, &settings, event("turn_complete"));
         assert!(matches!(response, Response::Accepted));
-        assert_eq!(effects, Effects::default());
+        assert_eq!(
+            effects,
+            Effects {
+                dropped: Some("disabled"),
+                ..Effects::default()
+            }
+        );
         assert!(s.queue.items().is_empty());
+    }
+
+    #[test]
+    fn a_disabled_kind_asks_for_a_debug_line_naming_why_it_was_dropped() {
+        let mut settings = Config::default();
+        let kind = event("turn_complete").kind;
+        settings.events[kind].enabled = false;
+        let (_, effects) = send(&mut state(8), &settings, event("turn_complete"));
+        assert_eq!(effects.dropped, Some("disabled"));
+        assert!(!effects.wake);
+    }
+
+    #[test]
+    fn a_repeat_inside_the_dedup_window_asks_for_a_debug_line() {
+        let settings = Config::default();
+        let mut s = State {
+            queue: Queue::new(8, 5000),
+            ..state(8)
+        };
+        let (_, first) = send(&mut s, &settings, event("turn_complete"));
+        assert_eq!(first.dropped, None);
+        let (response, second) = send(&mut s, &settings, event("turn_complete"));
+        assert!(matches!(response, Response::Accepted));
+        assert_eq!(second.dropped, Some("duplicate"));
+        assert!(!second.wake);
+    }
+
+    #[test]
+    fn a_wait_that_arrives_after_its_turn_ended_asks_for_a_debug_line() {
+        let settings = Config::default();
+        let mut s = state(8);
+        let mut done = event("interrupted");
+        done.source = crate::events::Source::CodexHook;
+        done.session_id = Some("s".into());
+        done.turn_id = Some("t".into());
+        let mut late = event("permission_required");
+        late.source = crate::events::Source::CodexHook;
+        late.session_id = Some("s".into());
+        late.turn_id = Some("t".into());
+        send(&mut s, &settings, done);
+        let (_, effects) = send(&mut s, &settings, late);
+        assert_eq!(effects.dropped, Some("obsolete"));
     }
 
     #[test]
@@ -280,9 +344,8 @@ mod tests {
         assert_eq!(
             effects,
             Effects {
-                quit: false,
-                wake: false,
-                rejected: true
+                rejected: true,
+                ..Effects::default()
             }
         );
     }

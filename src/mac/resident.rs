@@ -175,6 +175,9 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                     if effects.rejected {
                         log(Record::QueueRejected);
                     }
+                    if let Some(why) = effects.dropped {
+                        log(Record::EventDropped(why));
+                    }
                     response
                 });
                 if result.is_err() {
@@ -232,7 +235,7 @@ struct Ui {
     frame: Option<Frame>,
     screen_watch: geometry::ScreenWatch,
     /// The missing monitor number and the display count it was last reported for.
-    monitor_reported: Option<(usize, usize)>,
+    monitor_watch: crate::notice::MonitorWatch,
     shown_card: (crate::card::Heading, usize, usize, String),
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
@@ -497,17 +500,8 @@ impl Ui {
             self.presenter.invalidate();
         }
         // Said once for each combination of the setting and the connected displays.
-        match geometry::missing_monitor(&screens, self.config.notifications.monitor) {
-            Some(n) if self.monitor_reported != Some((n, screens.len())) => {
-                self.monitor_reported = Some((n, screens.len()));
-                crate::operational_log::log(crate::operational_log::Record::MonitorMissing);
-                crate::notice::post(&format!(
-                    "Monitor {n} is not connected; using the main display"
-                ));
-            }
-            Some(_) => {}
-            None => self.monitor_reported = None,
-        }
+        self.monitor_watch
+            .check(self.config.notifications.monitor, screens.len());
         Ok(screens)
     }
 
@@ -979,7 +973,7 @@ fn present(
             animation_start: 0,
             frame: None,
             screen_watch: geometry::ScreenWatch::default(),
-            monitor_reported: None,
+            monitor_watch: crate::notice::MonitorWatch::new(),
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
             source_labels: if usage_enabled {

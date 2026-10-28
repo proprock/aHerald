@@ -235,6 +235,12 @@ fn target(config: &crate::config::Notifications) -> Result<Target, String> {
             let _ = GetMonitorInfoW(*m, &mut info.monitorInfo);
             (*m != primary, info.szDevice)
         });
+        static WATCH: std::sync::Mutex<crate::notice::MonitorWatch> =
+            std::sync::Mutex::new(crate::notice::MonitorWatch::new());
+        WATCH
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .check(config.monitor, monitors.len());
         let selected = match config.monitor {
             Monitor::Index(i) => monitors.get(i).copied(),
             Monitor::Primary => None,

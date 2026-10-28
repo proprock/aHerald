@@ -167,6 +167,9 @@ fn run_with_usage(
                 if effects.rejected {
                     log(Record::QueueRejected);
                 }
+                if let Some(why) = effects.dropped {
+                    log(Record::EventDropped(why));
+                }
                 response
             });
             if result.is_err() {
