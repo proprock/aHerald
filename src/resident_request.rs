@@ -75,6 +75,19 @@ pub fn respond(
             },
             Effects::default(),
         ),
+        Request::StatusLine { report } => {
+            // The wrapper already validated the payload, but the pipe is untrusted input.
+            if report.session_id.is_empty()
+                || report.session_id.len() > 256
+                || report.session_id.chars().any(char::is_control)
+            {
+                return (Response::Rejected, Effects::default());
+            }
+            crate::statusline::with_store(|store| {
+                store.record(report, crate::usage_service::unix_now())
+            });
+            (Response::Accepted, Effects::default())
+        }
         Request::Quit => (
             Response::Bye,
             Effects {
@@ -395,5 +408,40 @@ mod tests {
         // The queue is full: the notice is dropped without a wake.
         sink(Event::notice("another"));
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_statusline_report_is_stored_and_acknowledged_without_touching_the_queue() {
+        let mut state = state(8);
+        let report = crate::statusline::Report {
+            session_id: "respond-statusline-test".into(),
+            session_name: Some("Named".into()),
+            quota: None,
+        };
+        let (response, effects) = respond(
+            Request::StatusLine {
+                report: report.clone(),
+            },
+            &mut state,
+            &Config::default(),
+            0,
+        );
+        assert!(matches!(response, Response::Accepted));
+        assert_eq!(effects, Effects::default());
+        assert!(state.queue().items().is_empty());
+        let stored =
+            crate::statusline::with_store(|s| s.name("respond-statusline-test").map(str::to_owned));
+        assert_eq!(stored.as_deref(), Some("Named"));
+        let invalid = crate::statusline::Report {
+            session_id: String::new(),
+            ..report
+        };
+        let (response, _) = respond(
+            Request::StatusLine { report: invalid },
+            &mut state,
+            &Config::default(),
+            0,
+        );
+        assert!(matches!(response, Response::Rejected));
     }
 }

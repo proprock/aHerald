@@ -34,9 +34,15 @@ pub fn decode<T: DeserializeOwned>(frame: &[u8]) -> Result<T, String> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
-    Event { event: crate::events::Event },
+    Event {
+        event: crate::events::Event,
+    },
     Status,
     Quit,
+    /// Session name and quota from Claude Code's statusLine (see `statusline`).
+    StatusLine {
+        report: crate::statusline::Report,
+    },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]

@@ -576,13 +576,25 @@ impl Service {
     }
     /// Opt-in Claude quota poller; see `claude_usage` for the data source and its limits.
     #[cfg(any(windows, unix))]
-    pub fn claude(enabled: bool, interval: Duration) -> Self {
+    pub fn claude(
+        enabled: bool,
+        interval: Duration,
+        source: crate::config::ClaudeUsageSource,
+    ) -> Self {
         Self::spawn_source(
             Agent::Claude,
             enabled,
             interval,
             Arc::new(AtomicBool::new(false)),
-            || crate::claude_usage::ClaudeSource::new(crate::claude_usage::fetch_live),
+            move || {
+                crate::claude_usage::ClaudeSource::new(move || {
+                    crate::claude_usage::read_with(source, crate::claude_usage::fetch_live, || {
+                        crate::statusline::with_store(|store| {
+                            store.quota_snapshot(unix_now(), None)
+                        })
+                    })
+                })
+            },
         )
     }
     pub fn spawn<T: Transport + Send + 'static, F: FnMut() -> Result<T, Error> + Send + 'static>(

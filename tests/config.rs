@@ -351,6 +351,94 @@ fn hook_setup_operations_take_an_agent_and_an_optional_file_and_apply() {
 }
 
 #[test]
+fn the_claude_quota_source_defaults_to_auto_and_accepts_the_three_values() {
+    use aherald::config::ClaudeUsageSource as S;
+    let dir = PathBuf::from(".");
+    assert_eq!(
+        Config::parse("", &dir).unwrap().claude.usage.source,
+        S::Auto
+    );
+    for (name, source) in [
+        ("auto", S::Auto),
+        ("token", S::Token),
+        ("statusline", S::Statusline),
+    ] {
+        let text = format!("[claude.usage]\nsource='{name}'");
+        assert_eq!(
+            Config::parse(&text, &dir).unwrap().claude.usage.source,
+            source
+        );
+    }
+    let error = Config::parse("[claude.usage]\nsource='both'", &dir).unwrap_err();
+    assert!(error.contains("claude.usage.source"), "{error}");
+}
+
+#[test]
+fn statusline_takes_an_optional_command_and_no_mode() {
+    let cli = Cli::parse(args(&["--statusline"])).unwrap();
+    assert_eq!(
+        (cli.operation.as_deref(), cli.then),
+        (Some("statusline"), None)
+    );
+    let cli = Cli::parse(args(&["--statusline", "--then", "~/bar.sh --x"])).unwrap();
+    assert_eq!(cli.then.as_deref(), Some("~/bar.sh --x"));
+    for bad in [
+        vec!["--then", "x"],
+        vec!["--statusline", "--then"],
+        vec!["--statusline", "--then", "a", "--then", "b"],
+        vec!["--statusline", "--resident"],
+        vec!["--statusline", "--agent", "claude"],
+        vec!["--hook", "--then", "x"],
+    ] {
+        assert!(Cli::parse(args(&bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn statusline_setup_operations_share_apply_and_file_options() {
+    for op in ["--install-statusline", "--uninstall-statusline"] {
+        let cli = Cli::parse(args(&[op, "--apply", "--hooks-file", "s.json"])).unwrap();
+        assert_eq!(cli.operation.as_deref(), Some(&op[2..]));
+        assert!(cli.apply && cli.hooks_file.is_some());
+        assert!(Cli::parse(args(&[op, "--resident"])).is_err());
+        assert!(Cli::parse(args(&[op, "--then", "x"])).is_err());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn statusline_setup_wraps_an_existing_command_through_the_binary_and_restores_it() {
+    let dir = std::env::temp_dir().join(format!("aherald-sl-bin-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("settings.json");
+    let original = r#"{"statusLine":{"type":"command","command":"my-bar --x"},"theme":"dark"}"#;
+    fs::write(&file, original).unwrap();
+    let run = |op: &str, extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args([op, "--hooks-file"])
+            .arg(&file)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let dry = run("--install-statusline", &[]);
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+    assert!(run("--install-statusline", &["--apply"]).status.success());
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains("--statusline --then 'my-bar --x'"), "{text}");
+    assert!(run("--uninstall-statusline", &["--apply"]).status.success());
+    let restored: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        restored,
+        serde_json::from_str::<serde_json::Value>(original).unwrap()
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hook_setup_dry_run_and_apply_work_through_the_binary() {
     let dir = std::env::temp_dir().join(format!("aherald-setup-bin-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);

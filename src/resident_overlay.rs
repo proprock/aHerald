@@ -931,6 +931,7 @@ fn claude_usage(config: &Config) -> Option<crate::usage_service::Service> {
         crate::usage_service::Service::claude(
             true,
             std::time::Duration::from_secs(config.claude.usage.refresh_interval_sec),
+            config.claude.usage.source,
         )
     })
 }

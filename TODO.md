@@ -174,38 +174,5 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 ## Milestone 6 — Claude parity (deferred)
 
-- [ ] **AH-059 — Claude session names and statusLine quota fallback (split from AH-038).**
-  Priority: low. Deferred to the next milestone (decided 2026-10-27); not started.
-  Both items need the Claude `statusLine` command, the only place `session_name` and
-  `rate_limits` (`five_hour`/`seven_day` `used_percentage`, `resets_at` in Unix seconds)
-  are delivered; hooks carry neither, and transcripts are off limits (AGENTS.md). Claude
-  Code allows one `statusLine` command, so aHerald must not replace the user's.
-  Candidate design, to confirm with the user first: `aherald.exe --statusline
-  [--then <command>]` forwards only `session_id`, `session_name` and `rate_limits` to the
-  resident, then pipes stdin to the user's previous command and prints its output; manual
-  setup only, with an example and removal steps. Alternative to check for Desktop only:
-  whether a readable title exists in `local_*.json` (needs a new privacy exception).
-  Acceptance: tests for the forwarded fields and the pass-through; the name shown on the
-  Claude card; a quota card without reading the OAuth token; docs updated.
-
-## Standard verification
-
-```text
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo build --release --target x86_64-pc-windows-msvc
-```
-
-Use mocked Codex streams and app-server responses for deterministic tests. Native
-integration tests must clean up their own processes and IPC objects. Manual visual
-checks supplement, rather than replace, logic and lifecycle tests.
-
-## Official integration references
-
-Planning references checked on 2026-10-24; verify again against the version being
-implemented. Release behavior and installed capabilities take precedence over
-unreleased schemas.
-
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)

@@ -137,6 +137,11 @@ impl Service {
                 entry.name = name;
             }
         }
+        // Claude names arrive with the statusLine reports; nothing is looked up for them.
+        if event.source == crate::events::Source::ClaudeHook {
+            let id = event.session_id.as_deref()?;
+            return crate::statusline::with_store(|store| store.name(id).map(str::to_owned));
+        }
         if !event
             .source
             .agent()
@@ -175,7 +180,7 @@ impl Service {
         entry.name.clone()
     }
 }
-fn clean(name: &str) -> Option<String> {
+pub(crate) fn clean(name: &str) -> Option<String> {
     let text: String = name
         .chars()
         .filter(|c| !matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))

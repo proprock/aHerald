@@ -953,6 +953,7 @@ fn present(
         crate::usage_service::Service::claude(
             true,
             Duration::from_secs(config.claude.usage.refresh_interval_sec),
+            config.claude.usage.source,
         )
     });
     let result = Panel::new(mtm).map(|panel| {

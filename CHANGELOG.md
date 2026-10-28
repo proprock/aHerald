@@ -10,6 +10,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- Claude session names and a token-free quota (AH-059): `aherald --statusline [--then COMMAND]`
+  with `--install-statusline` / `--uninstall-statusline`, and `[claude.usage] source`.
 - `[tray] style = "bw"` draws the macOS menu-bar quota icon in the system's black or white.
 - `aherald --install-hooks|--uninstall-hooks claude|codex` (AH-091): adds or removes only aHerald's
   hook entries in the agent's own file; dry run unless `--apply`, with a backup.
