@@ -959,5 +959,6 @@ unreleased schemas.
   chooses the quota source (token first, statusLine fallback; `statusline` never reads the login). Measured
   cost of the wrapper: about 10 ms per status line refresh, off the agent's turn. Limits: macOS/Unix shell
   only (Windows reports "not supported yet"); `rate_limits` only for Pro/Max after the first response;
-  whether Claude Desktop honours `statusLine` is unverified.
+  Claude Desktop does not run `statusLine` (probe 2026-10-29), so names and the statusLine quota
+  reach cards only for terminal/IDE sessions.
 
