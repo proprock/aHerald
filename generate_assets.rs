@@ -23,6 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let alpha = ((radius + 1.0 - distance).clamp(0.0, 1.0) * 230.0) as u8;
             let mark = match kind {
                 "turn_complete" => {
+                    // The tick spans y -16..4 before this shift, so it sat above centre and
+                    // its tip nearly touched the rim; move it down to centre it in the circle.
+                    let y = y - 6.0;
                     ((y - (x + 9.0)).abs() < 2.5 && (-15.0..=-5.0).contains(&x))
                         || ((y - (-x - 1.0)).abs() < 2.5 && (-5.0..=15.0).contains(&x))
                 }

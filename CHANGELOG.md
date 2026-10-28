@@ -10,6 +10,7 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- `[tray] style = "bw"` draws the macOS menu-bar quota icon in the system's black or white.
 - macOS overlay (AH-062, in progress): a non-activating floating card on `NSPanel`, drawn with
   AppKit text, with fades, countdown, artwork, mouse navigation and `--demo`; tray, audio,
   click-to-activate and the usage card follow in AH-063–AH-066. Not yet checked on multiple

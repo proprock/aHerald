@@ -3,7 +3,7 @@ use super::{
     geometry::Rect,
     menu::{Command, Item},
 };
-use crate::tray_usage::Levels;
+use crate::{config::TrayStyle, tray_usage::Levels};
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
 };
@@ -53,7 +53,7 @@ pub struct Tray {
     item: Retained<NSStatusItem>,
     target: Retained<MenuTarget>,
     mtm: MainThreadMarker,
-    shown: Option<Levels>,
+    shown: Option<(Levels, TrayStyle)>,
 }
 
 impl Tray {
@@ -95,24 +95,29 @@ impl Tray {
     }
 
     /// Draws the quota bars as the icon; unchanged levels cost nothing.
-    pub fn set_levels(&mut self, levels: Levels) -> Result<(), String> {
-        if self.shown.as_ref() == Some(&levels) {
+    pub fn set_levels(&mut self, levels: Levels, style: TrayStyle) -> Result<(), String> {
+        if self.shown.as_ref() == Some(&(levels.clone(), style)) {
             return Ok(());
         }
         let size = (ICON_POINTS * 2.0) as u32;
-        let pixels = levels.render(size).map_err(|e| e.to_owned())?;
-        let image = super::image::from_bgra(
+        let pixels = match style {
+            TrayStyle::Color => levels.render(size),
+            TrayStyle::Bw => levels.render_mono(size),
+        }
+        .map_err(|e| e.to_owned())?;
+        let image = super::image::from_bgra_as(
             &pixels,
             size as i32,
             size as i32,
             (ICON_POINTS, ICON_POINTS),
+            style == TrayStyle::Bw,
         )?;
         let button = self
             .item
             .button(self.mtm)
             .ok_or("the status item has no button")?;
         button.setImage(Some(&image));
-        self.shown = Some(levels);
+        self.shown = Some((levels, style));
         Ok(())
     }
 

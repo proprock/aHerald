@@ -27,6 +27,10 @@ auto_start = false
 # both splits each window's bar by width: Claude left, Codex right.
 # Exclusive modes keep unavailable data gray instead of switching agents.
 graph = "auto"
+# Icon style: "color" (default) or "bw". bw draws the bars in black and white that follow the
+# menu bar's light or dark appearance (a macOS template image); the colour coding is lost.
+# Windows always draws "color".
+style = "color"
 
 [notifications]
 # Card background in #RRGGBB; default #1C232D. Existing card opacity is preserved.

@@ -1,6 +1,6 @@
 use aherald::{
     cli::Cli,
-    config::{Config, Interpolation, LogLevel, Mode, Monitor, Position},
+    config::{Config, Interpolation, LogLevel, Mode, Monitor, Position, TrayStyle},
     events::Kind,
 };
 use std::{fs, path::PathBuf, process::Command};
@@ -287,6 +287,21 @@ fn missing_explicit_configuration_is_an_error() {
     assert!(Config::load(&path, false).is_ok());
     assert!(path.is_file());
     fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn the_tray_style_is_color_by_default_and_accepts_bw() {
+    let dir = PathBuf::from(".");
+    assert_eq!(
+        Config::parse("", &dir).unwrap().tray.style,
+        TrayStyle::Color
+    );
+    for (name, style) in [("color", TrayStyle::Color), ("bw", TrayStyle::Bw)] {
+        let text = format!("[tray]\nstyle='{name}'");
+        assert_eq!(Config::parse(&text, &dir).unwrap().tray.style, style);
+    }
+    let error = Config::parse("[tray]\nstyle='gray'", &dir).unwrap_err();
+    assert!(error.contains("tray.style"), "{error}");
 }
 
 #[test]
