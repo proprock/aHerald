@@ -894,6 +894,6 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   executable keeps the portable layout. Docs: `docs/portable-macos.md`, `examples/*.macos.json`,
   `examples/*.sh`. Checked on the M1 (macOS 26.6): the extracted bundle starts through `open`,
   creates its configuration, shows the menu-bar icon and a card. Limitations: no Developer ID
-  signing or notarization, Intel unsupported, and the release workflow does not build the macOS
-  archive yet (manual `./package-macos.sh`).
+  signing or notarization, Intel unsupported. The release workflow's `package_macos` job (added after
+  this ticket, unrun until the next tag) builds the archive.
 

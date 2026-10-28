@@ -18,7 +18,6 @@ env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
-  # Only Windows x64 runs the application today, so it is the only packaged target.
   package:
     name: Package Windows x64
     runs-on: windows-latest
@@ -64,9 +63,48 @@ jobs:
             dist/*.zip.sha256
           if-no-files-found: error
 
+  # Apple Silicon only; the archive is ad-hoc signed and not notarized. The runner cannot show
+  # the card, so the macOS visual check stays a manual step (see RELEASE.md).
+  package_macos:
+    name: Package macOS arm64
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Verify the tag matches the crate version
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          test "$RELEASE_TAG" = "v$version" || { echo "Tag $RELEASE_TAG does not match Cargo.toml version $version" >&2; exit 1; }
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Build release executable
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Assemble the app archive and verify a clean extraction runs
+        run: ./package-macos.sh target/aarch64-apple-darwin/release/aherald "$RELEASE_TAG"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-arm64
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+
   draft_release:
     name: Draft GitHub Release
-    needs: package
+    needs: [package, package_macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,14 +115,15 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: windows-x64
+          pattern: "*-*"
           path: release-artifacts
+          merge-multiple: true
       - name: Extract the release notes from CHANGELOG.md
         run: |
           VERSION="${RELEASE_TAG#v}"
           awk -v version="$VERSION" '/^## \[/ { in_section = index($0, "## [" version "]") == 1; next } in_section' CHANGELOG.md > release-notes.md
           grep -q '[^[:space:]]' release-notes.md || { echo "CHANGELOG.md has no entry for $VERSION" >&2; exit 1; }
-      - name: Create or verify the draft and attach the archive
+      - name: Create or verify the draft and attach the archives
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
