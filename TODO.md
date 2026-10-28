@@ -70,25 +70,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   and its cards on a second one, Spaces, full-screen apps, display change). Code shared with
   Windows moved to AH-088.
 
-- [ ] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
-  Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth
-  item from the Keychain and use it only for the usage endpoint. Needs an explicit
-  AGENTS.md exception (extends AH-037) agreed first. Never log, copy or write back.
-  Acceptance: parsing tests with fixtures; manual check; token never appears in logs.
-  Status 2026-10-28 (branch `feature/ah-066-macos-keychain-usage`): AGENTS.md exception agreed
-  (kept in the local `AGENTS.md`, which git ignores). `src/mac/keychain.rs` reads the generic-
-  password item `Claude Code-credentials` through the Security framework (`SecItemCopyMatching`)
-  into a zeroed buffer; `claude_usage::fetch_with` takes the credentials and the HTTPS call as
-  parameters. Tests: status mapping, a missing item, the whole fetch with fakes (token only in the
-  `Authorization` header to `api.anthropic.com/api/oauth/usage`, expired or empty items make no
-  request, no failure carries the token) and a manual create/read/delete of a test item. Live on
-  the M1: the system prompt for the item appeared and was answered by the maintainer, the item
-  was read and parsed, and the card showed "Claude token expired (open Claude Code to refresh)".
-  Restarting Claude Desktop does not refresh that item (it belongs to the Claude Code CLI, which is
-  not installed on the test Mac), so a successful quota read is not seen live. Open: run the CLI once
-  where it exists, then check the tray line, the icon bars and the card; `[claude.usage]` stays off
-  by default.
-
 - [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
   `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
   examples, setup and removal steps, release check script. Decide arm64-only versus

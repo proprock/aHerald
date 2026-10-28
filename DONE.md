@@ -828,3 +828,24 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   readable; four back-to-back sounds (about 20 s through the serial gate) were played while the
   maintainer switched the headphones' output, and everything was audible without overlap. The
   five-second sound limit hid a first attempt with a 20 s file: see AH-090.
+
+- [x] **AH-066 — macOS Claude usage via Keychain.** Depends on AH-061.
+  Optional, default off: when `[claude.usage]` is enabled, read the Claude Code OAuth
+  item from the Keychain and use it only for the usage endpoint. Needs an explicit
+  AGENTS.md exception (extends AH-037) agreed first. Never log, copy or write back.
+  Acceptance: parsing tests with fixtures; manual check; token never appears in logs.
+  Status 2026-10-28 (branch `feature/ah-066-macos-keychain-usage`): AGENTS.md exception agreed
+  (kept in the local `AGENTS.md`, which git ignores). `src/mac/keychain.rs` reads the generic-
+  password item `Claude Code-credentials` through the Security framework (`SecItemCopyMatching`)
+  into a zeroed buffer; `claude_usage::fetch_with` takes the credentials and the HTTPS call as
+  parameters. Tests: status mapping, a missing item, the whole fetch with fakes (token only in the
+  `Authorization` header to `api.anthropic.com/api/oauth/usage`, expired or empty items make no
+  request, no failure carries the token) and a manual create/read/delete of a test item. Live on
+  the M1: the system prompt for the item appeared and was answered by the maintainer, the item
+  was read and parsed, and the card showed "Claude token expired (open Claude Code to refresh)".
+  Closed 2026-10-28: after the Claude Code CLI was installed (Homebrew cask, 2.1.308) and signed in
+  by the maintainer, the Keychain item held a fresh token and the resident showed live quota:
+  the tray icon with both bars, the menu line "Claude remain: 5h 73% / 3:54, 7d 47% / 3d 2h" and
+  the details card (plan pro, both windows with local reset times, extra usage and spend).
+  Restarting Claude Desktop does not refresh that item; it belongs to the CLI. The token never
+  appeared in any log or output. `[claude.usage]` stays off by default.
