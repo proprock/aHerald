@@ -514,6 +514,7 @@ fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Ev
         window: None,
         ended,
         folder: None,
+        message: None,
     }
 }
 

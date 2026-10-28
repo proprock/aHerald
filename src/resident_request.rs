@@ -2,6 +2,7 @@
 //! platform residents lock their shared state, call `respond` and carry out the `Effects`.
 use crate::{
     config::Config,
+    events::Source,
     ipc::{Request, Response},
     queue::Queue,
 };
@@ -14,6 +15,9 @@ pub trait Controls {
     fn visuals(&self) -> bool;
 }
 
+/// How long an aHerald notice card stays, before its fade-out.
+pub const NOTICE_MS: u64 = 8000;
+
 /// What the caller still has to do after the response was decided.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Effects {
@@ -23,6 +27,24 @@ pub struct Effects {
     pub wake: bool,
     /// The queue refused a valid event; log it once the state lock is released.
     pub rejected: bool,
+}
+
+/// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
+/// with the state locked, after a notice was queued, and wakes the presentation loop.
+pub fn notice_sink<S: Controls + Send + 'static>(
+    state: std::sync::Arc<std::sync::Mutex<S>>,
+    settings: Config,
+    start: std::time::Instant,
+    wake: impl Fn(&S) + Send + Sync + 'static,
+) -> impl Fn(crate::events::Event) + Send + Sync + 'static {
+    move |event| {
+        let Ok(mut state) = state.lock() else { return };
+        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let (_, effects) = respond(Request::Event { event }, &mut *state, &settings, now);
+        if effects.wake {
+            wake(&state);
+        }
+    }
 }
 
 /// Decides the answer to `request`. `now` is the resident's clock in milliseconds.
@@ -54,6 +76,27 @@ pub fn respond(
         Request::Event { event } => {
             if event.validate().is_err() {
                 return (Response::Rejected, Effects::default());
+            }
+            if event.source == Source::App {
+                // The settings of the events belong to the agents: a notice is always shown.
+                let duration = NOTICE_MS.saturating_add(settings.notifications.fade_out_ms);
+                return if state.queue().push(event, now, duration).is_accepted() {
+                    (
+                        Response::Accepted,
+                        Effects {
+                            wake: true,
+                            ..Effects::default()
+                        },
+                    )
+                } else {
+                    (
+                        Response::Rejected,
+                        Effects {
+                            rejected: true,
+                            ..Effects::default()
+                        },
+                    )
+                };
             }
             let setting = &settings.events[event.kind];
             if !setting.enabled {
@@ -242,5 +285,52 @@ mod tests {
                 rejected: true
             }
         );
+    }
+
+    #[test]
+    fn an_aherald_notice_ignores_the_error_card_settings_of_the_agents() {
+        let mut settings = Config::default();
+        let error = Event::notice("x").kind;
+        settings.events[error].enabled = false;
+        settings.events[error].duration_ms = 0;
+        let mut s = state(8);
+        let (response, effects) = send(&mut s, &settings, Event::notice("Sound too long"));
+        assert!(matches!(response, Response::Accepted));
+        assert!(effects.wake);
+        let shown = s.queue.items();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(
+            shown[0].duration,
+            NOTICE_MS + settings.notifications.fade_out_ms
+        );
+    }
+
+    #[test]
+    fn the_notice_sink_queues_a_notice_and_wakes_the_loop_once() {
+        use std::sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let shared = Arc::new(Mutex::new(state(1)));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counter = wakes.clone();
+        let sink = notice_sink(
+            shared.clone(),
+            Config::default(),
+            std::time::Instant::now(),
+            move |s| {
+                assert!(s.paused, "the state is the locked one");
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        sink(Event::notice("Sound is longer than 5 s: a.wav"));
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        let queued = shared.lock().unwrap();
+        assert_eq!(queued.queue.items().len(), 1);
+        assert_eq!(queued.queue.items()[0].event.source, Source::App);
+        drop(queued);
+        // The queue is full: the notice is dropped without a wake.
+        sink(Event::notice("another"));
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
     }
 }

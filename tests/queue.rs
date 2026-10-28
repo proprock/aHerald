@@ -162,6 +162,7 @@ fn claude(kind: Kind, session: &str) -> Event {
         window: None,
         ended: false,
         folder: None,
+        message: None,
     }
 }
 fn codex_wait(session: &str) -> Event {

@@ -126,6 +126,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         window: None,
         ended,
         folder: crate::events::hook_folder(hook.cwd),
+        message: None,
     };
     event.validate()?;
     Ok(Some(event))

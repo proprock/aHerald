@@ -53,6 +53,7 @@ mod detached;
 #[path = "unix/detached.rs"]
 mod detached;
 pub mod events;
+pub mod notice;
 pub mod notification;
 pub mod operational_log;
 pub mod paths;

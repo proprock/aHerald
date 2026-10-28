@@ -32,6 +32,15 @@ pub struct Frame {
     pub scale: f64,
 }
 
+/// The configured display number when no such display is connected, so the user can be told
+/// the card went to the main one.
+pub fn missing_monitor(screens: &[Screen], monitor: Monitor) -> Option<usize> {
+    match monitor {
+        Monitor::Index(n) if n >= screens.len() => Some(n),
+        _ => None,
+    }
+}
+
 /// Index of the display the next card appears on: the configured one, or the one under
 /// the cursor for a card near the cursor. The first screen is the primary one.
 pub fn choose(
@@ -300,5 +309,15 @@ mod tests {
         assert!(watch.changed(&both));
         assert!(watch.changed(&[external(), laptop()]));
         assert!(watch.changed(&[]));
+    }
+
+    #[test]
+    fn only_a_configured_number_beyond_the_connected_displays_is_missing() {
+        let both = [laptop(), external()];
+        assert_eq!(missing_monitor(&both, Monitor::Index(2)), Some(2));
+        assert_eq!(missing_monitor(&[laptop()], Monitor::Index(1)), Some(1));
+        assert_eq!(missing_monitor(&both, Monitor::Index(1)), None);
+        assert_eq!(missing_monitor(&both, Monitor::Primary), None);
+        assert_eq!(missing_monitor(&[], Monitor::Primary), None);
     }
 }

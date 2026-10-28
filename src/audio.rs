@@ -27,6 +27,18 @@ impl SoundError {
         }
     }
 }
+impl SoundError {
+    /// What a card says about the file, before its name.
+    pub fn notice(self) -> &'static str {
+        match self {
+            Self::Unreadable => "Sound cannot be read",
+            Self::TooLarge => "Sound is larger than 2 MiB",
+            Self::TooLong => "Sound is longer than 5 s",
+            Self::Unsupported => "Sound must be 16-bit PCM WAV",
+            Self::Malformed => "Sound is not a valid WAV",
+        }
+    }
+}
 impl std::fmt::Display for SoundError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -194,14 +206,15 @@ fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, SoundError> 
         .get(path, volume)
 }
 
-/// Logs why `path` cannot be used, once for each state of that file. The log gets the reason
-/// only, never the path.
+/// Tells why `path` cannot be used, once for each state of that file: a log line with the reason
+/// only (never the path) and, in a resident, a card naming the file.
 #[cfg(any(windows, target_os = "macos"))]
 fn report_rejection(path: &Path, error: SoundError) {
-    crate::operational_log::log_once(
+    crate::notice::report_file(
         "sound",
         path,
         crate::operational_log::Record::SoundRejected(error.code()),
+        error.notice(),
     );
 }
 
@@ -214,6 +227,7 @@ fn note_playback(played: bool) {
         FAILING.store(false, Ordering::Relaxed);
     } else if !FAILING.swap(true, Ordering::Relaxed) {
         crate::operational_log::log(crate::operational_log::Record::SoundFailed);
+        crate::notice::post("Sound cannot be played");
     }
 }
 #[cfg(unix)]
@@ -221,6 +235,10 @@ fn note_playback(played: bool) {
 pub mod serial;
 
 pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
+    // An aHerald notice has no sound of its own, and the agent's error sound is not its sound.
+    if event.source == crate::events::Source::App {
+        return None;
+    }
     let settings = &config.events[event.kind];
     (config.sounds.enabled
         && config.sounds.volume > 0.0

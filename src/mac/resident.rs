@@ -129,6 +129,16 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     let start = Instant::now();
     let shared = new_shared(&config);
     let waker = Arc::new(Waker(Mutex::new(None)));
+    // aHerald's own notices (a refused sound, unusable artwork) become cards of this resident.
+    {
+        let waker = waker.clone();
+        crate::notice::install(crate::resident_request::notice_sink(
+            shared.clone(),
+            config.clone(),
+            start,
+            move |_: &Shared| waker.wake(),
+        ));
+    }
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let stop_event = Arc::new(pipe::StopEvent::new()?);
     let listener = {
@@ -184,6 +194,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         return Err(error);
     }
     let result = present(config, shared, stop.clone(), start, waker, path, None);
+    crate::notice::clear();
     stop.store(true, Ordering::Release);
     stop_event.signal();
     let _ = listener.join();
@@ -220,6 +231,8 @@ struct Ui {
     animation_start: u64,
     frame: Option<Frame>,
     screen_watch: geometry::ScreenWatch,
+    /// The missing monitor number and the display count it was last reported for.
+    monitor_reported: Option<(usize, usize)>,
     shown_card: (crate::card::Heading, usize, usize, String),
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
@@ -482,6 +495,18 @@ impl Ui {
         if self.screen_watch.changed(&screens) {
             self.frame = None;
             self.presenter.invalidate();
+        }
+        // Said once for each combination of the setting and the connected displays.
+        match geometry::missing_monitor(&screens, self.config.notifications.monitor) {
+            Some(n) if self.monitor_reported != Some((n, screens.len())) => {
+                self.monitor_reported = Some((n, screens.len()));
+                crate::operational_log::log(crate::operational_log::Record::MonitorMissing);
+                crate::notice::post(&format!(
+                    "Monitor {n} is not connected; using the main display"
+                ));
+            }
+            Some(_) => {}
+            None => self.monitor_reported = None,
         }
         Ok(screens)
     }
@@ -954,6 +979,7 @@ fn present(
             animation_start: 0,
             frame: None,
             screen_watch: geometry::ScreenWatch::default(),
+            monitor_reported: None,
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
             source_labels: if usage_enabled {

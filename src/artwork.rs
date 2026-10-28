@@ -14,6 +14,10 @@ pub fn resolve(
 ) -> Result<Option<Animation>, String> {
     let settings = &config.events[event.kind];
     let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
+    // An aHerald notice belongs to no agent, so no per-event, pet or custom picture applies.
+    if event.source == crate::events::Source::App {
+        return Ok(builtin());
+    }
     let selected = match settings.visual {
         EventVisual::Builtin => return Ok(builtin()),
         EventVisual::Custom => {
@@ -40,10 +44,16 @@ pub fn resolve(
 /// A configured picture that cannot be used is reported once per file state; the built-in
 /// artwork takes its place.
 fn reject(which: &'static str, path: &Path) {
-    crate::operational_log::log_once(
+    let what = if which == "pet" {
+        "Pet cannot be used"
+    } else {
+        "Animation cannot be used"
+    };
+    crate::notice::report_file(
         "artwork",
         path,
         crate::operational_log::Record::ArtworkRejected(which),
+        what,
     );
 }
 

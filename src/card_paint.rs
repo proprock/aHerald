@@ -36,7 +36,7 @@ pub fn event_card_text<'a>(
 ) -> CardText<'a> {
     CardText {
         heading: &controls.heading,
-        label: event.kind.label(),
+        label: event.title(),
         body: false,
         index: controls.index,
         count: controls.count,
