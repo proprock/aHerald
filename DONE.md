@@ -847,5 +847,37 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   by the maintainer, the Keychain item held a fresh token and the resident showed live quota:
   the tray icon with both bars, the menu line "Claude remain: 5h 73% / 3:54, 7d 47% / 3d 2h" and
   the details card (plan pro, both windows with local reset times, extra usage and spend).
-  Restarting Claude Desktop does not refresh that item; it belongs to the CLI. The token never
+  Restarting Claude Desktop on this Mac did not change that item, but Desktop had last been used
+  on another computer, so whether Desktop uses or refreshes it is not established. The token never
   appeared in any log or output. `[claude.usage]` stays off by default.
+
+- [x] **AH-062 — macOS overlay.** Depends on AH-061.
+  Non-activating, transparent, floating `NSPanel` via `objc2`, reusing the portable BGRA
+  rendering; text through CoreText. Handle multiple displays, Retina scale, Spaces and
+  full-screen apps. Acceptance: manual check on the M1 MacBook: no focus theft, correct
+  transparency, dismissal, event switching, display change.
+  Agreed 2026-10-27: `objc2`, `objc2-app-kit`, `objc2-foundation` only under
+  `cfg(target_os = "macos")`; text drawn with AppKit (`NSString`) into the bitmap, so no
+  CoreText crate; scope is the overlay plus a resident without a tray (tray is AH-063).
+  Step 1 done: `src/card_paint.rs` holds the card's shapes (straight BGRA) and a list of
+  text runs; Windows `Surface::card` draws those runs with GDI (unchanged pixels).
+  Status 2026-10-27 (branch `feature/ah-062-macos-overlay`): `src/mac/` has the AppKit
+  text renderer (`text`), the in-memory `Surface`/`Composition` (`surface`), screen
+  placement (`geometry`), the non-activating `NSPanel` (`panel`) and the resident loop
+  (`resident`: IPC thread plus AppKit loop, fades, countdown, artwork, queue). Automated:
+  unit tests for text, surface and geometry, `tests/mac_resident.rs` (status, queueing, quit,
+  single instance). Observed with `--demo`: a 402x150 pt window at level 25, no change of the
+  frontmost application. Mouse input (dismiss button, arrows, click-to-dismiss) works: `src/mac/input.rs` tests plus a
+  live check with synthetic clicks on `--resident` (arrow 1/3 to 2/3, body click removes one
+  card, one click one action). `ureq` is now behind the default `https-client` feature, so `cargo check --no-default-features
+  --target aarch64-apple-darwin` needs no C toolchain (checked natively on the M1; not yet from
+  Windows).
+  Closed 2026-10-28 after manual checks on the M1 with an iPad as a second display (Sidecar,
+  1112x834 at 2x): the card on the configured display and near the cursor on either display;
+  the status item menu and the About and usage cards on the second display's menu bar; the card
+  above a full-screen Terminal in its own Space on the iPad; display change. Disconnecting
+  the iPad left the card at its old coordinates, outside the only display (found and fixed with
+  `geometry::ScreenWatch`, which places the card again whenever the set of displays changes);
+  after the fix the card fell back to the main display, moved to the iPad when it was connected
+  again and came back when it was disconnected (observed by the maintainer). Not tested
+  separately: a full-screen app on the main display. Code shared with Windows moved to AH-088.
