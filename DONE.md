@@ -819,3 +819,12 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   forward), Claude Desktop (two sessions of the project switched by their ids) and Codex.app
   passed. iTerm2, the other listed terminals and tab or window selection are not verified; the
   latter would need Automation.
+
+- [x] **AH-089 — macOS audio device change and light menu bar (split from AH-064, AH-063).**
+  Manual checks only: a sound while the output device changes (for example Bluetooth), and the
+  status icon on a light wallpaper. Acceptance: observed on the M1; fix what fails.
+  Closed 2026-10-28 with the maintainer: on a light wallpaper (set from a generated image and
+  restored, settings file hash unchanged) the menu bar turns light and the green bars stay
+  readable; four back-to-back sounds (about 20 s through the serial gate) were played while the
+  maintainer switched the headphones' output, and everything was audible without overlap. The
+  five-second sound limit hid a first attempt with a 20 s file: see AH-090.

@@ -75,6 +75,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   item from the Keychain and use it only for the usage endpoint. Needs an explicit
   AGENTS.md exception (extends AH-037) agreed first. Never log, copy or write back.
   Acceptance: parsing tests with fixtures; manual check; token never appears in logs.
+  Status 2026-10-28 (branch `feature/ah-066-macos-keychain-usage`): AGENTS.md exception agreed
+  (kept in the local `AGENTS.md`, which git ignores). `src/mac/keychain.rs` reads the generic-
+  password item `Claude Code-credentials` through the Security framework (`SecItemCopyMatching`)
+  into a zeroed buffer; `claude_usage::fetch_with` takes the credentials and the HTTPS call as
+  parameters. Tests: status mapping, a missing item, the whole fetch with fakes (token only in the
+  `Authorization` header to `api.anthropic.com/api/oauth/usage`, expired or empty items make no
+  request, no failure carries the token) and a manual create/read/delete of a test item. Live on
+  the M1: the system prompt for the item appeared and was answered by the maintainer, the item
+  was read and parsed, and the card showed "Claude token expired (open Claude Code to refresh)".
+  Open: a successful quota read needs a fresh token (open Claude Code once, then check the tray
+  line and the card); `[claude.usage]` stays off by default.
 
 - [ ] **AH-067 — macOS packaging and documentation.** Depends on AH-062, AH-063, AH-064.
   `.app` bundle (`LSUIElement`), config and assets location for a bundle, `.sh` hook
@@ -89,10 +100,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `src/mac/`) because the Windows code could not be compiled while the macOS port was written.
   Extract them into portable modules used by both. Acceptance: no behavior change, Windows CI
   and the native Windows tests green.
-
-- [ ] **AH-089 — macOS audio device change and light menu bar (split from AH-064, AH-063).**
-  Manual checks only: a sound while the output device changes (for example Bluetooth), and the
-  status icon on a light wallpaper. Acceptance: observed on the M1; fix what fails.
 
 - [ ] **AH-068 — Linux X11 overlay.** Depends on AH-061.
   `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
@@ -134,6 +141,23 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
   Also carries the case split from AH-076: a card that opens on a second monitor with a
   different DPI is drawn at that monitor's scale (cards are not draggable by design).
+
+- [ ] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
+  the ones the user can fix.**
+  aHerald sometimes drops or degrades what was configured or sent without a trace: a sound
+  longer than five seconds, larger than 2 MiB, not 16-bit PCM or missing is ignored
+  (`audio::cached` and `Wave::parse` errors vanish), and other `let _ =` or `if let Ok` sites
+  swallow a failure. First, audit every such site (sounds, artwork, configuration values that
+  fall back to defaults, events refused by validation or the queue, clicks that find no agent,
+  usage polls, Keychain and file reads) and list them here. Then, at least: one operational log
+  line per case with a fixed code (never a payload, a prompt, a token or a full path), once per
+  failing episode rather than per event. Second channel, for failures the user can act on (a
+  refused sound or artwork file, an invalid configuration value): the standard notification card
+  with the error icon, shown once per episode and never from the hook process, which must stay
+  fast and silent. Acceptance: each audited case has a test that the record is written and,
+  where it applies, the card is queued; hook behavior and its stdout contract are unchanged.
+  Decide when the card is built: whether it is a normal `error` event from aHerald itself and how
+  repeats are throttled.
 
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
