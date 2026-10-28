@@ -87,9 +87,9 @@ fn an_unusable_sound_is_logged_once_per_file_and_never_with_its_path() {
             .map(String::as_str)
             .collect::<Vec<_>>(),
         [
-            "Sound is longer than 5 s: secret-folder-name.wav",
-            "Sound is not a valid WAV: secret-folder-name.wav",
-            "Sound cannot be read: secret-folder-name.wav",
+            "Sound over 5 s: secret-folder-name.wav",
+            "Sound is not a WAV: secret-folder-name.wav",
+            "Sound unreadable: secret-folder-name.wav",
         ]
     );
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();

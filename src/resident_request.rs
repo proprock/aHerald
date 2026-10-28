@@ -323,7 +323,7 @@ mod tests {
                 counter.fetch_add(1, Ordering::SeqCst);
             },
         );
-        sink(Event::notice("Sound is longer than 5 s: a.wav"));
+        sink(Event::notice("Sound over 5 s: a.wav"));
         assert_eq!(wakes.load(Ordering::SeqCst), 1);
         let queued = shared.lock().unwrap();
         assert_eq!(queued.queue.items().len(), 1);

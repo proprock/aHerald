@@ -31,11 +31,11 @@ impl SoundError {
     /// What a card says about the file, before its name.
     pub fn notice(self) -> &'static str {
         match self {
-            Self::Unreadable => "Sound cannot be read",
-            Self::TooLarge => "Sound is larger than 2 MiB",
-            Self::TooLong => "Sound is longer than 5 s",
-            Self::Unsupported => "Sound must be 16-bit PCM WAV",
-            Self::Malformed => "Sound is not a valid WAV",
+            Self::Unreadable => "Sound unreadable",
+            Self::TooLarge => "Sound over 2 MiB",
+            Self::TooLong => "Sound over 5 s",
+            Self::Unsupported => "Sound not 16-bit PCM",
+            Self::Malformed => "Sound is not a WAV",
         }
     }
 }

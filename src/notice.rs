@@ -53,14 +53,14 @@ mod tests {
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let sink = seen.clone();
         install(move |event| sink.lock().unwrap().push(event));
-        post("Sound too long:\nalert.wav\u{7}");
+        post("Sound over 5 s:\nalert.wav\u{7}");
         clear();
         post("after clear");
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(
             seen[0].message.as_deref(),
-            Some("Sound too long: alert.wav")
+            Some("Sound over 5 s: alert.wav")
         );
         assert_eq!(seen[0].source, crate::events::Source::App);
         assert_eq!(seen[0].kind, crate::events::Kind::Error);

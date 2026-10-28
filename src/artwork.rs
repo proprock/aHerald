@@ -45,9 +45,9 @@ pub fn resolve(
 /// artwork takes its place.
 fn reject(which: &'static str, path: &Path) {
     let what = if which == "pet" {
-        "Pet cannot be used"
+        "Pet unusable"
     } else {
-        "Animation cannot be used"
+        "Animation unusable"
     };
     crate::notice::report_file(
         "artwork",

@@ -87,7 +87,7 @@ fn an_aherald_notice_never_has_a_sound() {
     let mut config = Config::default();
     config.sounds.enabled = true;
     config.sounds.volume = 1.0;
-    let notice = Event::notice("Sound is longer than 5 s: a.wav");
+    let notice = Event::notice("Sound over 5 s: a.wav");
     config.events[notice.kind].sound = Some("alert.wav".into());
     assert!(selected(&config, &notice).is_none());
     // The same setting still sounds for an agent's error.

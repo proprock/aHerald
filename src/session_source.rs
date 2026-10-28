@@ -120,7 +120,7 @@ impl Service {
     pub fn label_at(&mut self, event: &Event, now: Duration) -> Heading {
         // An aHerald notice has no session: its message takes the place of the session name.
         if event.source == crate::events::Source::App {
-            return Heading::new(event.source.label(), None, event.message.as_deref());
+            return Heading::notice(event.message.as_deref().unwrap_or_default());
         }
         let name = self.name_at(event, now);
         Heading::new(

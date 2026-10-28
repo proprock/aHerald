@@ -18,6 +18,8 @@ pub struct Area {
 pub struct Heading {
     pub title: String,
     pub name: Option<String>,
+    /// The second row may use two lines (an aHerald notice's message) instead of one.
+    pub two_line_name: bool,
 }
 impl Heading {
     pub fn new(harness: &str, folder: Option<&str>, name: Option<&str>) -> Self {
@@ -27,6 +29,14 @@ impl Heading {
                 None => harness.into(),
             },
             name: name.map(Into::into),
+            two_line_name: false,
+        }
+    }
+    /// The heading of an aHerald notice: its message gets two lines.
+    pub fn notice(message: &str) -> Self {
+        Self {
+            two_line_name: true,
+            ..Self::new("aHerald", None, Some(message))
         }
     }
     /// A usage card's first line, `<agent>: <summary>`, as two rows. Text that does not

@@ -262,20 +262,33 @@ pub fn paint(width: i32, height: i32, scale: f64, text_left: i32, content: &Card
     });
     // Row 2 is reserved so the card never changes height; empty without a name.
     if let Some(name) = &heading.name {
+        // A notice's message may use two lines; an agent's session name stays on one.
+        let two = heading.two_line_name;
         text.push(TextRun {
-            ellipsis: true,
+            wrap: two,
+            ellipsis: !two,
             ..run(
                 name,
                 16.0,
                 0xc4,
-                Area::new(text_left, px(38.0), width - px(18.0), px(60.0)),
+                Area::new(
+                    text_left,
+                    px(38.0),
+                    width - px(18.0),
+                    px(if two { 78.0 } else { 60.0 }),
+                ),
                 Align::Left,
             )
         });
     }
     // Row 3: the event kind, set apart and larger; usage cards show their body instead.
     if !label.is_empty() {
-        let (size, top) = if *body { (18.0, 66.0) } else { (22.0, 72.0) };
+        let (size, top) = match (*body, heading.two_line_name) {
+            (true, _) => (18.0, 66.0),
+            // Below the message's second line, above the button row.
+            (false, true) => (22.0, 82.0),
+            (false, false) => (22.0, 72.0),
+        };
         text.push(TextRun {
             wrap: *body,
             ellipsis: !*body,
@@ -474,5 +487,39 @@ mod tests {
         );
         assert_eq!(text.border, config.event_border_color(event.kind));
         assert_eq!(text.heading, &controls.heading);
+    }
+
+    #[test]
+    fn a_notice_message_takes_two_lines_and_pushes_the_kind_down_but_stays_above_the_buttons() {
+        let heading = Heading::notice("Monitor 3 is not connected; using the main display");
+        let mut text = content(&heading, 2, false);
+        text.label = "aHerald notice";
+        let painted = paint(W, H, 1.0, 22, &text);
+        let by = |s: &str| painted.text.iter().find(|r| r.text == s).unwrap();
+        let message = by("Monitor 3 is not connected; using the main display");
+        // Two 16-pixel lines fit, and are cut after them rather than given a third.
+        assert!(message.wrap && !message.ellipsis);
+        assert_eq!(message.area.top, 38);
+        assert!(message.area.bottom - message.area.top >= 36);
+        let kind = by("aHerald notice");
+        assert!(kind.area.top >= message.area.bottom, "{kind:?} {message:?}");
+        // The button row starts at the card's height minus 34.
+        let row = Card::new(heading.clone(), 0, 2, false).buttons(W, H, 1.0)[0]
+            .1
+            .top;
+        assert!(
+            kind.area.top + 28 <= row,
+            "kind {} row {row}",
+            kind.area.top
+        );
+        // An agent's one-line name keeps its single ellipsized row.
+        let agent = Heading::new("Codex", None, Some("Fix the build"));
+        let painted = paint(W, H, 1.0, 22, &content(&agent, 1, false));
+        let name = painted
+            .text
+            .iter()
+            .find(|r| r.text == "Fix the build")
+            .unwrap();
+        assert!(name.ellipsis && !name.wrap);
     }
 }
