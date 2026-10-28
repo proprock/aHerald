@@ -27,6 +27,14 @@ or Codex invocation is required. Stable-release coverage remains unverified.
 See the [compatibility matrix](codex-compatibility.md). No transcript or
 unrelated-session observation is implemented.
 
+## Setup with a command
+
+`aherald --install-hooks codex` shows what it would add to `~/.codex/hooks.json` (a dry run);
+`--apply` writes it, keeping a `hooks.json.aherald-backup` copy and every entry that is not
+aHerald's. `--uninstall-hooks codex --apply` removes only aHerald's entries. `--hooks-file PATH`
+selects another file, for example a project's `.codex/hooks.json`. You still start a new Codex session,
+open `/hooks` and trust the commands yourself.
+
 ## Manual Windows setup and removal
 
 1. Build/extract `aherald.exe`. Prepare `config.toml` beside it, or let the first

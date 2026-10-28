@@ -46,6 +46,18 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
+- [ ] **AH-091 — Hook setup commands and plugins.** Depends on AH-067.
+  Agreed 2026-10-28: relax the "never edit hooks" rule to "only on an explicit user command, with a
+  dry run by default, a backup and a diff of aHerald's own entries" (AGENTS.md). (1)
+  `aherald --install-hooks|--uninstall-hooks claude|codex [--apply] [--hooks-file PATH]` merges only
+  aHerald's entries (idempotent, key order and other content kept, symlink and mode kept, `*.aherald-backup`);
+  Codex still needs the user to trust the hooks in `/hooks`. Needs serde_json `preserve_order` (approved).
+  (2) Plugin `aherald` in a marketplace in this repository (`.claude-plugin/marketplace.json`, also read by
+  Codex), hooks in `plugins/aherald/hooks/hooks.json` through a launcher script that finds `aHerald.app`
+  and always exits 0. macOS first; the Windows (PowerShell, `AHERALD_PATH`) and Linux variants follow
+  when verified on those machines. Acceptance: on the M1 the plugin installs from the repo with
+  `claude plugin marketplace add` and delivers a card; `--install-hooks` round-trips on a real file.
+
 - [ ] **AH-088 — Share the code the macOS port duplicated from Windows.** Depends on AH-062,
   AH-065.
   The resident IPC request handler, `event_card_text`, the activation worker and the card

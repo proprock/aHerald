@@ -58,16 +58,30 @@ see `aherald --help`.
 
 ## Hooks
 
-aHerald never edits agent configuration. Add the hooks yourself:
+aHerald changes agent configuration only when you ask. Preview and install:
 
-1. Copy `examples/aherald-codex-hook.sh` and `examples/aherald-claude-hook.sh` somewhere
-   stable, keep them executable, and fix the app path inside if it is not in `/Applications`.
-2. Codex: merge `examples/hooks.macos.json` into `~/.codex/hooks.json`, with the script's
-   absolute path. Start a new Codex session, open `/hooks` and trust the command.
-3. Claude Code: merge `examples/claude-settings.macos.json` into `~/.claude/settings.json`,
-   again with the absolute script path.
+```bash
+/Applications/aHerald.app/Contents/MacOS/aherald --install-hooks claude
+/Applications/aHerald.app/Contents/MacOS/aherald --install-hooks claude --apply
+/Applications/aHerald.app/Contents/MacOS/aherald --install-hooks codex --apply
+```
 
-Remove them by deleting those entries. See `docs/codex-hooks.md` and `docs/claude-hooks.md`.
+The first command is a dry run. `--apply` writes `~/.claude/settings.json` or `~/.codex/hooks.json`
+with a `*.aherald-backup` copy and touches only aHerald's own entries. Start a new Codex session,
+open `/hooks` and trust the commands. Remove them with `--uninstall-hooks claude|codex --apply`.
+
+For Claude Code there is also a plugin from this repository's marketplace; use it instead of
+`--install-hooks claude`, not together:
+
+```bash
+claude plugin marketplace add proprock/aHerald
+claude plugin install aherald@aherald
+```
+
+To do it by hand instead, copy `examples/aherald-codex-hook.sh` and `examples/aherald-claude-hook.sh`
+somewhere stable, fix the app path inside, and merge `examples/hooks.macos.json` into
+`~/.codex/hooks.json` and `examples/claude-settings.macos.json` into `~/.claude/settings.json`.
+See `docs/codex-hooks.md` and `docs/claude-hooks.md`.
 
 ## Click-to-activate and quota
 

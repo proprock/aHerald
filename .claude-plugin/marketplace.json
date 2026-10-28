@@ -1,0 +1,14 @@
+{
+  "name": "aherald",
+  "description": "aHerald notification companion for coding agents",
+  "owner": {
+    "name": "proprock"
+  },
+  "plugins": [
+    {
+      "name": "aherald",
+      "source": "./plugins/aherald",
+      "description": "Hooks that show an aHerald card when Claude Code finishes, needs permission or fails"
+    }
+  ]
+}
