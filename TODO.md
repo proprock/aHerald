@@ -135,7 +135,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   one); hook input that is malformed or unknown (silent by contract on stdout, but no log line);
   events of a disabled kind and deduplicated or obsolete events (no debug line); artwork
   prepared at a smaller scale because of the memory budget (counter only); `let _ =` on child
-  start-up in the hook path (`resident_client`). Not started: the error card channel.
+  start-up in the hook path (`resident_client`).
+  Decided 2026-10-28 with the maintainer: the second channel is an ordinary `error` card that
+  belongs to neither agent (`Source::App`, heading "aHerald", the message under it, the built-in
+  error picture only, no pet, custom artwork, sound or per-event setting, always shown for 8 s),
+  once per file like the log line, and also for configuration problems found at start. Built on
+  branch `feature/ah-090-notice-card`: `events::Event::notice`, `notice` (sink installed by a
+  resident, so hooks and transient cards stay silent), `resident_request::notice_sink`, a card for
+  a refused sound, an unplayable sound, unusable artwork, and (macOS) a `monitor` that is not
+  connected (`display.monitor_missing`). Seen live on the M1 as log lines and three queued cards;
+  the card faces were not looked at because the display had gone to sleep. Remaining: the missing
+  `monitor` notice on Windows, the rest of the audit above, and a visual check of the notice card.
 
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
