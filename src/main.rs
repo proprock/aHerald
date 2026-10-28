@@ -67,6 +67,28 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         println!("{}", aherald::version_line());
         return Ok(());
     }
+    if let Some(action) = match cli.operation.as_deref() {
+        Some("install-hooks") => Some(aherald::hook_setup::Action::Install),
+        Some("uninstall-hooks") => Some(aherald::hook_setup::Action::Uninstall),
+        _ => None,
+    } {
+        let agent = cli.hooks_agent.ok_or("hook setup needs an agent")?;
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        let file = match cli.hooks_file.clone() {
+            Some(file) => file,
+            None => aherald::hook_setup::default_file(
+                agent,
+                &aherald::paths::home_dir_with(|name| std::env::var_os(name))
+                    .ok_or("cannot locate the home directory; use --hooks-file")?,
+            ),
+        };
+        let command = aherald::hook_setup::command_for(&exe, agent, cfg!(windows));
+        print!(
+            "{}",
+            aherald::hook_setup::run(agent, action, &file, &command, cli.apply)?
+        );
+        return Ok(());
+    }
     let path = cli
         .config
         .clone()

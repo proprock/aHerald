@@ -316,6 +316,69 @@ fn a_missing_default_configuration_creates_its_folder() {
 }
 
 #[test]
+fn hook_setup_operations_take_an_agent_and_an_optional_file_and_apply() {
+    use aherald::agent::Agent;
+    let cli = Cli::parse(args(&["--install-hooks", "claude"])).unwrap();
+    assert_eq!(cli.operation.as_deref(), Some("install-hooks"));
+    assert_eq!(
+        (cli.hooks_agent, cli.apply, cli.hooks_file),
+        (Some(Agent::Claude), false, None)
+    );
+    let cli = Cli::parse(args(&[
+        "--uninstall-hooks",
+        "codex",
+        "--apply",
+        "--hooks-file",
+        "h.json",
+    ]))
+    .unwrap();
+    assert_eq!(cli.operation.as_deref(), Some("uninstall-hooks"));
+    assert_eq!(
+        (cli.hooks_agent, cli.apply, cli.hooks_file),
+        (Some(Agent::Codex), true, Some(PathBuf::from("h.json")))
+    );
+    for bad in [
+        vec!["--install-hooks"],
+        vec!["--install-hooks", "gemini"],
+        vec!["--install-hooks", "claude", "--resident"],
+        vec!["--apply"],
+        vec!["--hooks-file", "x.json"],
+        vec!["--install-hooks", "claude", "--uninstall-hooks", "claude"],
+        vec!["--hook", "--apply"],
+    ] {
+        assert!(Cli::parse(args(&bad)).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn hook_setup_dry_run_and_apply_work_through_the_binary() {
+    let dir = std::env::temp_dir().join(format!("aherald-setup-bin-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("settings.json");
+    fs::write(&file, r#"{"theme":"dark"}"#).unwrap();
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--install-hooks", "claude", "--hooks-file"])
+            .arg(&file)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let dry = run(&[]);
+    assert!(dry.status.success());
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"theme":"dark"}"#);
+    let applied = run(&["--apply"]);
+    assert!(applied.status.success());
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains("--hook --agent claude --resident") && text.contains("\"theme\""));
+    let again = run(&["--apply"]);
+    assert!(String::from_utf8_lossy(&again.stdout).contains("Nothing to change"));
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hook_configuration_error_is_silent_and_successful() {
     let path = std::env::temp_dir().join(format!("aherald-invalid-{}.toml", std::process::id()));
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
