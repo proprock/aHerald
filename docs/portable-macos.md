@@ -75,7 +75,7 @@ For Claude Code there is also a plugin from this repository's marketplace; use i
 
 ```bash
 claude plugin marketplace add proprock/aHerald
-claude plugin install aherald@aherald
+claude plugin install aherald@proprock
 ```
 
 To do it by hand instead, copy `examples/aherald-codex-hook.sh` and `examples/aherald-claude-hook.sh`
