@@ -80,9 +80,12 @@ fn local_offset_minutes() -> i32 {
         _ => -(zone.Bias + zone.StandardBias),
     }
 }
-#[cfg(not(windows))]
+#[cfg(unix)]
 fn local_offset_minutes() -> i32 {
-    0
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    crate::zone::local_time(now).map_or(0, |tm| (tm.tm_gmtoff / 60) as i32)
 }
 fn now_timestamp() -> String {
     let millis = SystemTime::now()
@@ -106,6 +109,13 @@ pub enum Record {
     InvalidConfiguration,
     ResidentStartupFailure,
     UsageFailure,
+    /// A configured sound file cannot be used; the reason is one of `SoundError::code`.
+    SoundRejected(&'static str),
+    /// A decoded sound could not be played (no output device, for example).
+    SoundFailed,
+    /// Configured artwork cannot be used and the built-in picture is shown instead; the word
+    /// says which setting (`custom` animation or `pet`).
+    ArtworkRejected(&'static str),
     /// Aggregated timings of one span over a window, in microseconds. Names are static
     /// and values numeric, so no event data can reach the log through these.
     Perf {
@@ -212,6 +222,11 @@ impl Record {
             Self::InvalidConfiguration => (Level::Warn, "config.invalid".into()),
             Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed".into()),
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
+            Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),
+            Self::SoundFailed => (Level::Warn, "audio.failed".into()),
+            Self::ArtworkRejected(which) => {
+                (Level::Warn, format!("artwork.rejected {which}").into())
+            }
         }
     }
 }
@@ -314,5 +329,29 @@ pub fn log(record: Record) {
     let mut shared = SHARED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(shared) = shared.as_mut() {
         let _ = shared.log.record(record);
+    }
+}
+
+/// Writes `record` the first time the file at `path` is seen failing in its current state (size
+/// and modification time) for `topic`: the same file failing at every event is one line, a
+/// replaced file that fails again is another. The path itself never reaches the log.
+pub fn log_once(topic: &'static str, path: &Path, record: Record) {
+    use std::collections::HashSet;
+    type State = (&'static str, PathBuf, Option<u64>, Option<SystemTime>);
+    static SEEN: Mutex<Option<HashSet<State>>> = Mutex::new(None);
+    let meta = std::fs::metadata(path).ok();
+    let state = (
+        topic,
+        path.to_owned(),
+        meta.as_ref().map(std::fs::Metadata::len),
+        meta.and_then(|m| m.modified().ok()),
+    );
+    let first = SEEN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(HashSet::new)
+        .insert(state);
+    if first {
+        log(record);
     }
 }

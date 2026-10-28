@@ -16,17 +16,47 @@ pub fn resolve(
     let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
     let selected = match settings.visual {
         EventVisual::Builtin => return Ok(builtin()),
-        EventVisual::Custom => settings
-            .animation
-            .as_deref()
-            .and_then(|p| Animation::load(p).ok()),
-        EventVisual::Pet => crate::pet::selected(config, event).ok().flatten(),
+        EventVisual::Custom => {
+            settings
+                .animation
+                .as_deref()
+                .and_then(|p| match Animation::load(p) {
+                    Ok(animation) => Some(animation),
+                    Err(_) => {
+                        reject("custom", p);
+                        None
+                    }
+                })
+        }
+        EventVisual::Pet => pet(config, event),
         EventVisual::Inherit => match config.notifications.visual {
             Visual::Builtin => return Ok(builtin()),
-            Visual::Auto | Visual::Pet => crate::pet::selected(config, event).ok().flatten(),
+            Visual::Auto | Visual::Pet => pet(config, event),
         },
     };
     Ok(selected.or_else(builtin))
+}
+
+/// A configured picture that cannot be used is reported once per file state; the built-in
+/// artwork takes its place.
+fn reject(which: &'static str, path: &Path) {
+    crate::operational_log::log_once(
+        "artwork",
+        path,
+        crate::operational_log::Record::ArtworkRejected(which),
+    );
+}
+
+fn pet(config: &Config, event: &Event) -> Option<Animation> {
+    match crate::pet::selected(config, event) {
+        Ok(animation) => animation,
+        Err(_) => {
+            if let Some(path) = config.notifications.pet.as_deref() {
+                reject("pet", path);
+            }
+            None
+        }
+    }
 }
 
 pub fn for_event(config: &Config, event: &Event) -> Result<Option<Animation>, String> {

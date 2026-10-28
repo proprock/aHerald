@@ -124,6 +124,18 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   where it applies, the card is queued; hook behavior and its stdout contract are unchanged.
   Decide when the card is built: whether it is a normal `error` event from aHerald itself and how
   repeats are throttled.
+  Status 2026-10-28 (branch `feature/ah-090-no-silent-decisions`): log channel started.
+  Done, each with a test that the line appears once per failing file state and never carries a
+  path: a sound that cannot be used (`audio.rejected unreadable|too_large|too_long|unsupported|
+  malformed`, from the new `audio::SoundError`), a sound that cannot be played (`audio.failed`,
+  once per run of failures), a configured custom animation or pet that falls back to the built-in
+  picture (`artwork.rejected custom|pet`). Found by the audit and fixed: log timestamps on Unix
+  carried a +00:00 offset whatever the zone (`log_local_offset` test).
+  Audit, still silent: a configured `monitor` index with no such display (falls back to the main
+  one); hook input that is malformed or unknown (silent by contract on stdout, but no log line);
+  events of a disabled kind and deduplicated or obsolete events (no debug line); artwork
+  prepared at a smaller scale because of the memory budget (counter only); `let _ =` on child
+  start-up in the hook path (`resident_client`). Not started: the error card channel.
 
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session

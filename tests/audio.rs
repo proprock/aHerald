@@ -1,5 +1,5 @@
 use aherald::{
-    audio::{Wave, selected},
+    audio::{SoundError, Wave, selected},
     config::Config,
     events::{Event, Kind},
 };
@@ -50,6 +50,37 @@ fn invalid_and_missing_audio_is_rejected_without_panicking() {
     assert!(Wave::parse(&bytes, 1.0).is_err());
     assert!(Wave::parse(&wav(&[1]), f64::NAN).is_err());
     assert!(Wave::load(std::path::Path::new("does-not-exist.wav"), 0.5).is_err());
+}
+#[test]
+fn every_rejection_has_its_own_fixed_reason() {
+    let long = wav(&vec![0i16; 8000 * 6]);
+    let mut float = wav(&[1]);
+    float[20] = 3;
+    let mut eight_bit = wav(&[1]);
+    eight_bit[34] = 8;
+    let cases = [
+        (long, SoundError::TooLong, "too_long"),
+        (
+            vec![0u8; 2 * 1024 * 1024 + 1],
+            SoundError::TooLarge,
+            "too_large",
+        ),
+        (float, SoundError::Unsupported, "unsupported"),
+        (eight_bit, SoundError::Unsupported, "unsupported"),
+        (b"not WAV".to_vec(), SoundError::Malformed, "malformed"),
+        (wav(&[]), SoundError::Malformed, "malformed"),
+        (wav(&[1])[..40].to_vec(), SoundError::Malformed, "malformed"),
+    ];
+    for (bytes, error, code) in cases {
+        let found = Wave::parse(&bytes, 1.0).unwrap_err();
+        assert_eq!(found, error);
+        assert_eq!(found.code(), code);
+    }
+    let missing = Wave::load(std::path::Path::new("does-not-exist.wav"), 0.5).unwrap_err();
+    assert_eq!(
+        (missing, missing.code()),
+        (SoundError::Unreadable, "unreadable")
+    );
 }
 #[test]
 fn global_event_and_volume_mutes_are_honored() {
