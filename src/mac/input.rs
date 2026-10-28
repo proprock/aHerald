@@ -26,6 +26,19 @@ pub fn to_pixels(point: (f64, f64), window: (f64, f64), layout: &Layout) -> (i32
     )
 }
 
+/// Whether card pixel `(x, y)` is on the card's body rather than on a button or off the card.
+pub fn on_body(queue: &Queue, click_to_dismiss: bool, layout: &Layout, (x, y): (i32, i32)) -> bool {
+    let mut controls = Card::new(
+        "",
+        queue.selected_index(),
+        queue.items().len(),
+        click_to_dismiss,
+    );
+    controls.text_left = Some(layout.text_left);
+    queue.selected().is_some()
+        && controls.body_hit_test(layout.width, layout.height, layout.scale, x, y)
+}
+
 /// Applies a click at card pixel `(x, y)` to the queue. With `click_to_dismiss` the whole
 /// card closes it; otherwise only the buttons act. Returns whether it hit a control.
 pub fn click(
@@ -148,5 +161,17 @@ mod tests {
         assert_eq!(q.items().len(), 2);
         let mut empty = queue(0);
         assert!(!click(&mut empty, true, &layout(), (300, 60)));
+    }
+
+    #[test]
+    fn only_the_body_counts_as_the_body() {
+        let q = queue(3);
+        let l = layout();
+        assert!(on_body(&q, true, &l, (300, 60)));
+        assert!(!on_body(&q, true, &l, centre(&q, true, Action::Next)));
+        assert!(!on_body(&q, false, &l, centre(&q, false, Action::Dismiss)));
+        assert!(!on_body(&q, true, &l, (-1, 10)));
+        assert!(!on_body(&q, true, &l, (640, 10)));
+        assert!(!on_body(&queue(0), true, &l, (300, 60)));
     }
 }
