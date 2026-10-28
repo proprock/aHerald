@@ -80,6 +80,7 @@ pub mod resident;
 
 pub mod queue;
 mod resident_client;
+pub mod resident_request;
 
 #[cfg(windows)]
 pub mod restart;

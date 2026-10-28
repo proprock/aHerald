@@ -89,6 +89,13 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `src/mac/`) because the Windows code could not be compiled while the macOS port was written.
   Extract them into portable modules used by both. Acceptance: no behavior change, Windows CI
   and the native Windows tests green.
+  Status 2026-10-28 (branch `refactor/ah-088-share-code`): the IPC request handler is
+  `resident_request::respond` (unit-tested; both residents call it), `event_card_text` lives in
+  `card_paint`, and `activation::Worker` is portable with a per-platform runner (unit-tested).
+  The Windows side was type-checked and linted from the Mac with
+  `cargo clippy --target x86_64-pc-windows-msvc --all-targets`; Windows CI is the run check.
+  Remaining: the card surface and composition (`overlay.rs` `Surface`/`Composition` against
+  `mac/surface.rs`), which needs the GDI surface moved onto a shared pixel buffer.
 
 - [ ] **AH-089 — macOS audio device change and light menu bar (split from AH-064, AH-063).**
   Manual checks only: a sound while the output device changes (for example Bluetooth), and the

@@ -1,9 +1,6 @@
 use super::{Agent, click};
-use crate::{
-    events::Event,
-    operational_log::{Record, log},
-};
-use std::{path::Path, sync::mpsc, thread::JoinHandle, time::Instant};
+use crate::events::Event;
+use std::path::Path;
 use windows::Win32::{Foundation::*, System::Threading::*, UI::WindowsAndMessaging::*};
 
 fn open_link(url: &str) -> Result<(), String> {
@@ -132,66 +129,11 @@ impl Agent for Claude {
     }
 }
 
-/// One owned worker and one pending click; the GUI never waits for shell or process queries.
-#[derive(Default)]
-pub struct Worker {
-    sender: Option<mpsc::SyncSender<(Event, Instant)>>,
-    handle: Option<JoinHandle<()>>,
-}
-impl Worker {
-    pub fn submit(
-        &mut self,
-        event: &Event,
-        enabled: bool,
-        body: bool,
-        directory: &Path,
-        level: crate::config::LogLevel,
-    ) {
-        if !enabled || !body || event.source.agent().is_none() {
-            return;
-        }
-        if self.sender.is_none() {
-            let (tx, rx) = mpsc::sync_channel::<(Event, Instant)>(1);
-            crate::operational_log::init(directory, level);
-            match std::thread::Builder::new()
-                .name("agent-activation".into())
-                .spawn(move || {
-                    for (event, clicked) in rx {
-                        let result = match event.source.agent() {
-                            Some(crate::agent::Agent::Codex) => {
-                                click(&event, true, true, &mut Codex)
-                            }
-                            Some(crate::agent::Agent::Claude) => {
-                                click(&event, true, true, &mut Claude)
-                            }
-                            None => Ok(()),
-                        };
-                        log(if result.is_err() {
-                            Record::AgentActivationFailure
-                        } else {
-                            Record::AgentActivated {
-                                millis: clicked.elapsed().as_millis() as u64,
-                            }
-                        });
-                    }
-                }) {
-                Ok(handle) => {
-                    self.sender = Some(tx);
-                    self.handle = Some(handle);
-                }
-                Err(_) => log(Record::AgentActivationFailure),
-            }
-        }
-        if let Some(tx) = &self.sender {
-            let _ = tx.try_send((event.clone(), Instant::now()));
-        }
-    }
-}
-impl Drop for Worker {
-    fn drop(&mut self) {
-        self.sender.take();
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
+/// What a click on a card of `event` does with the real agents.
+pub fn run(event: &Event) -> Result<(), String> {
+    match event.source.agent() {
+        Some(crate::agent::Agent::Codex) => click(event, true, true, &mut Codex),
+        Some(crate::agent::Agent::Claude) => click(event, true, true, &mut Claude),
+        None => Ok(()),
     }
 }

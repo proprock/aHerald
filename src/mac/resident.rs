@@ -14,10 +14,10 @@ use super::{
 use crate::{
     animation::PreparedAnimation,
     card::Card,
-    card_paint::CardText,
+    card_paint::{CardText, event_card_text},
     config::Config,
     events::Event,
-    ipc::{Request, Response, pipe},
+    ipc::{Response, pipe},
     local::Scope,
     queue::Queue,
 };
@@ -48,6 +48,21 @@ struct Shared {
     paused: bool,
     sounds: bool,
     visuals: bool,
+}
+
+impl crate::resident_request::Controls for Shared {
+    fn queue(&mut self) -> &mut Queue {
+        &mut self.queue
+    }
+    fn paused(&self) -> bool {
+        self.paused
+    }
+    fn sounds(&self) -> bool {
+        self.sounds
+    }
+    fn visuals(&self) -> bool {
+        self.visuals
+    }
 }
 
 /// Wakes the AppKit event loop from another thread.
@@ -137,47 +152,20 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                     let Ok(mut state) = state.lock() else {
                         return Response::Rejected;
                     };
-                    match request {
-                        Request::Status => Response::Status {
-                            pid: std::process::id(),
-                            queued: state.queue.items().len(),
-                            paused: state.paused,
-                            sounds: state.sounds,
-                            visuals: state.visuals,
-                        },
-                        Request::Quit => {
-                            shutdown.store(true, Ordering::Release);
-                            waker.wake();
-                            Response::Bye
-                        }
-                        Request::Event { event } => {
-                            if event.validate().is_err() {
-                                return Response::Rejected;
-                            }
-                            let setting = &settings.events[event.kind];
-                            if !setting.enabled {
-                                // A disabled kind shows nothing but still ends its turn's waits.
-                                state.queue.observe_terminal(&event);
-                                return Response::Accepted;
-                            }
-                            let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                            let duration = if setting.duration_ms == 0 {
-                                0
-                            } else {
-                                setting
-                                    .duration_ms
-                                    .saturating_add(settings.notifications.fade_out_ms)
-                            };
-                            if state.queue.push(event, now, duration).is_accepted() {
-                                waker.wake();
-                                Response::Accepted
-                            } else {
-                                drop(state);
-                                log(Record::QueueRejected);
-                                Response::Rejected
-                            }
-                        }
+                    let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    let (response, effects) =
+                        crate::resident_request::respond(request, &mut *state, &settings, now);
+                    drop(state);
+                    if effects.quit {
+                        shutdown.store(true, Ordering::Release);
                     }
+                    if effects.wake {
+                        waker.wake();
+                    }
+                    if effects.rejected {
+                        log(Record::QueueRejected);
+                    }
+                    response
                 });
                 if result.is_err() {
                     log(Record::IpcFailure);
@@ -213,27 +201,6 @@ fn new_shared(config: &Config) -> Arc<Mutex<Shared>> {
 
 /// Event id, the render scale the artwork was prepared at, and the artwork.
 type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
-
-/// What the event card shows: its heading, kind, queue position and age.
-fn event_card_text<'a>(
-    config: &Config,
-    event: &Event,
-    controls: &'a Card,
-    age: Option<&'a str>,
-) -> CardText<'a> {
-    CardText {
-        heading: &controls.heading,
-        label: event.kind.label(),
-        body: false,
-        index: controls.index,
-        count: controls.count,
-        dismiss_button: controls.dismiss_button,
-        age,
-        color: config.event_color(event.kind),
-        background_color: config.event_background_color(event.kind),
-        border: config.event_border_color(event.kind),
-    }
-}
 
 struct Ui {
     shared: Arc<Mutex<Shared>>,
@@ -276,7 +243,7 @@ struct Ui {
     layout_count: usize,
     audio: Vec<std::thread::JoinHandle<()>>,
     audio_cancel: Arc<AtomicBool>,
-    activation: super::activation::Worker,
+    activation: crate::activation::Worker,
 }
 
 impl Ui {
@@ -954,7 +921,7 @@ fn present(
             layout_count: 0,
             audio: Vec::new(),
             audio_cancel: Arc::new(AtomicBool::new(false)),
-            activation: super::activation::Worker::default(),
+            activation: crate::activation::Worker::default(),
             config,
         };
         // Events queued before the loop started are picked up by the first step.
