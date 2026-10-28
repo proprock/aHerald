@@ -51,6 +51,15 @@ fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once(
     }
     assert_eq!(lines(&directory, "artwork.rejected pet"), 1);
 
+    // An aHerald notice belongs to no agent: neither the custom animation nor the pet applies,
+    // so the broken settings are not even tried and nothing more is reported.
+    let before = lines(&directory, "artwork.rejected");
+    let notice = Event::notice("Sound too long: a.wav");
+    config.events[notice.kind].visual = EventVisual::Custom;
+    config.events[notice.kind].animation = Some(directory.join("another-secret-name.toml"));
+    assert!(resolve(&config, &notice, &builtin).unwrap().is_some());
+    assert_eq!(lines(&directory, "artwork.rejected"), before);
+
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-"), "{log}");
     let _ = std::fs::remove_dir_all(&directory);

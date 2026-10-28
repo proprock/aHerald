@@ -269,6 +269,7 @@ impl Queue {
             window: None,
             ended: false,
             folder: None,
+            message: None,
         };
         self.items.push(Entry {
             id: self.sequence,

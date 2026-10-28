@@ -83,6 +83,17 @@ fn every_rejection_has_its_own_fixed_reason() {
     );
 }
 #[test]
+fn an_aherald_notice_never_has_a_sound() {
+    let mut config = Config::default();
+    config.sounds.enabled = true;
+    config.sounds.volume = 1.0;
+    let notice = Event::notice("Sound over 5 s: a.wav");
+    config.events[notice.kind].sound = Some("alert.wav".into());
+    assert!(selected(&config, &notice).is_none());
+    // The same setting still sounds for an agent's error.
+    assert!(selected(&config, &Event::demo("error").unwrap()).is_some());
+}
+#[test]
 fn global_event_and_volume_mutes_are_honored() {
     let event = Event::demo("turn_complete").unwrap();
     let mut config = Config::default();

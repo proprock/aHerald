@@ -18,6 +18,9 @@ pub struct Area {
 pub struct Heading {
     pub title: String,
     pub name: Option<String>,
+    /// An aHerald notice: the name row is its message, in up to three lines, and the card has
+    /// no kind row.
+    pub notice: bool,
 }
 impl Heading {
     pub fn new(harness: &str, folder: Option<&str>, name: Option<&str>) -> Self {
@@ -27,6 +30,14 @@ impl Heading {
                 None => harness.into(),
             },
             name: name.map(Into::into),
+            notice: false,
+        }
+    }
+    /// The heading of an aHerald notice: "aHerald notice" and, under it, only the message.
+    pub fn notice(message: &str) -> Self {
+        Self {
+            notice: true,
+            ..Self::new("aHerald notice", None, Some(message))
         }
     }
     /// A usage card's first line, `<agent>: <summary>`, as two rows. Text that does not

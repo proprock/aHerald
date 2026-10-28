@@ -116,6 +116,13 @@ fn run_with_usage(
         visuals: config.notifications.enabled,
         window: 0,
     }));
+    // aHerald's own notices (a refused sound, unusable artwork) become cards of this resident.
+    crate::notice::install(crate::resident_request::notice_sink(
+        shared.clone(),
+        config.clone(),
+        start,
+        |state: &Shared| wake(state.window),
+    ));
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let state = shared.clone();
     let shutdown = stop.clone();
@@ -185,6 +192,7 @@ fn run_with_usage(
         path.to_owned(),
         usage(),
     );
+    crate::notice::clear();
     stop.store(true, Ordering::Release);
     stop_event.signal();
     let _ = listener.join();

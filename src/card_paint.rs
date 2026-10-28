@@ -36,7 +36,7 @@ pub fn event_card_text<'a>(
 ) -> CardText<'a> {
     CardText {
         heading: &controls.heading,
-        label: event.kind.label(),
+        label: event.title(),
         body: false,
         index: controls.index,
         count: controls.count,
@@ -262,19 +262,29 @@ pub fn paint(width: i32, height: i32, scale: f64, text_left: i32, content: &Card
     });
     // Row 2 is reserved so the card never changes height; empty without a name.
     if let Some(name) = &heading.name {
+        let notice = heading.notice;
+        // A notice says its message in up to three lines of the body font, cut after them; an
+        // agent's session name stays on one line with an ellipsis.
+        let (size, gray, top, bottom) = if notice {
+            (18.0, 0xf5, 44.0, 112.0)
+        } else {
+            (16.0, 0xc4, 38.0, 60.0)
+        };
         text.push(TextRun {
-            ellipsis: true,
+            wrap: notice,
+            ellipsis: !notice,
             ..run(
                 name,
-                16.0,
-                0xc4,
-                Area::new(text_left, px(38.0), width - px(18.0), px(60.0)),
+                size,
+                gray,
+                Area::new(text_left, px(top), width - px(18.0), px(bottom)),
                 Align::Left,
             )
         });
     }
-    // Row 3: the event kind, set apart and larger; usage cards show their body instead.
-    if !label.is_empty() {
+    // Row 3: the event kind, set apart and larger; usage cards show their body instead. A
+    // notice has none: its message is the whole card.
+    if !label.is_empty() && !heading.notice {
         let (size, top) = if *body { (18.0, 66.0) } else { (22.0, 72.0) };
         text.push(TextRun {
             wrap: *body,
@@ -474,5 +484,39 @@ mod tests {
         );
         assert_eq!(text.border, config.event_border_color(event.kind));
         assert_eq!(text.heading, &controls.heading);
+    }
+
+    #[test]
+    fn a_notice_is_headed_aherald_notice_and_then_only_its_message_up_to_three_lines() {
+        let heading = Heading::notice("Monitor 3 is not connected; using the main display");
+        let mut text = content(&heading, 2, false);
+        text.label = "Agent error";
+        let painted = paint(W, H, 1.0, 22, &text);
+        let by = |s: &str| painted.text.iter().find(|r| r.text == s).unwrap();
+        assert_eq!(by("aHerald notice").area.top, 14);
+        // No kind row under it: the message is what the card says.
+        assert!(painted.text.iter().all(|r| r.text != "Agent error"));
+        let message = by("Monitor 3 is not connected; using the main display");
+        assert!(message.wrap && !message.ellipsis);
+        assert_eq!(
+            (message.area.top, message.size, message.gray),
+            (44, 18.0, 0xf5)
+        );
+        // Three 18-pixel lines fit above the button row, and are cut after them.
+        let row = Card::new(heading.clone(), 0, 2, false).buttons(W, H, 1.0)[0]
+            .1
+            .top;
+        assert!(message.area.bottom - message.area.top >= 3 * 20);
+        assert!(message.area.bottom <= row, "{message:?} row {row}");
+        // An agent's one-line name keeps its single ellipsized row and its kind row.
+        let agent = Heading::new("Codex", None, Some("Fix the build"));
+        let painted = paint(W, H, 1.0, 22, &content(&agent, 1, false));
+        let name = painted
+            .text
+            .iter()
+            .find(|r| r.text == "Fix the build")
+            .unwrap();
+        assert!(name.ellipsis && !name.wrap);
+        assert!(painted.text.iter().any(|r| r.text == "Permission required"));
     }
 }

@@ -7,7 +7,7 @@ use aherald::{
     events::Event,
     operational_log,
 };
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 
 fn wav(seconds: u32) -> Vec<u8> {
     let samples = 8000 * seconds;
@@ -42,6 +42,10 @@ fn an_unusable_sound_is_logged_once_per_file_and_never_with_its_path() {
     let _ = std::fs::remove_dir_all(&directory);
     std::fs::create_dir_all(&directory).unwrap();
     operational_log::init(&directory, LogLevel::Warn);
+    // A resident would show these as cards; a hook or transient process has no sink.
+    let cards = Arc::new(Mutex::new(Vec::new()));
+    let sink = cards.clone();
+    aherald::notice::install(move |event| sink.lock().unwrap().push(event.message));
     let sound = directory.join("secret-folder-name.wav");
     let event = Event::demo("turn_complete").unwrap();
     let mut config = Config::default();
@@ -74,7 +78,22 @@ fn an_unusable_sound_is_logged_once_per_file_and_never_with_its_path() {
     play(&config);
     assert_eq!(lines(&directory, "audio.rejected unreadable"), 1);
 
+    // One card per failing file state, naming the file but not its folder.
+    let cards = cards.lock().unwrap();
+    assert_eq!(
+        cards
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "Sound over 5 s: secret-folder-name.wav",
+            "Sound is not a WAV: secret-folder-name.wav",
+            "Sound unreadable: secret-folder-name.wav",
+        ]
+    );
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-folder-name"), "{log}");
+    aherald::notice::clear();
     let _ = std::fs::remove_dir_all(&directory);
 }

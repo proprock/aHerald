@@ -51,6 +51,10 @@ pub enum Source {
     /// Internal, user-requested usage card; never accepted over hook/IPC JSON.
     #[serde(skip)]
     Usage,
+    /// aHerald itself, for a problem the user can fix (a refused sound, a missing monitor).
+    /// Belongs to no agent; never accepted over hook/IPC JSON.
+    #[serde(skip)]
+    App,
     CodexHook,
     ClaudeHook,
     Demo,
@@ -61,12 +65,13 @@ impl Source {
         match self {
             Self::CodexHook => Some(crate::agent::Agent::Codex),
             Self::ClaudeHook => Some(crate::agent::Agent::Claude),
-            Self::Usage | Self::Demo => None,
+            Self::Usage | Self::App | Self::Demo => None,
         }
     }
     pub fn agent_key(&self) -> &'static str {
         match self {
             Self::Usage => "usage",
+            Self::App => "aherald",
             Self::Demo => "demo",
             hook => hook.agent().map_or("demo", |a| a.key()),
         }
@@ -74,6 +79,7 @@ impl Source {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Usage => "Codex",
+            Self::App => "aHerald",
             Self::Demo => "aHerald demo",
             hook => hook.agent().map_or("aHerald demo", |a| a.label()),
         }
@@ -112,8 +118,12 @@ pub struct Event {
     /// only: never logged, and the full path is not kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// What an aHerald notice says (`Source::App` only); drawn under the heading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 const MAX_FOLDER_CHARS: usize = 40;
+const MAX_NOTICE_CHARS: usize = 80;
 /// The folder name of a hook's `cwd`: its last component, safe to draw. `None` for roots,
 /// drives, share names, empty paths and names that are empty once control and
 /// bidirectional-override characters are removed.
@@ -160,7 +170,38 @@ impl Event {
             window: None,
             ended: false,
             folder: None,
+            message: None,
         })
+    }
+
+    /// An aHerald notice: an error card that belongs to no agent. `message` is cut to one short
+    /// line with control characters removed.
+    pub fn notice(message: &str) -> Self {
+        let line: String = message
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        Self {
+            kind: Kind::Error,
+            source: Source::App,
+            session_id: None,
+            turn_id: None,
+            request_id: None,
+            agent_id: None,
+            window: None,
+            ended: false,
+            folder: None,
+            message: Some(line.chars().take(MAX_NOTICE_CHARS).collect()),
+        }
+    }
+
+    /// The big line of the card: the kind, except that an aHerald notice is not an agent error.
+    pub fn title(&self) -> &'static str {
+        match (&self.source, self.kind) {
+            (Source::App, _) => "aHerald notice",
+            (_, kind) => kind.label(),
+        }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.window == Some(0) {
@@ -216,6 +257,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         window: None,
         ended: false,
         folder: hook_folder(hook.cwd),
+        message: None,
     };
     event.validate()?;
     Ok(Some(event))
@@ -384,5 +426,22 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_notice_is_one_clean_short_line_from_aherald_that_never_travels_as_json() {
+        let notice = Event::notice("  Sound\ttoo\nlong\u{7}:  a.wav  ");
+        assert_eq!(notice.message.as_deref(), Some("Sound too long : a.wav"));
+        assert_eq!((notice.kind, &notice.source), (Kind::Error, &Source::App));
+        assert_eq!(notice.title(), "aHerald notice");
+        assert_eq!(Event::demo("error").unwrap().title(), "Agent error");
+        let long = Event::notice(&"x".repeat(500));
+        assert_eq!(long.message.unwrap().chars().count(), 80);
+        // Like the usage card, it exists only inside the resident.
+        assert!(serde_json::to_string(&Event::notice("x")).is_err());
+        let wire =
+            r#"{"kind":"error","source":"app","session_id":null,"turn_id":null,"request_id":null}"#;
+        assert!(serde_json::from_str::<Event>(wire).is_err());
+        assert!(notice.session_id.is_none() && notice.agent_id.is_none());
     }
 }

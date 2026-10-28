@@ -113,6 +113,8 @@ pub enum Record {
     SoundRejected(&'static str),
     /// A decoded sound could not be played (no output device, for example).
     SoundFailed,
+    /// The configured `monitor` is not connected; cards use the main display.
+    MonitorMissing,
     /// Configured artwork cannot be used and the built-in picture is shown instead; the word
     /// says which setting (`custom` animation or `pet`).
     ArtworkRejected(&'static str),
@@ -224,6 +226,7 @@ impl Record {
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
             Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),
             Self::SoundFailed => (Level::Warn, "audio.failed".into()),
+            Self::MonitorMissing => (Level::Warn, "display.monitor_missing".into()),
             Self::ArtworkRejected(which) => {
                 (Level::Warn, format!("artwork.rejected {which}").into())
             }
@@ -332,10 +335,10 @@ pub fn log(record: Record) {
     }
 }
 
-/// Writes `record` the first time the file at `path` is seen failing in its current state (size
-/// and modification time) for `topic`: the same file failing at every event is one line, a
-/// replaced file that fails again is another. The path itself never reaches the log.
-pub fn log_once(topic: &'static str, path: &Path, record: Record) {
+/// Whether this is the first time the file at `path` is seen failing in its current state (size
+/// and modification time) for `topic`: the same file failing at every event is one report, a
+/// replaced file that fails again is another.
+pub fn first_time(topic: &'static str, path: &Path) -> bool {
     use std::collections::HashSet;
     type State = (&'static str, PathBuf, Option<u64>, Option<SystemTime>);
     static SEEN: Mutex<Option<HashSet<State>>> = Mutex::new(None);
@@ -346,12 +349,8 @@ pub fn log_once(topic: &'static str, path: &Path, record: Record) {
         meta.as_ref().map(std::fs::Metadata::len),
         meta.and_then(|m| m.modified().ok()),
     );
-    let first = SEEN
-        .lock()
+    SEEN.lock()
         .unwrap_or_else(|e| e.into_inner())
         .get_or_insert_with(HashSet::new)
-        .insert(state);
-    if first {
-        log(record);
-    }
+        .insert(state)
 }

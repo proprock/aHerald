@@ -468,14 +468,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: 
                         match updated {
                             Ok(()) => {
                                 state.controls.heading = source.clone();
-                                let title: Vec<u16> = format!(
-                                    "{} - {}",
-                                    source.window_text(),
-                                    state.event.kind.label()
-                                )
-                                .encode_utf16()
-                                .chain(Some(0))
-                                .collect();
+                                let title: Vec<u16> =
+                                    format!("{} - {}", source.window_text(), state.event.title())
+                                        .encode_utf16()
+                                        .chain(Some(0))
+                                        .collect();
                                 let _ = SetWindowTextW(hwnd, windows::core::PCWSTR(title.as_ptr()));
                             }
                             Err(_) => {
@@ -784,7 +781,7 @@ fn show_with_source(
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         // The card is drawn at the DPI of the monitor it will appear on.
         let scale = config.notifications.scale * crate::placement::dpi_scale(&config.notifications);
-        let label = event.kind.label();
+        let label = event.title();
         let source = source_labels.label(event);
         let mut controls =
             crate::card::Card::new(source.clone(), 0, 1, config.notifications.click_to_dismiss);

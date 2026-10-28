@@ -119,3 +119,22 @@ fn installed_codex_reads_name_without_resuming_thread() {
     // This thread was explicitly verified to have no stored user-facing name.
     assert_eq!(name, std::env::var("AHERALD_EXPECTED_SESSION_NAME").ok());
 }
+
+#[test]
+fn an_aherald_notice_is_headed_by_aherald_with_its_message_and_never_looks_up_a_name() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let mut labels = Service::new(move |_| {
+        count.fetch_add(1, Ordering::Relaxed);
+        Some("A session".into())
+    });
+    let mut notice = Event::notice("Sound over 5 s: alert.wav");
+    // Even with a session id and a folder a notice has no session.
+    notice.session_id = Some("019a0000-0000-0000-0000-000012345678".into());
+    notice.folder = Some("project".into());
+    let heading = labels.label_at(&notice, Duration::ZERO);
+    assert_eq!(heading.title, "aHerald notice");
+    assert_eq!(heading.name.as_deref(), Some("Sound over 5 s: alert.wav"));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+}

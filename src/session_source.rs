@@ -118,6 +118,10 @@ impl Service {
     }
     /// The card heading: `<harness>[, <folder>]` and the stored session name once known.
     pub fn label_at(&mut self, event: &Event, now: Duration) -> Heading {
+        // An aHerald notice has no session: its message takes the place of the session name.
+        if event.source == crate::events::Source::App {
+            return Heading::notice(event.message.as_deref().unwrap_or_default());
+        }
         let name = self.name_at(event, now);
         Heading::new(
             event.source.label(),

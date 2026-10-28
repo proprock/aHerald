@@ -448,7 +448,7 @@ impl Ui {
             let title: Vec<u16> = format!(
                 "{} - {}{position}",
                 controls.heading.window_text(),
-                entry.event.kind.label()
+                entry.event.title()
             )
             .encode_utf16()
             .chain(Some(0))
