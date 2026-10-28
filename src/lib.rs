@@ -20,6 +20,9 @@ pub mod https;
 pub mod session_source;
 pub mod usage;
 pub mod usage_service;
+#[cfg(unix)]
+#[path = "unix/zone.rs"]
+pub(crate) mod zone;
 
 pub const NAME: &str = "aHerald";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
