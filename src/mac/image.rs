@@ -11,6 +11,17 @@ pub fn from_bgra(
     height: i32,
     size: (f64, f64),
 ) -> Result<Retained<NSImage>, String> {
+    from_bgra_as(pixels, width, height, size, false)
+}
+
+/// As [`from_bgra`]; a `template` image uses only its alpha and is tinted by the system.
+pub fn from_bgra_as(
+    pixels: &[u8],
+    width: i32,
+    height: i32,
+    size: (f64, f64),
+    template: bool,
+) -> Result<Retained<NSImage>, String> {
     if width <= 0 || height <= 0 || pixels.len() != width as usize * height as usize * 4 {
         return Err("image buffer does not match its size".into());
     }
@@ -47,6 +58,7 @@ pub fn from_bgra(
         rep.setSize(NSSize::new(size.0, size.1));
         let image = NSImage::initWithSize(NSImage::alloc(), NSSize::new(size.0, size.1));
         image.addRepresentation(&rep);
+        image.setTemplate(template);
         Ok(image)
     }
 }

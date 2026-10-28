@@ -198,7 +198,7 @@ pub fn paint(width: i32, height: i32, scale: f64, text_left: i32, content: &Card
     let mut pixels = vec![0u8; width as usize * height as usize * 4];
     let background = bgra(*background_color, 242);
     let radius = (18.0 * scale) as i32;
-    let stripe = (8.0 * scale) as i32;
+    let stripe = (14.0 * scale) as i32;
     for y in 0..height {
         for x in 0..width {
             let cx = x.clamp(radius, width - radius - 1);
@@ -378,8 +378,10 @@ mod tests {
         let painted = paint(W, H, 1.0, 22, &content(&heading, 1, false));
         assert_eq!(painted.pixels.len(), (W * H * 4) as usize);
         assert_eq!(pixel(&painted, 0, 0), [0, 0, 0, 0]);
-        // BGRA of the stripe colour (R 250, G 180, B 55), left of the 8 px stripe width.
+        // BGRA of the stripe colour (R 250, G 180, B 55); the stripe is 14 px wide at scale 1.
         assert_eq!(&pixel(&painted, 3, H / 2)[..3], &[55, 180, 250]);
+        assert_eq!(&pixel(&painted, 13, H / 2)[..3], &[55, 180, 250]);
+        assert_ne!(&pixel(&painted, 14, H / 2)[..3], &[55, 180, 250]);
         let background = crate::config::Notifications::default().background_color;
         assert_eq!(
             pixel(&painted, 40, H / 2),
