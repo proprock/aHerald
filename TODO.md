@@ -119,8 +119,9 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   from Finder brings Terminal forward; a Claude event with a Desktop session id brings Claude
   Desktop forward (link `claude://claude.ai/epitaxy/local_*`); a Codex event brings Codex.app
   forward. With Desktop showing another session, a click on a card of this session's hook
-  event switched it back to this session (title checked on a screenshot). Only one
-  `local_*.json` exists on this machine, so two different mapped sessions were not compared.
+  event switched it back to this session (title checked on a screenshot). With a second
+  Desktop session of the same project, events for each session's id moved Desktop to that
+  session and back (titles checked on screenshots).
   Not verified: iTerm2 (not installed), Warp and the other terminals, tab or window selection
   in a terminal (would need Automation).
 
