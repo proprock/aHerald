@@ -123,11 +123,25 @@ pub fn prepare_at(
             let smaller = at_base(&selected);
             if smaller.is_some() {
                 crate::perf::count(crate::perf::Counter::ArtworkBudgetFallback);
+                if first_reduced_at(scale) {
+                    crate::operational_log::log(crate::operational_log::Record::ArtworkReduced);
+                }
             }
             smaller
         })
         .or_else(|| builtin().and_then(|a| a.prepare(scale, bilinear).ok()))
         .or_else(|| at_base(&builtin)))
+}
+
+/// Whether this render scale was not yet reported as too large for the memory budget, so a
+/// monitor that needs the fallback at every event is one log line, not one per event.
+fn first_reduced_at(scale: f64) -> bool {
+    use std::{collections::HashSet, sync::Mutex};
+    static SEEN: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
+    SEEN.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_default()
+        .insert(scale.to_bits())
 }
 
 pub fn prepared_for_event(

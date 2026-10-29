@@ -57,6 +57,8 @@ resident keeps its current configuration and shows the error on the details card
 `aherald.log` (beside the configuration, 64 KiB with one backup) records fixed codes
 only, never payloads: `resident_started`, `resident_stopped`, `resident_startup_failed`,
 `invalid_configuration`, `render_failed`, `render_fallback`, `usage_failed` (once per
-failing episode), `ipc_failure`, `queue_rejected` and `agent_activation_failed`.
+failing episode), `ipc_failure`, `queue_rejected`, `agent_activation_failed`, `hook.delivery_failed` (a hook could not hand its
+event to the resident) and `artwork.reduced` (artwork over the memory budget at the monitor's
+scale is drawn at the configured scale; once per scale).
 Invalid-configuration and startup codes are written at `warn` level regardless of
 `general.logging`, because that setting cannot be read from an invalid file.
