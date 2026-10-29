@@ -133,7 +133,11 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         print!("{}", aherald::perf_report::report(directory)?);
         return Ok(());
     }
-    let scope = aherald::local::Scope::current("resident")?;
+    let scope = aherald::local::Scope::current("resident").inspect_err(|_| {
+        if cli.operation.as_deref() == Some("hook") {
+            log_code(&path, aherald::operational_log::Record::HookDeliveryFailed);
+        }
+    })?;
     if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
         let request = if cli.operation.as_deref() == Some("quit") {
             aherald::ipc::Request::Quit
@@ -232,12 +236,9 @@ fn dispatch(
     }
     let executable = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
     if mode == aherald::config::Mode::Resident {
-        return aherald::resident::forward(
-            &executable,
-            path,
-            &aherald::local::Scope::current("resident")?,
-            event,
-        );
+        return aherald::local::Scope::current("resident")
+            .and_then(|scope| aherald::resident::forward(&executable, path, &scope, event))
+            .inspect_err(|_| log_code(path, aherald::operational_log::Record::HookDeliveryFailed));
     }
     if !config.notifications.enabled && (!config.sounds.enabled || !setting.sound_enabled) {
         return Ok(());

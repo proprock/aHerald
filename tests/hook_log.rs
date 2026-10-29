@@ -68,3 +68,37 @@ fn an_event_the_agent_does_not_report_on_is_not_a_failure() {
     assert!(!log(&directory).contains("hook.rejected"));
     let _ = std::fs::remove_dir_all(&directory);
 }
+
+/// A resident that cannot be reached or started leaves the hook silent on stdout, so the log is
+/// the only place the failure shows up.
+#[cfg(unix)]
+#[test]
+fn a_hook_that_cannot_reach_or_start_the_resident_logs_a_fixed_code() {
+    let directory = directory("unreachable");
+    // The runtime directory is a plain file, so no resident socket can exist or be created.
+    let runtime = directory.join("not-a-directory");
+    std::fs::write(&runtime, b"").unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+        .args(["--hook", "--resident", "--config"])
+        .arg(directory.join("config.toml"))
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(include_bytes!("fixtures/stop.json"))
+        .unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty() || result.stdout == b"{}\n");
+
+    let log = log(&directory);
+    assert_eq!(log.matches("hook.delivery_failed").count(), 1, "{log}");
+    assert!(!log.contains("not-a-directory"), "{log}");
+    let _ = std::fs::remove_dir_all(&directory);
+}

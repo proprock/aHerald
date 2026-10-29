@@ -131,8 +131,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   set of connected displays). Decided not to log: a hook event name the agent does not report on
   (normal traffic, e.g. every Claude event configured), and the `kill`/`wait` cleanup `let _ =`
   in `resident_client` (failures there already return an error to the hook's stderr).
-  Still silent: artwork prepared at a smaller scale because of the memory budget (counter only);
-  a hook that cannot reach or start the resident (stderr only, no log line). The Windows look of
+  Branch `feature/ah-090-last-silent-sites` (2026-10-29): the last two silent sites now log, with
+  tests: `artwork.reduced` (Warn, once per scale) and `hook.delivery_failed` (Warn, hook cannot
+  reach, start or queue to the resident; stdout and exit code unchanged). Noticed, not changed:
+  with an unusable runtime directory the hook fails before it prints its reply. The Windows look of
   the notice card and the Windows `monitor` notice are not seen on a Windows machine.
   Decided 2026-10-28 with the maintainer: the second channel is an ordinary `error` card that
   belongs to neither agent (`Source::App`, headed "aHerald notice", then only the message in up to

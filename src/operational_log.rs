@@ -108,6 +108,9 @@ pub enum Record {
     RenderFallback,
     InvalidConfiguration,
     ResidentStartupFailure,
+    /// A hook could not hand its event to the resident (not reachable, not startable, or its
+    /// queue refused it); the reason stays on the hook's stderr.
+    HookDeliveryFailed,
     UsageFailure,
     /// A configured sound file cannot be used; the reason is one of `SoundError::code`.
     SoundRejected(&'static str),
@@ -123,6 +126,9 @@ pub enum Record {
     /// Configured artwork cannot be used and the built-in picture is shown instead; the word
     /// says which setting (`custom` animation or `pet`).
     ArtworkRejected(&'static str),
+    /// Artwork was too large for the memory budget at the monitor's scale and is drawn at the
+    /// configured scale instead.
+    ArtworkReduced,
     /// Aggregated timings of one span over a window, in microseconds. Names are static
     /// and values numeric, so no event data can reach the log through these.
     Perf {
@@ -228,12 +234,14 @@ impl Record {
             Self::RenderFallback => (Level::Warn, "render.fallback".into()),
             Self::InvalidConfiguration => (Level::Warn, "config.invalid".into()),
             Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed".into()),
+            Self::HookDeliveryFailed => (Level::Warn, "hook.delivery_failed".into()),
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
             Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),
             Self::SoundFailed => (Level::Warn, "audio.failed".into()),
             Self::HookRejected(why) => (Level::Warn, format!("hook.rejected {why}").into()),
             Self::EventDropped(why) => (Level::Debug, format!("event.dropped {why}").into()),
             Self::MonitorMissing => (Level::Warn, "display.monitor_missing".into()),
+            Self::ArtworkReduced => (Level::Warn, "artwork.reduced".into()),
             Self::ArtworkRejected(which) => {
                 (Level::Warn, format!("artwork.rejected {which}").into())
             }
