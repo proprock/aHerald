@@ -124,7 +124,15 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         .recv_timeout(Duration::from_secs(1))
         .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
     let result = match startup {
-        Ok(()) => present(window, config, state, stop.clone(), started, None, false),
+        Ok(()) => present(
+            window,
+            config,
+            state,
+            stop.clone(),
+            started,
+            None,
+            Some(path),
+        ),
         Err(e) => Err(e),
     };
     crate::notice::clear();
@@ -134,7 +142,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     result
 }
 
-pub fn run_demo(mut config: Config, _: &Path, pause_sec: u64) -> Result<(), String> {
+pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
     let demo = crate::demo::Demo::new(&config, pause_sec)?;
     if !config.agents.contains_key("demo")
         && let Some(assets) = config.agents.get("codex").cloned()
@@ -149,7 +157,7 @@ pub fn run_demo(mut config: Config, _: &Path, pause_sec: u64) -> Result<(), Stri
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         Some(demo),
-        false,
+        Some(path),
     )
 }
 
@@ -177,7 +185,7 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         None,
-        true,
+        None,
     )
 }
 
@@ -188,8 +196,12 @@ fn present(
     stop: Arc<AtomicBool>,
     start: Instant,
     mut demo: Option<crate::demo::Demo>,
-    transient: bool,
+    config_path: Option<&Path>,
 ) -> Result<(), String> {
+    let transient = config_path.is_none();
+    let tray = config_path.map(|_| {
+        super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false)
+    });
     let mut labels = if transient {
         crate::session_source::Service::transient_codex(config.codex.transient_names)
     } else {
@@ -205,6 +217,51 @@ fn present(
     let mut animation_start = 0;
     let mut monitor_watch = crate::notice::MonitorWatch::new();
     while !stop.load(Ordering::Acquire) {
+        if let Some(tray) = &tray {
+            for command in tray.commands.try_iter() {
+                use super::tray::Command;
+                match command {
+                    Command::Exit => stop.store(true, Ordering::Release),
+                    Command::About => crate::notice::post(&format!("aHerald {}", crate::VERSION)),
+                    Command::Restart => {
+                        if let Err(error) =
+                            Config::load(config_path.expect("resident configuration path"), true)
+                        {
+                            crate::notice::post("Restart cancelled: invalid configuration");
+                            eprintln!("aHerald: {error}");
+                        } else {
+                            let stop = stop.clone();
+                            std::thread::spawn(move || match crate::restart::launch() {
+                                Ok(()) => stop.store(true, Ordering::Release),
+                                Err(error) => eprintln!("aHerald: {error}"),
+                            });
+                        }
+                    }
+                    Command::Config => {
+                        let path = config_path.expect("resident configuration path").to_owned();
+                        std::thread::spawn(move || {
+                            if let Err(error) = crate::shell::edit_configuration(&path) {
+                                eprintln!("aHerald: {error}");
+                            }
+                        });
+                    }
+                    Command::Sound | Command::Visual | Command::Pause => {
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        let paused = guard.paused;
+                        guard.queue.tick(now, paused);
+                        match command {
+                            Command::Sound => guard.sounds = !guard.sounds,
+                            Command::Visual => guard.visuals = !guard.visuals,
+                            Command::Pause => guard.paused = !guard.paused,
+                            _ => unreachable!(),
+                        }
+                        tray.set_state(guard.sounds, guard.visuals, guard.paused);
+                        presenter.invalidate();
+                    }
+                }
+            }
+        }
         while let Some(event) = window.poll()? {
             if let XEvent::ButtonPress(event) = event
                 && let Some(layout) = layout
@@ -236,7 +293,7 @@ fn present(
             }
         }
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (entry, index, count, paused) = {
+        let (entry, index, count, paused, visuals) = {
             let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
             let paused = guard.paused;
             if let Some(demo) = &mut demo {
@@ -248,12 +305,13 @@ fn present(
                 guard.queue.selected_index(),
                 guard.queue.items().len(),
                 paused,
+                guard.visuals,
             )
         };
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) = entry.filter(|_| !paused && config.notifications.enabled) {
+        if let Some(entry) = entry.filter(|_| !paused && visuals) {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;

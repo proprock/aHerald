@@ -3,4 +3,5 @@
 pub mod input;
 pub mod resident;
 mod surface;
+mod tray;
 pub mod x11;

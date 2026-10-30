@@ -72,11 +72,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   session type, desktop environment, monitor setup and results. Xorg and multi-monitor
   behavior have not yet been verified.
 
-- [ ] **AH-069 — Linux tray.** Depends on AH-068.
-  StatusNotifierItem with dbusmenu over D-Bus (dependency approval first); re-register
-  when the watcher restarts. Document that GNOME needs the AppIndicator extension.
-  Acceptance: manual menu check on Ubuntu; watcher-restart check.
-
 - [ ] **AH-070 — Linux audio.** Depends on AH-061.
   Choose a backend with user approval (PulseAudio/PipeWire-pulse versus ALSA) and keep the
   serialized-playback gate. Acceptance: no overlapping playback; audible check on Ubuntu.

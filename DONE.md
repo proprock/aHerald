@@ -738,6 +738,12 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-069 — Linux tray.** Depends on AH-068.
+  Done 2026-10-30: StatusNotifierItem and dbusmenu using approved `zbus`; GNOME
+  AppIndicator requirement documented. The user confirmed the icon and menu on Ubuntu
+  22.04.5 GNOME/XWayland; a D-Bus menu command changed the resident's pop-up setting.
+  A private D-Bus session test verified registration after the watcher restarted.
+
 - [x] **AH-068 — Linux X11 overlay.** Depends on AH-061.
   Done 2026-10-30 in PR #66: `x11rb` ARGB notification windows, RandR monitor placement
   and DPI, non-focusing window hints, resident and transient presentation, and

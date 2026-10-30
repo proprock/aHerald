@@ -6,14 +6,15 @@ TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 Platforms: Windows 10/11 x64 is the supported runtime. macOS has a native port; Linux
-has an X11/XWayland notification overlay, with tray, audio and click-to-activate still
-pending. Linux requires a compositing X11 session and the Cairo, Pango, PangoCairo and
+has an X11/XWayland notification overlay and a StatusNotifierItem tray, with audio and
+click-to-activate still pending. Linux requires a compositing X11 session and the Cairo, Pango, PangoCairo and
 GObject runtime libraries. A native Wayland overlay is not yet available.
 
 For a Linux preview, build with `cargo build`, run `target/debug/aherald --resident`,
 and send `target/debug/aherald --event input_required --resident` from another terminal.
 Click the card to dismiss it and use `target/debug/aherald --quit` to stop the service.
-Linux demo mode has no tray yet and can be stopped with Ctrl-C.
+On GNOME, the tray requires the AppIndicator extension (or another StatusNotifierItem host).
+The tray menu offers sound, pop-up and pause switches, configuration, restart and exit.
 
 On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
 `./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.
