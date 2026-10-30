@@ -18,7 +18,11 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
         }
         result
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux::resident::show_transient(event, config)
+    }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     {
         let _ = (event, config);
         Err("Windows is required".into())

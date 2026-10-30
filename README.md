@@ -5,11 +5,15 @@ detached or resident notifications, external animation/WAV resources, validated
 TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
-Platforms: Windows 10/11 x64 is the supported runtime. The crate also builds on macOS
-and Linux (CI checks formatting, lints and tests on all three), but there the service
-layer is partly a stand-in: hooks are parsed and IPC, process spawning and HTTPS work,
-while the overlay, tray and audio report "not supported yet" until the macOS and Linux
-ports (AH-062 onward) land.
+Platforms: Windows 10/11 x64 is the supported runtime. macOS has a native port; Linux
+has an X11/XWayland notification overlay, with tray, audio and click-to-activate still
+pending. Linux requires a compositing X11 session and the Cairo, Pango, PangoCairo and
+GObject runtime libraries. A native Wayland overlay is not yet available.
+
+For a Linux preview, build with `cargo build`, run `target/debug/aherald --resident`,
+and send `target/debug/aherald --event input_required --resident` from another terminal.
+Click the card to dismiss it and use `target/debug/aherald --quit` to stop the service.
+Linux demo mode has no tray yet and can be stopped with Ctrl-C.
 
 On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
 `./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.
