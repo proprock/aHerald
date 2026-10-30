@@ -756,7 +756,15 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   exits 0 without it. Not run on the M1: Codex (`codex` not installed there).
   Linux, 2026-10-30: Claude Code 2.1.314 installed the marketplace and plugin in an isolated
   configuration; a synthetic event from the installed cache reached an isolated resident.
-  Real agent dispatch is AH-096; the Windows launcher variant is AH-097.
+  Linux Claude agent dispatch was subsequently verified in AH-096; the Windows launcher
+  variant remains AH-097.
+
+- [x] **AH-096 — Verify Linux plugin in a real Claude Code session.** Depends on AH-091.
+  On 2026-10-30, installed aHerald 0.4.0 and `aherald@proprock` in the user's Ubuntu
+  environment. Claude Code 2.1.314 was installed; the user confirmed receiving a
+  notification from a real Claude session. The installation remains in use. A synthetic
+  event through the installed plugin also reached the resident; the session-specific
+  version and event type were not captured.
 
 - [x] **AH-073 — Wayland spike.** Depends on AH-068.
   Done 2026-10-30: [findings](docs/wayland-spike.md) record the GNOME Wayland registry,

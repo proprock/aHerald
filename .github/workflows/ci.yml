@@ -45,36 +45,47 @@ jobs:
   quality:
     name: Build and test (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
+    # Keep all three required check names for Markdown-only changes. GitHub
+    # does not expand a matrix when its job-level condition skips the job.
+    runs-on: ${{ needs.changes.outputs.code == 'true' && matrix.os || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     steps:
+      - name: Skip builds for Markdown-only changes
+        if: needs.changes.outputs.code != 'true'
+        run: echo 'Only Markdown changed; build and tests are not needed.'
+
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.code == 'true'
         with:
           persist-credentials: false
 
       - name: Install Linux audio runtime
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpulse0
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: needs.changes.outputs.code == 'true'
         with:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: needs.changes.outputs.code == 'true'
 
       - name: cargo fmt --check
+        if: needs.changes.outputs.code == 'true'
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
+        if: needs.changes.outputs.code == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
       # Off Windows only the portable tests run; the native overlay, tray and
       # IPC tests are Windows-only (AH-060) until the Unix ports land.
       - name: cargo test
+        if: needs.changes.outputs.code == 'true'
         run: cargo test --all-targets
