@@ -230,11 +230,34 @@ fn present(
     let tray = config_path.map(|_| {
         super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false)
     });
+    let usage = config_path.map(|_| {
+        crate::usage_service::Service::codex(
+            config.codex.usage.enabled,
+            Duration::from_secs(config.codex.usage.refresh_interval_sec),
+        )
+    });
+    let claude = config_path
+        .filter(|_| config.claude.usage.enabled)
+        .map(|_| {
+            crate::usage_service::Service::claude(
+                true,
+                Duration::from_secs(config.claude.usage.refresh_interval_sec),
+                config.claude.usage.source,
+            )
+        });
     let mut labels = if transient {
         crate::session_source::Service::transient_codex(config.codex.transient_names)
+    } else if config.codex.usage.enabled {
+        crate::session_source::Service::shared(
+            usage.as_ref().expect("resident usage service").names(),
+        )
     } else {
         crate::session_source::Service::codex()
     };
+    let mut usage_claude = false;
+    let mut usage_page = 0usize;
+    let mut usage_drawn = None;
+    let mut usage_update = 0u64;
     let mut composition: Option<Composition> = None;
     let mut key = None;
     let mut shown_card = None;
@@ -248,11 +271,50 @@ fn present(
     let mut audio_cancel = Arc::new(AtomicBool::new(false));
     let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
     while !stop.load(Ordering::Acquire) {
+        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        if now >= usage_update {
+            usage_update = now.saturating_add(1000);
+            if let (Some(tray), Some(codex)) = (&tray, &usage) {
+                let display = config.codex.usage.display;
+                let codex_line = (config.codex.usage.enabled || claude.is_none())
+                    .then(|| codex.compact(display));
+                let claude_line = claude.as_ref().map(|service| service.compact(display));
+                let levels = crate::tray_usage::Levels::from_views(
+                    &codex.view(),
+                    claude.as_ref().map(|service| service.view()).as_ref(),
+                    config.tray.graph,
+                    display,
+                );
+                tray.set_usage(codex_line, claude_line, &levels)?;
+            }
+        }
         if let Some(tray) = &tray {
             for command in tray.commands.try_iter() {
                 use super::tray::Command;
                 match command {
                     Command::Exit => stop.store(true, Ordering::Release),
+                    Command::CodexUsage | Command::ClaudeUsage => {
+                        let selected_claude = command == Command::ClaudeUsage;
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        if guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                            && usage_claude == selected_claude
+                        {
+                            guard.queue.dismiss();
+                        } else {
+                            guard.queue.show_usage();
+                            usage_claude = selected_claude;
+                            usage_page = 0;
+                            if selected_claude {
+                                if let Some(service) = &claude {
+                                    service.refresh();
+                                }
+                            } else if let Some(service) = &usage {
+                                service.refresh();
+                            }
+                        }
+                        usage_drawn = None;
+                        presenter.invalidate();
+                    }
                     Command::About => {
                         let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -318,12 +380,14 @@ fn present(
                     &layout,
                 );
                 if event.detail == 1 {
-                    let body = input::on_body(
-                        &guard.queue,
-                        config.notifications.click_to_dismiss,
-                        &layout,
-                        point,
-                    );
+                    let is_usage = guard.queue.selected().is_some_and(|entry| entry.is_usage());
+                    let body = !is_usage
+                        && input::on_body(
+                            &guard.queue,
+                            config.notifications.click_to_dismiss,
+                            &layout,
+                            point,
+                        );
                     if body {
                         super::activation::note_click(event.time);
                     }
@@ -340,15 +404,20 @@ fn present(
                         );
                     }
                 }
-                if event.detail == 1
-                    && input::click(
-                        &mut guard.queue,
-                        config.notifications.click_to_dismiss,
-                        &layout,
-                        point,
-                    )
-                {
+                let dismiss = config.notifications.click_to_dismiss
+                    || guard.queue.selected().is_some_and(|entry| entry.is_usage());
+                if event.detail == 1 && input::click(&mut guard.queue, dismiss, &layout, point) {
                     presenter.invalidate();
+                } else if event.detail == 4
+                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                {
+                    usage_page = usage_page.saturating_sub(1);
+                    usage_drawn = None;
+                } else if event.detail == 5
+                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                {
+                    usage_page = usage_page.saturating_add(1);
+                    usage_drawn = None;
                 } else if event.detail == 4 {
                     guard.queue.next(-1);
                     presenter.invalidate();
@@ -397,7 +466,9 @@ fn present(
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) = entry.filter(|entry| !paused && (visuals || is_about(&entry.event))) {
+        if let Some(entry) =
+            entry.filter(|entry| !paused && (visuals || is_about(&entry.event) || entry.is_usage()))
+        {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;
@@ -409,6 +480,107 @@ fn present(
             )
             .ok_or("X11: no monitor")?;
             let scale = config.notifications.scale * monitor.scale;
+            if entry.is_usage() {
+                let text = if usage_claude {
+                    claude.as_ref().map(|service| service.card_text())
+                } else {
+                    usage.as_ref().map(|service| service.card_text())
+                }
+                .unwrap_or_else(|| "Usage unavailable".into());
+                let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
+                let pages = crate::usage_service::card_pages(body);
+                usage_page = usage_page.min(pages.len() - 1);
+                let usage_key = (
+                    text.clone(),
+                    usage_page,
+                    index,
+                    count,
+                    scale.to_bits(),
+                    monitor.area,
+                );
+                if usage_drawn.as_ref() != Some(&usage_key) {
+                    let title = if pages.len() > 1 {
+                        format!("{title}  ({}/{})", usage_page + 1, pages.len())
+                    } else {
+                        title.to_owned()
+                    };
+                    let controls = Card::new(
+                        crate::card::Heading::from_summary(&title),
+                        index,
+                        count,
+                        true,
+                    );
+                    let width = (760.0 * scale) as i32;
+                    let height =
+                        ((114.0 + 24.0 * pages[usage_page].lines().count() as f64) * scale) as i32;
+                    let surface = Surface::card(
+                        width,
+                        height,
+                        scale,
+                        (22.0 * scale) as i32,
+                        crate::card_paint::CardText {
+                            heading: &controls.heading,
+                            label: &pages[usage_page],
+                            body: true,
+                            index,
+                            count,
+                            dismiss_button: false,
+                            age: None,
+                            color: crate::config::Color([80, 165, 250]),
+                            background_color: config.usage_background_color(),
+                            border: config.usage_border_color(),
+                        },
+                    )?;
+                    let (x, y, w, h) = crate::placement::layout_rendered(
+                        monitor.area,
+                        (width, height),
+                        scale,
+                        config.notifications.position,
+                        pointer,
+                    );
+                    let resized;
+                    let pixels = if (w, h) == (width, height) {
+                        surface.pixels()
+                    } else {
+                        let image = image::RgbaImage::from_raw(
+                            width as u32,
+                            height as u32,
+                            surface.pixels().to_vec(),
+                        )
+                        .ok_or("invalid usage card pixels")?;
+                        resized = image::imageops::resize(
+                            &image,
+                            w as u32,
+                            h as u32,
+                            image::imageops::FilterType::Triangle,
+                        )
+                        .into_raw();
+                        &resized
+                    };
+                    window.show(
+                        x,
+                        y,
+                        u16::try_from(w).map_err(|_| "usage card too wide")?,
+                        u16::try_from(h).map_err(|_| "usage card too tall")?,
+                        pixels,
+                        255,
+                    )?;
+                    layout = Some(input::Layout {
+                        width,
+                        height,
+                        scale,
+                        text_left: (22.0 * scale) as i32,
+                    });
+                    window_size = (f64::from(w), f64::from(h));
+                    displayed = true;
+                    usage_drawn = Some(usage_key);
+                    key = None;
+                    presenter.invalidate();
+                }
+                std::thread::sleep(Duration::from_millis(16));
+                continue;
+            }
+            usage_drawn = None;
             let heading = if is_about(&entry.event) {
                 about_heading(&entry.event)
             } else {
@@ -512,6 +684,7 @@ fn present(
                 displayed = false;
             }
             key = None;
+            usage_drawn = None;
             composition = None;
             layout = None;
             presenter.invalidate();

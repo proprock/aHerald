@@ -13,6 +13,13 @@ Run `./aherald --version`, then `./aherald --resident`. From another terminal ru
 menu can pause notifications, toggle sound and pop-ups, edit configuration, restart and
 exit. `./aherald --status` and `./aherald --quit` also control the resident.
 
+The tray shows usage for the enabled agents and uses two quota bars for its icon. Click
+a usage line for details; scroll the card to change pages when it has more than one.
+Enable `[codex.usage]` and/or `[claude.usage]` in the configuration to poll quotas;
+both are disabled by default. The `tray.graph` and `codex.usage.display` settings select
+the icon's data and whether the menu displays remaining or used percentages. Claude's
+`source = "statusline"` uses local statusLine reports; token polling is opt-in.
+
 To install hooks, run `./aherald --install-hooks claude` or `codex` for a dry run,
 then repeat with `--apply` if the changes are correct. Codex also requires trusting the
 commands in `/hooks`. For manual setup, `examples/aherald-*-hook-linux.sh` use
