@@ -34,6 +34,9 @@ jobs:
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
+          # Both patterns must match each changed file; the default "some"
+          # would include Markdown through the catch-all pattern.
+          predicate-quantifier: every
           filters: |
             code:
               - '**'
