@@ -46,12 +46,6 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [ ] **AH-096 — Verify Linux plugin in a real Claude Code session.** Depends on AH-091.
-  Install the marketplace/plugin in a user-selected configuration and confirm an ordinary
-  Claude Code event triggers the installed hook and a card without changing agent behavior.
-  Record the Claude Code and session versions; remove the test installation if temporary.
-  Installation and a synthetic installed-cache event already passed in isolation.
-
 - [ ] **AH-097 — Windows plugin launcher and acceptance (split from AH-091).**
   Add and verify the Windows PowerShell launcher and `AHERALD_PATH` discovery; check
   actual plugin installation and event delivery on Windows without disturbing existing hooks.
@@ -70,6 +64,30 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   agree on scope and dependencies before implementation.
 
 ## Milestone 5 — Polish and portable release
+
+- [ ] **AH-099 — Notify only when Codex approval needs the user.** A Codex
+  `PermissionRequest` hook can fire for an automatically reviewed request, so the
+  current permission card can appear even when no user action is needed. Investigate
+  a supported way to distinguish automatic review from a pending human approval,
+  including auto-review rejection or fallback to a human. Do not infer the outcome
+  solely from the hook firing, suppress all permission events, or parse transcripts.
+  Implement suppression only when the distinction is reliable, preserving hook
+  responses and genuinely pending permission notifications. Acceptance: tests cover
+  automatic approval, a real human request, rejection/fallback and unknown outcomes;
+  verify in a real Codex session and document any protocol limitations.
+
+- [ ] **AH-098 — Suppress notifications for the active originating session.** Add two
+  independent configuration options, both enabled by default: suppress notification
+  windows when the originating window is focused, and suppress sounds in the same case.
+  Each option controls only its own output; disabling it preserves that output even when
+  the originating window is focused. For a desktop agent with multiple sessions, suppress
+  only when the event belongs to the active session in the focused window: an event from
+  another session must still notify. Establish reliable window and session identification
+  for each supported platform and agent; if either cannot be determined, deliver the
+  notification rather than suppress it. Preserve hook responses and event lifecycle
+  handling. Acceptance: automated tests cover both options, their defaults and independent
+  combinations, focused/unfocused windows, same/different/unknown desktop sessions and
+  unknown focus; verify the behavior in a real terminal and a desktop session.
 
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
