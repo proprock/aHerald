@@ -37,6 +37,9 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Cons
 libc = "0.2"
 ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", features = ["randr", "render"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry", "NSDictionary", "NSValue", "NSObject", "NSArray", "NSEnumerator", "NSData", "NSDate", "NSRunLoop", "NSThread"] }

@@ -69,6 +69,8 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
   Works under XWayland. Acceptance: manual check on Ubuntu (Xorg login and XWayland):
   transparency, always on top, no focus theft, multi-monitor if available.
+  XWayland IPC and X11 window properties checked; user confirmed the overlay works in
+  the current window manager. Xorg and multi-monitor acceptance remain unverified.
 
 - [ ] **AH-069 — Linux tray.** Depends on AH-068.
   StatusNotifierItem with dbusmenu over D-Bus (dependency approval first); re-register

@@ -6,10 +6,10 @@
 //! already have Unix implementations (`src/unix/`, AH-061); the resident service has a macOS
 //! one (`src/mac/`, AH-062) and arrives on Linux with AH-068.
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
 pub const UNSUPPORTED: &str = "this platform is not supported yet (Windows only)";
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
 pub mod resident {
     use super::UNSUPPORTED;
     use crate::{config::Config, local::Scope};
