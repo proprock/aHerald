@@ -35,7 +35,7 @@ remove any hooks and startup entry you installed separately.
 
 - Ubuntu 22.04.5 GNOME, Wayland/XWayland: overlay and tray checked, audible PulseAudio-compatible
   sound confirmed by the user. Xorg, other desktop environments and multi-monitor behavior
-  remain unverified (AH-093); native Wayland is a separate investigation (AH-073).
+  remain unverified (AH-093); native layer-shell on KDE/wlroots is deferred (AH-095).
 - Click-to-activate requires a matching X11 process ancestor; terminal launchers that do not
   expose one are unsupported. A synthetic Claude hook returned focus to the Warp window;
   it did not restore a previously selected tab or pane. `codex-cli 0.166.0` was present

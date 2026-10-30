@@ -738,6 +738,11 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-073 — Wayland spike.** Depends on AH-068.
+  Done 2026-10-30: [findings](docs/wayland-spike.md) record the GNOME Wayland registry,
+  XWayland window and focus checks, upstream compositor support and untested behavior.
+  The user agreed to retain XWayland on GNOME and defer native KDE/wlroots work to AH-095.
+
 - [x] **AH-094 — Linux tray usage summaries and dynamic icon.** Depends on AH-069.
   Done 2026-10-30: enabled agents' menu lines and detail cards, paged usage text, and
   quota bars using the shared graph and display settings; polling remains opt-in. Fake

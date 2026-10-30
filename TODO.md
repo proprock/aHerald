@@ -73,10 +73,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   behavior have not yet been verified.
 
 
-- [ ] **AH-073 — Wayland spike.** Depends on AH-068.
-  Evaluate `wlr-layer-shell` (KDE, wlroots) and the XWayland fallback on GNOME; list
-  degraded features and their cost. Decide with the user whether to implement.
-  Acceptance: written findings with measured behavior on the Ubuntu Wayland session.
+- [ ] **AH-095 — Evaluate native layer-shell on KDE/wlroots (split from AH-073).**
+  When a KDE or wlroots session is available, measure protocol support, placement,
+  focus, scaling and agent activation; compare the native backend with XWayland and
+  agree on scope and dependencies before implementation.
 
 ## Milestone 5 — Polish and portable release
 
