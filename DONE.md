@@ -745,6 +745,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   the Warp window. Warp's previously selected tab or pane is not restored. A real
   agent hook was not exercised in this check.
 
+- [x] **AH-072 — Linux packaging, documentation and verification matrix.**
+  Depends on AH-068, AH-069 and AH-070. Done 2026-10-30: GNU/glibc x86-64
+  `tar.gz`, release workflow, shell hook examples and Linux setup/removal guide. On
+  Ubuntu 22.04.5 GNOME/XWayland, a release archive was extracted, its SHA-256 checked,
+  and an isolated resident accepted an event and quit. `codex-cli 0.166.0` was present;
+  a real Codex hook was not exercised. Xorg and multi-monitor checks remain AH-093;
+  native Wayland and unsupported environments are noted in the guide.
+
 - [x] **AH-070 — Linux audio.** Depends on AH-061.
   Done 2026-10-30: approved PulseAudio/PipeWire-pulse backend with the shared Unix
   cross-process serialization and deduplication gate. The serialization test confirms

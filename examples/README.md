@@ -9,6 +9,7 @@ These files serve separate scenarios and do not load automatically or combine to
 | `resources.toml` | Runnable demo preset with automatic builtin/pet artwork, scale 3, bundled WAV paths and volume 0.5. Also used by the opt-in native demo preview test. |
 | `pet.toml` | Minimal pet setup and per-event state overrides. Requires a separately downloaded pet package and a corrected local path; disables sound. |
 | `hooks.windows.json` | Manual Codex hook integration example. Replace the executable path before merging into your hook configuration. This is not an aHerald TOML config. |
+| `aherald-codex-hook-linux.sh`, `aherald-claude-hook-linux.sh` | Linux hook launchers; set `AHERALD_PATH` or install the archive under `~/.local/share/aHerald`. |
 
 The default is `config.toml` beside `aherald.exe`; startup creates it when absent.
 Use `--config PATH` to choose one of these custom presets. Settings omitted from a preset use built-in

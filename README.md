@@ -24,6 +24,8 @@ previously selected Warp tab or pane.
 
 On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
 `./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.
+On Linux see the [Linux guide](docs/portable-linux.md); build the archive with
+`./package-linux.sh` after `cargo build --release`.
 
 New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
 first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.

@@ -72,10 +72,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   session type, desktop environment, monitor setup and results. Xorg and multi-monitor
   behavior have not yet been verified.
 
-- [ ] **AH-072 — Linux packaging, documentation and verification matrix.**
-  Depends on AH-068, AH-069, AH-070. `tar.gz` release (glibc versus musl decision), `.sh`
-  hook examples, setup and removal steps. Acceptance: tested Ubuntu, session type
-  (Xorg/Wayland) and Codex versions recorded; unsupported desktops listed explicitly.
 
 - [ ] **AH-073 — Wayland spike.** Depends on AH-068.
   Evaluate `wlr-layer-shell` (KDE, wlroots) and the XWayland fallback on GNOME; list
