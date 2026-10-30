@@ -45,12 +45,16 @@ const FRAME_MS: u64 = 16;
 
 struct Shared {
     queue: Queue,
+    warnings: crate::session_warnings::Warnings,
     paused: bool,
     sounds: bool,
     visuals: bool,
 }
 
 impl crate::resident_request::Controls for Shared {
+    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
+        &mut self.warnings
+    }
     fn queue(&mut self) -> &mut Queue {
         &mut self.queue
     }
@@ -207,6 +211,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
 fn new_shared(config: &Config) -> Arc<Mutex<Shared>> {
     Arc::new(Mutex::new(Shared {
         queue: Queue::new(64, config.general.deduplicate_ms),
+        warnings: Default::default(),
         paused: false,
         sounds: config.sounds.enabled,
         visuals: config.notifications.enabled,
@@ -691,6 +696,7 @@ impl Ui {
             if let Some(demo) = &mut self.demo {
                 demo.tick(now, paused, &mut state.queue);
             }
+            crate::resident_request::tick(&mut *state, &self.config, now);
             state.queue.tick(now, paused);
             (
                 state.queue.selected().cloned(),
@@ -1010,7 +1016,9 @@ fn present(
             ui.step();
             let wait = if ui.animating() {
                 NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
-            } else if ui.config.codex.usage.enabled {
+            } else if ui.config.codex.usage.enabled
+                || ui.shared.lock().is_ok_and(|s| s.warnings.has_deadline())
+            {
                 // Usage polling keeps the icon and tooltip fresh while nothing is shown.
                 NSDate::dateWithTimeIntervalSinceNow(1.0)
             } else {

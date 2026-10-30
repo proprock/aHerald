@@ -60,9 +60,16 @@ fn open_stdin_does_not_hold_hook_process() {
 
 #[test]
 fn permission_and_interrupt_do_not_emit_decisions_or_payloads() {
-    for name in ["PermissionRequest", "Interrupt"] {
+    for name in [
+        "PermissionRequest",
+        "Interrupt",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "SessionEnd",
+    ] {
         let result = invoke(
-            format!(r#"{{"hook_event_name":"{name}","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
+            format!(r#"{{"hook_event_name":"{name}","session_id":"s","turn_id":"t","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
                 .as_bytes(),
         );
         assert!(result.status.success());

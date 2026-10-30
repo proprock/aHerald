@@ -6,6 +6,15 @@ use crate::{
 };
 use std::path::{Path, PathBuf};
 
+fn builtin_name(kind: crate::events::Kind) -> &'static str {
+    use crate::events::Kind;
+    match kind {
+        Kind::ContextWarning => "permission_required",
+        Kind::IdleWarning => "input_required",
+        other => other.name(),
+    }
+}
+
 /// Resolve against the application's external assets directory; failures degrade to text.
 pub fn resolve(
     config: &Config,
@@ -13,7 +22,7 @@ pub fn resolve(
     builtin_root: &Path,
 ) -> Result<Option<Animation>, String> {
     let settings = &config.events[event.kind];
-    let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
+    let builtin = || Animation::load(&builtin_root.join(builtin_name(event.kind))).ok();
     // An aHerald notice belongs to no agent, so no per-event, pet or custom picture applies.
     if event.source == crate::events::Source::App {
         return Ok(builtin());
@@ -115,7 +124,7 @@ pub fn prepare_at(
             .flatten()
     };
     let selected = || resolve(config, event, builtin_root).ok().flatten();
-    let builtin = || Animation::load(&builtin_root.join(event.kind.name())).ok();
+    let builtin = || Animation::load(&builtin_root.join(builtin_name(event.kind))).ok();
     Ok(animation
         .prepare(scale, bilinear)
         .ok()

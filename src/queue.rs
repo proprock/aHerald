@@ -102,6 +102,26 @@ fn same_turn(a: &Event, b: &Event) -> bool {
         && a.turn_id == b.turn_id
 }
 impl Queue {
+    /// Activity makes an idle reminder stale; session end also removes context warnings.
+    pub fn clear_session_warnings(&mut self, evidence: &Event) {
+        if evidence.agent_id.is_some() || evidence.session_id.is_none() {
+            return;
+        }
+        if evidence.ended
+            || evidence.activity
+            || matches!(
+                evidence.kind,
+                Kind::PermissionRequired | Kind::InputRequired | Kind::Interrupted | Kind::Error
+            )
+        {
+            self.resolve(|e| {
+                e.source == evidence.source
+                    && e.session_id == evidence.session_id
+                    && (e.kind == Kind::IdleWarning
+                        || (evidence.ended && e.kind == Kind::ContextWarning))
+            });
+        }
+    }
     pub fn new(capacity: usize, dedup_ms: u64) -> Self {
         Self {
             items: Vec::new(),
@@ -126,6 +146,14 @@ impl Queue {
     pub fn observe_terminal(&mut self, event: &Event) -> usize {
         if !event.is_terminal_evidence() {
             return 0;
+        }
+        if event.ended {
+            return self.resolve(|e| {
+                pending(e)
+                    && e.source == event.source
+                    && e.session_id == event.session_id
+                    && e.agent_id == event.agent_id
+            });
         }
         if per_session(event) {
             // Claude turns in one session are sequential, so the end of a turn
@@ -188,7 +216,7 @@ impl Queue {
             return Outcome::Invalid;
         }
         let resolved = self.observe_terminal(&event);
-        if event.ended {
+        if event.ended || event.activity {
             // A session end only clears waits; it is never a card or a sound.
             return Outcome::Resolved;
         }
@@ -268,6 +296,7 @@ impl Queue {
             agent_id: None,
             window: None,
             ended: false,
+            activity: false,
             folder: None,
             message: None,
         };

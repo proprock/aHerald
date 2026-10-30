@@ -1,7 +1,9 @@
 //! Bounded, versioned local wire frames. No command or arbitrary payload execution.
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub const MAX_FRAME: usize = 4096;
-const VERSION: u16 = 1;
+// Activity-only events must not become completion cards in an older resident that
+// ignores the new activity field. Mismatched hook/resident builds fail closed.
+const VERSION: u16 = 2;
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
     let bytes = serde_json::to_vec(value).map_err(|_| "cannot encode IPC message")?;
     if bytes.is_empty() || bytes.len() > MAX_FRAME {

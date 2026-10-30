@@ -513,6 +513,7 @@ fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Ev
         agent_id: None,
         window: None,
         ended,
+        activity: false,
         folder: None,
         message: None,
     }

@@ -25,7 +25,7 @@ pub struct Config {
 
 /// Per-kind event settings; every kind always has an entry, so indexing cannot fail.
 #[derive(Clone, Debug)]
-pub struct Events([EventConfig; 5]);
+pub struct Events([EventConfig; 7]);
 impl Events {
     pub fn iter(&self) -> impl Iterator<Item = (Kind, &EventConfig)> {
         Kind::ALL.into_iter().zip(self.0.iter())
@@ -377,12 +377,15 @@ pub enum ClaudeUsageSource {
 pub struct Claude {
     pub hooks_enabled: bool,
     pub usage: ClaudeUsage,
+    #[serde(deserialize_with = "deserialize_session_warnings::<_, 55>")]
+    pub warnings: SessionWarnings,
 }
 impl Default for Claude {
     fn default() -> Self {
         Self {
             hooks_enabled: true,
             usage: ClaudeUsage::default(),
+            warnings: SessionWarnings::with_idle(55),
         }
     }
 }
@@ -395,6 +398,8 @@ pub struct Codex {
     /// `codex app-server` child (about 140 ms), so it is off unless asked for.
     pub transient_names: bool,
     pub usage: Usage,
+    #[serde(deserialize_with = "deserialize_session_warnings::<_, 25>")]
+    pub warnings: SessionWarnings,
 }
 impl Default for Codex {
     fn default() -> Self {
@@ -403,7 +408,70 @@ impl Default for Codex {
             input_monitoring: false,
             transient_names: false,
             usage: Usage::default(),
+            warnings: SessionWarnings::with_idle(25),
         }
+    }
+}
+/// Context is opt-in. Agent defaults supply idle time; an explicit zero disables it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SessionWarnings {
+    pub context_tokens: Option<TokenThreshold>,
+    pub idle_minutes: Option<u64>,
+}
+
+impl SessionWarnings {
+    fn with_idle(minutes: u64) -> Self {
+        Self {
+            context_tokens: None,
+            idle_minutes: Some(minutes),
+        }
+    }
+}
+
+fn deserialize_session_warnings<'de, D: serde::Deserializer<'de>, const MINUTES: u64>(
+    deserializer: D,
+) -> Result<SessionWarnings, D::Error> {
+    let mut warnings = SessionWarnings::deserialize(deserializer)?;
+    warnings.idle_minutes = match warnings.idle_minutes {
+        None => Some(MINUTES),
+        Some(0) => None,
+        value => value,
+    };
+    Ok(warnings)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TokenThreshold(pub u64);
+
+impl<'de> Deserialize<'de> for TokenThreshold {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Integer(u64),
+            Text(String),
+        }
+        let value = match Wire::deserialize(deserializer)? {
+            Wire::Integer(n) => Some(n),
+            Wire::Text(text) => {
+                let (digits, multiplier) = text
+                    .strip_suffix('k')
+                    .map_or((text.as_str(), 1), |s| (s, 1000));
+                if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                    None
+                } else {
+                    digits
+                        .parse::<u64>()
+                        .ok()
+                        .and_then(|n| n.checked_mul(multiplier))
+                }
+            }
+        };
+        value
+            .filter(|n| *n > 0)
+            .map(Self)
+            .ok_or_else(|| serde::de::Error::custom("invalid token threshold"))
     }
 }
 #[derive(Clone, Debug, Deserialize)]
@@ -467,6 +535,7 @@ impl Config {
             Kind::InputRequired => [80, 165, 250],
             Kind::Error => [245, 85, 100],
             Kind::Interrupted => [180, 130, 240],
+            Kind::ContextWarning | Kind::IdleWarning => [250, 180, 55],
         }))
     }
     pub fn default_path() -> Result<PathBuf, String> {
@@ -559,6 +628,19 @@ impl Config {
         )
     }
     fn validate(&self) -> Result<(), String> {
+        if self.codex.warnings.context_tokens.is_some() {
+            return Err("invalid configuration: codex.warnings.context_tokens is unsupported (no passive context source)".into());
+        }
+        for (agent, warnings) in [
+            ("claude", &self.claude.warnings),
+            ("codex", &self.codex.warnings),
+        ] {
+            if warnings.idle_minutes.is_some_and(|n| n == 0 || n > 525_600) {
+                return Err(format!(
+                    "invalid configuration: {agent}.warnings.idle_minutes must be between 1 and 525600"
+                ));
+            }
+        }
         let n = &self.notifications;
         // (valid, setting, requirement); messages never include the offending value.
         let checks = [

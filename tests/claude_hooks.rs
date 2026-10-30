@@ -22,7 +22,15 @@ fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
 
 #[test]
 fn claude_hooks_never_write_a_decision_to_stdout() {
-    for name in ["Stop", "StopFailure", "PermissionRequest", "Notification"] {
+    for name in [
+        "Stop",
+        "StopFailure",
+        "PermissionRequest",
+        "Notification",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+    ] {
         let result = invoke(
             &["--hook", "--agent", "claude"],
             format!(

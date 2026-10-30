@@ -538,3 +538,70 @@ fn invalid_configuration_names_the_field_and_reason_without_echoing_values() {
     assert!(error.contains("line 1"), "{error}");
     assert!(!error.contains("SECRETLINE"), "{error}");
 }
+#[test]
+fn session_warning_thresholds_accept_tokens_and_kilotokens() {
+    for value in ["120000", "\"120000\"", "\"120k\""] {
+        let text = format!(
+            "[claude.warnings]\ncontext_tokens = {value}\nidle_minutes = 5\n[codex.warnings]\nidle_minutes = 10"
+        );
+        let config = Config::parse(&text, &PathBuf::from("."));
+        assert!(config.is_ok(), "{config:?}");
+        let config = config.unwrap();
+        assert_eq!(config.claude.warnings.context_tokens.unwrap().0, 120000);
+        assert_eq!(config.claude.warnings.idle_minutes, Some(5));
+        assert_eq!(config.codex.warnings.idle_minutes, Some(10));
+    }
+}
+
+#[test]
+fn session_warning_defaults_are_per_agent_and_invalid_values_are_private() {
+    for config in [
+        Config::default(),
+        Config::parse("", &PathBuf::from(".")).unwrap(),
+        Config::parse(include_str!("../aHerald.example.toml"), &PathBuf::from(".")).unwrap(),
+        Config::parse(
+            "[claude.warnings]\ncontext_tokens=100\n[codex.warnings]",
+            &PathBuf::from("."),
+        )
+        .unwrap(),
+    ] {
+        assert_eq!(config.claude.warnings.idle_minutes, Some(55));
+        assert_eq!(config.codex.warnings.idle_minutes, Some(25));
+    }
+    assert!(Config::default().claude.warnings.context_tokens.is_none());
+    for setting in [
+        "context_tokens = 0",
+        "context_tokens = -1",
+        "context_tokens = 1.5",
+        "context_tokens = \"1.5k\"",
+        "context_tokens = \"18446744073709551615k\"",
+        "context_tokens = \"SECRET\"",
+        "idle_minutes = -1",
+        "idle_minutes = 525601",
+    ] {
+        let error = Config::parse(
+            &format!("[claude.warnings]\n{setting}"),
+            &PathBuf::from("."),
+        )
+        .unwrap_err();
+        assert!(!error.contains("SECRET"));
+    }
+    assert!(
+        Config::parse(
+            "[codex.warnings]\ncontext_tokens = 1000",
+            &PathBuf::from(".")
+        )
+        .unwrap_err()
+        .contains("unsupported")
+    );
+}
+
+#[test]
+fn session_warning_zero_disables_only_the_selected_agents_idle_timer() {
+    let config = Config::parse("[claude.warnings]\nidle_minutes=0", &PathBuf::from(".")).unwrap();
+    assert!(config.claude.warnings.idle_minutes.is_none());
+    assert_eq!(config.codex.warnings.idle_minutes, Some(25));
+    let config = Config::parse("[codex.warnings]\nidle_minutes=0", &PathBuf::from(".")).unwrap();
+    assert!(config.codex.warnings.idle_minutes.is_none());
+    assert_eq!(config.claude.warnings.idle_minutes, Some(55));
+}

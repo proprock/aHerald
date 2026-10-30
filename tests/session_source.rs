@@ -151,6 +151,7 @@ fn a_claude_card_takes_its_name_from_the_statusline_report_and_still_never_looks
     with_store(|store| {
         store.record(
             Report {
+                context_tokens: None,
                 session_id: "claude-named-session".into(),
                 session_name: Some("Fix the parser".into()),
                 quota: None,

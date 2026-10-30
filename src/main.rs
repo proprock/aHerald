@@ -218,7 +218,15 @@ fn dispatch(
     path: &std::path::Path,
     mode: aherald::config::Mode,
 ) -> Result<(), String> {
-    if event.ended {
+    if event.ended || event.activity {
+        let idle_enabled = match event.source.agent() {
+            Some(aherald::agent::Agent::Claude) => config.claude.warnings.idle_minutes.is_some(),
+            Some(aherald::agent::Agent::Codex) => config.codex.warnings.idle_minutes.is_some(),
+            None => false,
+        };
+        if event.activity && !idle_enabled {
+            return Ok(());
+        }
         // Only a resident holds waits to clear; a transient card has no later session state.
         return match mode {
             aherald::config::Mode::Resident => aherald::resident::forward_if_running(

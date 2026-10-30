@@ -1,5 +1,5 @@
 //! The part of Claude Code's `statusLine` payload aHerald uses: the session's name and the
-//! account's 5-hour and 7-day quota. Nothing else in the payload is read, kept or logged.
+//! account's 5-hour and 7-day quota, and input context token count (AH-100).
 use crate::usage::{Bucket, Snapshot, Window};
 use serde::{Deserialize, Serialize};
 
@@ -24,9 +24,11 @@ pub struct Report {
     pub session_id: String,
     pub session_name: Option<String>,
     pub quota: Option<Quota>,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
 }
 
-/// Reads the session id, name and quota from a statusLine payload.
+/// Reads identity, name, quota and the optional input-context count from statusLine.
 pub fn parse(bytes: &[u8]) -> Result<Report, &'static str> {
     #[derive(Deserialize)]
     struct Window {
@@ -39,10 +41,21 @@ pub fn parse(bytes: &[u8]) -> Result<Report, &'static str> {
         seven_day: Option<Window>,
     }
     #[derive(Deserialize)]
+    struct ContextUsage {
+        input_tokens: Option<serde_json::Value>,
+        cache_creation_input_tokens: Option<serde_json::Value>,
+        cache_read_input_tokens: Option<serde_json::Value>,
+    }
+    #[derive(Deserialize)]
+    struct ContextWindow {
+        current_usage: Option<ContextUsage>,
+    }
+    #[derive(Deserialize)]
     struct Wire {
         session_id: Option<String>,
         session_name: Option<String>,
         rate_limits: Option<Limits>,
+        context_window: Option<ContextWindow>,
     }
     if bytes.len() > MAX_PAYLOAD {
         return Err("statusLine payload is too large");
@@ -70,6 +83,15 @@ pub fn parse(bytes: &[u8]) -> Result<Report, &'static str> {
         (quota != Quota::default()).then_some(quota)
     });
     Ok(Report {
+        context_tokens: wire
+            .context_window
+            .and_then(|w| w.current_usage)
+            .and_then(|u| {
+                u.input_tokens?
+                    .as_u64()?
+                    .checked_add(u.cache_creation_input_tokens?.as_u64()?)?
+                    .checked_add(u.cache_read_input_tokens?.as_u64()?)
+            }),
         session_id,
         session_name: wire
             .session_name
@@ -345,6 +367,7 @@ mod tests {
             session_id: id.into(),
             session_name: name.map(str::to_owned),
             quota,
+            context_tokens: None,
         }
     }
     fn limit(used: f64, resets_at: i64) -> Option<Limit> {

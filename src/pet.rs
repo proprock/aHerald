@@ -50,6 +50,8 @@ fn default_state(kind: Kind) -> PetAnimation {
         Kind::InputRequired => PetAnimation::Waiting,
         Kind::Error => PetAnimation::Failed,
         Kind::Interrupted => PetAnimation::Idle,
+        Kind::ContextWarning => PetAnimation::Review,
+        Kind::IdleWarning => PetAnimation::Waiting,
     }
 }
 fn load_state(manifest: &Path, state: PetAnimation) -> Result<Animation, String> {
