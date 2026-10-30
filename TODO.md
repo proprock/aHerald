@@ -65,12 +65,12 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   exits 0 without it. Not run: Codex (`codex` not installed here). The Windows (PowerShell,
   `AHERALD_PATH`) and Linux plugin variants stay to be done when verified on those machines.
 
-- [ ] **AH-068 — Linux X11 overlay.** Depends on AH-061.
-  `x11rb`: ARGB visual, notification window type, no focus, RandR monitors, DPI.
-  Works under XWayland. Acceptance: manual check on Ubuntu (Xorg login and XWayland):
-  transparency, always on top, no focus theft, multi-monitor if available.
-  XWayland IPC and X11 window properties checked; user confirmed the overlay works in
-  the current window manager. Xorg and multi-monitor acceptance remain unverified.
+- [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
+  Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;
+  manually verify card transparency, always-on-top behavior and absence of focus theft.
+  Verify monitor placement and DPI on multiple monitors when available, recording the
+  session type, desktop environment, monitor setup and results. Xorg and multi-monitor
+  behavior have not yet been verified.
 
 - [ ] **AH-069 — Linux tray.** Depends on AH-068.
   StatusNotifierItem with dbusmenu over D-Bus (dependency approval first); re-register

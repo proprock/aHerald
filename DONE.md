@@ -738,6 +738,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-068 — Linux X11 overlay.** Depends on AH-061.
+  Done 2026-10-30 in PR #66: `x11rb` ARGB notification windows, RandR monitor placement
+  and DPI, non-focusing window hints, resident and transient presentation, and
+  Pango/Cairo text rendering. On XWayland, IPC delivery, window properties and unchanged
+  active window were checked; the user confirmed the overlay works in the current
+  window manager. Formatting, Clippy, tests and build passed; CI passed on Linux,
+  macOS and Windows. Xorg and multi-monitor manual acceptance are deferred to AH-093.
+
 - [x] **AH-061 — Unix common layer (IPC, spawn, HTTPS, open).** Depends on AH-060.
   Unix-domain-socket IPC in a per-user directory (mode 0600, peer-credential check,
   no TCP, `flock` single instance); detached child spawn with fd closing; restart;
