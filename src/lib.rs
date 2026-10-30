@@ -42,7 +42,7 @@ pub fn about_card_text() -> String {
 }
 
 pub fn help() -> &'static str {
-    "aHerald — native notification companion (Windows, macOS, Linux X11/XWayland)\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report | --install-hooks AGENT | --uninstall-hooks AGENT | --statusline [--then COMMAND] | --install-statusline | --uninstall-statusline | --version] [--resident | --transient] [--config PATH] [--apply] [--hooks-file PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray (Linux: Ctrl-C). Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. --install-hooks / --uninstall-hooks codex|claude add or remove only aHerald's entries in that agent's hook file; a dry run unless --apply, with a backup. --statusline is for Claude Code's statusLine setting: it tells a running resident the session name and quota and runs --then COMMAND unchanged. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
+    "aHerald — native notification companion (Windows, macOS, Linux X11/XWayland)\nUsage: aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-report | --install-hooks AGENT | --uninstall-hooks AGENT | --statusline [--then COMMAND] | --install-statusline | --uninstall-statusline | --version] [--resident | --transient] [--config PATH] [--apply] [--hooks-file PATH]\nWithout --config, use config.toml beside aherald.exe; create it with defaults if absent. Relative resources use the selected configuration directory.\nUse --demo for a looping configuration preview (3-second pauses); exit through its tray. Demo does not accept mode flags. Use --resident to run the local notification service; --status and --quit control it. --perf-report ranks the timings that a resident with general.logging = \"debug\" wrote to aherald.log. --install-hooks / --uninstall-hooks codex|claude add or remove only aHerald's entries in that agent's hook file; a dry run unless --apply, with a backup. --statusline is for Claude Code's statusLine setting: it tells a running resident the session name and quota and runs --then COMMAND unchanged. Codex input monitoring: unsupported for unrelated sessions. Enable usage in resident configuration for read-only Codex quotas.\n"
 }
 pub mod animation;
 pub mod artwork;
@@ -110,14 +110,14 @@ pub mod tray_usage;
 #[cfg(not(windows))]
 mod unsupported;
 #[cfg(target_os = "linux")]
+pub use linux::console_window;
+#[cfg(target_os = "linux")]
 pub use linux::resident;
 #[cfg(target_os = "macos")]
 pub use mac::console_window;
 #[cfg(target_os = "macos")]
 pub use mac::resident;
 #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
-pub use unsupported::console_window;
-#[cfg(target_os = "linux")]
 pub use unsupported::console_window;
 #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
 pub use unsupported::resident;

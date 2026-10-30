@@ -738,6 +738,66 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-091 — Hook setup commands and plugins.** Depends on AH-067.
+  Agreed 2026-10-28: relax the "never edit hooks" rule to "only on an explicit user command, with a
+  dry run by default, a backup and a diff of aHerald's own entries" (AGENTS.md). (1)
+  `aherald --install-hooks|--uninstall-hooks claude|codex [--apply] [--hooks-file PATH]` merges only
+  aHerald's entries (idempotent, key order and other content kept, symlink and mode kept, `*.aherald-backup`);
+  Codex still needs the user to trust the hooks in `/hooks`. Needs serde_json `preserve_order` (approved).
+  (2) Plugin `aherald` in a marketplace in this repository (`.claude-plugin/marketplace.json`, also read by
+  Codex), hooks in `plugins/aherald/hooks/hooks.json` through a launcher script that finds `aHerald.app`
+  and always exits 0. macOS first; Linux launcher discovery and installation were verified separately. Acceptance: on the M1 the plugin installs from the repo with
+  `claude plugin marketplace add` and delivers a card; `--install-hooks` round-trips on a real file.
+  Accepted 2026-10-29 on the M1 (macOS): `--install-hooks claude` on a copy of the real
+  `~/.claude/settings.json` (dry run unchanged; apply adds five entries and a backup; second apply no
+  change; uninstall restores the content and key order, only a trailing newline is added); the plugin
+  installed from this repository (`claude plugin marketplace add` and `install aherald@proprock`,
+  isolated `CLAUDE_CONFIG_DIR`); the launcher script delivered a card through the installed app and
+  exits 0 without it. Not run on the M1: Codex (`codex` not installed there).
+  Linux, 2026-10-30: Claude Code 2.1.314 installed the marketplace and plugin in an isolated
+  configuration; a synthetic event from the installed cache reached an isolated resident.
+  Real agent dispatch is AH-096; the Windows launcher variant is AH-097.
+
+- [x] **AH-073 — Wayland spike.** Depends on AH-068.
+  Done 2026-10-30: [findings](docs/wayland-spike.md) record the GNOME Wayland registry,
+  XWayland window and focus checks, upstream compositor support and untested behavior.
+  The user agreed to retain XWayland on GNOME and defer native KDE/wlroots work to AH-095.
+
+- [x] **AH-094 — Linux tray usage summaries and dynamic icon.** Depends on AH-069.
+  Done 2026-10-30: enabled agents' menu lines and detail cards, paged usage text, and
+  quota bars using the shared graph and display settings; polling remains opt-in. Fake
+  data tests cover menu, icon updates and watcher restart without external requests.
+  On Ubuntu 22.04.5 GNOME/XWayland the user confirmed both Codex and Claude menu lines,
+  detail cards and the split icon. Claude was initially unavailable because its token
+  had expired; values appeared after the user renewed the Claude Code login.
+
+- [x] **AH-071 — Linux click-to-activate and path discovery.** Depends on AH-068.
+  Done 2026-10-30: capture a matching X11 terminal window and request activation on
+  a body click; existing native Codex PATH discovery has fake-PATH tests. On Ubuntu
+  22.04.5 GNOME/XWayland the user confirmed a synthetic Claude hook returns focus to
+  the Warp window. Warp's previously selected tab or pane is not restored. A real
+  agent hook was not exercised in this check.
+
+- [x] **AH-072 — Linux packaging, documentation and verification matrix.**
+  Depends on AH-068, AH-069 and AH-070. Done 2026-10-30: GNU/glibc x86-64
+  `tar.gz`, release workflow, shell hook examples and Linux setup/removal guide. On
+  Ubuntu 22.04.5 GNOME/XWayland, a release archive was extracted, its SHA-256 checked,
+  and an isolated resident accepted an event and quit. `codex-cli 0.166.0` was present;
+  a real Codex hook was not exercised. Xorg and multi-monitor checks remain AH-093;
+  native Wayland and unsupported environments are noted in the guide.
+
+- [x] **AH-070 — Linux audio.** Depends on AH-061.
+  Done 2026-10-30: approved PulseAudio/PipeWire-pulse backend with the shared Unix
+  cross-process serialization and deduplication gate. The serialization test confirms
+  playback does not overlap; the user confirmed an audible notification on Ubuntu
+  22.04.5. Tray sound and pause switches cancel active playback.
+
+- [x] **AH-069 — Linux tray.** Depends on AH-068.
+  Done 2026-10-30: StatusNotifierItem and dbusmenu using approved `zbus`; GNOME
+  AppIndicator requirement documented. The user confirmed the icon and menu on Ubuntu
+  22.04.5 GNOME/XWayland; a D-Bus menu command changed the resident's pop-up setting.
+  A private D-Bus session test verified registration after the watcher restarted.
+
 - [x] **AH-068 — Linux X11 overlay.** Depends on AH-061.
   Done 2026-10-30 in PR #66: `x11rb` ARGB notification windows, RandR monitor placement
   and DPI, non-focusing window hints, resident and transient presentation, and

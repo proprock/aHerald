@@ -102,9 +102,43 @@ jobs:
             dist/*.zip.sha256
           if-no-files-found: error
 
+  package_linux:
+    name: Package Linux x86-64 GNU
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libglib2.0-0 libpulse0
+
+      - name: Test and build
+        run: |
+          cargo test --locked --all-targets
+          cargo build --locked --release
+
+      - name: Assemble and verify archive
+        run: ./package-linux.sh target/release/aherald "$RELEASE_TAG"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-x86_64-gnu
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
   draft_release:
     name: Draft GitHub Release
-    needs: [package, package_macos]
+    needs: [package, package_macos, package_linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

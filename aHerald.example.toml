@@ -245,8 +245,8 @@ source = "auto"
 # background_color = "#202D40"
 # Optional usage card border; omitted means inherit notifications.border_color.
 # border_color = "#304860"
-# Read-only usage polling in resident/demo mode; default false. Requires codex.exe
-# or the npm codex.cmd installation on PATH and an existing sign-in.
+# Read-only usage polling in resident/demo mode; default false. Requires codex on PATH
+# (codex.exe or an npm codex.cmd installation on Windows) and an existing sign-in.
 # Usage failures leave event notifications working.
 enabled = false
 # Automatic refresh interval in seconds: 10..86400; default 300.

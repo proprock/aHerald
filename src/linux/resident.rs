@@ -56,6 +56,34 @@ fn shared(config: &Config) -> Arc<Mutex<Shared>> {
     }))
 }
 
+/// About is an application card, not an error or an agent event.
+fn about_event() -> Event {
+    let mut event = Event::notice(&format!("Version {}", crate::VERSION));
+    event.kind = crate::events::Kind::TurnComplete;
+    event
+}
+
+fn is_about(event: &Event) -> bool {
+    let about = about_event();
+    event.source == about.source && event.kind == about.kind && event.message == about.message
+}
+
+fn about_heading(event: &Event) -> crate::card::Heading {
+    let mut heading = crate::card::Heading::notice(event.message.as_deref().unwrap_or_default());
+    heading.title = crate::NAME.into();
+    heading
+}
+
+fn toggle_about(queue: &mut Queue, now: u64) -> crate::queue::Outcome {
+    let about = about_event();
+    if queue.selected().is_some_and(|entry| is_about(&entry.event)) {
+        queue.dismiss();
+        crate::queue::Outcome::Resolved
+    } else {
+        queue.push(about, now, 0)
+    }
+}
+
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
@@ -124,7 +152,15 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         .recv_timeout(Duration::from_secs(1))
         .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
     let result = match startup {
-        Ok(()) => present(window, config, state, stop.clone(), started, None, false),
+        Ok(()) => present(
+            window,
+            config,
+            state,
+            stop.clone(),
+            started,
+            None,
+            Some(path),
+        ),
         Err(e) => Err(e),
     };
     crate::notice::clear();
@@ -134,7 +170,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     result
 }
 
-pub fn run_demo(mut config: Config, _: &Path, pause_sec: u64) -> Result<(), String> {
+pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
     let demo = crate::demo::Demo::new(&config, pause_sec)?;
     if !config.agents.contains_key("demo")
         && let Some(assets) = config.agents.get("codex").cloned()
@@ -149,7 +185,7 @@ pub fn run_demo(mut config: Config, _: &Path, pause_sec: u64) -> Result<(), Stri
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         Some(demo),
-        false,
+        Some(path),
     )
 }
 
@@ -177,7 +213,7 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         None,
-        true,
+        None,
     )
 }
 
@@ -188,13 +224,40 @@ fn present(
     stop: Arc<AtomicBool>,
     start: Instant,
     mut demo: Option<crate::demo::Demo>,
-    transient: bool,
+    config_path: Option<&Path>,
 ) -> Result<(), String> {
+    let transient = config_path.is_none();
+    let tray = config_path.map(|_| {
+        super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false)
+    });
+    let usage = config_path.map(|_| {
+        crate::usage_service::Service::codex(
+            config.codex.usage.enabled,
+            Duration::from_secs(config.codex.usage.refresh_interval_sec),
+        )
+    });
+    let claude = config_path
+        .filter(|_| config.claude.usage.enabled)
+        .map(|_| {
+            crate::usage_service::Service::claude(
+                true,
+                Duration::from_secs(config.claude.usage.refresh_interval_sec),
+                config.claude.usage.source,
+            )
+        });
     let mut labels = if transient {
         crate::session_source::Service::transient_codex(config.codex.transient_names)
+    } else if config.codex.usage.enabled {
+        crate::session_source::Service::shared(
+            usage.as_ref().expect("resident usage service").names(),
+        )
     } else {
         crate::session_source::Service::codex()
     };
+    let mut usage_claude = false;
+    let mut usage_page = 0usize;
+    let mut usage_drawn = None;
+    let mut usage_update = 0u64;
     let mut composition: Option<Composition> = None;
     let mut key = None;
     let mut shown_card = None;
@@ -204,7 +267,108 @@ fn present(
     let mut displayed = false;
     let mut animation_start = 0;
     let mut monitor_watch = crate::notice::MonitorWatch::new();
+    let mut activation = crate::activation::Worker::default();
+    let mut audio_cancel = Arc::new(AtomicBool::new(false));
+    let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
     while !stop.load(Ordering::Acquire) {
+        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        if now >= usage_update {
+            usage_update = now.saturating_add(1000);
+            if let (Some(tray), Some(codex)) = (&tray, &usage) {
+                let display = config.codex.usage.display;
+                let codex_line = (config.codex.usage.enabled || claude.is_none())
+                    .then(|| codex.compact(display));
+                let claude_line = claude.as_ref().map(|service| service.compact(display));
+                let levels = crate::tray_usage::Levels::from_views(
+                    &codex.view(),
+                    claude.as_ref().map(|service| service.view()).as_ref(),
+                    config.tray.graph,
+                    display,
+                );
+                tray.set_usage(codex_line, claude_line, &levels)?;
+            }
+        }
+        if let Some(tray) = &tray {
+            for command in tray.commands.try_iter() {
+                use super::tray::Command;
+                match command {
+                    Command::Exit => stop.store(true, Ordering::Release),
+                    Command::CodexUsage | Command::ClaudeUsage => {
+                        let selected_claude = command == Command::ClaudeUsage;
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        if guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                            && usage_claude == selected_claude
+                        {
+                            guard.queue.dismiss();
+                        } else {
+                            guard.queue.show_usage();
+                            usage_claude = selected_claude;
+                            usage_page = 0;
+                            if selected_claude {
+                                if let Some(service) = &claude {
+                                    service.refresh();
+                                }
+                            } else if let Some(service) = &usage {
+                                service.refresh();
+                            }
+                        }
+                        usage_drawn = None;
+                        presenter.invalidate();
+                    }
+                    Command::About => {
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        if !toggle_about(&mut guard.queue, now).is_accepted() {
+                            crate::operational_log::log(
+                                crate::operational_log::Record::QueueRejected,
+                            );
+                        }
+                        presenter.invalidate();
+                    }
+                    Command::Restart => {
+                        if let Err(error) =
+                            Config::load(config_path.expect("resident configuration path"), true)
+                        {
+                            crate::notice::post("Restart cancelled: invalid configuration");
+                            eprintln!("aHerald: {error}");
+                        } else {
+                            let stop = stop.clone();
+                            std::thread::spawn(move || match crate::restart::launch() {
+                                Ok(()) => stop.store(true, Ordering::Release),
+                                Err(error) => eprintln!("aHerald: {error}"),
+                            });
+                        }
+                    }
+                    Command::Config => {
+                        let path = config_path.expect("resident configuration path").to_owned();
+                        std::thread::spawn(move || {
+                            if let Err(error) = crate::shell::edit_configuration(&path) {
+                                eprintln!("aHerald: {error}");
+                            }
+                        });
+                    }
+                    Command::Sound | Command::Visual | Command::Pause => {
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        let paused = guard.paused;
+                        guard.queue.tick(now, paused);
+                        match command {
+                            Command::Sound => guard.sounds = !guard.sounds,
+                            Command::Visual => guard.visuals = !guard.visuals,
+                            Command::Pause => guard.paused = !guard.paused,
+                            _ => unreachable!(),
+                        }
+                        if !guard.sounds || guard.paused {
+                            audio_cancel.store(true, Ordering::Release);
+                        } else if audio_cancel.load(Ordering::Acquire) {
+                            audio_cancel = Arc::new(AtomicBool::new(false));
+                        }
+                        tray.set_state(guard.sounds, guard.visuals, guard.paused);
+                        presenter.invalidate();
+                    }
+                }
+            }
+        }
         while let Some(event) = window.poll()? {
             if let XEvent::ButtonPress(event) = event
                 && let Some(layout) = layout
@@ -215,15 +379,45 @@ fn present(
                     window_size,
                     &layout,
                 );
-                if event.detail == 1
-                    && input::click(
-                        &mut guard.queue,
-                        config.notifications.click_to_dismiss,
-                        &layout,
-                        point,
-                    )
-                {
+                if event.detail == 1 {
+                    let is_usage = guard.queue.selected().is_some_and(|entry| entry.is_usage());
+                    let body = !is_usage
+                        && input::on_body(
+                            &guard.queue,
+                            config.notifications.click_to_dismiss,
+                            &layout,
+                            point,
+                        );
+                    if body {
+                        super::activation::note_click(event.time);
+                    }
+                    if let Some(selected) = guard.queue.selected() {
+                        let directory = config_path
+                            .and_then(Path::parent)
+                            .unwrap_or_else(|| Path::new("."));
+                        activation.submit(
+                            &selected.event,
+                            config.notifications.activate_agent_on_click,
+                            body,
+                            directory,
+                            config.general.logging,
+                        );
+                    }
+                }
+                let dismiss = config.notifications.click_to_dismiss
+                    || guard.queue.selected().is_some_and(|entry| entry.is_usage());
+                if event.detail == 1 && input::click(&mut guard.queue, dismiss, &layout, point) {
                     presenter.invalidate();
+                } else if event.detail == 4
+                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                {
+                    usage_page = usage_page.saturating_sub(1);
+                    usage_drawn = None;
+                } else if event.detail == 5
+                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                {
+                    usage_page = usage_page.saturating_add(1);
+                    usage_drawn = None;
                 } else if event.detail == 4 {
                     guard.queue.next(-1);
                     presenter.invalidate();
@@ -236,24 +430,45 @@ fn present(
             }
         }
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (entry, index, count, paused) = {
+        audio_jobs.retain(|job| !job.is_finished());
+        let (entry, index, count, paused, visuals, fresh, sounds) = {
             let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
             let paused = guard.paused;
             if let Some(demo) = &mut demo {
                 demo.tick(now, paused, &mut guard.queue);
             }
             guard.queue.tick(now, paused);
+            let room = crate::presenter::sound_slots(audio_jobs.len());
+            let fresh = if !transient && !paused {
+                guard.queue.take_unannounced(room)
+            } else {
+                Vec::new()
+            };
             (
                 guard.queue.selected().cloned(),
                 guard.queue.selected_index(),
                 guard.queue.items().len(),
                 paused,
+                guard.visuals,
+                fresh,
+                guard.sounds,
             )
         };
+        let mut audio_config = config.clone();
+        audio_config.sounds.enabled = sounds;
+        for fresh in fresh {
+            if let Some(job) =
+                crate::audio::start_controlled(&fresh.event, &audio_config, audio_cancel.clone())
+            {
+                audio_jobs.push(job);
+            }
+        }
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) = entry.filter(|_| !paused && config.notifications.enabled) {
+        if let Some(entry) =
+            entry.filter(|entry| !paused && (visuals || is_about(&entry.event) || entry.is_usage()))
+        {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;
@@ -265,7 +480,112 @@ fn present(
             )
             .ok_or("X11: no monitor")?;
             let scale = config.notifications.scale * monitor.scale;
-            let heading = labels.label(&entry.event);
+            if entry.is_usage() {
+                let text = if usage_claude {
+                    claude.as_ref().map(|service| service.card_text())
+                } else {
+                    usage.as_ref().map(|service| service.card_text())
+                }
+                .unwrap_or_else(|| "Usage unavailable".into());
+                let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
+                let pages = crate::usage_service::card_pages(body);
+                usage_page = usage_page.min(pages.len() - 1);
+                let usage_key = (
+                    text.clone(),
+                    usage_page,
+                    index,
+                    count,
+                    scale.to_bits(),
+                    monitor.area,
+                );
+                if usage_drawn.as_ref() != Some(&usage_key) {
+                    let title = if pages.len() > 1 {
+                        format!("{title}  ({}/{})", usage_page + 1, pages.len())
+                    } else {
+                        title.to_owned()
+                    };
+                    let controls = Card::new(
+                        crate::card::Heading::from_summary(&title),
+                        index,
+                        count,
+                        true,
+                    );
+                    let width = (760.0 * scale) as i32;
+                    let height =
+                        ((114.0 + 24.0 * pages[usage_page].lines().count() as f64) * scale) as i32;
+                    let surface = Surface::card(
+                        width,
+                        height,
+                        scale,
+                        (22.0 * scale) as i32,
+                        crate::card_paint::CardText {
+                            heading: &controls.heading,
+                            label: &pages[usage_page],
+                            body: true,
+                            index,
+                            count,
+                            dismiss_button: false,
+                            age: None,
+                            color: crate::config::Color([80, 165, 250]),
+                            background_color: config.usage_background_color(),
+                            border: config.usage_border_color(),
+                        },
+                    )?;
+                    let (x, y, w, h) = crate::placement::layout_rendered(
+                        monitor.area,
+                        (width, height),
+                        scale,
+                        config.notifications.position,
+                        pointer,
+                    );
+                    let resized;
+                    let pixels = if (w, h) == (width, height) {
+                        surface.pixels()
+                    } else {
+                        let image = image::RgbaImage::from_raw(
+                            width as u32,
+                            height as u32,
+                            surface.pixels().to_vec(),
+                        )
+                        .ok_or("invalid usage card pixels")?;
+                        resized = image::imageops::resize(
+                            &image,
+                            w as u32,
+                            h as u32,
+                            image::imageops::FilterType::Triangle,
+                        )
+                        .into_raw();
+                        &resized
+                    };
+                    window.show(
+                        x,
+                        y,
+                        u16::try_from(w).map_err(|_| "usage card too wide")?,
+                        u16::try_from(h).map_err(|_| "usage card too tall")?,
+                        pixels,
+                        255,
+                    )?;
+                    layout = Some(input::Layout {
+                        width,
+                        height,
+                        scale,
+                        text_left: (22.0 * scale) as i32,
+                    });
+                    window_size = (f64::from(w), f64::from(h));
+                    displayed = true;
+                    usage_drawn = Some(usage_key);
+                    key = None;
+                    presenter.invalidate();
+                }
+                std::thread::sleep(Duration::from_millis(16));
+                continue;
+            }
+            usage_drawn = None;
+            let heading = if is_about(&entry.event) {
+                about_heading(&entry.event)
+            } else {
+                labels.label(&entry.event)
+            };
             let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
             let controls = Card::new(heading, index, count, config.notifications.click_to_dismiss);
             let card_key = (controls.heading.clone(), index, count, age);
@@ -364,11 +684,46 @@ fn present(
                 displayed = false;
             }
             key = None;
+            usage_drawn = None;
             composition = None;
             layout = None;
             presenter.invalidate();
         }
         std::thread::sleep(Duration::from_millis(16));
     }
+    audio_cancel.store(true, Ordering::Release);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_is_persistent_green_and_dismissible() {
+        let mut queue = Queue::new(8, 0);
+        assert_eq!(toggle_about(&mut queue, 0), crate::queue::Outcome::Queued);
+        let entry = queue.selected().unwrap();
+        assert_eq!(entry.duration, 0);
+        assert_eq!(entry.event.kind, crate::events::Kind::TurnComplete);
+        let heading = about_heading(&entry.event);
+        assert_eq!(heading.title, "aHerald");
+        assert_eq!(heading.name.as_deref(), entry.event.message.as_deref());
+        assert_eq!(
+            Config::default().event_color(entry.event.kind).0,
+            [65, 210, 140]
+        );
+        assert_eq!(
+            entry.event.message.as_deref(),
+            Some(format!("Version {}", crate::VERSION).as_str())
+        );
+        queue.tick(0, false);
+        queue.tick(120_000, false);
+        assert!(queue.selected().is_some());
+        assert_eq!(
+            toggle_about(&mut queue, 120_000),
+            crate::queue::Outcome::Resolved
+        );
+        assert!(queue.selected().is_none());
+    }
 }

@@ -6,34 +6,46 @@ TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 Platforms: Windows 10/11 x64 is the supported runtime. macOS has a native port; Linux
-has an X11/XWayland notification overlay, with tray, audio and click-to-activate still
-pending. Linux requires a compositing X11 session and the Cairo, Pango, PangoCairo and
-GObject runtime libraries. A native Wayland overlay is not yet available.
+has an X11/XWayland notification overlay, a StatusNotifierItem tray, PulseAudio-compatible
+sound and click-to-activate. Linux requires a compositing X11 session and the
+Cairo, Pango, PangoCairo, GObject and libpulse-simple runtime libraries. PipeWire users need
+its PulseAudio-compatible server. A native Wayland overlay is not yet available.
 
 For a Linux preview, build with `cargo build`, run `target/debug/aherald --resident`,
 and send `target/debug/aherald --event input_required --resident` from another terminal.
 Click the card to dismiss it and use `target/debug/aherald --quit` to stop the service.
-Linux demo mode has no tray yet and can be stopped with Ctrl-C.
+On GNOME, the tray requires the AppIndicator extension (or another StatusNotifierItem host).
+The tray menu offers sound, pop-up and pause switches, configuration, restart and exit.
+For terminal hooks, Linux records a window only when its X11 process is in the hook's
+ancestor chain; if several windows belong to that process, the active one is selected.
+Some terminal launchers do not expose a matching process or X11 window, so their window
+cannot be identified automatically. Activation raises the window; it does not restore a
+previously selected Warp tab or pane.
 
 On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
 `./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.
+On Linux see the [Linux guide](docs/portable-linux.md); build the archive with
+`./package-linux.sh` after `cargo build --release`.
 
 New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
 first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.
 
-## Claude Code plugin (macOS)
+## Claude Code plugin (macOS and Linux)
 
-This repository is also a Claude Code plugin marketplace. With `aHerald.app` installed:
+This repository is also a Claude Code plugin marketplace. With aHerald installed:
 
 ```bash
 claude plugin marketplace add proprock/aHerald
 claude plugin install aherald@proprock
 ```
 
-The plugin registers the hooks and finds the app itself (`/Applications`, `~/Applications`, Spotlight,
-or `AHERALD_APP`); it exits quietly when the app is missing. Alternatively
+On macOS the plugin searches `AHERALD_APP`, `/Applications`, `~/Applications` and Spotlight.
+On Linux it searches `~/.local/share/aHerald/aherald` and `PATH`. Set `AHERALD_PATH` to
+an explicit executable on either platform; an invalid override is ignored without a fallback.
+The launcher exits quietly when the program is missing or fails. Alternatively
 `aherald --install-hooks claude --apply` writes the hooks into `~/.claude/settings.json`; use one of the
-two, not both. Codex uses `aherald --install-hooks codex`. See [the macOS guide](docs/portable-macos.md).
+two, not both. Codex uses `aherald --install-hooks codex`. See the [Linux guide](docs/portable-linux.md)
+or [macOS guide](docs/portable-macos.md).
 
 ## Build and verify
 
