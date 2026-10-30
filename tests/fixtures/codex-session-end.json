@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "SessionEnd",
+  "session_id": "synthetic-session",
+  "cwd": "/example/project",
+  "reason": "other",
+  "transcript_path": null
+}

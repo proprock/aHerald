@@ -10,9 +10,42 @@ use crate::{
 /// The resident state a request reads or changes.
 pub trait Controls {
     fn queue(&mut self) -> &mut Queue;
+    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings;
     fn paused(&self) -> bool;
     fn sounds(&self) -> bool;
     fn visuals(&self) -> bool;
+}
+
+/// Called by native loops even when the presentation queue is empty.
+pub fn tick(state: &mut impl Controls, settings: &Config, now: u64) {
+    let paused = state.paused();
+    if paused {
+        return;
+    }
+    state.warnings().due(now, false);
+    for event in state.warnings().pending() {
+        deliver_warning(event, state, settings, now);
+    }
+}
+
+fn deliver_warning(
+    event: crate::events::Event,
+    state: &mut impl Controls,
+    settings: &Config,
+    now: u64,
+) {
+    let (response, _) = respond(
+        Request::Event {
+            event: event.clone(),
+        },
+        state,
+        settings,
+        now,
+    );
+    let accepted = matches!(response, Response::Accepted);
+    if state.warnings().admission(&event, accepted) {
+        crate::operational_log::log(crate::operational_log::Record::QueueRejected);
+    }
 }
 
 /// How long an aHerald notice card stays, before its fade-out.
@@ -83,9 +116,23 @@ pub fn respond(
             {
                 return (Response::Rejected, Effects::default());
             }
+            let warning =
+                state
+                    .warnings()
+                    .context(&report.session_id, report.context_tokens, settings);
             crate::statusline::with_store(|store| {
                 store.record(report, crate::usage_service::unix_now())
             });
+            if let Some(event) = warning {
+                deliver_warning(event, state, settings, now);
+                return (
+                    Response::Accepted,
+                    Effects {
+                        wake: true,
+                        ..Effects::default()
+                    },
+                );
+            }
             (Response::Accepted, Effects::default())
         }
         Request::Quit => (
@@ -99,6 +146,17 @@ pub fn respond(
         Request::Event { event } => {
             if event.validate().is_err() {
                 return (Response::Rejected, Effects::default());
+            }
+            state.warnings().observe(&event, settings, now);
+            state.queue().clear_session_warnings(&event);
+            if event.activity {
+                return (
+                    Response::Accepted,
+                    Effects {
+                        wake: true,
+                        ..Effects::default()
+                    },
+                );
             }
             if event.source == Source::App {
                 // The settings of the events belong to the agents: a notice is always shown.
@@ -128,6 +186,7 @@ pub fn respond(
                 return (
                     Response::Accepted,
                     Effects {
+                        wake: state.warnings().has_deadline() || event.ended,
                         dropped: Some("disabled"),
                         ..Effects::default()
                     },
@@ -169,11 +228,15 @@ mod tests {
 
     struct State {
         queue: Queue,
+        warnings: crate::session_warnings::Warnings,
         paused: bool,
         sounds: bool,
         visuals: bool,
     }
     impl Controls for State {
+        fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
+            &mut self.warnings
+        }
         fn queue(&mut self) -> &mut Queue {
             &mut self.queue
         }
@@ -190,6 +253,7 @@ mod tests {
     fn state(capacity: usize) -> State {
         State {
             queue: Queue::new(capacity, 0),
+            warnings: Default::default(),
             paused: true,
             sounds: false,
             visuals: true,
@@ -222,6 +286,130 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(effects, Effects::default());
+    }
+
+    #[test]
+    fn session_warning_retries_context_and_idle_after_the_queue_has_room() {
+        use crate::events::{Kind, Source};
+        let settings = Config::parse(
+            "[claude.warnings]\ncontext_tokens=100\nidle_minutes=1",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        for context in [true, false] {
+            let mut s = state(1);
+            s.paused = false;
+            let mut wait = Event::demo("permission_required").unwrap();
+            wait.source = Source::ClaudeHook;
+            wait.session_id = Some("other-session".into());
+            respond(Request::Event { event: wait }, &mut s, &settings, 0);
+            if context {
+                let report = crate::statusline::parse(br#"{"session_id":"full-queue","context_window":{"current_usage":{"input_tokens":101,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#).unwrap();
+                respond(Request::StatusLine { report }, &mut s, &settings, 0);
+            } else {
+                let mut stop = Event::demo("turn_complete").unwrap();
+                stop.source = Source::ClaudeHook;
+                stop.session_id = Some("full-queue".into());
+                respond(Request::Event { event: stop }, &mut s, &settings, 0);
+                tick(&mut s, &settings, 60_001);
+            }
+            assert_eq!(s.queue.items().len(), 1);
+            s.queue.dismiss();
+            tick(&mut s, &settings, 60_002);
+            assert_eq!(
+                s.queue.items().len(),
+                1,
+                "a full queue must not consume the warning"
+            );
+            assert_eq!(
+                s.queue.items()[0].event.kind,
+                if context {
+                    Kind::ContextWarning
+                } else {
+                    Kind::IdleWarning
+                }
+            );
+            s.queue.dismiss();
+            tick(&mut s, &settings, 120_000);
+            assert!(
+                s.queue.items().is_empty(),
+                "delivered warning must not repeat"
+            );
+        }
+    }
+
+    #[test]
+    fn session_warning_resident_arms_even_with_completion_disabled_and_wakes_on_activity() {
+        use crate::events::{Kind, Source};
+        let settings = Config::parse(
+            "[claude.warnings]\nidle_minutes=1\n[events.turn_complete]\nenabled=false",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let mut s = state(8);
+        s.paused = false;
+        let mut completion = Event::demo("turn_complete").unwrap();
+        completion.source = Source::ClaudeHook;
+        completion.session_id = Some("s".into());
+        let (_, effects) = respond(
+            Request::Event {
+                event: completion.clone(),
+            },
+            &mut s,
+            &settings,
+            0,
+        );
+        assert!(
+            effects.wake,
+            "an empty native loop must arm its deadline timer"
+        );
+        assert!(s.queue.items().is_empty());
+        tick(&mut s, &settings, 60_000);
+        assert!(s.queue.items().is_empty());
+        tick(&mut s, &settings, 60_001);
+        assert_eq!(s.queue.items().len(), 1);
+        assert_eq!(s.queue.items()[0].event.kind, Kind::IdleWarning);
+        assert_eq!(s.queue.items()[0].event.session_id.as_deref(), Some("s"));
+        completion.activity = true;
+        respond(
+            Request::Event { event: completion },
+            &mut s,
+            &settings,
+            70_000,
+        );
+        assert!(
+            s.queue.items().is_empty(),
+            "new activity dismisses a stale idle reminder"
+        );
+    }
+
+    #[test]
+    fn session_warning_context_report_queues_warning_and_keeps_session_name() {
+        use crate::events::Kind;
+        let settings = Config::parse(
+            "[claude.warnings]\ncontext_tokens=100",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let mut s = state(8);
+        let report = crate::statusline::parse(br#"{"session_id":"context-resident-test","session_name":"Example","context_window":{"current_usage":{"input_tokens":101,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#).unwrap();
+        let (reply, effects) = respond(
+            Request::StatusLine {
+                report: report.clone(),
+            },
+            &mut s,
+            &settings,
+            0,
+        );
+        assert!(matches!(reply, Response::Accepted));
+        assert!(effects.wake);
+        assert_eq!(s.queue.items()[0].event.kind, Kind::ContextWarning);
+        respond(Request::StatusLine { report }, &mut s, &settings, 1);
+        assert_eq!(s.queue.items().len(), 1);
+        assert_eq!(
+            crate::statusline::with_store(|s| s.name("context-resident-test").map(str::to_owned)),
+            Some("Example".into())
+        );
     }
 
     #[test]
@@ -417,6 +605,7 @@ mod tests {
             session_id: "respond-statusline-test".into(),
             session_name: Some("Named".into()),
             quota: None,
+            context_tokens: None,
         };
         let (response, effects) = respond(
             Request::StatusLine {

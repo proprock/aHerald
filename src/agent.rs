@@ -76,6 +76,9 @@ impl Agent {
     }
     /// Whether the hook contract expects `{}` on stdout for this event.
     pub fn hook_reply(self, event: &Event) -> Option<&'static str> {
+        if event.activity || event.ended {
+            return None;
+        }
         match self {
             Self::Codex if event.kind == Kind::TurnComplete => Some("{}"),
             // Claude Code treats empty stdout and exit 0 as "no decision".
@@ -93,12 +96,18 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         hook_event_name: String,
         session_id: Option<String>,
         notification_type: Option<String>,
+        agent_id: Option<String>,
         cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
     let mut ended = false;
+    let activity = matches!(
+        hook.hook_event_name.as_str(),
+        "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+    );
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,
+        _ if activity && hook.session_id.is_some() => Kind::TurnComplete,
         // The kind is a placeholder: an ended event is evidence only and is never shown.
         // A subagent finishing is not the user's turn ending, so `SubagentStop` stays ignored.
         "SessionEnd" if hook.session_id.is_some() => {
@@ -122,9 +131,10 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: hook.session_id,
         turn_id: None,
         request_id: None,
-        agent_id: None,
+        agent_id: hook.agent_id,
         window: None,
         ended,
+        activity,
         folder: crate::events::hook_folder(hook.cwd),
         message: None,
     };

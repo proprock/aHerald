@@ -1,9 +1,5 @@
 //! Controlled-time scenarios for an isolated configuration preview.
-use crate::{
-    config::Config,
-    events::{Event, Kind},
-    queue::Queue,
-};
+use crate::{config::Config, events::Event, queue::Queue};
 
 pub struct Demo {
     scenes: Vec<Vec<(Event, u64)>>,
@@ -22,7 +18,7 @@ impl Demo {
         }
         let mut scenes = Vec::new();
         let mut holds = Vec::new();
-        for kind in Kind::ALL {
+        for kind in KINDS {
             let setting = &config.events[kind];
             if setting.enabled {
                 let duration = if setting.duration_ms == 0 {
@@ -100,3 +96,12 @@ impl Demo {
         self.showing = !self.showing;
     }
 }
+/// The standard demo keeps its original sequence; optional session warnings can
+/// be previewed explicitly with `--event context_warning` / `idle_warning`.
+pub const KINDS: [crate::events::Kind; 5] = [
+    crate::events::Kind::TurnComplete,
+    crate::events::Kind::PermissionRequired,
+    crate::events::Kind::InputRequired,
+    crate::events::Kind::Error,
+    crate::events::Kind::Interrupted,
+];

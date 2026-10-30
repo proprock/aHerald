@@ -27,6 +27,74 @@ capture. Add `--config` only when using a custom file; no automatic hook edits o
 
 ## Manual migration
 
+### Session warnings (AH-100 / AH-101)
+
+Idle reminders default to 55 minutes for Claude and 25 minutes for Codex.
+Context warnings remain off until a threshold is configured. For example:
+
+```toml
+[claude.warnings]
+context_tokens = "120k"
+idle_minutes = 55
+
+[codex.warnings]
+idle_minutes = 25
+```
+
+`context_tokens` accepts positive integer tokens, an integer string or an integer
+string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
+are rejected. Codex context warnings are not supported in this slice; configuring
+`codex.warnings.context_tokens` reports an explicit error. Claude input context
+includes fresh input, cache creation and cache reads, each counted once. It is the
+last reported API input, not a prediction of the next request. Missing readings
+do not count as zero. A crossing strictly above the threshold queues one
+`context_warning`; a known reading at/below the threshold rearms it.
+
+`idle_minutes` accepts 1..525600 minutes, or `0` to disable only that agent's idle
+reminder. Omission keeps the agent's default, including in a partial warnings
+table. The timer starts at a main-session Stop
+boundary (end of an agent response). A new user submission or tool activity
+cancels it; the next completion starts a new episode. Error, interruption and
+session end cancel it too. Each episode queues at most one `idle_warning`,
+strictly after the threshold, on the next presentation-loop tick (about one
+second while idle on Windows/macOS). Agent and session identities are isolated;
+subagent evidence does not reset or start the main session's timer. This is an
+elapsed-time reminder, not proof that the provider's cache expired. Another Stop
+hook can continue work: observable tool activity cancels the provisional timer,
+but pure model continuation and delayed hook delivery cannot be perfectly
+distinguished by these lifecycle hooks.
+
+Use resident mode. The Claude context warning additionally needs the explicitly
+installed `--statusline` wrapper; no OAuth access is needed. Both idle integrations
+need UserPromptSubmit, PreToolUse, PostToolUse, Stop and SessionEnd; retain the
+existing PermissionRequest and agent-specific error/interruption hooks. Preview
+the updated installer with `aherald --install-hooks claude` or `codex`, inspect
+the diff, then explicitly run with `--apply` if desired. Existing files are never
+upgraded automatically; review/trust changed hooks in the agent normally.
+
+State is memory-only and bounded to 64 recently observed sessions. Restart waits
+for fresh evidence. A paused resident postpones idle delivery until resumed.
+An overdue deadline is checked after the machine resumes if the OS monotonic
+clock includes the suspended interval; no wake-from-sleep or cross-platform
+suspend-time guarantee is provided. When the notification queue is full, a bounded
+pending warning is retried on native-loop ticks; `queue_rejected` is logged once
+per blocked warning. Activity/session end cancels stale pending idle warnings too.
+
+Warning cards keep the originating agent/session. Their settings are
+`[events.context_warning]` and `[events.idle_warning]`, using the ordinary event
+settings (default duration 3000 ms, amber accent, no configured sound). Builtin
+artwork reuses the permission/input pictures; normal pet/custom overrides work.
+Preview with `--event context_warning` or `--event idle_warning`; the standard
+`--demo` keeps its original five-event sequence.
+
+**Upgrade:** this build uses IPC frame version 2 so new evidence-only activity
+events cannot become false completion cards in older residents. Quit the old
+resident with its old executable before replacing it, then start the new build.
+Mixed versions reject frames safely; a new executable cannot send `--quit` to a
+version-1 resident. The tray Quit action remains available.
+
+### Portable path migration
+
 Quit the resident. Copy your old `%APPDATA%\aHerald\config.toml` to `config.toml`
 beside the installed executable, preserving any existing destination you want to
 keep. Copy relative resources with their directory layout, or adjust their paths.

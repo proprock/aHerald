@@ -206,6 +206,8 @@ impl Ui {
             || unsafe { IsWindowVisible(hwnd) }.as_bool()
         {
             Some(16)
+        } else if self.shared.lock().is_ok_and(|s| s.warnings.has_deadline()) {
+            Some(1000)
         } else if self.config.codex.usage.enabled || self.claude.is_some() {
             Some(15_000)
         } else {
@@ -291,6 +293,7 @@ impl Ui {
             if let Some(demo) = &mut self.demo {
                 demo.tick(now, paused, &mut state.queue);
             }
+            crate::resident_request::tick(&mut *state, &self.config, now);
             state.queue.tick(now, paused);
             (
                 state.queue.selected().cloned(),

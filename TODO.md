@@ -65,6 +65,47 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 ## Milestone 5 — Polish and portable release
 
+- [ ] **AH-100 — Per-session context-size warning.** Provide independently configurable
+  context-size warnings for Claude and Codex, with separate enablement and thresholds.
+  Warn when a session's context exceeds its configured threshold; accept both `N`
+  tokens and `Nk` kilotokens as threshold notation. Track context and warning state
+  by agent and session so one session cannot trigger or suppress another's warning.
+  Verify supported context-size sources for each agent before implementation; document
+  unavailable coverage and resolve the kilotoken multiplier, defaults and repeat/reset
+  policy before coding. Acceptance: tests cover both notations, invalid values, the
+  threshold boundary, independent agent settings, session isolation and unavailable
+  context data; verify warnings in real supported agent sessions.
+  Preliminary research (2026-10-30): Claude statusLine is a viable source, subject
+  to an agreed AH-059 privacy allowlist extension; no permitted passive source
+  for arbitrary Codex sessions established. See [feasibility report](docs/session-warnings-research.md).
+  First slice on `feature/ah-100-101-session-warnings`: Claude context threshold
+  only; Codex context and actual cache-expiry warnings remain deferred. The
+  maintainer authorized the corresponding AH-059 input-context allowlist extension
+  on 2026-10-30. Implementation/verification evidence: [session warnings](docs/session-warnings-research.md).
+
+- [ ] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
+  cache-TTL warnings for Claude and Codex, with separate enablement and thresholds
+  in minutes. Warn when more than the configured number of minutes has passed since
+  the last message in that session. Track the last-message time, timer and warning
+  state by agent and session; activity in another session must not reset the timer.
+  Verify supported message-activity sources for each agent before implementation;
+  agree on which messages reset the timer, defaults, repeat/reset behavior and session
+  end/restart handling before coding. Describe this as an elapsed-time warning, without
+  claiming that the provider's cache has actually expired. Acceptance: controlled-time
+  tests cover the threshold boundary, timer reset, independent agent settings, session
+  isolation, session cleanup and unavailable activity data; verify warnings in real
+  supported agent sessions.
+  Preliminary research (2026-10-30): a per-session elapsed-time reminder is feasible
+  through lifecycle hooks, with resident-owned timers. Exact last-message semantics
+  and actual cache expiry are separate questions; Claude additionally documents a
+  reported cache deadline. See [feasibility report](docs/session-warnings-research.md).
+  Agreed 2026-10-30: start the timer at the end of the agent response, not at user
+  submission. New user/tool activity cancels it; the next completion rearms it.
+  Default idle thresholds: Claude 55 minutes, Codex 25 minutes (agreed 2026-10-30);
+  `idle_minutes = 0` disables an agent's reminder. One warning per idle episode,
+  resident-only, memory-only bounded state. This slice is an elapsed-time reminder,
+  not a provider cache-expiry guarantee. Live integration acceptance remains open.
+
 - [ ] **AH-099 — Notify only when Codex approval needs the user.** A Codex
   `PermissionRequest` hook can fire for an automatically reviewed request, so the
   current permission card can appear even when no user action is needed. Investigate

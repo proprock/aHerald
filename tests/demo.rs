@@ -99,7 +99,7 @@ fn cycles_all_signals_then_navigation_and_repeats_with_bounded_queue() {
     let mut queue = Queue::new(64, 1500);
     let mut now = 0;
     for _ in 0..3 {
-        for kind in Kind::ALL {
+        for kind in aherald::demo::KINDS {
             demo.tick(now, false, &mut queue);
             assert_eq!(queue.items().len(), 1);
             assert_eq!(queue.selected().unwrap().event.kind, kind);

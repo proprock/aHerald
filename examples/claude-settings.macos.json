@@ -55,6 +55,39 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

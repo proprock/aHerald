@@ -7,7 +7,8 @@ fn frames_round_trip_and_reject_invalid_length_version_and_json() {
         vec![],
         vec![255; 6],
         vec![1, 0, 1, 0, 0, 0, b'{'],
-        vec![2, 0, 2, 0, 0, 0, b'{', b'}'],
+        vec![1, 0, 2, 0, 0, 0, b'{', b'}'],
+        vec![3, 0, 2, 0, 0, 0, b'{', b'}'],
     ] {
         assert!(ipc::decode::<serde_json::Value>(&bad).is_err());
     }

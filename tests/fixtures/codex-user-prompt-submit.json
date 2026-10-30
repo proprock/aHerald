@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "synthetic-session",
+  "turn_id": "synthetic-turn",
+  "cwd": "/example/project",
+  "model": "example-model",
+  "permission_mode": "default",
+  "prompt": "Sanitized example",
+  "transcript_path": null
+}

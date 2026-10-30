@@ -30,7 +30,9 @@ the entry becomes `aherald --statusline --then '<your command>'`, your command g
 its output is shown unchanged, and `--uninstall-statusline --apply` restores it exactly. A `*.aherald-backup`
 copy is made. Use `--hooks-file PATH` for another settings file. Windows is not supported yet.
 
-`aherald --statusline` reads only `session_id`, `session_name` and `rate_limits` (5-hour and 7-day
+`aherald --statusline` reads only `session_id`, `session_name`, input-context counters
+(`context_window.current_usage.input_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`, summed for AH-100) and `rate_limits` (5-hour and 7-day
 percentages and reset times) from the payload, hands them to a running resident and never starts one.
 Nothing else in the payload is stored or logged. The resident then shows the name on Claude cards and,
 with `[claude.usage] enabled = true`, can show the quota without reading the login token:
@@ -55,7 +57,9 @@ terminal or IDE; the token quota still works for Desktop.
 | `SessionEnd` | any `reason` (`clear`, `logout`, `prompt_input_exit`, ...) | none: clears that session's pending cards |
 | `SubagentStop` and other hooks / notification types | | ignored |
 
-Only `hook_event_name`, `session_id` and `notification_type` are read. Prompts, `message`,
+Only event/session/subagent identity, `notification_type` and the sanitized folder label
+are used. UserPromptSubmit, PreToolUse and PostToolUse carry activity evidence only
+for the optional session idle timer; they never create cards. Prompts, `message`,
 `tool_input` and `last_assistant_message` are never stored or logged.
 
 ## Contract

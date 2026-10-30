@@ -24,13 +24,24 @@ pub struct Plan {
 pub fn events(agent: Agent) -> &'static [&'static str] {
     match agent {
         Agent::Claude => &[
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
             "Notification",
             "PermissionRequest",
             "Stop",
             "StopFailure",
             "SessionEnd",
         ],
-        Agent::Codex => &["Stop", "PermissionRequest", "Interrupt"],
+        Agent::Codex => &[
+            "Stop",
+            "PermissionRequest",
+            "Interrupt",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "SessionEnd",
+        ],
     }
 }
 
@@ -418,11 +429,11 @@ mod tests {
 
     #[test]
     fn install_keeps_foreign_settings_hooks_and_key_order() {
-        let before = r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}],"PreToolUse":[]},"alpha":{"b":2,"a":1}}"#;
+        let before = r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"say before"}]}]},"alpha":{"b":2,"a":1}}"#;
         let plan = plan(Some(before), Agent::Claude, CMD, Action::Install).unwrap();
         let value = parse(&plan.text);
         assert_eq!(commands(&value, "Stop"), ["say done", CMD]);
-        assert_eq!(value["hooks"]["PreToolUse"], json!([]));
+        assert_eq!(commands(&value, "PreToolUse"), ["say before", CMD]);
         let keys: Vec<_> = value.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["zeta", "hooks", "alpha"]);
         let inner: Vec<_> = value["alpha"].as_object().unwrap().keys().collect();

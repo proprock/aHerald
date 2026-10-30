@@ -161,6 +161,7 @@ fn claude(kind: Kind, session: &str) -> Event {
         agent_id: None,
         window: None,
         ended: false,
+        activity: false,
         folder: None,
         message: None,
     }
@@ -222,6 +223,7 @@ fn claude_stop_resolves_hidden_persistent_card_even_when_waits_are_disabled() {
 fn session_end(session: &str) -> Event {
     Event {
         ended: true,
+        activity: false,
         ..claude(Kind::TurnComplete, session)
     }
 }

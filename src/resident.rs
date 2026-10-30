@@ -22,6 +22,7 @@ pub use crate::resident_client::{ensure, forward, forward_if_running};
 
 pub struct Shared {
     pub queue: crate::queue::Queue,
+    pub warnings: crate::session_warnings::Warnings,
     pub paused: bool,
     pub sounds: bool,
     pub visuals: bool,
@@ -29,6 +30,9 @@ pub struct Shared {
     pub window: isize,
 }
 impl crate::resident_request::Controls for Shared {
+    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
+        &mut self.warnings
+    }
     fn queue(&mut self) -> &mut crate::queue::Queue {
         &mut self.queue
     }
@@ -71,6 +75,7 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
     }
     let shared = Arc::new(std::sync::Mutex::new(Shared {
         queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
+        warnings: Default::default(),
         paused: false,
         sounds: config.sounds.enabled,
         visuals: config.notifications.enabled,
@@ -111,6 +116,7 @@ fn run_with_usage(
     let start = Instant::now();
     let shared = Arc::new(std::sync::Mutex::new(Shared {
         queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
+        warnings: Default::default(),
         paused: false,
         sounds: config.sounds.enabled,
         visuals: config.notifications.enabled,

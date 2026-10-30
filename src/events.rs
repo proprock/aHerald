@@ -10,6 +10,8 @@ pub enum Kind {
     InputRequired,
     Error,
     Interrupted,
+    ContextWarning,
+    IdleWarning,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Priority {
@@ -18,19 +20,21 @@ pub enum Priority {
     Low,
 }
 impl Kind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::TurnComplete,
         Self::PermissionRequired,
         Self::InputRequired,
         Self::Error,
         Self::Interrupted,
+        Self::ContextWarning,
+        Self::IdleWarning,
     ];
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.name() == name)
     }
     pub fn priority(self) -> Priority {
         match self {
-            Self::Error => Priority::Medium,
+            Self::Error | Self::ContextWarning | Self::IdleWarning => Priority::Medium,
             Self::Interrupted => Priority::Low,
             _ => Priority::High,
         }
@@ -42,6 +46,8 @@ impl Kind {
             Self::InputRequired => "input_required",
             Self::Error => "error",
             Self::Interrupted => "interrupted",
+            Self::ContextWarning => "context_warning",
+            Self::IdleWarning => "idle_warning",
         }
     }
 }
@@ -93,6 +99,8 @@ impl Kind {
             Self::InputRequired => "Input required",
             Self::Error => "Agent error",
             Self::Interrupted => "Turn interrupted",
+            Self::ContextWarning => "Context threshold exceeded",
+            Self::IdleWarning => "Session idle reminder",
         }
     }
 }
@@ -111,9 +119,12 @@ pub struct Event {
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,
-    /// The whole session ended (Claude `SessionEnd`): evidence only, never shown or sounded.
+    /// The whole session ended (`SessionEnd`): evidence only, never shown or sounded.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ended: bool,
+    /// Lifecycle evidence only: user submission or resumed tool activity, never a card.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub activity: bool,
     /// Last component of the session's working directory, for the card heading. Display
     /// only: never logged, and the full path is not kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,10 +162,14 @@ pub fn folder_name(cwd: &str) -> Option<String> {
 }
 impl Event {
     pub fn is_terminal_evidence(&self) -> bool {
-        let turn_ended = self
-            .source
-            .agent()
-            .is_some_and(|agent| agent.ends_turn(self));
+        if self.activity {
+            return false;
+        }
+        let turn_ended = self.ended
+            || self
+                .source
+                .agent()
+                .is_some_and(|agent| agent.ends_turn(self));
         turn_ended && self.session_id.is_some() && self.validate().is_ok()
     }
     pub fn demo(name: &str) -> Result<Self, String> {
@@ -169,6 +184,7 @@ impl Event {
             agent_id: None,
             window: None,
             ended: false,
+            activity: false,
             folder: None,
             message: None,
         })
@@ -191,6 +207,7 @@ impl Event {
             agent_id: None,
             window: None,
             ended: false,
+            activity: false,
             folder: None,
             message: Some(line.chars().take(MAX_NOTICE_CHARS).collect()),
         }
@@ -237,8 +254,15 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
+    let activity = matches!(
+        hook.hook_event_name.as_str(),
+        "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+    );
+    let ended = hook.hook_event_name == "SessionEnd" && hook.session_id.is_some();
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,
+        "SessionEnd" if ended => Kind::TurnComplete,
+        _ if activity && hook.session_id.is_some() => Kind::TurnComplete,
         "PermissionRequest" => Kind::PermissionRequired,
         "Interrupt" => Kind::Interrupted,
         _ => return Ok(None),
@@ -249,13 +273,10 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,
-        agent_id: if kind == Kind::PermissionRequired {
-            hook.agent_id
-        } else {
-            None
-        },
+        agent_id: hook.agent_id,
         window: None,
-        ended: false,
+        ended,
+        activity,
         folder: hook_folder(hook.cwd),
         message: None,
     };
