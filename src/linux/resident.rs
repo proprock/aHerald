@@ -216,6 +216,7 @@ fn present(
     let mut displayed = false;
     let mut animation_start = 0;
     let mut monitor_watch = crate::notice::MonitorWatch::new();
+    let mut activation = crate::activation::Worker::default();
     let mut audio_cancel = Arc::new(AtomicBool::new(false));
     let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
     while !stop.load(Ordering::Acquire) {
@@ -279,6 +280,29 @@ fn present(
                     window_size,
                     &layout,
                 );
+                if event.detail == 1 {
+                    let body = input::on_body(
+                        &guard.queue,
+                        config.notifications.click_to_dismiss,
+                        &layout,
+                        point,
+                    );
+                    if body {
+                        super::activation::note_click(event.time);
+                    }
+                    if let Some(selected) = guard.queue.selected() {
+                        let directory = config_path
+                            .and_then(Path::parent)
+                            .unwrap_or_else(|| Path::new("."));
+                        activation.submit(
+                            &selected.event,
+                            config.notifications.activate_agent_on_click,
+                            body,
+                            directory,
+                            config.general.logging,
+                        );
+                    }
+                }
                 if event.detail == 1
                     && input::click(
                         &mut guard.queue,

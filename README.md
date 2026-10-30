@@ -6,8 +6,8 @@ TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 Platforms: Windows 10/11 x64 is the supported runtime. macOS has a native port; Linux
-has an X11/XWayland notification overlay, a StatusNotifierItem tray and PulseAudio-compatible
-sound; click-to-activate is still pending. Linux requires a compositing X11 session and the
+has an X11/XWayland notification overlay, a StatusNotifierItem tray, PulseAudio-compatible
+sound and click-to-activate. Linux requires a compositing X11 session and the
 Cairo, Pango, PangoCairo, GObject and libpulse-simple runtime libraries. PipeWire users need
 its PulseAudio-compatible server. A native Wayland overlay is not yet available.
 
@@ -16,6 +16,11 @@ and send `target/debug/aherald --event input_required --resident` from another t
 Click the card to dismiss it and use `target/debug/aherald --quit` to stop the service.
 On GNOME, the tray requires the AppIndicator extension (or another StatusNotifierItem host).
 The tray menu offers sound, pop-up and pause switches, configuration, restart and exit.
+For terminal hooks, Linux records a window only when its X11 process is in the hook's
+ancestor chain; if several windows belong to that process, the active one is selected.
+Some terminal launchers do not expose a matching process or X11 window, so their window
+cannot be identified automatically. Activation raises the window; it does not restore a
+previously selected Warp tab or pane.
 
 On macOS (Apple Silicon) see the [macOS guide](docs/portable-macos.md); build the app with
 `./package-macos.sh` after `cargo build --release --target aarch64-apple-darwin`.

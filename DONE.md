@@ -738,6 +738,13 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-071 — Linux click-to-activate and path discovery.** Depends on AH-068.
+  Done 2026-10-30: capture a matching X11 terminal window and request activation on
+  a body click; existing native Codex PATH discovery has fake-PATH tests. On Ubuntu
+  22.04.5 GNOME/XWayland the user confirmed a synthetic Claude hook returns focus to
+  the Warp window. Warp's previously selected tab or pane is not restored. A real
+  agent hook was not exercised in this check.
+
 - [x] **AH-070 — Linux audio.** Depends on AH-061.
   Done 2026-10-30: approved PulseAudio/PipeWire-pulse backend with the shared Unix
   cross-process serialization and deduplication gate. The serialization test confirms

@@ -107,7 +107,7 @@ pub struct Event {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// Terminal window that hosts the session (Claude only), recorded by the hook process.
+    /// Terminal window that hosts the session, recorded by supported hook processes.
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,

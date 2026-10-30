@@ -73,6 +73,8 @@ fn click_claude(event: &Event, agent: &mut impl Agent) -> Result<(), String> {
 #[cfg(windows)]
 mod native;
 
+#[cfg(target_os = "linux")]
+use crate::linux::activation::run;
 #[cfg(target_os = "macos")]
 use crate::mac::activation::run;
 /// What a click on a card of `event` does with the platform's real agents.
@@ -86,7 +88,7 @@ pub struct Worker {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 impl Default for Worker {
     fn default() -> Self {
         Self::with(run)
