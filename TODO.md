@@ -46,24 +46,15 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [x] **AH-091 — Hook setup commands and plugins.** Depends on AH-067.
-  Agreed 2026-10-28: relax the "never edit hooks" rule to "only on an explicit user command, with a
-  dry run by default, a backup and a diff of aHerald's own entries" (AGENTS.md). (1)
-  `aherald --install-hooks|--uninstall-hooks claude|codex [--apply] [--hooks-file PATH]` merges only
-  aHerald's entries (idempotent, key order and other content kept, symlink and mode kept, `*.aherald-backup`);
-  Codex still needs the user to trust the hooks in `/hooks`. Needs serde_json `preserve_order` (approved).
-  (2) Plugin `aherald` in a marketplace in this repository (`.claude-plugin/marketplace.json`, also read by
-  Codex), hooks in `plugins/aherald/hooks/hooks.json` through a launcher script that finds `aHerald.app`
-  and always exits 0. macOS first; the Windows (PowerShell, `AHERALD_PATH`) and Linux variants follow
-  when verified on those machines. Acceptance: on the M1 the plugin installs from the repo with
-  `claude plugin marketplace add` and delivers a card; `--install-hooks` round-trips on a real file.
-  Accepted 2026-10-29 on the M1 (macOS): `--install-hooks claude` on a copy of the real
-  `~/.claude/settings.json` (dry run unchanged; apply adds five entries and a backup; second apply no
-  change; uninstall restores the content and key order, only a trailing newline is added); the plugin
-  installed from this repository (`claude plugin marketplace add` and `install aherald@proprock`,
-  isolated `CLAUDE_CONFIG_DIR`); the launcher script delivered a card through the installed app and
-  exits 0 without it. Not run: Codex (`codex` not installed here). The Windows (PowerShell,
-  `AHERALD_PATH`) and Linux plugin variants stay to be done when verified on those machines.
+- [ ] **AH-096 — Verify Linux plugin in a real Claude Code session.** Depends on AH-091.
+  Install the marketplace/plugin in a user-selected configuration and confirm an ordinary
+  Claude Code event triggers the installed hook and a card without changing agent behavior.
+  Record the Claude Code and session versions; remove the test installation if temporary.
+  Installation and a synthetic installed-cache event already passed in isolation.
+
+- [ ] **AH-097 — Windows plugin launcher and acceptance (split from AH-091).**
+  Add and verify the Windows PowerShell launcher and `AHERALD_PATH` discovery; check
+  actual plugin installation and event delivery on Windows without disturbing existing hooks.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;

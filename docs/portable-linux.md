@@ -27,6 +27,20 @@ commands in `/hooks`. For manual setup, `examples/aherald-*-hook-linux.sh` use
 or edit your hook configuration to point at the chosen installation. Hook setup is never
 automatic. Remove hooks with `./aherald --uninstall-hooks claude --apply` or `codex`.
 
+Alternatively, Claude Code can install the repository's plugin marketplace:
+
+```sh
+claude plugin marketplace add proprock/aHerald
+claude plugin install aherald@proprock
+```
+
+The plugin looks for `$AHERALD_PATH`, then `~/.local/share/aHerald/aherald`, then `PATH`.
+Set `AHERALD_PATH` in the environment that starts Claude Code when using another location.
+An explicit invalid `AHERALD_PATH` leaves the plugin inactive; it does not select another
+executable. Use either the plugin or `--install-hooks claude`, not both. Removing the plugin
+is separate from removing manually installed hooks. The marketplace install and a synthetic
+event from its installed cache were checked locally; live agent dispatch is still AH-096.
+
 The default `config.toml` and log live beside the executable. The example TOML documents
 sound paths and settings. Stop the resident and remove the extracted directory to uninstall;
 remove any hooks and startup entry you installed separately.
