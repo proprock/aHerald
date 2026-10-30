@@ -57,6 +57,8 @@ impl Item {
 
 type Props = HashMap<String, OwnedValue>;
 type Layout = (i32, Props, Vec<OwnedValue>);
+// About, controls, then application actions, matching the other platform menus.
+const MENU_ITEMS: [i32; 9] = [6, 8, 1, 2, 3, 9, 4, 5, 7];
 
 pub struct Menu {
     pub sender: Sender<Command>,
@@ -79,6 +81,8 @@ fn properties(id: i32, state: [bool; 3]) -> Props {
     };
     if id == 0 {
         p.insert("children-display".into(), label("submenu"));
+    } else if id == 8 || id == 9 {
+        p.insert("type".into(), label("separator"));
     } else {
         p.insert("label".into(), label(name));
     }
@@ -113,7 +117,8 @@ impl Menu {
     ) -> (u32, Layout) {
         let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
         let children = if parent_id == 0 && recursion_depth != 0 {
-            (1..=7)
+            MENU_ITEMS
+                .into_iter()
                 .map(|id| {
                     OwnedValue::try_from(Value::from((
                         id,
@@ -135,7 +140,7 @@ impl Menu {
     ) -> Vec<(i32, Props)> {
         let state = *self.state.lock().unwrap_or_else(|e| e.into_inner());
         ids.into_iter()
-            .filter(|id| (0..=7).contains(id))
+            .filter(|id| (0..=9).contains(id))
             .map(|id| (id, properties(id, state)))
             .collect()
     }
@@ -261,7 +266,14 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
         let menu = Menu { sender, state };
         let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 7);
+        assert_eq!(children.len(), 9);
+        assert_eq!(MENU_ITEMS, [6, 8, 1, 2, 3, 9, 4, 5, 7]);
+        for separator in [8, 9] {
+            let value = properties(separator, [true, false, true])
+                .remove("type")
+                .unwrap();
+            assert_eq!(String::try_from(value).unwrap(), "separator");
+        }
         assert_eq!(
             i32::try_from(
                 properties(1, [true, false, true])

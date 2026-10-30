@@ -56,6 +56,34 @@ fn shared(config: &Config) -> Arc<Mutex<Shared>> {
     }))
 }
 
+/// About is an application card, not an error or an agent event.
+fn about_event() -> Event {
+    let mut event = Event::notice(&format!("Version {}", crate::VERSION));
+    event.kind = crate::events::Kind::TurnComplete;
+    event
+}
+
+fn is_about(event: &Event) -> bool {
+    let about = about_event();
+    event.source == about.source && event.kind == about.kind && event.message == about.message
+}
+
+fn about_heading(event: &Event) -> crate::card::Heading {
+    let mut heading = crate::card::Heading::notice(event.message.as_deref().unwrap_or_default());
+    heading.title = crate::NAME.into();
+    heading
+}
+
+fn toggle_about(queue: &mut Queue, now: u64) -> crate::queue::Outcome {
+    let about = about_event();
+    if queue.selected().is_some_and(|entry| is_about(&entry.event)) {
+        queue.dismiss();
+        crate::queue::Outcome::Resolved
+    } else {
+        queue.push(about, now, 0)
+    }
+}
+
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
@@ -225,7 +253,16 @@ fn present(
                 use super::tray::Command;
                 match command {
                     Command::Exit => stop.store(true, Ordering::Release),
-                    Command::About => crate::notice::post(&format!("aHerald {}", crate::VERSION)),
+                    Command::About => {
+                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        if !toggle_about(&mut guard.queue, now).is_accepted() {
+                            crate::operational_log::log(
+                                crate::operational_log::Record::QueueRejected,
+                            );
+                        }
+                        presenter.invalidate();
+                    }
                     Command::Restart => {
                         if let Err(error) =
                             Config::load(config_path.expect("resident configuration path"), true)
@@ -360,7 +397,7 @@ fn present(
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) = entry.filter(|_| !paused && visuals) {
+        if let Some(entry) = entry.filter(|entry| !paused && (visuals || is_about(&entry.event))) {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;
@@ -372,7 +409,11 @@ fn present(
             )
             .ok_or("X11: no monitor")?;
             let scale = config.notifications.scale * monitor.scale;
-            let heading = labels.label(&entry.event);
+            let heading = if is_about(&entry.event) {
+                about_heading(&entry.event)
+            } else {
+                labels.label(&entry.event)
+            };
             let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
             let controls = Card::new(heading, index, count, config.notifications.click_to_dismiss);
             let card_key = (controls.heading.clone(), index, count, age);
@@ -479,4 +520,37 @@ fn present(
     }
     audio_cancel.store(true, Ordering::Release);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_is_persistent_green_and_dismissible() {
+        let mut queue = Queue::new(8, 0);
+        assert_eq!(toggle_about(&mut queue, 0), crate::queue::Outcome::Queued);
+        let entry = queue.selected().unwrap();
+        assert_eq!(entry.duration, 0);
+        assert_eq!(entry.event.kind, crate::events::Kind::TurnComplete);
+        let heading = about_heading(&entry.event);
+        assert_eq!(heading.title, "aHerald");
+        assert_eq!(heading.name.as_deref(), entry.event.message.as_deref());
+        assert_eq!(
+            Config::default().event_color(entry.event.kind).0,
+            [65, 210, 140]
+        );
+        assert_eq!(
+            entry.event.message.as_deref(),
+            Some(format!("Version {}", crate::VERSION).as_str())
+        );
+        queue.tick(0, false);
+        queue.tick(120_000, false);
+        assert!(queue.selected().is_some());
+        assert_eq!(
+            toggle_about(&mut queue, 120_000),
+            crate::queue::Outcome::Resolved
+        );
+        assert!(queue.selected().is_none());
+    }
 }
