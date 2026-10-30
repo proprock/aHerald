@@ -738,6 +738,12 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 ## Milestone 5a — macOS and Linux support
 
+- [x] **AH-070 — Linux audio.** Depends on AH-061.
+  Done 2026-10-30: approved PulseAudio/PipeWire-pulse backend with the shared Unix
+  cross-process serialization and deduplication gate. The serialization test confirms
+  playback does not overlap; the user confirmed an audible notification on Ubuntu
+  22.04.5. Tray sound and pause switches cancel active playback.
+
 - [x] **AH-069 — Linux tray.** Depends on AH-068.
   Done 2026-10-30: StatusNotifierItem and dbusmenu using approved `zbus`; GNOME
   AppIndicator requirement documented. The user confirmed the icon and menu on Ubuntu

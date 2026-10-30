@@ -196,7 +196,7 @@ impl SoundCache {
     }
 }
 /// The sounds of one process: the resident replays the same few files all day.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, SoundError> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<SoundCache>> = std::sync::OnceLock::new();
     CACHE
@@ -208,7 +208,7 @@ fn cached(path: &Path, volume: f64) -> Result<std::sync::Arc<Wave>, SoundError> 
 
 /// Tells why `path` cannot be used, once for each state of that file: a log line with the reason
 /// only (never the path) and, in a resident, a card naming the file.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn report_rejection(path: &Path, error: SoundError) {
     crate::notice::report_file(
         "sound",
@@ -219,7 +219,7 @@ fn report_rejection(path: &Path, error: SoundError) {
 }
 
 /// Logs the first failure of a run of failures to play; a success ends the run.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn note_playback(played: bool) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static FAILING: AtomicBool = AtomicBool::new(false);
@@ -251,8 +251,13 @@ pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
 #[path = "audio_windows.rs"]
 mod native;
 
+#[cfg(target_os = "linux")]
+use crate::linux::audio::output as platform_output;
+#[cfg(target_os = "macos")]
+use crate::mac::audio::output as platform_output;
+
 /// One sound through the platform's output, serialized across processes.
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn play(
     wave: &Wave,
     key: &[u8],
@@ -263,7 +268,7 @@ fn play(
     {
         native::play(wave, key, dedup_ms, cancel)
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         serial::play_with(
             serial::SERIAL_GATE,
@@ -271,12 +276,12 @@ fn play(
             key,
             dedup_ms,
             cancel,
-            crate::mac::audio::output,
+            platform_output,
         )
     }
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<()>> {
     start_controlled(
         event,
@@ -284,7 +289,7 @@ pub fn start(event: &Event, config: &Config) -> Option<std::thread::JoinHandle<(
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
     )
 }
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn start_controlled(
     event: &Event,
     config: &Config,

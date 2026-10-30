@@ -6,9 +6,10 @@ TOML settings, and bounded Codex hook input. Resident mode adds one event card,
 a priority queue, local IPC and a native tray. It runs without Codex installed.
 
 Platforms: Windows 10/11 x64 is the supported runtime. macOS has a native port; Linux
-has an X11/XWayland notification overlay and a StatusNotifierItem tray, with audio and
-click-to-activate still pending. Linux requires a compositing X11 session and the Cairo, Pango, PangoCairo and
-GObject runtime libraries. A native Wayland overlay is not yet available.
+has an X11/XWayland notification overlay, a StatusNotifierItem tray and PulseAudio-compatible
+sound; click-to-activate is still pending. Linux requires a compositing X11 session and the
+Cairo, Pango, PangoCairo, GObject and libpulse-simple runtime libraries. PipeWire users need
+its PulseAudio-compatible server. A native Wayland overlay is not yet available.
 
 For a Linux preview, build with `cargo build`, run `target/debug/aherald --resident`,
 and send `target/debug/aherald --event input_required --resident` from another terminal.

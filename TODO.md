@@ -72,10 +72,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   session type, desktop environment, monitor setup and results. Xorg and multi-monitor
   behavior have not yet been verified.
 
-- [ ] **AH-070 — Linux audio.** Depends on AH-061.
-  Choose a backend with user approval (PulseAudio/PipeWire-pulse versus ALSA) and keep the
-  serialized-playback gate. Acceptance: no overlapping playback; audible check on Ubuntu.
-
 - [ ] **AH-071 — Linux click-to-activate and path discovery.** Depends on AH-068.
   `_NET_ACTIVE_WINDOW` activation and terminal-window capture; Codex executable discovery
   without `.exe`/`.cmd`; Claude and Codex paths through `HOME`/`XDG_*`. Acceptance:

@@ -216,6 +216,8 @@ fn present(
     let mut displayed = false;
     let mut animation_start = 0;
     let mut monitor_watch = crate::notice::MonitorWatch::new();
+    let mut audio_cancel = Arc::new(AtomicBool::new(false));
+    let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
     while !stop.load(Ordering::Acquire) {
         if let Some(tray) = &tray {
             for command in tray.commands.try_iter() {
@@ -256,6 +258,11 @@ fn present(
                             Command::Pause => guard.paused = !guard.paused,
                             _ => unreachable!(),
                         }
+                        if !guard.sounds || guard.paused {
+                            audio_cancel.store(true, Ordering::Release);
+                        } else if audio_cancel.load(Ordering::Acquire) {
+                            audio_cancel = Arc::new(AtomicBool::new(false));
+                        }
                         tray.set_state(guard.sounds, guard.visuals, guard.paused);
                         presenter.invalidate();
                     }
@@ -293,21 +300,39 @@ fn present(
             }
         }
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (entry, index, count, paused, visuals) = {
+        audio_jobs.retain(|job| !job.is_finished());
+        let (entry, index, count, paused, visuals, fresh, sounds) = {
             let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
             let paused = guard.paused;
             if let Some(demo) = &mut demo {
                 demo.tick(now, paused, &mut guard.queue);
             }
             guard.queue.tick(now, paused);
+            let room = crate::presenter::sound_slots(audio_jobs.len());
+            let fresh = if !transient && !paused {
+                guard.queue.take_unannounced(room)
+            } else {
+                Vec::new()
+            };
             (
                 guard.queue.selected().cloned(),
                 guard.queue.selected_index(),
                 guard.queue.items().len(),
                 paused,
                 guard.visuals,
+                fresh,
+                guard.sounds,
             )
         };
+        let mut audio_config = config.clone();
+        audio_config.sounds.enabled = sounds;
+        for fresh in fresh {
+            if let Some(job) =
+                crate::audio::start_controlled(&fresh.event, &audio_config, audio_cancel.clone())
+            {
+                audio_jobs.push(job);
+            }
+        }
         if transient && entry.is_none() {
             break;
         }
@@ -428,5 +453,6 @@ fn present(
         }
         std::thread::sleep(Duration::from_millis(16));
     }
+    audio_cancel.store(true, Ordering::Release);
     Ok(())
 }

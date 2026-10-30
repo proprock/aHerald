@@ -20,7 +20,12 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     }
     #[cfg(target_os = "linux")]
     {
-        crate::linux::resident::show_transient(event, config)
+        let audio = crate::audio::start(event, config);
+        let result = crate::linux::resident::show_transient(event, config);
+        if let Some(audio) = audio {
+            let _ = audio.join();
+        }
+        result
     }
     #[cfg(all(not(windows), not(target_os = "linux")))]
     {
