@@ -250,19 +250,21 @@ fn generated_claude_exec_binding_completes_without_a_shell_or_resident() {
     .unwrap();
     let settings = app.read("claude");
     let hook = &settings["hooks"]["Stop"][0]["hooks"][0];
-    let mut child = Command::new(hook["command"].as_str().unwrap())
-        .args(
-            hook["args"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|a| a.as_str().unwrap()),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = spawn_fixture(|| {
+        Command::new(hook["command"].as_str().unwrap())
+            .args(
+                hook["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|a| a.as_str().unwrap()),
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    })
+    .unwrap();
     child
         .stdin
         .take()
@@ -391,14 +393,45 @@ impl BoundedOutput for Command {
     fn bounded_output(&mut self) -> Output {
         use std::process::Stdio;
         finish(
-            self.stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap(),
+            spawn_fixture(|| {
+                self.stdin(Stdio::null())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+            })
+            .unwrap(),
         )
     }
 }
+fn spawn_fixture(
+    spawn: impl FnMut() -> std::io::Result<std::process::Child>,
+) -> std::io::Result<std::process::Child> {
+    spawn_fixture_until(
+        std::time::Instant::now() + std::time::Duration::from_secs(1),
+        spawn,
+    )
+}
+
+fn spawn_fixture_until(
+    deadline: std::time::Instant,
+    mut spawn: impl FnMut() -> std::io::Result<std::process::Child>,
+) -> std::io::Result<std::process::Child> {
+    loop {
+        match spawn() {
+            // Linux rejects exec while any writable handle remains open. Parallel
+            // fixture copies and process launches can briefly overlap those handles.
+            Err(error)
+                if cfg!(target_os = "linux")
+                    && error.raw_os_error() == Some(26)
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+}
+
 fn finish(mut child: std::process::Child) -> Output {
     use std::time::{Duration, Instant};
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -536,4 +569,71 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ] {
         assert!(!app.run(&args).status.success(), "{args:?}");
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_transient_executable_write_handle_does_not_fail_fixture_launch() {
+    let app = Install::new("busy-launch");
+    let mut writer = Some(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&app.exe)
+            .unwrap(),
+    );
+    let mut attempts = 0;
+    let child = spawn_fixture(|| {
+        attempts += 1;
+        let result = Command::new(&app.exe)
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .spawn();
+        if attempts == 1 {
+            assert_eq!(
+                result.as_ref().err().and_then(|e| e.raw_os_error()),
+                Some(26)
+            );
+            // Release the real writer after observing the kernel error.
+            drop(writer.take());
+        }
+        result
+    })
+    .expect("a transient ETXTBSY must not abort the fixture launch");
+    let output = finish(child);
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        aherald::version_line()
+    );
+    assert_eq!(attempts, 2);
+}
+
+#[test]
+fn fixture_launch_does_not_retry_unrelated_errors() {
+    let mut attempts = 0;
+    let error = spawn_fixture(|| {
+        attempts += 1;
+        Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(attempts, 1);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn fixture_launch_returns_busy_error_when_the_retry_deadline_has_expired() {
+    let app = Install::new("busy-expired");
+    let _writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&app.exe)
+        .unwrap();
+    let mut attempts = 0;
+    let error = spawn_fixture_until(std::time::Instant::now(), || {
+        attempts += 1;
+        Command::new(&app.exe).arg("--version").spawn()
+    })
+    .unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(26));
+    assert_eq!(attempts, 1);
 }
