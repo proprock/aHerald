@@ -13,6 +13,12 @@ if ($code -eq 0 -or -not $output.Contains('Preflight failure installed applicati
 if ($output.Contains('This command cannot be run')) {
     throw "Cleanup attempted to launch a missing uninstaller: $output"
 }
+. (Join-Path $PSScriptRoot 'fixtures/installer_process.ps1')
+$marker = Join-Path $root 'child-complete'
+$code = Invoke-InstallerProcess $installer @('--bootstrap', ('"' + $marker + '"'))
+if ($code -ne 0 -or -not (Test-Path -LiteralPath $marker)) {
+    throw 'Installer wait returned before the bootstrap child completed'
+}
 Write-Output 'Installer diagnostics preserve the original failure when no uninstaller exists.'
 
 # The expected failing child must not become the GitHub PowerShell step exit code.

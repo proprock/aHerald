@@ -17,15 +17,7 @@ $fakeExe = Join-Path $testRoot "old-resident.exe"
 New-Item -ItemType Directory -Path $codexDir, $claudeDir | Out-Null
 
 function Assert-Test($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
-function Invoke-InstallerProcess([string]$File, [string[]]$Arguments) {
-    $process = Start-Process -FilePath $File -ArgumentList $Arguments -WindowStyle Hidden -PassThru
-    if (-not $process.WaitForExit(45000)) {
-        & taskkill.exe /PID $process.Id /T /F | Out-Null
-        throw "Installer timed out: $File"
-    }
-    $process.Refresh()
-    return $process.ExitCode
-}
+. (Join-Path $PSScriptRoot 'fixtures/installer_process.ps1')
 function Install-Test([string]$Tasks, [string]$LogName) {
     Invoke-InstallerProcess $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $appDir + '"'), '/GROUP="aHerald Installer Test"', ('/TASKS="' + $Tasks + '"'), ('/LOG="' + (Join-Path $testRoot $LogName) + '"'))
 }
