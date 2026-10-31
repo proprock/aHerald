@@ -89,28 +89,66 @@ mod tests {
 
     #[test]
     fn an_inheritable_descriptor_does_not_reach_the_child() {
-        // `dup` returns a descriptor that is not close-on-exec.
-        // SAFETY: duplicating stdin is valid and the copy is closed below.
-        let leaked = unsafe { libc::dup(0) };
+        use std::{
+            io::{Read, Seek, SeekFrom, Write},
+            os::fd::{AsRawFd, FromRawFd, OwnedFd},
+            time::{SystemTime, UNIX_EPOCH},
+        };
+
+        let path = std::env::temp_dir().join(format!(
+            "aherald-fd-probe-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        // Unix keeps the open file alive; unlink now so every panic path cleans it up.
+        std::fs::remove_file(path).unwrap();
+        let expected = b"aherald inherited descriptor probe\n";
+        file.write_all(expected).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        // SAFETY: `file` owns a live descriptor; OwnedFd owns and closes the new copy.
+        let leaked = unsafe { libc::dup(file.as_raw_fd()) };
         assert!(leaked > 2);
-        let number = leaked.to_string();
-        let mut child = spawn(
-            Path::new("sh"),
-            &[
-                OsStr::new("-c"),
-                OsStr::new(": >&\"$0\""),
-                OsStr::new(&number),
-            ],
-            true,
-        )
-        .unwrap();
+        let leaked = unsafe { OwnedFd::from_raw_fd(leaked) };
+        let path = format!("/dev/fd/{}", leaked.as_raw_fd());
+        let args = [OsStr::new(&path)];
+        let mut control = Command::new("cat");
+        control.args(args);
+        // SAFETY: the empty hook does nothing. It selects the same fork/exec path
+        // as the detached spawn, without its descriptor cleanup.
+        unsafe {
+            control.pre_exec(|| Ok(()));
+        }
+        let control = control.output().unwrap();
+        assert!(
+            control.status.success(),
+            "the control could not read the file"
+        );
+        assert_eq!(control.stdout, expected);
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut child = spawn(Path::new("cat"), &args, true).unwrap();
+        let mut output = Vec::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_end(&mut output)
+            .unwrap();
         let status = child.wait().unwrap();
-        // SAFETY: closes the descriptor created above, once.
-        unsafe { libc::close(leaked) };
         assert!(
             !status.success(),
-            "the child could still use descriptor {leaked}"
+            "the detached child could read the descriptor"
         );
+        assert_ne!(output, expected, "the detached child inherited our file");
     }
 
     #[test]

@@ -17,15 +17,7 @@ $fakeExe = Join-Path $testRoot "old-resident.exe"
 New-Item -ItemType Directory -Path $codexDir, $claudeDir | Out-Null
 
 function Assert-Test($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
-function Invoke-InstallerProcess([string]$File, [string[]]$Arguments) {
-    $process = Start-Process -FilePath $File -ArgumentList $Arguments -WindowStyle Hidden -PassThru
-    if (-not $process.WaitForExit(45000)) {
-        & taskkill.exe /PID $process.Id /T /F | Out-Null
-        throw "Installer timed out: $File"
-    }
-    $process.Refresh()
-    return $process.ExitCode
-}
+. (Join-Path $PSScriptRoot 'fixtures/installer_process.ps1')
 function Install-Test([string]$Tasks, [string]$LogName) {
     Invoke-InstallerProcess $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $appDir + '"'), '/GROUP="aHerald Installer Test"', ('/TASKS="' + $Tasks + '"'), ('/LOG="' + (Join-Path $testRoot $LogName) + '"'))
 }
@@ -151,15 +143,27 @@ try {
     Assert-Test (-not (Test-Path -LiteralPath $installedExe)) 'Running uninstall left its executable'
     Write-Output "Installer lifecycle passed. Evidence: $testRoot"
 }
+catch {
+    Write-Warning "Installer lifecycle failed: $($_.Exception.Message). Evidence: $testRoot"
+    foreach ($log in Get-ChildItem -LiteralPath $testRoot -Filter '*.log') {
+        Write-Output "Installer log: $($log.Name)"
+        Get-Content -LiteralPath $log.FullName -Tail 60
+    }
+    throw
+}
 finally {
     foreach ($resident in $ownedResidents) {
         if (-not $resident.HasExited) { $resident.Kill($true) }
         $null = $resident.WaitForExit(5000)
         $resident.Dispose()
     }
-    if (Test-Path -LiteralPath (Join-Path $appDir 'aherald.exe')) {
-        if ($receiptText) { [IO.File]::WriteAllText($receipt, $receiptText) }
-        $null = Invoke-InstallerProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+    # Cleanup must not replace the original failure, including a partial installation.
+    if ((Test-Path -LiteralPath (Join-Path $appDir 'aherald.exe')) -and (Test-Path -LiteralPath $uninstaller)) {
+        try {
+            if ($receiptText) { [IO.File]::WriteAllText($receipt, $receiptText) }
+            $null = Invoke-InstallerProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+        }
+        catch { Write-Warning "Installer cleanup failed: $($_.Exception.Message). Evidence: $testRoot" }
     }
     $env:CODEX_HOME = $previousCodex
     $env:CLAUDE_CONFIG_DIR = $previousClaude
