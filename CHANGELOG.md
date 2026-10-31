@@ -9,6 +9,65 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+Native Windows installation and explicit harness setup, with the first Linux
+release alongside Windows x64 and macOS Apple Silicon.
+
+### Added
+- Per-user Windows setup EXE alongside the portable ZIP. Select Codex and Claude
+  Code integration, independently enable usage display, and launch after installation.
+  Upgrades retain the installation directory, harness choices and current usage
+  settings. Configuration comments, formatting and unrelated options are preserved.
+- Native `--setup --harness codex|claude` and `--unsetup` commands with dry-run
+  previews, backups, installation ownership receipts and rollback on write failure.
+  The installer requests graceful shutdown of its previous resident and waits for
+  process exit before replacing files; another installation is left running.
+- Optional live Codex hook compatibility and process-ancestry checks, separate
+  from the ordinary test suite, with isolated configuration and bounded cleanup.
+- Linux x86_64 GNU archive built on Ubuntu 22.04: X11/XWayland notification overlay,
+  StatusNotifierItem tray with usage graph and details, PulseAudio-compatible sound,
+  supported agent-window activation, and a Claude Code plugin launcher.
+- Resident-only session reminders: Claude input-context thresholds in tokens or
+  decimal kilotokens, and independent idle reminders after agent responses. Default
+  idle thresholds are Claude 55 minutes and Codex 25 minutes; zero disables them.
+  Activity cancels a pending idle reminder and the next completion rearms it.
+
+### Changed
+- Native Windows setup binds hooks to a fixed executable path. Codex uses its
+  existing PowerShell executor without an additional nested PowerShell launcher;
+  Claude uses an executable and argument array. WSL, Bash and PowerShell 7 are not
+  required by the installed Windows application or its native setup.
+- Windows usage workers notify the GUI when results, errors or pushed updates are
+  published. Tray usage no longer waits for the 15-second housekeeping timer;
+  updates do not open a notification card. Provider startup and network latency remain.
+- Hook delivery failures and artwork scaling fallback receive operational log entries.
+
+### Breaking changes
+- Resident IPC now uses version 2. Before replacing a portable version-1 installation,
+  stop its resident through the old executable (`--quit`) or its tray menu. The Windows
+  installer uses the previous installed executable for graceful shutdown.
+
+### Known limitations
+- Windows installer clean-machine acceptance without developer tools, Windows 10,
+  and visual/live startup acceptance of the latest usage wake change remain open.
+  The installer is unsigned. Native macOS and Linux installers are follow-up work;
+  those platforms retain their portable distributions.
+- Generated Codex Windows hooks were verified with Codex 0.166.0-alpha.5.1 and its
+  default PowerShell executor. Custom non-PowerShell executors are outside that
+  verified contract. Codex hook trust still requires the user's normal review.
+- Local Windows `perf_baseline::hot_paths_stay_inside_their_baseline_budgets` fails:
+  artwork preparation averaged 65 ms against the unchanged 30 ms budget. All other
+  executed test targets passed; this performance issue remains unresolved.
+- Linux requires composited X11 or XWayland and a StatusNotifierItem host (GNOME
+  commonly needs an AppIndicator extension). Native Wayland is not implemented;
+  plain Xorg acceptance remains open. Window activation depends on the compositor.
+- Session warning live acceptance remains open. Codex context-size warnings and
+  actual provider cache-expiry detection are unsupported; idle reminders measure
+  elapsed time after responses, without a cache-expiry guarantee.
+- macOS remains ad-hoc signed, unnotarized and Apple Silicon only. Claude Desktop
+  does not run statusLine; its session-name and statusLine quota coverage is unchanged.
+
 ## [0.4.0] - 2026-10-29
 
 First release for macOS (Apple Silicon) next to Windows 10/11 x64. The macOS build is
