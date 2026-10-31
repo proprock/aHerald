@@ -1,6 +1,6 @@
 [package]
 name = "aherald"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -28,6 +28,7 @@ https-client = ["dep:ureq"]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 toml = "0.9"
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 
 [target.'cfg(windows)'.dependencies]

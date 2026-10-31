@@ -559,7 +559,10 @@ impl NameLookup {
         }
     }
 }
+type ChangeCallback = Arc<dyn Fn() + Send + Sync>;
+
 pub struct Service {
+    changed: Arc<Mutex<Option<ChangeCallback>>>,
     state: Arc<Mutex<View>>,
     refresh: mpsc::SyncSender<Command>,
     stop: Arc<AtomicBool>,
@@ -619,28 +622,37 @@ impl Service {
         let origin = Instant::now();
         let (refresh, rx) = mpsc::sync_channel(8);
         let shared = state.clone();
+        let changed: Arc<Mutex<Option<ChangeCallback>>> = Arc::new(Mutex::new(None));
+        let notify = changed.clone();
         let done = stop.clone();
         let worker = enabled.then(|| {
             std::thread::spawn(move || {
+                let publish = |view: &View| {
+                    if let Ok(mut state) = shared.lock() {
+                        *state = view.clone();
+                    } else {
+                        return;
+                    }
+                    let callback = notify.lock().ok().and_then(|c| c.clone());
+                    if let Some(callback) = callback {
+                        callback();
+                    }
+                };
                 let mut driver = Driver::with_source(agent, interval, make());
                 while !done.load(Ordering::Acquire) {
                     let mut manual = false;
                     while let Ok(command) = rx.try_recv() {
                         manual |= driver.command(origin.elapsed(), command);
                     }
-                    if driver.step(origin.elapsed(), manual)
-                        && let Ok(mut state) = shared.lock()
-                    {
-                        *state = driver.view.clone();
+                    if driver.step(origin.elapsed(), manual) {
+                        publish(&driver.view);
                     }
                     // Wake immediately on a refresh, with no busy waiting and a bounded mailbox.
                     match rx.recv_timeout(driver.wait(origin.elapsed())) {
                         Ok(command) => {
                             let manual = driver.command(origin.elapsed(), command);
-                            if driver.step(origin.elapsed(), manual)
-                                && let Ok(mut state) = shared.lock()
-                            {
-                                *state = driver.view.clone();
+                            if driver.step(origin.elapsed(), manual) {
+                                publish(&driver.view);
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -650,12 +662,22 @@ impl Service {
             })
         });
         Self {
+            changed,
             state,
             refresh,
             stop,
             worker,
             origin,
         }
+    }
+    /// Installs a nonblocking wake callback and replays state published before registration.
+    /// Callbacks may read the service: neither its state nor callback lock is held.
+    pub fn on_change(&self, callback: impl Fn() + Send + Sync + 'static) {
+        let callback: ChangeCallback = Arc::new(callback);
+        if let Ok(mut changed) = self.changed.lock() {
+            *changed = Some(callback.clone());
+        }
+        callback();
     }
     pub fn refresh(&self) {
         let _ = self.refresh.try_send(Command::Refresh);

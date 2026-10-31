@@ -25,7 +25,17 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
   parse unstable transcripts or take control of unrelated sessions. Unsupported
   coverage is explicit and does not block release.
 - Supply manual hook/autostart instructions and examples. Do not automatically
-  edit Codex configuration or install startup entries.
+  edit Codex configuration or install startup entries. Explicit `--setup --apply`
+  and the installer's user-selected harnesses authorize hook configuration only;
+  no autostart changes are implied.
+- Installer architecture (2026-10-31): each OS ships its own native installer.
+  Installers delegate explicitly selected harness setup to the native executable;
+  hooks contain fixed executable paths, with no runtime discovery launcher.
+  Keep portable archives. No marketplace/plugin is required for hook-only setup.
+  Claude uses exec-form hooks; Codex's shell-only contract remains an explicit
+  limitation. Keep install paths stable across upgrades; rerun setup after moves.
+  Uninstall removes only the installation's saved hook bindings before its binary.
+  See docs/installation.md and AH-097/AH-102/AH-103.
 - Keep code comments, documentation, and agent instructions in English.
 
 ## Task tracking
@@ -46,9 +56,107 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [ ] **AH-097 — Windows plugin launcher and acceptance (split from AH-091).**
-  Add and verify the Windows PowerShell launcher and `AHERALD_PATH` discovery; check
-  actual plugin installation and event delivery on Windows without disturbing existing hooks.
+- [ ] **AH-097 — Native setup and Windows installer (replaces the launcher split from AH-091).**
+  Provide `--setup --harness codex|claude` (repeatable) and `--unsetup`, dry-run by
+  default and explicit --apply. Call the fixed executable inside Codex's existing
+  Windows PowerShell executor without starting another PowerShell process;
+  verify real hook arguments, response, process ancestry and diagnostic timings
+  in the opt-in live group. Resolve the executable at setup time; preserve
+  unrelated settings/hooks, back up changes, preflight all files, keep a receipt
+  for exact uninstall, and make repeated setup idempotent. Supply a per-user Inno
+  Setup installer with harness checkboxes and native setup delegation, stable
+  installation paths, safe updates/removal, and portable ZIP alongside setup EXE
+  in Windows CI. After preflight, gracefully stop the resident from the selected
+  directory and wait for its exit before update/removal; abort on shutdown
+  failure and preserve residents from other directories.
+  Offer a checked launch-after-install option on successful
+  interactive setup, with no launch during silent installation or failed setup.
+  Add independent Codex/Claude usage checkboxes, off on new installations and
+  loaded from existing configuration on upgrade. Explain Claude auto (local
+  login, then statusLine); preserve its configured source, other settings,
+  comments and formatting. Include configuration changes in setup rollback.
+  Verify generated hooks, delivery and dismissal, installer GUI,
+  selection changes, upgrade/uninstall, and a clean Windows machine without
+  WSL/Bash or development runtimes. See docs/installation.md.
+
+- [ ] **AH-102 — Native macOS installer and setup UI.**
+  Uses the common native setup backend from AH-097. Deliver GUI app installation
+  and Homebrew Cask packaging for Apple Silicon, preserving the portable archive.
+  Provide native user-context selection of Codex, Claude Code, both or neither;
+  start unchecked on first setup, retain the selection on upgrade, and delegate
+  changes to `--setup` / `--unsetup` with explicit `--apply`.
+  Match Windows graceful shutdown before updates/removal: verify the owned app
+  path, wait for process exit, and abort if graceful shutdown fails.
+  Match Windows usage selection and launch-after-install behavior: read current
+  values on upgrades, keep new usage off, explain Claude auto, preserve configured
+  sources and unrelated formatting, and include changes in setup rollback.
+  Use a stable installed app path and fixed hook executable paths, without
+  runtime discovery or developer runtimes. Preserve the harness's normal hook
+  trust flow and do not add autostart. Reuse dry run, all-file preflight, backups,
+  rollback, idempotence and exact saved-binding removal. Keep the receipt and
+  writable user data outside the signed app bundle; never modify its contents
+  during setup. Preserve configuration, assets customized by the user, logs and
+  backups on upgrade/removal, and preserve foreign hooks and other installations.
+  Define a user-context removal flow for both GUI and Cask installations that
+  cleans owned hooks before removing the executable, with visible failure and
+  a repair path. Define behavior for an active resident and moved app bundles.
+  Extend macOS release CI with installer/Cask artifacts and checksums alongside
+  the portable archive; do not claim signing/notarization without implementing
+  and verifying it. Add isolated native lifecycle checks for first install,
+  repeated setup, selection changes, malformed configuration, failed writes,
+  upgrade, cleanup failure and uninstall after environment overrides change.
+  Acceptance: verify the GUI, both installation paths, native hooks, delivery and
+  dismissal on the MacBook Pro M1, recording OS/harness versions and limitations;
+  verify a normal user installation without Homebrew or developer tools for the
+  GUI path. Document setup, repair and removal. See docs/installation.md.
+
+- [ ] **AH-103 — Ubuntu package and native setup UI.**
+  Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`
+  installable through apt and a graphical package manager, preserving the
+  portable archive. Provide native user-context selection of Codex, Claude Code,
+  both or neither; start unchecked on first setup, retain the selection on
+  upgrade, and delegate changes to `--setup` / `--unsetup` with explicit `--apply`.
+  Match Windows graceful shutdown before updates/removal: verify the owned app
+  path, wait for process exit, and abort if graceful shutdown fails.
+  Match Windows usage selection and launch-after-install behavior: read current
+  values on upgrades, keep new usage off, explain Claude auto, preserve configured
+  sources and unrelated formatting, and include changes in setup rollback.
+  Use stable installation paths and fixed hook executable paths, without runtime
+  discovery or extra developer runtimes. Preserve normal hook trust and do not
+  add autostart. Reuse dry run, preflight, backups, rollback, idempotence, saved
+  file paths and exact binding ownership. Preserve foreign hooks, configuration,
+  customized assets, logs and backups across updates/removal.
+  Agree on system package versus per-user writable data/receipt ownership before
+  implementation. Package scripts must never write root's or another user's
+  hooks. Define user-context hook cleanup before binary removal for GUI/package
+  workflows, including multiple desktop users, apt removal, cleanup failures,
+  repair, and an active resident; do not silently leave broken hook bindings or
+  execute user hook commands as root.
+  Extend Linux release CI with the package and checksum alongside the portable
+  archive; add isolated native lifecycle checks for install, repeated setup,
+  selection changes, malformed configuration, failed writes, upgrade, cleanup
+  failure and uninstall after environment overrides change.
+  Acceptance: verify apt and graphical installation, native setup UI, hook
+  delivery/dismissal, update and removal on a clean supported Ubuntu desktop
+  without developer tools. Record Ubuntu version, desktop/session type and
+  harness versions; document required system packages, repair and removal.
+  See docs/installation.md; overlay Xorg/multi-monitor acceptance remains AH-093.
+
+- [ ] **AH-104 — Optional live harness checks on macOS and Linux.**
+  Extend the optional group in tests/live/README.md with native macOS/Linux
+  equivalents of the Windows Codex hook-argument compatibility probe, plus
+  installer-generated hook dispatch checks for both Codex and Claude Code.
+  Use installed harnesses and verify observed process arguments/responses,
+  prompt hook completion, notification delivery and dismissal where applicable.
+  Keep compatibility probes distinct from end-to-end delivery acceptance.
+  Record tested OS/harness versions and declare account, network and potentially
+  billable request requirements per check. Use isolated configuration, bounded
+  waits and owned-process cleanup; preserve normal user hooks, trust and accounts.
+  Keep these checks explicit and opt-in, outside ordinary Cargo tests and mandatory
+  CI; any live CI job must require deliberate invocation and its own credentials.
+  Acceptance: run the applicable checks on the M1 and Ubuntu, record evidence and
+  unsupported cases, and document repeatable commands. Uses AH-097; installer
+  delivery checks also depend on AH-102/AH-103.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;
@@ -64,6 +172,20 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   agree on scope and dependencies before implementation.
 
 ## Milestone 5 — Polish and portable release
+
+- [ ] **AH-105 — Create an application icon, at least for Windows.** Design and
+  add an aHerald application icon, with Windows as the minimum supported platform.
+  Acceptance: the built Windows executable displays the icon correctly in Explorer
+  at common icon sizes and display scales.
+
+- [ ] **AH-106 — Optional context and five-hour quota indicators in notifications.**
+  Discuss and agree on the design before implementation: optionally show context
+  utilization as a horizontal bar and the quota for the current five-hour usage
+  window in the notification window. Agree on layout, configuration, agent coverage
+  and unavailable-data behavior; verify supported data sources before coding.
+  Acceptance: the agreed indicators can be enabled or disabled, show the relevant
+  agent/session data and handle unavailable values according to the agreed design;
+  verify the notification layout visually.
 
 - [ ] **AH-100 — Per-session context-size warning.** Provide independently configurable
   context-size warnings for Claude and Codex, with separate enablement and thresholds.

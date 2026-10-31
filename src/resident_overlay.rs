@@ -35,6 +35,8 @@ fn fault(_: &std::path::Path, _: &str) -> bool {
 }
 /// How long a newly selected card waits for its artwork before showing the text card.
 const ART_WAIT_MS: u64 = 300;
+/// A payload-free wake: quota data stays in the service under its own mutex.
+const USAGE_CHANGED: u32 = WM_APP + 2;
 /// Event id, the render scale the artwork was prepared at, and the artwork.
 type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
 struct Ui {
@@ -729,9 +731,10 @@ impl Ui {
 /// `ShowWindow` and `SetWindowTextW` send messages to this window synchronously, so the
 /// procedure is entered again while `Ui::draw` runs. `Ui` therefore sits behind the
 /// `gate`: a handler borrows it only when no other handler is active, and a message that
-/// arrives meanwhile is kept and handled once the active one is done. Nothing outside
-/// `ui` is touched on that path.
+/// arrives meanwhile is kept and handled once the active one is done. The wake target
+/// has its own lock so destruction can detach it even during reentry.
 struct Window {
+    usage_target: Arc<Mutex<Option<isize>>>,
     gate: Gate,
     taskbar_created: Cell<u32>,
     ui: UnsafeCell<Ui>,
@@ -860,12 +863,16 @@ unsafe fn handle(w: &Window, hwnd: HWND, message: Deferred) -> bool {
             }
             WM_TIMER
             | crate::resident::WAKE
+            | USAGE_CHANGED
             | WM_LBUTTONUP
             | WM_KEYDOWN
             | WM_DISPLAYCHANGE
             | WM_DPICHANGED
             | WM_SETTINGCHANGE => {
                 w.with_ui(message, |ui| {
+                    if msg == USAGE_CHANGED {
+                        ui.usage_next = 0;
+                    }
                     if matches!(msg, WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE) {
                         ui.relayout();
                     }
@@ -894,10 +901,16 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
         }
         if let Some(w) = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const Window).as_ref() {
+            if msg == WM_NCDESTROY {
+                // Serialize detachment with posting, before Windows can reuse the HWND.
+                if let Ok(mut target) = w.usage_target.lock() {
+                    *target = None;
+                }
+            }
             // Anything over 50 ms here is a UI stall, reported with the message class.
             let _timer = crate::perf::span(match msg {
                 WM_TIMER => crate::perf::Span::GuiTimer,
-                crate::resident::WAKE => crate::perf::Span::GuiWake,
+                crate::resident::WAKE | USAGE_CHANGED => crate::perf::Span::GuiWake,
                 WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_KEYDOWN => {
                     crate::perf::Span::GuiInput
                 }
@@ -1017,6 +1030,7 @@ pub(super) fn run_preview(
         crate::session_source::Service::codex()
     };
     let window = Box::new(Window {
+        usage_target: Arc::new(Mutex::new(None)),
         gate: Gate::default(),
         taskbar_created: Cell::new(0),
         ui: UnsafeCell::new(Ui {
@@ -1118,6 +1132,28 @@ pub(super) fn run_preview(
         if let Ok(mut state) = ui().shared.lock() {
             state.window = hwnd.0 as isize;
         }
+        if let Ok(mut target) = window.usage_target.lock() {
+            *target = Some(hwnd.0 as isize);
+        }
+        let target = window.usage_target.clone();
+        let notify = move || {
+            if let Ok(target) = target.lock()
+                && let Some(raw) = *target
+            {
+                // SAFETY: WM_NCDESTROY clears the target under this same lock;
+                // no pointers cross threads and PostMessage does not wait for the GUI.
+                let _ = PostMessageW(
+                    Some(HWND(raw as *mut std::ffi::c_void)),
+                    USAGE_CHANGED,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
+        };
+        ui().usage.on_change(notify.clone());
+        if let Some(claude) = &ui().claude {
+            claude.on_change(notify);
+        }
         // The first draw also arms or skips the timer; events queued before the window
         // existed are picked up here.
         let _ = PostMessageW(Some(hwnd), crate::resident::WAKE, WPARAM(0), LPARAM(0));
@@ -1149,4 +1185,124 @@ pub(super) fn run_preview(
         let _ = job.join();
     }
     result.and_then(|()| ui.error.take().map_or(Ok(()), Err))
+}
+
+#[cfg(test)]
+mod usage_wake_tests {
+    use super::*;
+    use crate::{
+        app_server::Error,
+        usage::Snapshot,
+        usage_service::{Service, UsageSource},
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn hidden_resident_observes_usage_without_waiting_for_housekeeping() {
+        struct Controlled(mpsc::Receiver<()>);
+        impl UsageSource for Controlled {
+            fn read(&mut self, _: Duration) -> Result<Snapshot, Error> {
+                let _ = self.0.recv_timeout(Duration::from_secs(5));
+                Err(Error::Unavailable)
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("aherald-usage-wake-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let log = directory.join("aherald.log");
+        let _ = std::fs::remove_file(&log);
+        let mut config = Config::default();
+        config.notifications.enabled = false;
+        config.sounds.enabled = false;
+        config.codex.usage.enabled = true;
+        config.general.logging = crate::config::LogLevel::Debug;
+        config.diagnostic_directory = directory.clone();
+        let shared = Arc::new(Mutex::new(Shared {
+            queue: crate::queue::Queue::new(64, 0),
+            warnings: Default::default(),
+            paused: false,
+            sounds: false,
+            visuals: false,
+            window: 0,
+        }));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (release, input) = mpsc::sync_channel(1);
+        let service = Service::spawn_source(
+            crate::agent::Agent::Codex,
+            true,
+            Duration::from_secs(300),
+            Arc::new(AtomicBool::new(false)),
+            move || Controlled(input),
+        );
+        let state = shared.clone();
+        let done = stop.clone();
+        let path = directory.join("config.toml");
+        let worker =
+            std::thread::spawn(move || run(config, state, done, Instant::now(), path, service));
+        struct Cleanup(
+            Arc<Mutex<Shared>>,
+            Arc<AtomicBool>,
+            Option<std::thread::JoinHandle<Result<(), String>>>,
+        );
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.1.store(true, Ordering::Release);
+                crate::resident::wake(self.0.lock().unwrap().window);
+                if let Some(worker) = self.2.take() {
+                    worker.join().unwrap().unwrap();
+                }
+            }
+        }
+        let _cleanup = Cleanup(shared.clone(), stop, Some(worker));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let hwnd = loop {
+            let window = shared.lock().unwrap().window;
+            if window != 0 {
+                break HWND(window as *mut std::ffi::c_void);
+            }
+            assert!(Instant::now() < deadline, "resident window did not start");
+            std::thread::yield_now();
+        };
+        // A posted tray command establishes that earlier startup wakes were processed.
+        unsafe {
+            PostMessageW(
+                Some(hwnd),
+                WM_COMMAND,
+                WPARAM(crate::tray::PAUSE),
+                LPARAM(0),
+            )
+            .unwrap();
+        }
+        while !shared.lock().unwrap().paused {
+            assert!(
+                Instant::now() < deadline,
+                "GUI startup command was not processed"
+            );
+            std::thread::yield_now();
+        }
+        // Force a fresh usage deadline. A wake must bypass the one-second throttle too.
+        unsafe {
+            SendMessageW(hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
+        }
+        assert!(!unsafe { IsWindowVisible(hwnd).as_bool() });
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .contains("usage.failed")
+        {
+            assert!(
+                Instant::now() < deadline,
+                "hidden GUI did not observe published usage before its 15-second timer"
+            );
+            std::thread::yield_now();
+        }
+        assert!(
+            !unsafe { IsWindowVisible(hwnd).as_bool() },
+            "usage update must not open a card"
+        );
+        drop(_cleanup);
+        let _ = std::fs::remove_file(log);
+        let _ = std::fs::remove_dir(directory);
+    }
 }

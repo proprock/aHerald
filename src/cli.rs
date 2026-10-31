@@ -14,6 +14,10 @@ pub struct Cli {
     pub hooks_agent: Option<Agent>,
     /// Write the change; without it hook setup is a dry run.
     pub apply: bool,
+    /// Harnesses explicitly selected by the user or installer.
+    pub harnesses: Vec<Agent>,
+    /// Explicit installer usage preferences; omitted values are preserved.
+    pub usage: crate::setup::UsageOptions,
     /// Hook file to use instead of the agent's default one.
     pub hooks_file: Option<PathBuf>,
     /// Command `--statusline` runs with the same input, to keep a status line the user has.
@@ -43,7 +47,10 @@ impl Cli {
                     }
                     cli.demo_pause_sec = Some(seconds);
                 }
-                "--hook"
+                "--setup-settings"
+                | "--setup"
+                | "--unsetup"
+                | "--hook"
                 | "--status"
                 | "--quit"
                 | "--help"
@@ -82,6 +89,36 @@ impl Cli {
                     }
                     let name = args.next().ok_or("--install-hooks requires an agent")?;
                     cli.hooks_agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
+                }
+                "--harness" => {
+                    let name = args.next().ok_or("--harness requires a value")?;
+                    let agent = Agent::from_name(&name).ok_or("unknown harness")?;
+                    if cli.harnesses.contains(&agent) {
+                        return Err("duplicate --harness".into());
+                    }
+                    cli.harnesses.push(agent);
+                }
+                "--codex-usage" | "--claude-usage" => {
+                    let selected = match args.next().as_deref() {
+                        Some("true") => true,
+                        Some("false") => false,
+                        _ => return Err("usage selection must be true or false".into()),
+                    };
+                    let slot = if arg == "--codex-usage" {
+                        &mut cli.usage.codex
+                    } else {
+                        &mut cli.usage.claude
+                    };
+                    if slot.replace(selected).is_some() {
+                        return Err("duplicate usage selection".into());
+                    }
+                }
+                "--settings-file" => {
+                    if cli.usage.file.is_some() {
+                        return Err("duplicate --settings-file".into());
+                    }
+                    cli.usage.file =
+                        Some(args.next().ok_or("--settings-file requires a path")?.into());
                 }
                 "--apply" => cli.apply = true,
                 "--then" => {
@@ -123,9 +160,41 @@ impl Cli {
         let setup = matches!(
             cli.operation.as_deref(),
             Some(
-                "install-hooks" | "uninstall-hooks" | "install-statusline" | "uninstall-statusline"
+                "setup"
+                    | "unsetup"
+                    | "install-hooks"
+                    | "uninstall-hooks"
+                    | "install-statusline"
+                    | "uninstall-statusline"
             )
         );
+        let native_setup = matches!(cli.operation.as_deref(), Some("setup" | "unsetup"));
+        if cli.operation.as_deref() == Some("setup") && cli.harnesses.is_empty() {
+            return Err("--setup requires at least one --harness codex|claude".into());
+        }
+        if !cli.harnesses.is_empty() && cli.operation.as_deref() != Some("setup") {
+            return Err("--harness is only valid with --setup".into());
+        }
+        let settings_read = cli.operation.as_deref() == Some("setup-settings");
+        if (cli.usage.codex.is_some() || cli.usage.claude.is_some()) && !native_setup {
+            return Err("usage selections are only valid with --setup or --unsetup".into());
+        }
+        if cli.usage.file.is_some() && !native_setup && !settings_read {
+            return Err("--settings-file is only valid with native setup".into());
+        }
+        if settings_read
+            && (cli.apply
+                || cli.mode.is_some()
+                || cli.agent.is_some()
+                || cli.config.is_some()
+                || cli.hooks_file.is_some()
+                || cli.then.is_some())
+        {
+            return Err("--setup-settings only accepts --settings-file".into());
+        }
+        if native_setup && (cli.hooks_file.is_some() || cli.config.is_some()) {
+            return Err("--setup / --unsetup do not accept --hooks-file or --config".into());
+        }
         if setup && (cli.mode.is_some() || cli.agent.is_some()) {
             return Err("hook setup does not accept a mode or --agent".into());
         }
