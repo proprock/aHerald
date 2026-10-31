@@ -328,3 +328,139 @@ fn claude_view_uses_the_simple_card_selected_by_agent_not_label() {
     let text = driver.view.card_text(Duration::from_secs(1), 0);
     assert!(text.starts_with("Claude usage"), "{text}");
 }
+
+#[test]
+fn workers_notify_after_publishing_success_and_failure_without_holding_state_lock() {
+    use aherald::usage_service::Service;
+    use std::sync::{atomic::AtomicBool, mpsc};
+    struct Controlled(mpsc::Receiver<Result<Snapshot, Error>>);
+    impl UsageSource for Controlled {
+        fn read(&mut self, _: Duration) -> Result<Snapshot, Error> {
+            self.0.recv_timeout(Duration::from_secs(3)).unwrap()
+        }
+    }
+    for agent in [Agent::Codex, Agent::Claude] {
+        for success in [true, false] {
+            let (release, input) = mpsc::sync_channel(1);
+            let service = Arc::new(Service::spawn_source(
+                agent,
+                true,
+                Duration::from_secs(300),
+                Arc::new(AtomicBool::new(false)),
+                move || Controlled(input),
+            ));
+            let weak = Arc::downgrade(&service);
+            let (notice, received) = mpsc::channel();
+            service.on_change(move || {
+                let view = weak.upgrade().map(|service| service.view());
+                if let Some(view) = view {
+                    let _ = notice.send(view);
+                }
+            });
+            let initial = received.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert!(initial.snapshot.is_none() && initial.error.is_none());
+            release
+                .send(if success {
+                    Snapshot::parse(json!({"rateLimits":{"primary":{"usedPercent":25}}}))
+                        .map_err(Error::Service)
+                } else {
+                    Err(Error::Unavailable)
+                })
+                .unwrap();
+            let published = received
+                .recv_timeout(Duration::from_secs(2))
+                .expect("published usage must wake its observer without waiting for a GUI timer");
+            assert_eq!(published.snapshot.is_some(), success);
+            assert_eq!(published.error.is_some(), !success);
+            // Registering after publication must also expose the current state immediately.
+            let weak = Arc::downgrade(&service);
+            let (notice, received) = mpsc::channel();
+            service.on_change(move || {
+                let view = weak.upgrade().unwrap().view();
+                let _ = notice.send(view);
+            });
+            let replayed = received.recv_timeout(Duration::from_secs(2)).unwrap();
+            assert_eq!(replayed.snapshot.is_some(), success);
+            assert_eq!(replayed.error.is_some(), !success);
+        }
+    }
+}
+
+#[test]
+fn pushed_snapshots_and_connection_failures_wake_the_service_observer() {
+    use aherald::usage_service::{Push, Service};
+    use std::sync::{atomic::AtomicBool, mpsc};
+    struct Live {
+        input: mpsc::Receiver<Result<Snapshot, Error>>,
+        pending: Option<Snapshot>,
+    }
+    impl UsageSource for Live {
+        fn read(&mut self, _: Duration) -> Result<Snapshot, Error> {
+            Snapshot::parse(json!({"rateLimits":{"primary":{"usedPercent":25}}}))
+                .map_err(Error::Service)
+        }
+        fn is_live(&self) -> bool {
+            true
+        }
+        fn listen(&mut self, _: Duration) -> Result<(), Error> {
+            match self.input.try_recv() {
+                Ok(result) => self.pending = Some(result?),
+                Err(mpsc::TryRecvError::Empty | mpsc::TryRecvError::Disconnected) => (),
+            }
+            Ok(())
+        }
+        fn updates(&mut self, snapshot: &mut Option<Snapshot>) -> Push {
+            if let Some(pending) = self.pending.take() {
+                *snapshot = Some(pending);
+                Push {
+                    changed: true,
+                    ..Push::default()
+                }
+            } else {
+                Push::default()
+            }
+        }
+    }
+    let (push, input) = mpsc::channel();
+    let service = Arc::new(Service::spawn_source(
+        Agent::Codex,
+        true,
+        Duration::from_secs(300),
+        Arc::new(AtomicBool::new(false)),
+        move || Live {
+            input,
+            pending: None,
+        },
+    ));
+    let weak = Arc::downgrade(&service);
+    let (notice, received) = mpsc::channel();
+    service.on_change(move || {
+        let view = weak.upgrade().unwrap().view();
+        let _ = notice.send(view);
+    });
+    loop {
+        let view = received.recv_timeout(Duration::from_secs(2)).unwrap();
+        if view.card_text(Duration::ZERO, 0).contains("25% used") {
+            break;
+        }
+    }
+    push.send(
+        Snapshot::parse(json!({"rateLimits":{"primary":{"usedPercent":40}}}))
+            .map_err(Error::Service),
+    )
+    .unwrap();
+    loop {
+        let view = received
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pushed snapshot did not wake the observer");
+        if view.card_text(Duration::ZERO, 0).contains("40% used") {
+            break;
+        }
+    }
+    push.send(Err(Error::Disconnected)).unwrap();
+    let view = received
+        .recv_timeout(Duration::from_secs(2))
+        .expect("connection failure did not wake the observer");
+    assert_eq!(view.error.as_deref(), Some("Codex connection closed"));
+    assert!(view.card_text(Duration::ZERO, 0).contains("40% used"));
+}

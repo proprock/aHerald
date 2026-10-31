@@ -30,6 +30,14 @@ error and unavailable fields remain visible. Long details wrap and page with the
 buttons always navigate the shared notification queue. No account mutations are
 available. Polling remains automatic at `refresh_interval_sec`.
 
+On Windows, both usage workers notify the GUI after publishing a result, an error
+or a pushed update. A payload-free `PostMessageW` wake updates the tray tooltip,
+graph and any open usage card without waiting for the housekeeping timer or the
+one-second drawing throttle. It does not open a card. Registration replays current
+state so a result received before window creation is not missed. The 15-second
+idle timer remains for countdowns and other housekeeping; provider/network startup
+latency still applies. The wake target is detached when the window is destroyed.
+
 Edit configuration uses the Windows TOML association, falling back to the system
 Notepad only when there is no association. Paths are passed as data, not shell
 commands. An open failure leaves the resident running and reports an error.
@@ -128,3 +136,27 @@ real resident. Reproduce with `cargo test --lib manual_usage_card_preview --
 --ignored --nocapture`; dismiss both cards to close, or wait for its bounded timeout.
 Native menu tests verify labels, item count and checkmarks. Automatic tests do not
 launch an external editor or change the user's Windows file associations.
+
+
+### Usage wake verification (2026-10-31)
+
+The worker regression first failed because the publication callback timed out.
+The native hidden-window regression first reproduced the missing update before
+the 15-second housekeeping timer. Both passed after the change. Ordinary tests
+use controlled sources, without account access, network requests or live hooks.
+Coverage includes both agents, first success/failure, reading state from the
+callback without a held service lock, late callback registration, pushed snapshots
+and connection failures. The native test observes GUI-side failure handling within
+two seconds of releasing a blocked source, while the notification window stays
+hidden and its usage drawing deadline has just been armed. This is automated
+native evidence; a visual/live startup check of the new build is still pending.
+
+Formatting, Clippy with warnings denied and the Windows x64 MSVC release build
+passed. The sequential all-target run stopped at the existing
+`perf_baseline::hot_paths_stay_inside_their_baseline_budgets` failure:
+`artwork.prepare` averaged 65,235 us against its unchanged 30,000 us budget.
+All preceding targets passed, including the native wake regression. Every
+remaining integration target was then run explicitly and passed. Logs:
+`%TEMP%/aherald-usage-wake-all-tests.log` and
+`%TEMP%/aherald-usage-wake-remaining-tests.log`. The installed live executable and
+configuration were not changed by these checks.
