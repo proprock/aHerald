@@ -14,3 +14,6 @@ if ($output.Contains('This command cannot be run')) {
     throw "Cleanup attempted to launch a missing uninstaller: $output"
 }
 Write-Output 'Installer diagnostics preserve the original failure when no uninstaller exists.'
+
+# The expected failing child must not become the GitHub PowerShell step exit code.
+$global:LASTEXITCODE = 0
