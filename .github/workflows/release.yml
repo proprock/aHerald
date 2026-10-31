@@ -55,12 +55,37 @@ jobs:
         shell: pwsh
         run: ./package-release.ps1 -Tag $env:RELEASE_TAG
 
+      - name: Install the signed Inno Setup compiler
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
+            throw 'Invalid Inno Setup signature'
+          }
+          $compilerDir = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
+          $process = Start-Process $installer -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $compilerDir + '"'), '/TASKS=') -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
+
+      - name: Build the per-user Windows installer
+        shell: pwsh
+        run: ./build-installer.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Verify isolated installer lifecycle
+        shell: pwsh
+        run: |
+          ./build-installer.ps1 -Tag $env:RELEASE_TAG -InstallerAppId aHerald.Native.InstallerTest
+          ./tests/installer_windows.ps1 -Installer "dist/aherald-$env:RELEASE_TAG-windows-x64-setup-test.exe"
+
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
             dist/*.zip
             dist/*.zip.sha256
+            dist/*-setup.exe
+            dist/*-setup.exe.sha256
           if-no-files-found: error
 
   # Apple Silicon only; the archive is ad-hoc signed and not notarized. The runner cannot show

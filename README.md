@@ -30,6 +30,15 @@ On Linux see the [Linux guide](docs/portable-linux.md); build the archive with
 New to aHerald? Start with the [portable guide](docs/portable.md): archive contents,
 first run, modes, command line, replacing artwork, manual hooks and autostart, uninstall.
 
+## Native installation and harness setup
+
+The Windows release workflow builds a per-user setup EXE with Codex and Claude Code
+checkboxes, alongside the portable ZIP. The native application writes fixed
+executable paths into the selected harnesses' hook files; no marketplace or
+runtime launcher is required. See [installation and removal](docs/installation.md)
+for installer behavior, portable `--setup` commands and the Codex shell limitation.
+macOS and Linux installers are planned; current distributions remain portable.
+
 ## Claude Code plugin (macOS and Linux)
 
 This repository is also a Claude Code plugin marketplace. With aHerald installed:
@@ -57,6 +66,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo build --release --target x86_64-pc-windows-msvc
 ```
+
+Optional checks against installed harnesses belong to the [live test group](tests/live/README.md).
+Run them explicitly; they are separate from the commands above and mandatory CI.
+Some require account access, network requests, or model usage.
 
 The executable is `target/x86_64-pc-windows-msvc/release/aherald.exe`. The target
 configuration links the MSVC CRT statically; no redistributable, GUI framework,
