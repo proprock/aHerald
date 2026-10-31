@@ -89,28 +89,32 @@ mod tests {
 
     #[test]
     fn an_inheritable_descriptor_does_not_reach_the_child() {
-        // `dup` returns a descriptor that is not close-on-exec.
-        // SAFETY: duplicating stdin is valid and the copy is closed below.
-        let leaked = unsafe { libc::dup(0) };
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+        let executable = std::env::current_exe().unwrap();
+        let file = std::fs::File::open(&executable).unwrap();
+        // SAFETY: `file` owns a live descriptor. `dup` creates an independently owned,
+        // inheritable descriptor; OwnedFd closes it even if an assertion panics.
+        let leaked = unsafe { libc::dup(file.as_raw_fd()) };
         assert!(leaked > 2);
-        let number = leaked.to_string();
-        let mut child = spawn(
-            Path::new("sh"),
-            &[
-                OsStr::new("-c"),
-                OsStr::new(": >&\"$0\""),
-                OsStr::new(&number),
-            ],
-            true,
-        )
-        .unwrap();
-        let status = child.wait().unwrap();
-        // SAFETY: closes the descriptor created above, once.
-        unsafe { libc::close(leaked) };
+        let leaked = unsafe { OwnedFd::from_raw_fd(leaked) };
+        let number = leaked.as_raw_fd().to_string();
+        let args = [
+            OsStr::new("-c"),
+            // A shell can reuse a closed descriptor for its own files. Verify the
+            // descriptor still identifies our file, rather than only its number.
+            OsStr::new("test /dev/fd/\"$0\" -ef \"$1\""),
+            OsStr::new(&number),
+            executable.as_os_str(),
+        ];
+        let control = Command::new("sh").args(args).status().unwrap();
         assert!(
-            !status.success(),
-            "the child could still use descriptor {leaked}"
+            control.success(),
+            "the control child did not inherit the file"
         );
+        let mut child = spawn(Path::new("sh"), &args, true).unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success(), "the detached child inherited our file");
     }
 
     #[test]
