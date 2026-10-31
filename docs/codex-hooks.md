@@ -94,3 +94,10 @@ Hook permission requests also have no request identity: separate invocations are
 kept separate rather than incorrectly merged. Identified normalized duplicates
 are suppressed within the configured window and only within the same agent.
 No second independently observable Codex source is currently integrated.
+
+## Native installer setup
+
+The [native setup flow](installation.md) writes the fixed executable path at
+installation time and records the exact binding for uninstall. Codex still runs
+a shell command; setup does not eliminate the harness shell startup overhead.
+Hook trust remains an explicit user action in Codex.

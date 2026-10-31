@@ -67,6 +67,28 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         println!("{}", aherald::version_line());
         return Ok(());
     }
+    if cli.operation.as_deref() == Some("setup-settings") {
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        print!(
+            "{}",
+            aherald::setup::settings_state(&exe, cli.usage.file.as_deref())?
+        );
+        return Ok(());
+    }
+    if matches!(cli.operation.as_deref(), Some("setup" | "unsetup")) {
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        print!(
+            "{}",
+            aherald::setup::run_with_options(
+                &exe,
+                &cli.harnesses,
+                cli.operation.as_deref() == Some("unsetup"),
+                cli.apply,
+                &cli.usage
+            )?
+        );
+        return Ok(());
+    }
     if cli.operation.as_deref() == Some("statusline") {
         return statusline(cli.then.as_deref());
     }

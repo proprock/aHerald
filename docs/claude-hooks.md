@@ -123,3 +123,10 @@ redirect refusal against a real server, point a hosts entry or test proxy at a 3
 response for `/api/oauth/usage` and confirm the card shows the "redirected (refused)"
 message and the target receives no follow-up request. The loopback redirect behavior is
 covered by the automated `https` test.
+
+## Native installer setup
+
+Prefer the [native setup flow](installation.md) for new installations. It writes
+Claude exec-form hooks with an absolute executable path and an argument array,
+avoiding the shell and runtime discovery. Disable the aHerald plugin before
+enabling these hooks. Legacy plugin and manual setup remain alternatives.

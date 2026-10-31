@@ -77,7 +77,11 @@ pub fn default_file(agent: Agent, home: &Path) -> PathBuf {
 fn is_ours(hook: &Value) -> bool {
     hook["command"].as_str().is_some_and(|command| {
         let command = command.to_ascii_lowercase();
-        command.contains("aherald") && command.contains("--hook")
+        command.contains("aherald")
+            && (command.contains("--hook")
+                || hook["args"]
+                    .as_array()
+                    .is_some_and(|args| args.iter().any(|a| a == "--hook")))
     })
 }
 
@@ -104,6 +108,24 @@ pub fn plan(
     command: &str,
     action: Action,
 ) -> Result<Plan, String> {
+    plan_handler(
+        existing,
+        agent,
+        &json!({"type":"command", "command":command, "timeout":3}),
+        action,
+        is_ours,
+    )
+}
+
+/// Native setup uses a complete execution definition, including exec-form arguments.
+/// Removal matches the saved binding exactly; another installation's hooks survive.
+pub(crate) fn plan_handler(
+    existing: Option<&str>,
+    agent: Agent,
+    handler: &Value,
+    action: Action,
+    owns: impl Fn(&Value) -> bool,
+) -> Result<Plan, String> {
     let mut root: Value = match existing {
         Some(text) => serde_json::from_str(text)
             .map_err(|_| "the hook file is not valid JSON; nothing was changed")?,
@@ -127,19 +149,31 @@ pub fn plan(
                 let mut found = false;
                 for group in groups(list)? {
                     for hook in group["hooks"].as_array_mut().into_iter().flatten() {
-                        if !is_ours(hook) {
+                        if !owns(hook) {
                             continue;
                         }
                         found = true;
-                        if hook["command"] != command {
-                            hook["command"] = command.into();
+                        if ["command", "args", "commandWindows"]
+                            .iter()
+                            .any(|key| hook.get(*key) != handler.get(*key))
+                        {
+                            let object = hook
+                                .as_object_mut()
+                                .ok_or_else(|| malformed("a handler is not an object"))?;
+                            for key in ["command", "args", "commandWindows"] {
+                                if let Some(value) = handler.get(key) {
+                                    object.insert(key.into(), value.clone());
+                                } else {
+                                    object.shift_remove(key);
+                                }
+                            }
                             changes.push(format!("update {event}"));
                         }
                     }
                 }
                 if !found {
                     list.as_array_mut().into_iter().for_each(|l| {
-                        l.push(json!({"hooks": [{"type": "command", "command": command, "timeout": 3}]}));
+                        l.push(json!({"hooks": [handler]}));
                     });
                     changes.push(format!("add {event}"));
                 }
@@ -157,7 +191,7 @@ pub fn plan(
                     for group in list.iter_mut() {
                         if let Some(entries) = group["hooks"].as_array_mut() {
                             let n = entries.len();
-                            entries.retain(|h| !is_ours(h));
+                            entries.retain(|h| !owns(h));
                             removed |= entries.len() != n;
                         }
                     }
@@ -357,7 +391,16 @@ fn run_with(
 }
 
 /// Backs the file up, then replaces it atomically (a symlinked file stays a symlink).
-fn write(file: &Path, exists: bool, text: &str) -> Result<(), String> {
+pub(crate) fn write(file: &Path, exists: bool, text: &str) -> Result<(), String> {
+    write_inner(file, exists, text, true)
+}
+
+pub(crate) fn write_inner(
+    file: &Path,
+    exists: bool,
+    text: &str,
+    backup: bool,
+) -> Result<(), String> {
     let fail = |e: std::io::Error| format!("cannot write {}: {e}", file.display());
     let target = if exists {
         std::fs::canonicalize(file).map_err(fail)?
@@ -376,7 +419,7 @@ fn write(file: &Path, exists: bool, text: &str) -> Result<(), String> {
         n.push(suffix);
         target.with_file_name(n)
     };
-    if exists {
+    if exists && backup {
         std::fs::copy(&target, sibling(".aherald-backup".into())).map_err(fail)?;
     }
     let temporary = sibling(format!(".aherald-{}.tmp", std::process::id()));
