@@ -89,3 +89,39 @@ jobs:
       - name: cargo test
         if: needs.changes.outputs.code == 'true'
         run: cargo test --all-targets
+
+      - name: Verify installer failure diagnostics
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/installer_diagnostics.ps1
+
+      - name: Build and package Windows release candidate
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./check-release.ps1
+          ./package-release.ps1
+
+      - name: Install the signed Inno Setup compiler
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
+            throw 'Invalid Inno Setup signature'
+          }
+          $compilerDir = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
+          $process = Start-Process $installer -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $compilerDir + '"'), '/TASKS=') -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
+
+      - name: Verify isolated Windows installer lifecycle
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          ./tests/installer_windows.ps1 -Installer "dist/aherald-v$version-windows-x64-setup-test.exe"
