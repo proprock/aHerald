@@ -239,7 +239,8 @@ idle_minutes = 55
 # Same idle reminder, independently configured; default 25 minutes. Zero disables it.
 # Requires the updated activity hooks.
 idle_minutes = 25
-# Codex context warnings are currently unsupported; do not set context_tokens here.
+# Optional input-context warning; requires PostModelRequest (verified: 0.166.0-alpha.5.1).
+# context_tokens = "120k"
 
 [claude.usage]
 # Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access

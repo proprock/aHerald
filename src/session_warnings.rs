@@ -143,11 +143,24 @@ impl Warnings {
         due
     }
 
-    pub fn context(&mut self, id: &str, tokens: Option<u64>, config: &Config) -> Option<Event> {
-        let threshold = config.claude.warnings.context_tokens?;
+    pub fn context(
+        &mut self,
+        agent: crate::agent::Agent,
+        id: &str,
+        tokens: Option<u64>,
+        config: &Config,
+    ) -> Option<Event> {
+        let (threshold, source) = match agent {
+            crate::agent::Agent::Claude => {
+                (config.claude.warnings.context_tokens?, Source::ClaudeHook)
+            }
+            crate::agent::Agent::Codex => {
+                (config.codex.warnings.context_tokens?, Source::CodexHook)
+            }
+        };
         let tokens = tokens?;
         let mut event = Event::demo("context_warning").ok()?;
-        event.source = Source::ClaudeHook;
+        event.source = source;
         event.session_id = Some(id.into());
         event.validate().ok()?;
         let session = self.session(&event);
@@ -208,11 +221,13 @@ mod tests {
     fn pending_warnings_log_once_and_are_cancelled_by_new_activity_or_low_context() {
         let mut state = Warnings::default();
         let config = config();
-        let warning = state.context("a", Some(120001), &config).unwrap();
+        let warning = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert!(state.admission(&warning, false));
         assert!(!state.admission(&warning, false));
         assert_eq!(state.pending().len(), 1);
-        state.context("a", Some(120000), &config);
+        state.context(crate::agent::Agent::Claude, "a", Some(120000), &config);
         assert!(state.pending().is_empty());
         let mut stop = event(Source::ClaudeHook, "a");
         state.observe(&stop, &config, 0);
@@ -289,25 +304,57 @@ mod tests {
         state.observe(&a, &config, 0);
         assert!(state.due(400_000, true).is_empty());
         assert_eq!(state.due(400_001, false).len(), 1);
-        assert!(state.context("a", Some(120001), &config).is_some());
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+                .is_some()
+        );
         a.ended = true;
         state.observe(&a, &config, 500_000);
-        assert!(state.context("a", Some(120001), &config).is_some());
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+                .is_some()
+        );
         assert!(state.due(1_000_000, false).is_empty());
     }
     #[test]
     fn context_unknown_does_not_rearm_but_a_known_low_reading_does() {
         let mut state = Warnings::default();
         let config = config();
-        assert!(state.context("a", Some(120000), &config).is_none());
-        let first = state.context("a", Some(120001), &config).unwrap();
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120000), &config)
+                .is_none()
+        );
+        let first = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert_eq!(first.kind, Kind::ContextWarning);
         assert_eq!(first.session_id.as_deref(), Some("a"));
-        assert!(state.context("a", None, &config).is_none());
-        assert!(state.context("a", Some(130000), &config).is_none());
-        assert!(state.context("b", Some(130000), &config).is_some());
-        assert!(state.context("a", Some(119999), &config).is_none());
-        let next = state.context("a", Some(120001), &config).unwrap();
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", None, &config)
+                .is_none()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(130000), &config)
+                .is_none()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "b", Some(130000), &config)
+                .is_some()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(119999), &config)
+                .is_none()
+        );
+        let next = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert_ne!(first.request_id, next.request_id);
     }
     #[test]
@@ -329,7 +376,12 @@ mod tests {
         assert!(!state.has_deadline());
         assert!(
             state
-                .context("a", Some(999999), &Config::default())
+                .context(
+                    crate::agent::Agent::Claude,
+                    "a",
+                    Some(999999),
+                    &Config::default()
+                )
                 .is_none()
         );
     }

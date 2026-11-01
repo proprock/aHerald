@@ -38,14 +38,18 @@ context_tokens = "120k"
 idle_minutes = 55
 
 [codex.warnings]
+context_tokens = "120k"
 idle_minutes = 25
 ```
 
 `context_tokens` accepts positive integer tokens, an integer string or an integer
 string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
-are rejected. Codex context warnings are not supported in this slice; configuring
-`codex.warnings.context_tokens` reports an explicit error. Claude input context
-includes fresh input, cache creation and cache reads, each counted once. It is the
+are rejected. Each agent's threshold is independent and omitted by default (off).
+Codex requires the `PostModelRequest` binding, verified with CLI
+`0.166.0-alpha.5.1`; rerun explicit hook setup to add it to an older installation.
+Other versions and desktop dispatch need separate verification. Codex uses the
+successful main request's `input_tokens`, which already includes cached input.
+Claude input context includes fresh input, cache creation and cache reads, each counted once. It is the
 last reported API input, not a prediction of the next request. Missing readings
 do not count as zero. A crossing strictly above the threshold queues one
 `context_warning`; a known reading at/below the threshold rearms it.

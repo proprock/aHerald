@@ -628,9 +628,6 @@ impl Config {
         )
     }
     fn validate(&self) -> Result<(), String> {
-        if self.codex.warnings.context_tokens.is_some() {
-            return Err("invalid configuration: codex.warnings.context_tokens is unsupported (no passive context source)".into());
-        }
         for (agent, warnings) in [
             ("claude", &self.claude.warnings),
             ("codex", &self.codex.warnings),

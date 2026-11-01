@@ -34,6 +34,14 @@ fn malformed_and_unknown_hooks_are_silent_success() {
     }
 }
 #[test]
+fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
+    let started = Instant::now();
+    let result = invoke(br#"{"hook_event_name":"PostModelRequest","session_id":"s","turn_id":"t","status":"completed","token_usage":{"input_tokens":200}}"#);
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+#[test]
 fn open_stdin_does_not_hold_hook_process() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
         .args(["--hook", "--config", "tests/fixtures/quiet.toml"])

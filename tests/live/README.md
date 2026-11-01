@@ -59,6 +59,33 @@ measure command execution, not the full Codex hook pipeline. A direct native EXE
 not hardware-independent pass/fail performance budgets. The probe does not start
 a resident, display notifications or change normal user hooks/configuration.
 
+## Codex context source and warning (AH-100, Windows)
+
+Explicit account probes; each asks for one `OK` model response. They disable
+plugins, use an empty temporary workspace and leave user hooks/configuration
+unchanged. These are research/acceptance tools, not ordinary offline tests.
+
+```powershell
+pwsh -File tests/live/codex_context_source.ps1 -CodexPath 'C:\absolute\codex.exe'
+cargo build --release --target x86_64-pc-windows-msvc --example session_warning_bridge
+pwsh -File tests/live/context_warning.ps1 -Agent codex -HarnessPath 'C:\absolute\codex.exe' -AheraldPath 'C:\absolute\aherald.exe' -BridgePath 'C:\absolute\session_warning_bridge.exe'
+```
+
+The first probe verifies actual PreModelRequest/PostModelRequest dispatch and
+successful main-session input usage. The second additionally forwards the real
+report through production parsing/IPC to a private native resident, verifies an
+empty initial queue followed by exactly one warning, and shuts down its owned
+processes. Sound and usage polling are disabled. The installed resident can keep
+running. Queue evidence does not prove appearance or focus behavior.
+
+Only session/turn identity, status and numeric usage counters are retained under
+`%TEMP%/aherald-codex-context-*`; raw payloads, cwd, transcript paths, provider
+errors and harness output are discarded. Source runs have a 90-second deadline,
+with bounded cleanup. The second probe stores its queue result and source probe
+summary under `%TEMP%/aherald-context-live-*`. Test-only hook trust bypass applies
+to the generated recorders in this isolated invocation. Account credentials are
+used only by Codex itself, through normal authentication.
+
 ## Existing optional account integration check
 
 The installed Codex app-server handshake/usage check remains an ignored Rust test:

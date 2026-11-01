@@ -45,6 +45,9 @@ pub enum Request {
     StatusLine {
         report: crate::statusline::Report,
     },
+    CodexContext {
+        report: crate::codex_context::Report,
+    },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]

@@ -116,10 +116,12 @@ pub fn respond(
             {
                 return (Response::Rejected, Effects::default());
             }
-            let warning =
-                state
-                    .warnings()
-                    .context(&report.session_id, report.context_tokens, settings);
+            let warning = state.warnings().context(
+                crate::agent::Agent::Claude,
+                &report.session_id,
+                report.context_tokens,
+                settings,
+            );
             crate::statusline::with_store(|store| {
                 store.record(report, crate::usage_service::unix_now())
             });
@@ -134,6 +136,28 @@ pub fn respond(
                 );
             }
             (Response::Accepted, Effects::default())
+        }
+        Request::CodexContext { report } => {
+            if !report.valid() {
+                return (Response::Rejected, Effects::default());
+            }
+            let warning = state.warnings().context(
+                crate::agent::Agent::Codex,
+                &report.session_id,
+                Some(report.tokens),
+                settings,
+            );
+            let wake = warning.is_some();
+            if let Some(event) = warning {
+                deliver_warning(event, state, settings, now);
+            }
+            (
+                Response::Accepted,
+                Effects {
+                    wake,
+                    ..Effects::default()
+                },
+            )
         }
         Request::Quit => (
             Response::Bye,
@@ -410,6 +434,48 @@ mod tests {
             crate::statusline::with_store(|s| s.name("context-resident-test").map(str::to_owned)),
             Some("Example".into())
         );
+    }
+
+    #[test]
+    fn codex_context_ipc_queues_once_and_rejects_invalid_identity() {
+        let settings = Config::parse(
+            "[codex.warnings]\ncontext_tokens=100",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let mut s = state(8);
+        let report = crate::codex_context::Report {
+            session_id: "codex-context-test".into(),
+            tokens: 101,
+        };
+        let request = Request::CodexContext {
+            report: report.clone(),
+        };
+        let frame = crate::ipc::encode(&request).unwrap();
+        let request = crate::ipc::decode(&frame).unwrap();
+        let (reply, effects) = respond(request, &mut s, &settings, 0);
+        assert!(matches!(reply, Response::Accepted));
+        assert!(effects.wake);
+        assert_eq!(
+            s.queue.items()[0].event.kind,
+            crate::events::Kind::ContextWarning
+        );
+        assert_eq!(s.queue.items()[0].event.source, Source::CodexHook);
+        respond(Request::CodexContext { report }, &mut s, &settings, 1);
+        assert_eq!(s.queue.items().len(), 1);
+        let (reply, _) = respond(
+            Request::CodexContext {
+                report: crate::codex_context::Report {
+                    session_id: "".into(),
+                    tokens: 200,
+                },
+            },
+            &mut s,
+            &settings,
+            2,
+        );
+        assert!(matches!(reply, Response::Rejected));
+        assert_eq!(s.queue.items().len(), 1);
     }
 
     #[test]

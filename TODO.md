@@ -204,6 +204,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   only; Codex context and actual cache-expiry warnings remain deferred. The
   maintainer authorized the corresponding AH-059 input-context allowlist extension
   on 2026-10-30. Implementation/verification evidence: [session warnings](docs/session-warnings-research.md).
+  Follow-up 2026-10-31: the maintainer requested continued Codex investigation.
+  Real `PostModelRequest` dispatch and input usage verified on CLI
+  `0.166.0-alpha.5.1`; independent Codex threshold support is in progress on
+  `feature/ah-100-context-warning`. See [current evidence and limits](docs/ah-100-context-warnings.md).
 
 - [ ] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
   cache-TTL warnings for Claude and Codex, with separate enablement and thresholds

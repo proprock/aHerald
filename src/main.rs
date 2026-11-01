@@ -176,9 +176,15 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     // Respond to the hook contract before any fallible configuration or delivery.
+    let mut hook_context = None;
     let hook_event = if cli.operation.as_deref() == Some("hook") {
         let event = aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
-            .and_then(|bytes| cli.hook_agent().parse_hook(&bytes))
+            .and_then(|bytes| {
+                if cli.hook_agent() == aherald::agent::Agent::Codex {
+                    hook_context = aherald::codex_context::parse(&bytes)?;
+                }
+                cli.hook_agent().parse_hook(&bytes)
+            })
             .inspect_err(|error| {
                 log_code(
                     &path,
@@ -212,6 +218,20 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {
+        if let Some(report) = hook_context {
+            if cli.hook_agent().hooks_enabled(&config)
+                && config.codex.warnings.context_tokens.is_some()
+                && cli.selected_mode(&config) == aherald::config::Mode::Resident
+            {
+                // Observation only: do not start a resident or fail the model request.
+                let _ = aherald::ipc::pipe::request(
+                    &scope,
+                    &aherald::ipc::Request::CodexContext { report },
+                    std::time::Duration::from_millis(150),
+                );
+            }
+            return Ok(());
+        }
         if let Some(mut event) = hook_event
             && cli.hook_agent().hooks_enabled(&config)
         {

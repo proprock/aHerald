@@ -1,6 +1,9 @@
 # Session warnings feasibility — AH-100 / AH-101
 
-Preliminary research, 2026-10-30. No implementation or live-session acceptance.
+Preliminary research, 2026-10-30; implementation notes below.
+AH-100 follow-up (2026-10-31): real Codex `PostModelRequest` dispatch and per-request
+input usage are now verified for `0.166.0-alpha.5.1`. The original deferred-source
+conclusion below is historical. See [current contract, evidence and limits](ah-100-context-warnings.md).
 
 ## Evidence and limits
 
