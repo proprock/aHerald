@@ -421,7 +421,11 @@ impl Ui {
         }
         let heading = match &self.carousel {
             Some(cards) => crate::card::Heading::new(
-                "aHerald",
+                if entry.event.source.agent().is_some() {
+                    entry.event.source.label()
+                } else {
+                    "aHerald"
+                },
                 Some("[Test]"),
                 cards.disabled().then_some("Disabled in config"),
             ),

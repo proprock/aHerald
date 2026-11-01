@@ -248,7 +248,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Claude and Codex responses and one-minute reminders; the maintainer confirmed
   reminder delivery as sufficient acceptance. See [Windows evidence](docs/ah-101-windows-acceptance.md).
   Agreed 2026-11-01: Windows tray has a separate Context warnings / Idle warnings
-  section below notification controls. Each runtime switch gates both agents,
+  section. Warning text includes measured context in kilotokens and its threshold,
+  or elapsed minutes/seconds and the configured idle limit. Keep the harness name
+  only in the heading; capture the values when creating the warning.
+  The tray warning section is below notification controls. Each runtime switch gates both agents,
   preserves configured thresholds, and resets on restart. Disabling idle drops
   scheduled reminders; a new completion after re-enabling starts a fresh timer.
   Disabling context drops pending delivery but preserves crossing state. Existing

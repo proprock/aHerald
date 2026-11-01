@@ -18,6 +18,11 @@ closing without terminating the resident, real notification interruption, a late
 ordinary Apply without samples, and invalid-file recovery for both menu actions.
 The explicit standalone --demo command retains the legacy scenarios below; it is
 no longer launched by the tray test action.
+Warning samples use the same numeric labels as real warnings, with the harness
+only in the heading. Prefer the Codex threshold, or Claude when no Codex threshold
+is configured. With neither context threshold configured, the synthetic sample
+uses 250k; it does not enable a live warning. Idle samples likewise prefer Codex's
+configured minutes, then Claude's (55 minutes if both are disabled).
 
 Apply/carousel verification, 2026-11-01 on Windows 11: formatting, Clippy and the
 Windows x64 release build passed. The serial all-target test run passed every

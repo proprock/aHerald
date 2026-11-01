@@ -129,7 +129,7 @@ pub struct Event {
     /// only: never logged, and the full path is not kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
-    /// What an aHerald notice says (`Source::App` only); drawn under the heading.
+    /// Notice text for `Source::App`, or the measured context/idle warning label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -214,9 +214,12 @@ impl Event {
     }
 
     /// The big line of the card: the kind, except that an aHerald notice is not an agent error.
-    pub fn title(&self) -> &'static str {
+    pub fn title(&self) -> &str {
         match (&self.source, self.kind) {
             (Source::App, _) => "aHerald notice",
+            (_, Kind::ContextWarning | Kind::IdleWarning) => {
+                self.message.as_deref().unwrap_or_else(|| self.kind.label())
+            }
             (_, kind) => kind.label(),
         }
     }

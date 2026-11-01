@@ -61,6 +61,9 @@ Claude input context includes fresh input, cache creation and cache reads, each 
 last reported API input, not a prediction of the next request. Missing readings
 do not count as zero. A crossing strictly above the threshold queues one
 `context_warning`; a known reading at/below the threshold rearms it.
+The card shows the observed value and threshold, for example
+`Context: 250.001k > 250k`. Kilotokens use `k = 1000`, with enough fractional
+digits to preserve the exact token count. The harness is already in the heading.
 
 `idle_minutes` accepts 1..525600 minutes, or `0` to disable only that agent's idle
 reminder. Omission keeps the agent's default, including in a partial warnings
@@ -75,6 +78,9 @@ elapsed-time reminder, not proof that the provider's cache expired. Another Stop
 hook can continue work: observable tool activity cancels the provisional timer,
 but pure model continuation and delayed hook delivery cannot be perfectly
 distinguished by these lifecycle hooks.
+The card shows elapsed time and that agent's limit, for example
+`Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
+warning was created; they do not advance while waiting in the notification queue.
 
 Use resident mode. The Claude context warning additionally needs the `--statusline`
 wrapper, installed automatically by native setup when Claude Code and Claude

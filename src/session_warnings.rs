@@ -23,6 +23,8 @@ struct Session {
     event: Event,
     stopped: bool,
     deadline: Option<u64>,
+    idle_started: u64,
+    idle_minutes: u64,
     above: bool,
 }
 
@@ -66,6 +68,8 @@ impl Warnings {
                 event: event.clone(),
                 stopped: false,
                 deadline: None,
+                idle_started: 0,
+                idle_minutes: 0,
                 above: false,
             });
         if self.sessions.len() >= 64
@@ -115,6 +119,8 @@ impl Warnings {
         } else if !session.stopped || session.deadline.is_some() || pending_idle {
             session.stopped = true;
             session.event = event.clone();
+            session.idle_started = now;
+            session.idle_minutes = minutes.unwrap_or_default();
             session.deadline = minutes
                 .and_then(|m| m.checked_mul(60_000))
                 .and_then(|ms| now.checked_add(ms));
@@ -161,11 +167,13 @@ impl Warnings {
         for session in &mut self.sessions {
             if session.deadline.is_some_and(|deadline| now > deadline) {
                 session.deadline = None;
-                due.push(Self::warning(
-                    &session.event,
-                    Kind::IdleWarning,
-                    &mut self.sequence,
+                let mut warning =
+                    Self::warning(&session.event, Kind::IdleWarning, &mut self.sequence);
+                warning.message = Some(idle_text(
+                    now.saturating_sub(session.idle_started),
+                    session.idle_minutes,
                 ));
+                due.push(warning);
             }
         }
         self.pending
@@ -213,13 +221,39 @@ impl Warnings {
         if !warn {
             return None;
         }
-        let warning = Self::warning(&event, Kind::ContextWarning, &mut self.sequence);
+        let mut warning = Self::warning(&event, Kind::ContextWarning, &mut self.sequence);
+        warning.message = Some(context_text(tokens, threshold.0));
         self.pending.push_back(Pending {
             event: warning.clone(),
             logged: false,
         });
         Some(warning)
     }
+}
+
+pub(crate) fn context_text(tokens: u64, threshold: u64) -> String {
+    fn kilo(tokens: u64) -> String {
+        let whole = tokens / 1000;
+        let remainder = tokens % 1000;
+        if remainder == 0 {
+            format!("{whole}k")
+        } else {
+            format!(
+                "{whole}.{}k",
+                format!("{remainder:03}").trim_end_matches('0')
+            )
+        }
+    }
+    format!("Context: {} > {}", kilo(tokens), kilo(threshold))
+}
+
+pub(crate) fn idle_text(elapsed_ms: u64, limit_minutes: u64) -> String {
+    let seconds = elapsed_ms / 1000;
+    format!(
+        "Idle: {}m {}s (limit {limit_minutes}m)",
+        seconds / 60,
+        seconds % 60
+    )
 }
 
 fn same_session(a: &Event, b: &Event) -> bool {

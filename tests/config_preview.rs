@@ -1,6 +1,30 @@
 use aherald::{config::Config, demo::Carousel, events::Kind};
 
 #[test]
+fn warning_samples_show_the_selected_agents_configured_values() {
+    let config = Config::parse(
+        "[codex.warnings]\ncontext_tokens='250k'\nidle_minutes=25",
+        std::path::Path::new("."),
+    )
+    .unwrap();
+    let mut cards = Carousel::new(&config);
+    cards.navigate(5, 0);
+    assert_eq!(cards.selected().event.title(), "Context: 250.001k > 250k");
+    assert_eq!(cards.selected().event.source.label(), "Codex");
+    cards.navigate(1, 0);
+    assert_eq!(cards.selected().event.title(), "Idle: 25m 1s (limit 25m)");
+    let config = Config::parse(
+        "[claude.warnings]\ncontext_tokens='400k'",
+        std::path::Path::new("."),
+    )
+    .unwrap();
+    let mut cards = Carousel::new(&config);
+    cards.navigate(5, 0);
+    assert_eq!(cards.selected().event.title(), "Context: 400.001k > 400k");
+    assert_eq!(cards.selected().event.source.label(), "Claude");
+}
+
+#[test]
 fn carousel_keeps_all_cards_and_moves_without_an_empty_phase() {
     let mut config = Config::parse("", std::path::Path::new(".")).unwrap();
     for setting in config.events.values_mut() {

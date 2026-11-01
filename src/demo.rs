@@ -28,7 +28,7 @@ impl Demo {
                         .duration_ms
                         .saturating_add(config.notifications.fade_out_ms)
                 };
-                scenes.push(vec![(Event::demo(kind.name())?, duration)]);
+                scenes.push(vec![(sample(config, kind), duration)]);
                 holds.push(
                     setting
                         .duration_ms
@@ -99,6 +99,48 @@ impl Demo {
 /// Preview every notification format, including warnings without a live session.
 pub const KINDS: [crate::events::Kind; 7] = crate::events::Kind::ALL;
 
+fn sample(config: &Config, kind: crate::events::Kind) -> Event {
+    use crate::events::{Kind, Source};
+    let mut event = Event::notice("");
+    event.kind = kind;
+    event.source = Source::Demo;
+    event.message = None;
+    match kind {
+        Kind::ContextWarning => {
+            let (source, limit) = if let Some(limit) = config.codex.warnings.context_tokens {
+                (Source::CodexHook, limit.0)
+            } else if let Some(limit) = config.claude.warnings.context_tokens {
+                (Source::ClaudeHook, limit.0)
+            } else {
+                // Synthetic preview only; never enables a warning threshold.
+                (Source::CodexHook, 250_000)
+            };
+            event.source = source;
+            event.message = Some(crate::session_warnings::context_text(
+                limit.saturating_add(1),
+                limit,
+            ));
+        }
+        Kind::IdleWarning => {
+            let (source, minutes) = if let Some(minutes) = config.codex.warnings.idle_minutes {
+                (Source::CodexHook, minutes)
+            } else {
+                (
+                    Source::ClaudeHook,
+                    config.claude.warnings.idle_minutes.unwrap_or(55),
+                )
+            };
+            event.source = source;
+            event.message = Some(crate::session_warnings::idle_text(
+                minutes.saturating_mul(60_000).saturating_add(1000),
+                minutes,
+            ));
+        }
+        _ => {}
+    }
+    event
+}
+
 /// Fixed configuration samples. Navigation never removes a card or touches IPC history.
 pub struct Carousel {
     cards: Vec<crate::queue::Entry>,
@@ -113,10 +155,7 @@ impl Carousel {
             .into_iter()
             .enumerate()
             .map(|(index, kind)| {
-                let mut event = Event::notice("");
-                event.source = crate::events::Source::Demo;
-                event.kind = kind;
-                event.message = None;
+                let mut event = sample(config, kind);
                 event.folder = Some("[Test]".into());
                 crate::queue::Entry {
                     id: u64::MAX - index as u64,

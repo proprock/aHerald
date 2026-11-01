@@ -9,6 +9,25 @@ once per crossing; a valid reading at/below it rearms. Unknown readings do not
 rearm. Key bounded, memory-only resident state by agent and session. Reuse the
 existing warning engine, queue and native card; do not add a timer process.
 
+Warning cards keep the harness name in their heading. Their main line includes
+the measured context and that agent's threshold, for example
+`Context: 250.001k > 250k` (`k = 1000`, up to three fractional digits, without
+rounding away a crossing). Idle cards show elapsed time and the agent's configured
+limit, for example `Idle: 27m 30s (limit 25m)`. Values are captured when the warning
+is created and stay fixed while queued; the card's age shows delivery age. No
+harness name is repeated in the warning text.
+
+Numeric-label verification (2026-11-01): regression tests first observed generic
+labels, then passed for both agents' independent thresholds, exact fractional
+kilotokens, delayed/paused idle delivery, queue snapshots and event serialization.
+Carousel tests passed for configured Codex/Claude values. Formatting and Clippy
+passed. The full serial all-target run passed all targets except `native_assets`
+(notification startup deadline) and `perf_baseline` (`artwork.prepare` 39.82 ms
+against 30 ms). With the interactive carousel finished, isolated `native_assets`
+passed; no deadline or performance budget was changed. The opt-in native preview
+passed, and Computer Use visually confirmed that the numeric idle label fits with
+the harness appearing only in the heading. No new live hook integration was added.
+
 Work order: verify sources and live dispatch; test adapter/configuration/state;
 implement Codex observation and explicit hook setup; test IPC and hook lifetime;
 build Windows release; verify real-session delivery; document limits. No new
