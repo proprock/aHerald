@@ -1,5 +1,9 @@
 # Codex hook adapter compatibility
 
+For the 2026-11-01 investigation of automatic review versus human approval on
+`0.166.0-alpha.5.1`, see [AH-099](codex-approval-observation.md). Hook entry still
+does not prove a pending human prompt; safe selective suppression is unavailable.
+
 Checked 2026-10-24. Installed CLI: `codex-cli 0.164.0-alpha.11.1`.
 Exact release tag `rust-v0.164.0-alpha.11.1` resolves to
 `6905ecede7816e91373e9eabda3f6b0368fc747b`.

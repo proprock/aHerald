@@ -224,6 +224,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   responses and genuinely pending permission notifications. Acceptance: tests cover
   automatic approval, a real human request, rejection/fallback and unknown outcomes;
   verify in a real Codex session and document any protocol limitations.
+  Investigation (2026-11-01): the installed `0.166.0-alpha.5.1` hook runs before
+  reviewer routing and exposes no reviewer/verdict/human-wait signal. Selective
+  suppression remains blocked on a supported observable source; preserve current
+  notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
 
 - [ ] **AH-098 — Suppress notifications for the active originating session.** Add two
   independent configuration options, both enabled by default: suppress notification
