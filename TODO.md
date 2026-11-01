@@ -203,77 +203,6 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   agent/session data and handle unavailable values according to the agreed design;
   verify the notification layout visually.
 
-- [x] **AH-100 — Per-session context-size warning.** Provide independently configurable
-  context-size warnings for Claude and Codex, with separate enablement and thresholds.
-  Warn when a session's context exceeds its configured threshold; accept both `N`
-  tokens and `Nk` kilotokens as threshold notation. Track context and warning state
-  by agent and session so one session cannot trigger or suppress another's warning.
-  Verify supported context-size sources for each agent before implementation; document
-  unavailable coverage and resolve the kilotoken multiplier, defaults and repeat/reset
-  policy before coding. Acceptance: tests cover both notations, invalid values, the
-  threshold boundary, independent agent settings, session isolation and unavailable
-  context data; verify warnings in real supported agent sessions.
-  Preliminary research (2026-10-30): Claude statusLine is a viable source, subject
-  to an agreed AH-059 privacy allowlist extension; no permitted passive source
-  for arbitrary Codex sessions established. See [feasibility report](docs/session-warnings-research.md).
-  First slice on `feature/ah-100-101-session-warnings` provided Claude context
-  thresholds; Codex context was initially deferred. The
-  maintainer authorized the corresponding AH-059 input-context allowlist extension
-  on 2026-10-30. Implementation/verification evidence: [session warnings](docs/session-warnings-research.md).
-  Completed follow-up 2026-11-01 on `feature/ah-100-context-warning`: independent
-  thresholds implemented for both agents. `k = 1000`; omitted means disabled;
-  warn once strictly above the threshold, rearm at/below it, and retain state on
-  unknown readings. Real-session delivery verified for Claude Code `2.1.311` and
-  Codex CLI `0.166.0-alpha.5.1` through a private production-parser/IPC bridge.
-  Codex support is limited to that tested version's `PostModelRequest` observer,
-  not a generally documented stable hook; desktop/remote/subagent coverage is not
-  claimed. Card appearance was not visually verified. Focused tests passed;
-  full checks retain `perf_baseline` and `tray_about` failures.
-  See [current evidence and limits](docs/ah-100-context-warnings.md).
-
-- [x] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
-  cache-TTL warnings for Claude and Codex, with separate enablement and thresholds
-  in minutes. Warn when more than the configured number of minutes has passed since
-  the last message in that session. Track the last-message time, timer and warning
-  state by agent and session; activity in another session must not reset the timer.
-  Verify supported message-activity sources for each agent before implementation;
-  agree on which messages reset the timer, defaults, repeat/reset behavior and session
-  end/restart handling before coding. Describe this as an elapsed-time warning, without
-  claiming that the provider's cache has actually expired. Acceptance: controlled-time
-  tests cover the threshold boundary, timer reset, independent agent settings, session
-  isolation, session cleanup and unavailable activity data; verify warnings in real
-  supported agent sessions.
-  Preliminary research (2026-10-30): a per-session elapsed-time reminder is feasible
-  through lifecycle hooks, with resident-owned timers. Exact last-message semantics
-  and actual cache expiry are separate questions; Claude additionally documents a
-  reported cache deadline. See [feasibility report](docs/session-warnings-research.md).
-  Agreed 2026-10-30: start the timer at the end of the agent response, not at user
-  submission. New user/tool activity cancels it; the next completion rearms it.
-  Default idle thresholds: Claude 55 minutes, Codex 25 minutes (agreed 2026-10-30);
-  `idle_minutes = 0` disables an agent's reminder. One warning per idle episode,
-  resident-only, memory-only bounded state. This slice is an elapsed-time reminder,
-  not a provider cache-expiry guarantee. Accepted on Windows 2026-10-31 with real
-  Claude and Codex responses and one-minute reminders; the maintainer confirmed
-  reminder delivery as sufficient acceptance. See [Windows evidence](docs/ah-101-windows-acceptance.md).
-  Agreed 2026-11-01: Windows tray has a separate Context warnings / Idle warnings
-  section. Warning text includes measured context in kilotokens and its threshold,
-  or elapsed minutes/seconds and the configured idle limit. Keep the harness name
-  only in the heading; capture the values when creating the warning.
-  The tray warning section is below notification controls. Each runtime switch gates both agents,
-  preserves configured thresholds, and resets on restart. Disabling idle drops
-  scheduled reminders; a new completion after re-enabling starts a fresh timer.
-  Disabling context drops pending delivery but preserves crossing state. Existing
-  queued cards and explicit event previews remain available. About is below the
-  following separator, immediately above Edit config. Apply + Test and Apply follow
-  Edit config. Both validate the saved file before a resident restart; an invalid
-  file leaves the running instance active. Restart discards the previous queue.
-  Apply + Test opens all seven formats in the replacement resident's existing
-  window, marked [Test], including disabled formats. Keep samples separate from
-  the working queue. Arrows and body clicks navigate without removal; timeouts
-  advance without gaps or fades, with five seconds for persistent samples. Reset
-  the timer on manual navigation and play sounds on selection. Dismiss or a real
-  notification ends the test; ordinary Apply must not inherit test mode.
-
 - [ ] **AH-099 — Notify only when Codex approval needs the user.** A Codex
   `PermissionRequest` hook can fire for an automatically reviewed request, so the
   current permission card can appear even when no user action is needed. Investigate
@@ -398,3 +327,86 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex app-server](https://learn.chatgpt.com/docs/app-server)
+
+## Milestone 7 — Test reliability and infrastructure
+
+Improve the existing Rust test suite incrementally; retain behavioral assertions
+and ordinary Cargo compatibility. Complete these tasks in order, without a wholesale
+framework rewrite. Keep live/account checks opt-in and preserve the agreed artwork
+performance check and resident `perf_baseline` limits. Record baseline failures
+separately from regressions introduced by this milestone.
+
+- [ ] **AH-107 — Make asynchronous checks and process cleanup deterministic.**
+  Inventory process launches, unbounded waits, fixed sleeps used as synchronization,
+  shared desktop resources and cleanup paths in ordinary tests. Finish AH-092 rather
+  than duplicating its implementation: wait for actual window visibility changes,
+  not only resident status. Replace synchronization sleeps with condition-based
+  waits and bounded deadlines; retain deliberate delays that are themselves part
+  of the scenario. Ensure timeout diagnostics identify the expected and last observed
+  state without exposing sensitive payloads. Bound hook/process completion, drain
+  captured output without pipe deadlocks, and terminate and reap only owned processes
+  on timeout or assertion failure. For detached residents, retain ownership evidence,
+  request graceful shutdown, observe exit and use bounded fallback cleanup when needed.
+  Acceptance: regression tests demonstrate delayed-but-successful state changes,
+  permanently missing effects, hung children and cleanup after failure. Verify that
+  the guards themselves do not leave owned processes or IPC resources behind. Run
+  the AH-092 Windows test 20 consecutive times and show that a resident which remains
+  visible still fails. Do not hide failures with retries or relaxed assertions.
+
+- [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
+  Depends on AH-107. Introduce a focused `tests/support` module for repeated setup
+  in resident/render/logging tests: temporary directory ownership, unique per-test
+  IPC scope, configuration creation, resident/process guard and bounded state waits.
+  Start with `resident_render_faults`, `resident_perf_log` and `perf_baseline`, then
+  migrate other genuine duplicates. Keep platform-specific ownership and Win32
+  handle operations behind appropriately gated helpers. Use RAII to clean up on
+  success and panic, wait for owned processes to exit before removing their files,
+  and keep fixture lifetime explicit in each test. Avoid a generic fixture registry,
+  speculative traits or changes to production APIs solely to share test boilerplate.
+  Preserve tests whose separate process is intentional, including Unix `TZ` checks.
+  Acceptance: migrated tests retain their observable contracts; fixture tests cover
+  unique scopes, concurrent independent residents, startup failure, timeout and panic
+  cleanup. No fixture may stop an unrelated running aHerald instance. Record focused
+  and relevant full-check results; obtain agreement before any new direct dependency.
+
+- [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
+  Depends on AH-107 and AH-108. Measure current Windows test build and execution time
+  separately, then compare the same test selection under a pinned, Windows-compatible
+  nextest release. Include repeated runs, pass/fail/ignored counts and any pre-existing
+  failures; do not claim a speedup from unmatched selections or cache conditions.
+  Inventory tests that share the desktop, placement mutex, tray, audio or other OS-wide
+  resources. Before parallel nextest execution, place conflicting tests in a common
+  group with concurrency one: nextest runs each test in a separate process, so the
+  existing process-local `static Mutex` is insufficient. Keep per-test unique IPC
+  scopes even within serialized groups. Configure bounded per-test execution,
+  useful failure output and CI reports, with automatic retries disabled by default.
+  Define documented selections for fast deterministic checks, native integration,
+  performance and explicit manual/live checks. Performance checks must run without
+  competing GUI/performance workloads; retain their fixtures, budgets and required
+  acceptance role unless a separate scope decision changes them. Do not blindly
+  enable ignored tests, installed harnesses or account access in CI. Keep ordinary
+  `cargo test` supported and account explicitly for any doctests or other checks
+  outside nextest's coverage. Adopt nextest as the CI runner only after Windows
+  compatibility and resource isolation pass; record a justified keep-Cargo decision
+  if it provides no practical benefit. Acceptance: both runners execute equivalent
+  intended coverage; GUI contention, hung-test reporting and owned-process cleanup
+  are verified, existing platform CI checks remain covered, and measured results,
+  commands, runner version and limitations are documented. Compare compilation costs
+  before proposing integration-binary consolidation; preserve intentional isolation.
+
+- [ ] **AH-110 — Apply rstest selectively where parameterization improves diagnostics.**
+  Depends on AH-108 and the AH-109 runner decision. Compare `rstest` with ordinary
+  table-driven Rust tests on representative configuration and hook-input matrices.
+  Seek dependency agreement before adding it: document license/maintenance, pinned
+  version, Rust 1.88 and Windows compatibility, required features, compile-time cost
+  and the absence of a runtime dependency in the distributed executable. If approved,
+  use it as a dev-dependency only and convert a small representative set first.
+  Give each case a meaningful name so one failing payload/value can be selected and
+  diagnosed independently. Reuse explicit RAII fixtures from AH-108; parameterization
+  must not weaken process ownership, timeouts, privacy or hook response assertions.
+  Avoid Cartesian-product case growth and do not rewrite simple tests merely for
+  stylistic consistency. Acceptance: the pilot preserves all existing input/expected
+  output pairs, reports and filters individual failing cases under the selected runner,
+  and passes focused and relevant full checks. Record the readability and build-time
+  comparison, then retain only conversions with a clear benefit. If the dependency
+  is declined or adds no value, document the result and keep ordinary Rust tests.
