@@ -6,6 +6,14 @@ Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usab
 
 ## Agreed decisions
 
+- Routine artwork performance check: `cargo test --test perf_artwork -- --nocapture`;
+  frozen 64x64 fixtures, scale 1x, nearest interpolation, 3 warmups and 25 uncached
+  preparations per kind; report distribution and retain a 30 ms per-kind mean budget.
+  Keep real monitor DPI in resident `perf_baseline`; mean budgets are 61 ms for
+  artwork and 28 ms for composition, rounded down to whole ms within 10% above
+  observed maxima (55.805 and 25.83 ms). Other limits stay unchanged; higher DPI
+  is not fully calibrated. See docs/perf-baseline-investigation.md.
+
 - Default configuration: `config.toml` beside `aherald.exe`; no APPDATA lookup.
   Create a missing default with standard settings; `--config` selects an existing custom file.
 - Support resident and detached transient notifications. A hook must finish
