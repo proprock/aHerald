@@ -1,4 +1,4 @@
-# AH-100 context warnings — 2026-10-31
+# AH-100 context warnings — 2026-11-01
 
 ## Contract and implementation plan
 
@@ -44,7 +44,54 @@ completed main-session report with 15,710 input tokens and 5 output tokens.
 Evidence: `%TEMP%\aherald-codex-context-a010c354d2ed49fa8670b59fcc79933d`.
 The first sandbox run timed out without hook evidence; the successful run used
 the normal account outside the sandbox and the corrected, separately checked
-PowerShell recorder. These runs do not establish notification delivery.
+PowerShell recorder. This source-only probe does not establish notification delivery;
+the separate delivery checks below do.
+
+## Real-session delivery
+
+Both checks used the release `aherald.exe`, a private resident namespace, thresholds
+of one token, an initially empty queue, visuals enabled, sounds/usage polling off,
+and the bridge invoking production parsing and IPC. Each ended with exactly one
+queued warning and cleaned up its owned processes. Global hook configuration was
+unchanged.
+
+- Codex CLI `0.166.0-alpha.5.1`: real completed model request delivered the warning.
+  Evidence: `%TEMP%\aherald-context-live-155a7dd2b07b46fdbeac56993a921883`.
+- Claude Code `2.1.311`: interactive response `OK`; statusLine first reported null,
+  then 3,208 input tokens; the resident queued one warning.
+  Evidence: `%TEMP%\aherald-context-live-526a0a464b0f49249223b876cc998683`.
+  The prompt was entered manually after launch, then `/exit` completed the probe.
+  The script now separates the positional prompt from variadic options with `--`;
+  that launch adjustment was syntax-checked, not repeated against the live account.
+
+The initial Claude launch used a print-only persistence flag and failed before
+observation; removing that flag allowed the interactive statusLine check. Claude
+itself persists its ordinary interactive session. aHerald does not read it.
+Computer Use did not expose an aHerald window, so card appearance and focus
+behavior were not visually verified. Queue delivery is the observed result.
+
+## Automated verification
+
+Adapter/configuration/state tests cover notation, invalid input, strict threshold
+boundaries, rearming, unknown data, cached-token accounting, independent settings,
+and agent/session isolation. IPC round-trip and hook process checks cover delivery
+and prompt, silent completion. The new adapter tests had an observed failing phase
+before implementation, then passed.
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets -- -D warnings`: passed.
+- `cargo test --all-targets`: stopped at `perf_baseline`:
+  `hot_paths_stay_inside_their_baseline_budgets`, artwork preparation averaged
+  44.34 ms against a 30 ms budget. No threshold was changed.
+- Remaining integration targets were run separately. `tray_about` failed in
+  `EnumWindows` at `tests/tray_about.rs:33`; no root cause was established.
+  All other executed targets passed, including the later integration targets and
+  `cargo test --examples`. Platform/manual tests retain their explicit ignores.
+- `cargo build --release --target x86_64-pc-windows-msvc --bin aherald --example session_warning_bridge`:
+  passed; both live checks used the native release resident.
+
+The full suite is therefore not green. Neither failing check was modified or
+repeated without a changed condition; these failures remain outside this slice.
 
 ## Coverage limits
 

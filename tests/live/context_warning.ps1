@@ -77,7 +77,9 @@ try {
         $settings = Join-Path $root 'settings.json'
         $command = '"' + $BridgePath + '" --statusline'
         @{statusLine=@{type='command';command=$command};enabledPlugins=@{}} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $settings
-        $info = New-Info $HarnessPath @('--setting-sources','','--settings',$settings,'--strict-mcp-config','--tools','','--no-session-persistence','Reply with exactly OK. Do not use tools or inspect files.')
+        # --no-session-persistence is print-mode only; statusLine requires interactive mode.
+        $info = New-Info $HarnessPath @('--setting-sources','','--settings',$settings,'--strict-mcp-config','--tools','','--','Reply with exactly OK. Do not use tools or inspect files.')
+        $info.CreateNoWindow = $false
         $info.RedirectStandardInput = $false
         $info.RedirectStandardOutput = $false
         $info.RedirectStandardError = $false

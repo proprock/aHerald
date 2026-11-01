@@ -109,6 +109,7 @@ unchanged. These are research/acceptance tools, not ordinary offline tests.
 pwsh -File tests/live/codex_context_source.ps1 -CodexPath 'C:\absolute\codex.exe'
 cargo build --release --target x86_64-pc-windows-msvc --example session_warning_bridge
 pwsh -File tests/live/context_warning.ps1 -Agent codex -HarnessPath 'C:\absolute\codex.exe' -AheraldPath 'C:\absolute\aherald.exe' -BridgePath 'C:\absolute\session_warning_bridge.exe'
+pwsh -File tests/live/context_warning.ps1 -Agent claude -HarnessPath 'C:\absolute\claude.exe' -AheraldPath 'C:\absolute\aherald.exe' -BridgePath 'C:\absolute\session_warning_bridge.exe'
 ```
 
 The first probe verifies actual PreModelRequest/PostModelRequest dispatch and
@@ -117,6 +118,12 @@ report through production parsing/IPC to a private native resident, verifies an
 empty initial queue followed by exactly one warning, and shuts down its owned
 processes. Sound and usage polling are disabled. The installed resident can keep
 running. Queue evidence does not prove appearance or focus behavior.
+The Claude variant requires an interactive terminal: review trust for its newly
+created test directory, let the `OK` response complete, then `/exit` before the
+105-second deadline. Claude normally persists this interactive test session;
+`--no-session-persistence` is supported only in print mode, which does not exercise
+the interactive status line. The bridge retains only session identity and the
+optional context counter under the printed evidence directory.
 
 Only session/turn identity, status and numeric usage counters are retained under
 `%TEMP%/aherald-codex-context-*`; raw payloads, cwd, transcript paths, provider

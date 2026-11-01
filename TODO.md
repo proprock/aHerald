@@ -187,7 +187,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   agent/session data and handle unavailable values according to the agreed design;
   verify the notification layout visually.
 
-- [ ] **AH-100 — Per-session context-size warning.** Provide independently configurable
+- [x] **AH-100 — Per-session context-size warning.** Provide independently configurable
   context-size warnings for Claude and Codex, with separate enablement and thresholds.
   Warn when a session's context exceeds its configured threshold; accept both `N`
   tokens and `Nk` kilotokens as threshold notation. Track context and warning state
@@ -200,14 +200,20 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Preliminary research (2026-10-30): Claude statusLine is a viable source, subject
   to an agreed AH-059 privacy allowlist extension; no permitted passive source
   for arbitrary Codex sessions established. See [feasibility report](docs/session-warnings-research.md).
-  First slice on `feature/ah-100-101-session-warnings`: Claude context threshold
-  only; Codex context and actual cache-expiry warnings remain deferred. The
+  First slice on `feature/ah-100-101-session-warnings` provided Claude context
+  thresholds; Codex context was initially deferred. The
   maintainer authorized the corresponding AH-059 input-context allowlist extension
   on 2026-10-30. Implementation/verification evidence: [session warnings](docs/session-warnings-research.md).
-  Follow-up 2026-10-31: the maintainer requested continued Codex investigation.
-  Real `PostModelRequest` dispatch and input usage verified on CLI
-  `0.166.0-alpha.5.1`; independent Codex threshold support is in progress on
-  `feature/ah-100-context-warning`. See [current evidence and limits](docs/ah-100-context-warnings.md).
+  Completed follow-up 2026-11-01 on `feature/ah-100-context-warning`: independent
+  thresholds implemented for both agents. `k = 1000`; omitted means disabled;
+  warn once strictly above the threshold, rearm at/below it, and retain state on
+  unknown readings. Real-session delivery verified for Claude Code `2.1.311` and
+  Codex CLI `0.166.0-alpha.5.1` through a private production-parser/IPC bridge.
+  Codex support is limited to that tested version's `PostModelRequest` observer,
+  not a generally documented stable hook; desktop/remote/subagent coverage is not
+  claimed. Card appearance was not visually verified. Focused tests passed;
+  full checks retain `perf_baseline` and `tray_about` failures.
+  See [current evidence and limits](docs/ah-100-context-warnings.md).
 
 - [x] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
   cache-TTL warnings for Claude and Codex, with separate enablement and thresholds
