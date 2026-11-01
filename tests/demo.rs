@@ -1,17 +1,38 @@
 use aherald::{config::Config, demo::Demo, events::Kind, queue::Queue};
 
 #[test]
+fn configuration_preview_includes_both_warning_formats_without_live_thresholds() {
+    let mut config = Config::default();
+    for (kind, setting) in config.events.iter_mut() {
+        setting.enabled = matches!(kind, Kind::ContextWarning | Kind::IdleWarning);
+        setting.duration_ms = 0;
+    }
+    config.notifications.fade_out_ms = 0;
+    let mut demo = Demo::new(&config, 1).unwrap();
+    let mut queue = Queue::new(64, 0);
+    demo.tick(0, false, &mut queue);
+    assert_eq!(queue.selected().unwrap().event.kind, Kind::ContextWarning);
+    demo.tick(3000, false, &mut queue);
+    demo.tick(4000, false, &mut queue);
+    assert_eq!(queue.selected().unwrap().event.kind, Kind::IdleWarning);
+    demo.tick(7000, false, &mut queue);
+    demo.tick(8000, false, &mut queue);
+    assert_eq!(queue.items().len(), 2);
+}
+
+#[test]
 fn grouped_waits_show_countdowns_even_when_the_configured_wait_is_persistent() {
     let config = Config::default();
     assert_eq!(config.events[Kind::PermissionRequired].duration_ms, 0);
     let mut demo = Demo::new(&config, 1).unwrap();
     let mut queue = Queue::new(64, 1500);
     for now in [
-        0, 3300, 4300, 7600, 8600, 11900, 12900, 16200, 17200, 20500, 21500,
+        0, 3300, 4300, 7600, 8600, 11900, 12900, 16200, 17200, 20500, 21500, 24800, 25800, 29100,
+        30100,
     ] {
         demo.tick(now, false, &mut queue);
     }
-    assert_eq!(queue.items().len(), 5);
+    assert_eq!(queue.items().len(), 7);
     for entry in queue.items() {
         let duration = entry.display_duration(config.notifications.fade_out_ms);
         assert_eq!(duration, 3000);
@@ -32,7 +53,7 @@ fn grouped_waits_show_countdowns_even_when_the_configured_wait_is_persistent() {
 fn grouped_messages_expire_one_at_a_time_with_a_fresh_timeout() {
     let mut config = Config::default();
     for (kind, setting) in config.events.iter_mut() {
-        setting.enabled = !matches!(kind, Kind::PermissionRequired | Kind::InputRequired);
+        setting.enabled = matches!(kind, Kind::TurnComplete | Kind::Error | Kind::Interrupted);
         setting.duration_ms = 3000;
     }
     config.notifications.fade_out_ms = 0;
@@ -99,7 +120,7 @@ fn cycles_all_signals_then_navigation_and_repeats_with_bounded_queue() {
     let mut queue = Queue::new(64, 1500);
     let mut now = 0;
     for _ in 0..3 {
-        for kind in aherald::demo::KINDS {
+        for kind in Kind::ALL {
             demo.tick(now, false, &mut queue);
             assert_eq!(queue.items().len(), 1);
             assert_eq!(queue.selected().unwrap().event.kind, kind);
@@ -108,14 +129,14 @@ fn cycles_all_signals_then_navigation_and_repeats_with_bounded_queue() {
             now += 6100;
         }
         demo.tick(now, false, &mut queue);
-        assert_eq!(queue.items().len(), 5);
+        assert_eq!(queue.items().len(), 7);
         let first = queue.selected().unwrap().event.kind;
         queue.next(1);
         assert_ne!(queue.selected().unwrap().event.kind, first);
         queue.dismiss();
-        assert_eq!(queue.items().len(), 4);
+        assert_eq!(queue.items().len(), 6);
         queue.tick(now, true);
-        for remaining in (0..4).rev() {
+        for remaining in (0..6).rev() {
             now += 3100;
             demo.tick(now, false, &mut queue);
             queue.tick(now, false);

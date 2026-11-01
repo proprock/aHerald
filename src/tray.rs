@@ -11,6 +11,9 @@ pub const SUMMARY: usize = 101;
 pub const CLAUDE_SUMMARY: usize = 102;
 pub const RESTART: usize = 206;
 pub const ABOUT: usize = 207;
+pub const CONTEXT: usize = 208;
+pub const IDLE: usize = 209;
+pub const TEST_CONFIG: usize = 210;
 pub const SOUND: usize = 201;
 pub const VISUAL: usize = 202;
 pub const PAUSE: usize = 203;
@@ -202,6 +205,8 @@ impl Menu {
         sound: bool,
         visual: bool,
         paused: bool,
+        context: bool,
+        idle: bool,
         codex: Option<&str>,
         claude: Option<&str>,
     ) -> Result<Self, String> {
@@ -211,17 +216,21 @@ impl Menu {
             .into_iter()
             .filter_map(|(id, text)| text.map(|text| (id, text, false)));
         let version = format!("aHerald v{}", crate::VERSION);
+        let has_usage = codex.is_some() || claude.is_some();
         let items = [
-            (ABOUT, version.as_str(), false),
             (SOUND, "Sound", sound),
             (VISUAL, "Pop-up", visual),
             (PAUSE, "Pause notifications", paused),
-            (CONFIG, "Edit configuration", false),
-            (RESTART, "Restart", false),
+            (CONTEXT, "Context warnings", context),
+            (IDLE, "Idle warnings", idle),
+            (ABOUT, version.as_str(), false),
+            (CONFIG, "Edit config", false),
+            (TEST_CONFIG, "Apply + Test", false),
+            (RESTART, "Apply", false),
             (EXIT, "Exit", false),
         ];
         for (id, label, checked) in usage.chain(items) {
-            if id == CONFIG || id == SOUND {
+            if id == ABOUT || id == CONTEXT || (id == SOUND && has_usage) {
                 // SAFETY: menu is owned; separators have no command or label.
                 unsafe { AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()) }
                     .map_err(|_| "cannot add tray menu separator")?;
@@ -269,14 +278,25 @@ mod tests {
             false,
             true,
             true,
+            false,
+            true,
             Some("Codex usage (unavailable)"),
             Some("Claude remain: 5h 80%"),
         )
         .unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 11);
-            assert_ne!(GetMenuState(menu.0, 3, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
-            assert_ne!(GetMenuState(menu.0, 7, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
+            assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_ne!(GetMenuState(menu.0, 6, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_ne!(GetMenuState(menu.0, 9, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+            assert_eq!(
+                GetMenuState(menu.0, CONTEXT as u32, MF_BYCOMMAND) & MF_CHECKED.0,
+                0
+            );
+            assert_ne!(
+                GetMenuState(menu.0, IDLE as u32, MF_BYCOMMAND) & MF_CHECKED.0,
+                0
+            );
             let mut label = [0u16; 128];
             let n = GetMenuStringW(
                 menu.0,
@@ -301,8 +321,9 @@ mod tests {
             for (id, expected) in [
                 (SUMMARY, "unavailable"),
                 (VISUAL, "Pop-up"),
-                (CONFIG, "Edit configuration"),
-                (RESTART, "Restart"),
+                (CONFIG, "Edit config"),
+                (RESTART, "Apply"),
+                (TEST_CONFIG, "Apply + Test"),
                 (ABOUT, version.as_str()),
             ] {
                 let mut label = [0u16; 128];
@@ -314,20 +335,20 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents() {
-        let menu = Menu::new(true, true, false, None, Some("Claude")).unwrap();
+        let menu = Menu::new(true, true, false, true, true, None, Some("Claude")).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
             assert_eq!(
                 GetMenuState(menu.0, SUMMARY as u32, MF_BYCOMMAND),
                 u32::MAX,
                 "no Codex line when Codex usage is hidden"
             );
         }
-        let menu = Menu::new(true, true, false, Some("Codex"), None).unwrap();
+        let menu = Menu::new(true, true, false, true, true, Some("Codex"), None).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 10);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
         }
-        let menu = Menu::new(true, true, false, Some("Codex"), Some("Claude")).unwrap();
+        let menu = Menu::new(true, true, false, true, true, Some("Codex"), Some("Claude")).unwrap();
         unsafe {
             assert_eq!(GetMenuItemID(menu.0, 0), CLAUDE_SUMMARY as u32);
             assert_eq!(GetMenuItemID(menu.0, 1), SUMMARY as u32);
@@ -342,20 +363,41 @@ mod tests {
             (None, Some("Claude"), 1),
             (Some("Codex"), Some("Claude"), 2),
         ] {
-            let menu = Menu::new(true, true, false, codex, claude).unwrap();
+            let menu = Menu::new(true, true, false, true, true, codex, claude).unwrap();
             unsafe {
                 let count = GetMenuItemCount(Some(menu.0)) as u32;
-                // The version item closes the usage block, then a separator precedes Sound.
-                let about_position = usage_count;
-                let sound_position = about_position + 2;
+                let sound_position = usage_count + u32::from(usage_count > 0);
+                let about_position = sound_position + 7;
                 assert_eq!(GetMenuItemID(menu.0, about_position as i32), ABOUT as u32);
+                assert_eq!(
+                    GetMenuItemID(menu.0, about_position as i32 + 1),
+                    CONFIG as u32
+                );
                 assert_eq!(GetMenuItemID(menu.0, sound_position as i32), SOUND as u32);
+                assert_eq!(
+                    GetMenuItemID(menu.0, about_position as i32 + 2),
+                    TEST_CONFIG as u32
+                );
+                assert_eq!(
+                    GetMenuItemID(menu.0, about_position as i32 + 3),
+                    RESTART as u32
+                );
+                assert_eq!(
+                    GetMenuItemID(menu.0, about_position as i32 + 4),
+                    EXIT as u32
+                );
                 let separators: Vec<_> = (0..count)
                     .filter(|&position| {
                         GetMenuState(menu.0, position, MF_BYPOSITION) & MF_SEPARATOR.0 != 0
                     })
                     .collect();
-                assert_eq!(separators, vec![about_position + 1, sound_position + 3]);
+                let mut expected = Vec::new();
+                if usage_count > 0 {
+                    expected.push(usage_count);
+                }
+                expected.push(sound_position + 3);
+                expected.push(sound_position + 6);
+                assert_eq!(separators, expected);
             }
         }
     }

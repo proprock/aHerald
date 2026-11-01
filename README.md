@@ -15,7 +15,8 @@ For a Linux preview, build with `cargo build`, run `target/debug/aherald --resid
 and send `target/debug/aherald --event input_required --resident` from another terminal.
 Click the card to dismiss it and use `target/debug/aherald --quit` to stop the service.
 On GNOME, the tray requires the AppIndicator extension (or another StatusNotifierItem host).
-The tray menu offers sound, pop-up and pause switches, configuration, restart and exit.
+The Windows tray menu offers sound, pop-up and pause switches, context/idle warning
+switches, About, Edit config, Apply + Test, Apply and Exit.
 For terminal hooks, Linux records a window only when its X11 process is in the hook's
 ancestor chain; if several windows belong to that process, the active one is selected.
 Some terminal launchers do not expose a matching process or X11 window, so their window
@@ -152,6 +153,10 @@ then the shared pet. Disabled events are skipped; disabling all events is an err
 Disabled visuals or sounds stay disabled. Use the tray to try pause, sound/visual
 switches and usage details (real usage is queried only when enabled in the config).
 Exit from this demo's tray to stop the cycle. Pause freezes the cycle as well.
+On Windows, **Apply + Test** (immediately after Edit config) validates the saved
+file and restarts this instance, then shows a navigable [Test] carousel in the
+new resident's window. **Apply**, immediately below it, restarts without samples.
+Both discard the old queue; invalid files leave the current resident running.
 
 The demo runs independently of the normal resident, without resident IPC or hook
 installation, and does not save runtime switches. `--status`/`--quit` address the
@@ -159,6 +164,33 @@ normal resident; stop the demo through its tray. `--demo` cannot be combined wit
 other operations or `--resident`/`--transient`. Restart it after editing configuration
 or replacing assets to preview the changes.
 See [demo verification and limitations](docs/demo.md).
+
+To inspect each of the seven notification formats separately, run one command at
+a time (click a persistent card to dismiss it):
+
+```powershell
+$aherald = '.\target\x86_64-pc-windows-msvc\release\aherald.exe'
+& $aherald --transient --event turn_complete
+& $aherald --transient --event permission_required
+& $aherald --transient --event input_required
+& $aherald --transient --event error
+& $aherald --transient --event interrupted
+& $aherald --transient --event context_warning
+& $aherald --transient --event idle_warning
+```
+
+These previews use your configuration, including disabled visuals, sounds and
+events; add `--config PATH` to inspect another configuration. Context and idle
+previews do not require a live agent or configured warning thresholds. The standard
+`--demo` cycle includes all seven enabled formats. **Apply + Test** validates and
+applies the saved file through a resident restart, then shows all seven formats
+in its existing window, marked **[Test]**. Disabled types are labelled. Navigate
+with arrows, a body click or the configured timeout (five seconds for persistent
+cards), without pauses between cards. Dismiss ends the test; a real notification
+also ends it. **Apply** performs the same restart without samples. Invalid files
+leave the current resident running. Both actions discard the old queue.
+Agent usage details and About open from the
+tray menu of a resident or demo instance.
 
 ## Resident mode and tray
 
@@ -171,8 +203,16 @@ See [demo verification and limitations](docs/demo.md).
 ```
 
 `--version` prints `aHerald <version>` and needs no configuration. The tray's
-**aHerald v<version>** item (above Sound) opens a card in the usage-card style with the same version;
+**aHerald v<version>** item (above Edit config on Windows) opens a card in the usage-card style with the same version;
 choosing it again closes the card.
+
+On Windows, a separate section below the notification switches contains **Context
+warnings** and **Idle warnings**. Each temporarily gates that warning type for both
+agents; configured per-agent thresholds still apply. Both gates start enabled on
+restart and do not write configuration. Disabling idle clears scheduled reminders;
+after enabling it, a new supported stop schedules a fresh reminder. Disabling context
+drops pending warnings and preserves crossing state. Already queued cards remain
+dismissible. Explicit `--event` previews remain available with either gate off.
 
 An event starts a detached resident when needed. `--resident` without an event
 runs the service directly. Set `[general] mode = "resident"` to use it for hooks
@@ -270,7 +310,7 @@ transcript parsing, token reading, or automatic Codex installation are performed
 See [manual Windows hook setup](docs/codex-hooks.md) and the
 [version/coverage matrix](docs/codex-compatibility.md). Input-wait monitoring for
 unrelated CLI/app sessions is [explicitly unsupported](docs/codex-input-waits.md).
-All five event types can be exercised with `--event`.
+All seven event types can be exercised with `--event` or together with `--demo`.
 
 See [asset formats and sound scheduling](docs/assets.md) and
 [Milestone 1 evidence](docs/milestone-1.md) and [resident verification](docs/milestone-2.md). Current automated and

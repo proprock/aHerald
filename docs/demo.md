@@ -1,5 +1,38 @@
 # Configuration demo verification
 
+Update 2026-11-01: Windows **Apply + Test**, after Edit config, validates the
+saved file, restarts the resident and shows all seven samples in its existing
+window. **Apply** restarts without samples. Invalid configuration leaves the old
+resident running. Both actions discard its previous queue.
+
+Samples stay in a separate fixed list, marked [Test]; disabled event types are
+labelled. Arrows and body clicks navigate without removing cards. Timeouts advance
+without an empty phase or inter-card fades, using five seconds for persistent
+types. Dismiss/Escape/window close or a real notification ends the test; the new
+configuration remains active. See [tray controls](tray-usage.md).
+
+Controlled-time carousel tests cover disabled types, wrapping, configured timing,
+manual timer resets and pause. Native process tests observe a changed PID,
+singleton ownership, the seven-card counter, backwards navigation and body clicks,
+closing without terminating the resident, real notification interruption, a later
+ordinary Apply without samples, and invalid-file recovery for both menu actions.
+The explicit standalone --demo command retains the legacy scenarios below; it is
+no longer launched by the tray test action.
+
+Apply/carousel verification, 2026-11-01 on Windows 11: formatting, Clippy and the
+Windows x64 release build passed. The serial all-target test run passed every
+target except `perf_baseline`: `artwork.prepare` averaged 43.62 ms against its
+30 ms budget; the budget was not changed. The five restart integration tests and
+two controlled-time carousel tests passed. An opt-in native preview test exposed
+only its owned fixture window to Computer Use: visual inspection confirmed the
+[Test] heading, seven-card counter, arrows, countdown, context/idle samples and
+Dismiss. Arrow/body navigation and dismissal were exercised; after dismissal,
+the fixture confirmed the resident remained alive and ordinary Apply restarted
+without repeating the test. The opt-in test passed. Mixed DPI, additional monitors
+and Windows 10 were not manually checked.
+Portable clean-extraction verification and the isolated installer lifecycle check
+also passed (`aherald-installer-test-07c2772b08f94af0b7fd17bb14f56f01`).
+
 AH-026, verified 2026-10-25 on Windows 11 build 22621, Rust 1.98.1,
 MSVC x64. No new Codex integration was added; no live Codex session or credentials
 are needed. Windows 10 and mixed-DPI/multiple monitors were not tested here.

@@ -247,6 +247,21 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   not a provider cache-expiry guarantee. Accepted on Windows 2026-10-31 with real
   Claude and Codex responses and one-minute reminders; the maintainer confirmed
   reminder delivery as sufficient acceptance. See [Windows evidence](docs/ah-101-windows-acceptance.md).
+  Agreed 2026-11-01: Windows tray has a separate Context warnings / Idle warnings
+  section below notification controls. Each runtime switch gates both agents,
+  preserves configured thresholds, and resets on restart. Disabling idle drops
+  scheduled reminders; a new completion after re-enabling starts a fresh timer.
+  Disabling context drops pending delivery but preserves crossing state. Existing
+  queued cards and explicit event previews remain available. About is below the
+  following separator, immediately above Edit config. Apply + Test and Apply follow
+  Edit config. Both validate the saved file before a resident restart; an invalid
+  file leaves the running instance active. Restart discards the previous queue.
+  Apply + Test opens all seven formats in the replacement resident's existing
+  window, marked [Test], including disabled formats. Keep samples separate from
+  the working queue. Arrows and body clicks navigate without removal; timeouts
+  advance without gaps or fades, with five seconds for persistent samples. Reset
+  the timer on manual navigation and play sounds on selection. Dismiss or a real
+  notification ends the test; ordinary Apply must not inherit test mode.
 
 - [ ] **AH-099 — Notify only when Codex approval needs the user.** A Codex
   `PermissionRequest` hook can fire for an automatically reviewed request, so the

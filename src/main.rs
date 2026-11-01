@@ -23,6 +23,8 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
+    #[cfg(windows)]
+    let mut test_after_apply = false;
     if args.first().map(String::as_str) == Some("--restart-child") {
         let pid = args
             .get(1)
@@ -31,6 +33,11 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             .map_err(|_| "invalid restart parent")?;
         aherald::restart::wait_for_parent(pid)?;
         args.drain(..2);
+        #[cfg(windows)]
+        if args.first().is_some_and(|a| a == "--test-after-apply") {
+            test_after_apply = true;
+            args.remove(0);
+        }
     }
     if args.first().map(String::as_str) == Some("--resident-child") {
         if args.len() != 4 || args[2] != "--config" {
@@ -40,8 +47,17 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let path = std::path::Path::new(&args[3]);
         let config = aherald::config::Config::load(path, true)
             .inspect_err(|_| log_code(path, Record::InvalidConfiguration))?;
-        return aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path)
-            .inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
+        #[cfg(windows)]
+        let result = aherald::resident::run_after_apply(
+            aherald::local::Scope::current(&args[1])?,
+            config,
+            path,
+            test_after_apply,
+        );
+        #[cfg(not(windows))]
+        let result =
+            aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path);
+        return result.inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
     }
     if args.first().map(String::as_str) == Some("--display-child") {
         if args.len() != 3 || args[1] != "--config" {
@@ -215,6 +231,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         );
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
+        #[cfg(windows)]
+        return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
+        #[cfg(not(windows))]
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {

@@ -1,5 +1,62 @@
 # Tray usage and restart
 
+## Windows menu controls
+
+Usage lines are followed by a separator, Sound / Pop-up / Pause notifications,
+another separator, Context warnings / Idle warnings, another separator, then
+aHerald v<version> (About), Edit config, Apply + Test, Apply and Exit. When usage lines
+are absent, the menu starts with Sound without a leading separator.
+
+The two warning switches are runtime gates for both agents. Configured thresholds
+remain required; a checked gate does not create a missing context threshold.
+Restart resets both gates. Disabling idle cancels deadlines and pending reminders;
+after re-enabling, the next supported completion starts a fresh timer. Disabling
+context clears pending delivery and preserves crossing state. Neither gate removes
+already queued cards or blocks explicit `--event` previews.
+
+Apply validates the saved configuration before restarting the resident. Apply +
+Test does the same, then opens a carousel in the replacement resident's existing
+window. There is one active resident, tray icon and notification window. Restart
+discards the previous notification queue and resets runtime switches. Invalid
+configuration leaves the current resident running and displays an error notice.
+
+The carousel contains all seven formats, including disabled events (marked
+"Disabled in config"), with [Test] in place of a folder name. It needs no live
+sessions or warning thresholds. Arrows go forwards/backwards without removing
+cards; clicking the body advances. The configured duration advances automatically;
+persistent cards use five seconds. Manual navigation resets the timer. The list
+wraps without an empty phase or fades between cards. Sounds play on selection,
+rather than all samples sounding on arrival. Test cards never enter the working
+queue or its deduplication history.
+
+Dismiss, Escape or closing the card ends the test and leaves the resident running
+with the applied configuration. An incoming notification ends the test and uses
+the normal notification controls. Usage/About also leave the test. A later Apply
+does not repeat it. The explicit standalone --demo command remains available.
+
+Automated checks query the actual Win32 menu for ordering, separators and checkmarks,
+exercise independent warning suppression/re-enabling for both agents, and dispatch
+native window commands to verify the shared runtime state changes. See README's
+configuration demo section for all seven notification preview commands.
+
+Current Apply/carousel verification is recorded in [demo verification](demo.md).
+
+Earlier warning-controls verification on Windows 11 (2026-11-01): formatting and Clippy passed; the full
+`cargo test --all-targets --no-fail-fast` run passed the new menu, native command,
+and warning-state tests. Four integration targets failed in the sandbox:
+`native_assets` (window startup deadline), `tray_about` and `tray_restart`
+(`EnumWindows`), and `perf_baseline` (artwork preparation averaged 48.42 ms against
+30 ms). The three GUI targets all passed when rerun outside the sandbox. This
+isolates the observed GUI failures to the test environment; no application fix
+or weakened assertion was needed. Visual inspection remains unverified because
+Computer Use did not expose the dedicated aHerald demo window.
+An isolated `cargo test --test perf_baseline` outside the sandbox, after release
+compilation finished, still failed: artwork preparation averaged 41.94 ms against
+30 ms. Its cause remains unresolved; no budget was changed. The Windows release
+build and `git diff --check` passed.
+
+## Usage details
+
 The first menu item displays `Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h`.
 `[codex.usage] display = "remain"` is the default; `"used"` selects consumed percentages.
 Unknown values use an em dash. Disabled, loading and unavailable states are
@@ -38,11 +95,11 @@ state so a result received before window creation is not missed. The 15-second
 idle timer remains for countdowns and other housekeeping; provider/network startup
 latency still applies. The wake target is detached when the window is destroyed.
 
-Edit configuration uses the Windows TOML association, falling back to the system
+Edit config uses the Windows TOML association, falling back to the system
 Notepad only when there is no association. Paths are passed as data, not shell
 commands. An open failure leaves the resident running and reports an error.
 
-Restart starts a detached replacement and verifies that it has opened a handle
+Apply retains the restart behavior: it starts a detached replacement and verifies that it has opened a handle
 to the old process before requesting shutdown. It waits up to 30 seconds for that
 process to exit, including worker and singleton cleanup, then reuses the original
 mode and configuration arguments. Runtime Sound/Visual/Pause overrides and queued

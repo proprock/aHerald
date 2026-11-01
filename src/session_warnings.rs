@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 
 #[derive(Default)]
 pub struct Warnings {
+    context_disabled: bool,
+    idle_disabled: bool,
     sessions: VecDeque<Session>,
     sequence: u64,
     pending: VecDeque<Pending>,
@@ -25,6 +27,34 @@ struct Session {
 }
 
 impl Warnings {
+    /// Runtime gates shared by both agents; configured thresholds remain unchanged.
+    pub fn enabled(&self, kind: Kind) -> bool {
+        match kind {
+            Kind::ContextWarning => !self.context_disabled,
+            Kind::IdleWarning => !self.idle_disabled,
+            _ => true,
+        }
+    }
+
+    pub fn set_enabled(&mut self, kind: Kind, enabled: bool) {
+        match kind {
+            Kind::ContextWarning => self.context_disabled = !enabled,
+            Kind::IdleWarning => {
+                self.idle_disabled = !enabled;
+                if !enabled {
+                    for session in &mut self.sessions {
+                        session.deadline = None;
+                        session.stopped = false;
+                    }
+                }
+            }
+            _ => return,
+        }
+        if !enabled {
+            self.pending.retain(|p| p.event.kind != kind);
+        }
+    }
+
     fn session(&mut self, event: &Event) -> &mut Session {
         let index = self
             .sessions
@@ -66,7 +96,10 @@ impl Warnings {
             self.pending.retain(|p| !same_session(&p.event, event));
             return;
         }
-        if minutes.is_none() || matches!(event.kind, Kind::ContextWarning | Kind::IdleWarning) {
+        if self.idle_disabled
+            || minutes.is_none()
+            || matches!(event.kind, Kind::ContextWarning | Kind::IdleWarning)
+        {
             return;
         }
         let pending_idle = self
@@ -150,6 +183,9 @@ impl Warnings {
         tokens: Option<u64>,
         config: &Config,
     ) -> Option<Event> {
+        if self.context_disabled {
+            return None;
+        }
         let (threshold, source) = match agent {
             crate::agent::Agent::Claude => (
                 config.claude.warnings.context_threshold()?,
