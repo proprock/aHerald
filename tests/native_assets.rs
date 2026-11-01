@@ -55,13 +55,16 @@ fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_a
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let isolated = root.join("aherald.exe");
     std::fs::copy(&executable, &isolated).unwrap();
-    for (path, is_image) in [
+    for (case, (path, is_image)) in [
         (None, true),
         (Some(valid), true),
         (Some(corrupt), true),
         (Some(root.join("missing")), true),
         (None, false),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let config = root.join("config.toml");
         let custom = path
             .map(|path| format!("\nvisual='custom'\nanimation='{}'", path.display()))
@@ -73,7 +76,7 @@ fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_a
                 &config,
                 &Event::demo("turn_complete").unwrap(),
             )
-            .unwrap(),
+            .unwrap_or_else(|error| panic!("resource case {case}: {error}")),
         );
         let mut search = Search {
             pid: child.0.id(),

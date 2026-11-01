@@ -86,7 +86,6 @@ struct Ui {
     tooltip: String,
     /// Replaces the usage card text, e.g. a refused Restart; cleared when the card closes.
     notice: Option<String>,
-    usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
     carousel: Option<crate::demo::Carousel>,
     source_labels: crate::session_source::Service,
@@ -261,21 +260,6 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
-            // One log line per failing episode, never per poll.
-            let failing = [
-                self.codex_shown() && self.usage.view().error.is_some(),
-                self.claude
-                    .as_ref()
-                    .is_some_and(|c| c.view().error.is_some()),
-            ];
-            let mut started = 0;
-            for (was, now) in self.usage_failing.iter_mut().zip(failing) {
-                started += usize::from(now && !*was);
-                *was = now;
-            }
-            for _ in 0..started {
-                self.log(crate::operational_log::Record::UsageFailure);
-            }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
                 &self.usage.view(),
@@ -1048,6 +1032,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 wparam: wp.0,
                 lparam: lp.0,
             };
+            #[cfg(test)]
+            if msg == usage_wake_tests::OBSERVED {
+                return LRESULT(
+                    w.with_ui(message, |ui| ui.tooltip == "Codex remain: unavailable")
+                        .unwrap_or(false) as isize,
+                );
+            }
             if handle(w, hwnd, message) {
                 // Run what arrived while a handler was active, once none is.
                 while !w.gate.busy() {
@@ -1222,7 +1213,6 @@ pub(super) fn run_preview(
             timer_ms: None,
             tooltip: String::new(),
             notice: None,
-            usage_failing: [false; 2],
             demo,
             carousel,
             source_labels,
@@ -1511,6 +1501,7 @@ mod warning_deadline_tests {
 
 #[cfg(test)]
 mod usage_wake_tests {
+    pub(super) const OBSERVED: u32 = WM_APP + 90;
     use super::*;
     use crate::{
         app_server::Error,
@@ -1608,12 +1599,11 @@ mod usage_wake_tests {
             SendMessageW(hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
         }
         assert!(!unsafe { IsWindowVisible(hwnd).as_bool() });
+        // This reads the tooltip applied by the GUI thread, not the worker's view or log.
+        assert_eq!(unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0, 0);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
-        while !std::fs::read_to_string(&log)
-            .unwrap_or_default()
-            .contains("usage.failed")
-        {
+        while unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0 == 0 {
             assert!(
                 Instant::now() < deadline,
                 "hidden GUI did not observe published usage before its 15-second timer"

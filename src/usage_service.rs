@@ -364,11 +364,13 @@ pub trait UsageSource {
 /// Codex app-server: one owned child connection with rolling updates.
 pub struct CodexSource<T, F> {
     connection: Connection<T, F>,
+    name_failures: crate::session_source::LookupFailures,
 }
 impl<T: Transport, F: FnMut() -> Result<T, Error>> CodexSource<T, F> {
     pub fn new(factory: F) -> Self {
         Self {
             connection: Connection::new(factory),
+            name_failures: Default::default(),
         }
     }
 }
@@ -381,7 +383,9 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T
         self.connection.client.is_some()
     }
     fn thread_name(&mut self, now: Duration, id: &str) -> Option<String> {
-        self.connection.thread_name(now, id).ok().flatten()
+        let result = self.connection.thread_name(now, id);
+        self.name_failures.observe(result.is_err());
+        result.ok().flatten()
     }
     fn listen(&mut self, now: Duration) -> Result<(), Error> {
         let Some(client) = &mut self.connection.client else {
@@ -468,6 +472,9 @@ impl<S: UsageSource> Driver<S> {
         }
     }
     fn failure(&mut self, now: Duration, error: Error) {
+        if self.view.error.is_none() {
+            crate::operational_log::log(crate::operational_log::Record::UsageFailure);
+        }
         // A rate-limited service is asked again no sooner than its `Retry-After` (capped)
         // and never sooner than the refresh interval.
         let delay = match error {

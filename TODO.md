@@ -303,6 +303,20 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   connected (`display.monitor_missing`). Seen live on the M1 as log lines and three queued cards;
   the cards were looked at on the M1 (red error icon, message wrapped in up to three lines). Remaining: the missing
   `monitor` notice on Windows, the Windows look of the notice card, and the rest of the audit above.
+  Status 2026-11-01 (branch `feature/ah-090-completion`): audited decisions and executable
+  evidence are listed in [the diagnostic audit](docs/diagnostics-audit.md). Added portable
+  usage/name-lookup failure episodes; invalid-input, framing and full-queue episodes; bounded
+  activation-mailbox diagnostics; per-agent pet, missing built-in and preparation-budget
+  diagnostics. Interactive startup configuration errors show a separate eight-second notice
+  and retain exit 2; hooks stay prompt and card-free. Hook replies now precede runtime-scope
+  creation. The Unix runtime regression requires Unix execution. Windows monitor fallback
+  passed its native log/card test. The real resident notice was inspected on Windows build
+  22621.4317: built-in red error picture, two-line message, no kind row, 8 s timer.
+  Verification remains blocked by `native_assets`: a fresh copied executable exceeds the
+  existing 750 ms startup deadline, including outside the sandbox. Other integration suites
+  passed when continued separately; the performance baseline passed in isolation. See the
+  audit for observed timings and platform limits. Keep this item unchecked until that
+  regression check passes.
 
 - [ ] **AH-092 — Make the Windows resident pause test wait for the window to hide.**
   `resident_uses_one_window_and_switches_and_dismisses_only_selected_event` (`tests/resident.rs`)

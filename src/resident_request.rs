@@ -60,9 +60,49 @@ pub struct Effects {
     pub wake: bool,
     /// The queue refused a valid event; log it once the state lock is released.
     pub rejected: bool,
+    /// An untrusted input failed validation; never include its contents in diagnostics.
+    pub invalid: bool,
     /// A valid event produced no card on purpose; log why (`disabled`, `duplicate`, `obsolete`)
     /// once the state lock is released.
     pub dropped: Option<&'static str>,
+}
+
+/// Failure episodes belong to one listener. Status polling does not constitute recovery.
+#[derive(Default)]
+pub struct Diagnostics {
+    invalid: bool,
+    full: bool,
+}
+impl Diagnostics {
+    pub fn record(&mut self, response: &Response, effects: Effects) {
+        use crate::operational_log::{Record, log};
+        if effects.invalid && !self.invalid {
+            log(Record::InputRejected);
+        }
+        if effects.rejected && !self.full {
+            log(Record::QueueRejected);
+        }
+        if matches!(response, Response::Accepted) {
+            self.invalid = false;
+            self.full = false;
+        } else {
+            self.invalid |= effects.invalid;
+            self.full |= effects.rejected;
+        }
+        if let Some(reason) = effects.dropped {
+            log(Record::EventDropped(reason));
+        }
+    }
+}
+
+fn invalid() -> (Response, Effects) {
+    (
+        Response::Rejected,
+        Effects {
+            invalid: true,
+            ..Effects::default()
+        },
+    )
 }
 
 /// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
@@ -73,13 +113,19 @@ pub fn notice_sink<S: Controls + Send + 'static>(
     start: std::time::Instant,
     wake: impl Fn(&S) + Send + Sync + 'static,
 ) -> impl Fn(crate::events::Event) + Send + Sync + 'static {
+    let diagnostics = std::sync::Mutex::new(Diagnostics::default());
     move |event| {
         let Ok(mut state) = state.lock() else { return };
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (_, effects) = respond(Request::Event { event }, &mut *state, &settings, now);
+        let (response, effects) = respond(Request::Event { event }, &mut *state, &settings, now);
         if effects.wake {
             wake(&state);
         }
+        drop(state);
+        diagnostics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(&response, effects);
     }
 }
 
@@ -124,7 +170,7 @@ fn respond_with_focus(
                 || report.session_id.len() > 256
                 || report.session_id.chars().any(char::is_control)
             {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             let warning = state.warnings().context(
                 crate::agent::Agent::Claude,
@@ -149,7 +195,7 @@ fn respond_with_focus(
         }
         Request::CodexContext { report } => {
             if !report.valid() {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             let warning = state.warnings().context(
                 crate::agent::Agent::Codex,
@@ -179,7 +225,7 @@ fn respond_with_focus(
         ),
         Request::Event { event } => {
             if event.validate().is_err() {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             state.warnings().observe(&event, settings, now);
             state.queue().clear_session_warnings(&event);
@@ -660,12 +706,13 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_event_is_rejected_without_a_log_or_a_wake() {
+    fn an_invalid_event_is_rejected_and_asks_for_a_log_without_a_wake() {
         let mut bad = event("turn_complete");
         bad.window = Some(0);
         let (response, effects) = send(&mut state(8), &Config::default(), bad);
         assert!(matches!(response, Response::Rejected));
-        assert_eq!(effects, Effects::default());
+        assert_ne!(effects, Effects::default());
+        assert!(!effects.wake);
     }
 
     #[test]

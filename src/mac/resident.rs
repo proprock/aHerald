@@ -161,6 +161,8 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
             };
             let _ = ready_tx.send(Ok(()));
             log(Record::Started);
+            let mut diagnostics = crate::resident_request::Diagnostics::default();
+            let mut ipc_failing = false;
             while !shutdown.load(Ordering::Acquire) {
                 let result = server.serve_until(&listener_stop, |request| {
                     let Ok(mut state) = state.lock() else {
@@ -176,17 +178,13 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
                     if effects.wake {
                         waker.wake();
                     }
-                    if effects.rejected {
-                        log(Record::QueueRejected);
-                    }
-                    if let Some(why) = effects.dropped {
-                        log(Record::EventDropped(why));
-                    }
+                    diagnostics.record(&response, effects);
                     response
                 });
-                if result.is_err() {
+                if result.is_err() && !ipc_failing {
                     log(Record::IpcFailure);
                 }
+                ipc_failing = result.is_err();
             }
             log(Record::Stopped);
         })
