@@ -9,6 +9,12 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Fixed
+- Native setup preserves another aHerald installation's hooks during initial and
+  repeated setup. Legacy commands are upgraded only for the current executable;
+  a moved installation replaces only bindings identified by its saved receipt
+  (AH-097).
+
 ## [0.8.0-beta] - 2026-11-01
 
 ### Added

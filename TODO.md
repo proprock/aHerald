@@ -94,6 +94,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Verify generated hooks, delivery and dismissal, installer GUI,
   selection changes, upgrade/uninstall, and a clean Windows machine without
   WSL/Bash or development runtimes. See docs/installation.md.
+  Status 2026-11-01 (branch `feature/ah-097-windows-completion`): the setup backend,
+  Windows installer and CI packaging were already implemented. Fixed setup taking
+  over other installations' hooks; a regression failed before the fix and passes
+  afterward. Setup checks: 26 passed, one optional Git Bash test ignored. The
+  isolated installer lifecycle and real-Codex launch/response/ancestry/timing probe
+  passed; formatting, Clippy, release build and packaging passed. Full Cargo tests
+  stopped at `native_assets` with a notification startup timeout, both inside and
+  outside the sandbox; cause remains unresolved. Full installer GUI/launch-option
+  and installed-harness delivery/dismissal acceptance remain open. Clean-machine
+  acceptance is explicitly deferred by the maintainer (no machine available).
+  Evidence, commands and remaining checks: docs/ah-097-windows-acceptance.md.
 
 - [ ] **AH-102 — Native macOS installer and setup UI.**
   Uses the common native setup backend from AH-097. Deliver GUI app installation
