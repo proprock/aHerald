@@ -7,6 +7,133 @@ fn event(kind: Kind, session: &str) -> Event {
     e.session_id = Some(session.into());
     e
 }
+
+#[test]
+fn focused_session_does_not_hide_other_sessions_or_discard_lifecycle_state() {
+    let mut q = Queue::new(8, 1000);
+    let mut active = event(Kind::PermissionRequired, "active");
+    active.source = Source::ClaudeHook;
+    let mut other = event(Kind::Error, "other");
+    other.source = Source::ClaudeHook;
+    q.push_with_outputs(
+        active,
+        0,
+        0,
+        aherald::focus::Outputs {
+            window: false,
+            sound: true,
+        },
+    );
+    q.push(other, 0, 5000);
+    assert_eq!(
+        q.selected().unwrap().event.session_id.as_deref(),
+        Some("other")
+    );
+    // Visual suppression neither loses a wait nor consumes its independent sound.
+    assert_eq!(q.items().len(), 2);
+    assert_eq!(q.take_unannounced(8).len(), 2);
+    q.next(1);
+    assert_eq!(
+        q.selected().unwrap().event.session_id.as_deref(),
+        Some("other")
+    );
+    let mut end = event(Kind::TurnComplete, "active");
+    end.source = Source::ClaudeHook;
+    q.observe_terminal(&end);
+    assert_eq!(q.items().len(), 1);
+    assert_eq!(
+        q.selected().unwrap().event.session_id.as_deref(),
+        Some("other")
+    );
+}
+#[test]
+fn suppressed_waits_cannot_block_a_different_sessions_visible_event() {
+    let mut q = Queue::new(1, 1000);
+    let hidden = aherald::focus::Outputs {
+        window: false,
+        sound: false,
+    };
+    assert!(
+        q.push_with_outputs(event(Kind::PermissionRequired, "active"), 0, 0, hidden)
+            .is_queued()
+    );
+    assert!(q.push(event(Kind::Error, "other"), 1, 5000).is_queued());
+    assert_eq!(
+        q.selected().unwrap().event.session_id.as_deref(),
+        Some("other")
+    );
+    assert_eq!(q.visible_count(), 1);
+}
+
+#[test]
+fn suppressed_timed_cards_expire_without_resurfacing_and_waits_remain_deduplicated() {
+    let mut q = Queue::new(8, 1000);
+    let hidden = aherald::focus::Outputs {
+        window: false,
+        sound: false,
+    };
+    q.push_with_outputs(event(Kind::TurnComplete, "timed"), 0, 100, hidden);
+    let mut wait = event(Kind::PermissionRequired, "waiting");
+    wait.source = Source::ClaudeHook;
+    q.push_with_outputs(wait.clone(), 0, 0, hidden);
+    q.tick(0, false);
+    let fresh = q.take_unannounced(8);
+    assert!(fresh.is_empty());
+    q.tick(100, false);
+    assert_eq!(q.items().len(), 1);
+    assert!(q.selected().is_none());
+    q.dismiss();
+    assert_eq!(q.items().len(), 1);
+    assert_eq!(q.push(wait, 6000, 0), Outcome::Duplicate);
+    assert_eq!(q.visible_count(), 0);
+    assert!(q.take_unannounced(8).is_empty());
+}
+
+#[test]
+fn suppressed_sounds_do_not_consume_playback_slots() {
+    let mut q = Queue::new(8, 0);
+    q.push_with_outputs(
+        event(Kind::PermissionRequired, "muted"),
+        0,
+        0,
+        aherald::focus::Outputs {
+            window: false,
+            sound: false,
+        },
+    );
+    q.push(event(Kind::Error, "audible"), 0, 5000);
+    let fresh = q.take_unannounced(1);
+    assert_eq!(fresh.len(), 1);
+    assert_eq!(fresh[0].event.session_id.as_deref(), Some("audible"));
+    assert!(q.take_unannounced(1).is_empty());
+}
+
+#[test]
+fn new_hidden_cards_are_not_charged_for_time_before_they_arrived() {
+    let mut q = Queue::new(8, 0);
+    q.push(event(Kind::PermissionRequired, "visible"), 0, 0);
+    q.tick(0, false);
+    q.push_with_outputs(
+        event(Kind::TurnComplete, "new-hidden"),
+        9999,
+        100,
+        aherald::focus::Outputs {
+            window: false,
+            sound: false,
+        },
+    );
+    q.take_unannounced(8);
+    q.tick(10_000, false);
+    assert_eq!(
+        q.items()
+            .iter()
+            .find(|e| e.event.session_id.as_deref() == Some("new-hidden"))
+            .unwrap()
+            .visible_ms,
+        1
+    );
+}
+
 #[test]
 fn flood_and_duplicate_storm_stay_bounded_and_allow_recovery() {
     let mut queue = Queue::new(64, 60_000);

@@ -97,6 +97,16 @@ pub fn respond(
     settings: &Config,
     now: u64,
 ) -> (Response, Effects) {
+    respond_with_focus(request, state, settings, now, crate::focus::observe)
+}
+
+fn respond_with_focus(
+    request: Request,
+    state: &mut impl Controls,
+    settings: &Config,
+    now: u64,
+    observe: impl Fn(&crate::events::Event) -> crate::focus::Evidence,
+) -> (Response, Effects) {
     match request {
         Request::Status => (
             Response::Status {
@@ -223,7 +233,11 @@ pub fn respond(
                     .duration_ms
                     .saturating_add(settings.notifications.fade_out_ms)
             };
-            match state.queue().push(event, now, duration) {
+            let outputs = crate::focus::outputs(settings, observe(&event));
+            match state
+                .queue()
+                .push_with_outputs(event, now, duration, outputs)
+            {
                 Outcome::Full | Outcome::Invalid => (
                     Response::Rejected,
                     Effects {
@@ -288,6 +302,59 @@ mod tests {
     }
     fn send(state: &mut State, settings: &Config, event: Event) -> (Response, Effects) {
         respond(Request::Event { event }, state, settings, 7)
+    }
+
+    #[test]
+    fn focused_output_decisions_survive_admission_and_preserve_terminal_evidence() {
+        use crate::focus::{Evidence, Outputs, Session};
+        for visual in [false, true] {
+            for sound in [false, true] {
+                for focused in [None, Some(false), Some(true)] {
+                    for session in [Session::Same, Session::Different, Session::Unknown] {
+                        let mut settings = Config::default();
+                        settings.notifications.suppress_when_focused = visual;
+                        settings.sounds.suppress_when_focused = sound;
+                        let mut s = state(8);
+                        let mut wait = event("permission_required");
+                        wait.source = Source::ClaudeHook;
+                        wait.session_id = Some("session-a".into());
+                        let evidence = Evidence {
+                            window_focused: focused,
+                            session,
+                        };
+                        let (response, _) = respond_with_focus(
+                            Request::Event { event: wait },
+                            &mut s,
+                            &settings,
+                            0,
+                            |_| evidence,
+                        );
+                        assert!(matches!(response, Response::Accepted));
+                        let expected = if focused == Some(true) && session == Session::Same {
+                            Outputs {
+                                window: !visual,
+                                sound: !sound,
+                            }
+                        } else {
+                            Outputs::default()
+                        };
+                        assert_eq!(s.queue.items()[0].outputs, expected);
+                        let fresh = s.queue.take_unannounced(8);
+                        assert_eq!(fresh.len(), usize::from(expected.sound));
+                        assert_eq!(s.queue.visible_count(), usize::from(expected.window));
+                        assert!(s.queue.take_unannounced(8).is_empty());
+                        let mut end = event("turn_complete");
+                        end.source = Source::ClaudeHook;
+                        end.session_id = Some("session-a".into());
+                        // Focus changes cannot resurrect the hidden wait; matching terminal
+                        // evidence clears it even if the completion kind is disabled.
+                        settings.events[crate::events::Kind::TurnComplete].enabled = false;
+                        send(&mut s, &settings, end);
+                        assert!(s.queue.items().is_empty());
+                    }
+                }
+            }
+        }
     }
 
     #[test]

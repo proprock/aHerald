@@ -12,6 +12,7 @@ mod codex_install;
 pub mod config;
 mod default_config;
 pub mod demo;
+pub mod focus;
 mod http_common;
 #[cfg(windows)]
 pub mod https;

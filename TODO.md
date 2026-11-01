@@ -237,6 +237,13 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   handling. Acceptance: automated tests cover both options, their defaults and independent
   combinations, focused/unfocused windows, same/different/unknown desktop sessions and
   unknown focus; verify the behavior in a real terminal and a desktop session.
+  Agreed: a card suppressed on arrival must not appear later after focus changes;
+  preserve lifecycle and deduplication state. Implementation and automated checks
+  are on `feature/ah-098-active-session`; live visual/audio acceptance remains open.
+  Current positive identification covers Claude hooks in a classic Windows console.
+  Codex, desktop multi-session apps, tabbed terminals, macOS and Linux deliver
+  fail-open until reliable active-session identity is available. See
+  [coverage and acceptance evidence](docs/active-session.md).
 
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.

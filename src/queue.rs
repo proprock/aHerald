@@ -3,6 +3,8 @@ use crate::events::{Event, Kind, Priority, Source};
 use std::collections::VecDeque;
 #[derive(Clone, Debug)]
 pub struct Entry {
+    /// Frozen at admission; suppressed cards never appear later after focus changes.
+    pub outputs: crate::focus::Outputs,
     pub id: u64,
     pub event: Event,
     pub duration: u64,
@@ -184,7 +186,9 @@ impl Queue {
         if self.selected().is_none() {
             self.selected = self
                 .items
-                .get(previous_index.min(self.items.len().saturating_sub(1)))
+                .iter()
+                .filter(|e| e.outputs.window)
+                .nth(previous_index.min(self.visible_count().saturating_sub(1)))
                 .map(|e| e.id);
         }
         count - self.items.len()
@@ -193,6 +197,11 @@ impl Queue {
     /// Every new agent event is announced once, whether or not it is selected.
     pub fn take_unannounced(&mut self, limit: usize) -> Vec<Entry> {
         let mut taken = Vec::new();
+        // A suppressed sound is consumed without occupying a playback slot or
+        // delaying an audible event from another session.
+        for entry in self.items.iter_mut().filter(|e| !e.outputs.sound) {
+            entry.announced = true;
+        }
         for entry in self.items.iter_mut().filter(|e| !e.announced) {
             if taken.len() == limit {
                 break;
@@ -212,6 +221,15 @@ impl Queue {
     /// Admits `event` and says what happened. Terminal evidence in the event also
     /// resolves matching waits, whatever the outcome.
     pub fn push(&mut self, event: Event, now: u64, duration: u64) -> Outcome {
+        self.push_with_outputs(event, now, duration, crate::focus::Outputs::default())
+    }
+    pub fn push_with_outputs(
+        &mut self,
+        event: Event,
+        now: u64,
+        duration: u64,
+        outputs: crate::focus::Outputs,
+    ) -> Outcome {
         if event.validate().is_err() {
             return Outcome::Invalid;
         }
@@ -250,10 +268,13 @@ impl Queue {
                 .iter()
                 .enumerate()
                 .filter(|(_, e)| !e.is_usage())
-                .max_by_key(|(_, e)| (rank(&e.event), std::cmp::Reverse(e.id)))
+                .max_by_key(|(_, e)| (!e.outputs.window, rank(&e.event), std::cmp::Reverse(e.id)))
                 .map(|(i, _)| i)
                 .unwrap_or(0);
-            if rank(&event) >= rank(&self.items[worst].event) {
+            if (!outputs.window && self.items[worst].outputs.window)
+                || (outputs.window == self.items[worst].outputs.window
+                    && rank(&event) >= rank(&self.items[worst].event))
+            {
                 return refused(Outcome::Full);
             }
             self.items.remove(worst);
@@ -265,6 +286,7 @@ impl Queue {
             self.history.pop_front();
         }
         self.items.push(Entry {
+            outputs,
             id,
             event,
             duration,
@@ -273,9 +295,12 @@ impl Queue {
             arrived_ms: now,
         });
         self.items.sort_by_key(|e| (rank(&e.event), e.id));
-        let selected = self.selected();
-        if selected.is_none_or(|e| rank(&self.items[0].event) < rank(&e.event)) {
-            self.selected = Some(self.items[0].id);
+        if let Some(first) = self.items.iter().find(|e| e.outputs.window)
+            && self
+                .selected()
+                .is_none_or(|e| rank(&first.event) < rank(&e.event))
+        {
+            self.selected = Some(first.id);
         }
         Outcome::Queued
     }
@@ -301,6 +326,7 @@ impl Queue {
             message: None,
         };
         self.items.push(Entry {
+            outputs: crate::focus::Outputs::default(),
             id: self.sequence,
             event,
             duration: 0,
@@ -314,30 +340,43 @@ impl Queue {
         &self.items
     }
     pub fn selected(&self) -> Option<&Entry> {
-        self.items.iter().find(|e| Some(e.id) == self.selected)
+        self.items
+            .iter()
+            .find(|e| e.outputs.window && Some(e.id) == self.selected)
+    }
+    pub fn visible_count(&self) -> usize {
+        self.items.iter().filter(|e| e.outputs.window).count()
     }
     pub fn selected_index(&self) -> usize {
         self.items
             .iter()
+            .filter(|e| e.outputs.window)
             .position(|e| Some(e.id) == self.selected)
             .unwrap_or(0)
     }
     pub fn next(&mut self, delta: i32) {
-        if !self.items.is_empty() {
-            let i =
-                (self.selected_index() as i32 + delta).rem_euclid(self.items.len() as i32) as usize;
-            self.selected = Some(self.items[i].id);
+        if self.visible_count() > 0 {
+            let i = (self.selected_index() as i32 + delta).rem_euclid(self.visible_count() as i32)
+                as usize;
+            self.selected = self
+                .items
+                .iter()
+                .filter(|e| e.outputs.window)
+                .nth(i)
+                .map(|e| e.id);
         }
     }
     pub fn dismiss(&mut self) {
-        if self.items.is_empty() {
+        if self.selected().is_none() {
             return;
         }
         let i = self.selected_index();
-        self.items.remove(i);
+        self.items.retain(|e| Some(e.id) != self.selected);
         self.selected = self
             .items
-            .get(i.min(self.items.len().saturating_sub(1)))
+            .iter()
+            .filter(|e| e.outputs.window)
+            .nth(i.min(self.visible_count().saturating_sub(1)))
             .map(|e| e.id);
     }
     pub fn tick(&mut self, now: u64, paused: bool) {
@@ -348,6 +387,16 @@ impl Queue {
             _ => 0,
         };
         if !paused {
+            // Hidden timed cards expire too; waits remain for deduplication and
+            // lifecycle evidence, without entering presentation or navigation.
+            for entry in self.items.iter_mut().filter(|e| !e.outputs.window) {
+                entry.visible_ms = entry
+                    .visible_ms
+                    .saturating_add(elapsed.min(now.saturating_sub(entry.arrived_ms)));
+            }
+            self.items.retain(|e| {
+                e.outputs.window || e.duration == 0 || e.visible_ms < e.duration || !e.announced
+            });
             let id = self.selected;
             if let Some(e) = self.items.iter_mut().find(|e| Some(e.id) == id) {
                 e.visible_ms = e.visible_ms.saturating_add(elapsed);
@@ -356,6 +405,6 @@ impl Queue {
                 }
             }
         }
-        self.counting = self.selected.is_some();
+        self.counting = !self.items.is_empty();
     }
 }

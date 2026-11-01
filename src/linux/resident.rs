@@ -453,7 +453,7 @@ fn present(
             (
                 guard.queue.selected().cloned(),
                 guard.queue.selected_index(),
-                guard.queue.items().len(),
+                guard.queue.visible_count(),
                 paused,
                 guard.visuals,
                 fresh,
@@ -463,6 +463,9 @@ fn present(
         let mut audio_config = config.clone();
         audio_config.sounds.enabled = sounds;
         for fresh in fresh {
+            if !fresh.outputs.sound {
+                continue;
+            }
             if let Some(job) =
                 crate::audio::start_controlled(&fresh.event, &audio_config, audio_cancel.clone())
             {

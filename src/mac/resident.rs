@@ -701,7 +701,7 @@ impl Ui {
             (
                 state.queue.selected().cloned(),
                 state.queue.selected_index(),
-                state.queue.items().len(),
+                state.queue.visible_count(),
                 paused,
             )
         };
@@ -740,6 +740,9 @@ impl Ui {
             .map(|mut state| state.queue.take_unannounced(room))
             .unwrap_or_default();
         for fresh in fresh {
+            if !fresh.outputs.sound {
+                continue;
+            }
             if let Some(job) = crate::audio::start_controlled(
                 &fresh.event,
                 &self.config,

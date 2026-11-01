@@ -218,7 +218,11 @@ impl Ui {
             || unsafe { IsWindowVisible(hwnd) }.as_bool()
         {
             Some(16)
-        } else if self.shared.lock().is_ok_and(|s| s.warnings.has_deadline()) {
+        } else if self
+            .shared
+            .lock()
+            .is_ok_and(|s| s.warnings.has_deadline() || !s.queue.items().is_empty())
+        {
             Some(1000)
         } else if self.config.codex.usage.enabled || self.claude.is_some() {
             Some(15_000)
@@ -318,7 +322,7 @@ impl Ui {
             (
                 state.queue.selected().cloned(),
                 state.queue.selected_index(),
-                state.queue.items().len(),
+                state.queue.visible_count(),
                 paused,
             )
         };
@@ -340,14 +344,13 @@ impl Ui {
             self.selection = entry.as_ref().map(|e| e.id);
             return self.draw_usage(hwnd, index, count);
         }
-        let Some(entry) = entry.filter(|_| !paused) else {
-            self.hide(hwnd);
-            return Ok(());
-        };
         self.audio.retain(|job| !job.is_finished());
         // Every new event sounds once, even behind a selected persistent card.
         let room = crate::presenter::sound_slots(self.audio.len());
         let fresh = if self.carousel.is_some() {
+            let Some(entry) = entry.as_ref() else {
+                return Ok(());
+            };
             if self.selection != Some(entry.id) {
                 self.audio_cancel.store(true, Ordering::Release);
                 self.audio_cancel = Arc::new(AtomicBool::new(false));
@@ -355,13 +358,18 @@ impl Ui {
             } else {
                 Vec::new()
             }
-        } else {
+        } else if !paused {
             self.shared
                 .lock()
                 .map(|mut state| state.queue.take_unannounced(room))
                 .unwrap_or_default()
+        } else {
+            Vec::new()
         };
         for fresh in fresh {
+            if !fresh.outputs.sound {
+                continue;
+            }
             if let Some(audio) = crate::audio::start_controlled(
                 &fresh.event,
                 &self.config,
@@ -370,6 +378,10 @@ impl Ui {
                 self.audio.push(audio);
             }
         }
+        let Some(entry) = entry.filter(|_| !paused) else {
+            self.hide(hwnd);
+            return Ok(());
+        };
         if !self.config.notifications.enabled && self.carousel.is_none() {
             self.hide(hwnd);
             return Ok(());
@@ -684,7 +696,7 @@ impl Ui {
             let mut controls = crate::card::Card::new(
                 "",
                 state.queue.selected_index(),
-                state.queue.items().len(),
+                state.queue.visible_count(),
                 self.usage_window || self.config.notifications.click_to_dismiss,
             );
             controls.text_left = Some(self.text_left);

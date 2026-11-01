@@ -62,6 +62,9 @@ fade_out_ms = 300
 click_to_dismiss = true
 # Open the Codex chat on body click; independent of dismissal.
 activate_agent_on_click = true
+# Suppress this output only for a reliably identified focused originating session.
+# Unknown window/session identity keeps notifications enabled; see docs/active-session.md.
+suppress_when_focused = true
 # Artwork resize filter: "nearest" (default) or "bilinear".
 interpolation = "nearest"
 # Shared local pet.json path; default absent (use builtin artwork in auto mode).
@@ -91,6 +94,8 @@ interpolation = "nearest"
 [sounds]
 # Play configured event WAV files; default true. No sound path is selected by default.
 enabled = true
+# Independent of notifications.suppress_when_focused; unknown identity keeps sound.
+suppress_when_focused = true
 # Playback volume: 0.0..1.0; default 0.75. Zero mutes playback.
 volume = 0.75
 # Suppress repeated event sounds within general.deduplicate_ms; default true.
