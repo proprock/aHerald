@@ -21,12 +21,28 @@ Both are off on a new installation. On upgrades, they reflect the current
 config.toml in the selected directory. Changing the directory reloads those values.
 Codex usage needs a signed-in Codex account. Claude defaults to auto: local Claude
 login first, then statusLine. An upgrade preserves an explicitly configured Claude
-source; the installer does not install a statusLine command.
+source.
 
-Only the two usage enabled flags are changed. Other settings, comments and
+Four further checkboxes control context and idle warnings independently for each
+agent. On a new installation, context is off and idle is on. When first enabling
+context without a saved threshold, setup uses 250k tokens for Codex or 400k for
+Claude. Idle defaults are 25 minutes for Codex and 55 for Claude. Existing custom
+thresholds are retained; disabling a warning saves its enabled flag without
+erasing its threshold. Enabling an idle warning previously disabled with
+`idle_minutes = 0` restores that agent's default. Warnings require a running
+resident and the corresponding agent integration described in configuration.md.
+Selecting Claude Code together with Claude context warnings automatically installs
+the statusLine wrapper. It passes the same input to an existing command and keeps
+its output and options. Repeated setup does not nest wrappers. Disabling Claude
+context, deselecting Claude Code, or uninstalling restores the original statusLine
+only if the installed wrapper has not been edited. Backups and rollback cover this
+change together with hooks and config.toml. This follows Claude's documented
+[statusLine command contract](https://code.claude.com/docs/en/statusline).
+
+Only selected usage/warning flags and missing warning thresholds are changed. Other settings, comments and
 formatting are preserved, with a backup before changes. Configuration and hook
-changes share the setup transaction. Removal without usage options retains the
-configuration. Restart the resident to load changed usage settings.
+changes share the setup transaction. Removal without setting options retains the
+configuration. Restart the resident to load changed settings.
 
 The installer invokes `aherald.exe --setup --harness codex --harness claude --apply`
 with only the selected harnesses. Selecting neither removes bindings previously
@@ -84,15 +100,18 @@ aherald --unsetup
 aherald --unsetup --apply
 ```
 
-Installers can inspect usage settings without starting the resident or creating
+Installers can inspect usage and warning settings without starting the resident or creating
 configuration by running aherald --setup-settings. Native setup and removal accept
---codex-usage true|false and --claude-usage true|false; omitted options preserve
+`--codex-usage true|false`, `--claude-usage true|false`, `--codex-context true|false`,
+`--claude-context true|false`, `--codex-idle true|false` and `--claude-idle true|false`; omitted options preserve
 existing values. The installer uses --settings-file with an absolute target path
 so its temporary executable reads and patches the installed configuration.
 
 For silent installation, /TASKS="codex,claude,usagecodex,usageclaude" selects both
-harnesses and usage displays. An explicit /TASKS is the complete desired selection;
-omit unwanted tasks. Without /TASKS, silent upgrades read existing usage settings.
+harnesses and usage displays. Add `contextcodex,contextclaude,idlecodex,idleclaude`
+to select all warnings too. An explicit /TASKS is the complete desired selection;
+omitted tasks are disabled, including idle reminders. Without /TASKS, silent
+upgrades read existing usage and warning settings.
 Silent installation does not start the resident.
 
 Without `--apply`, setup and removal only show the planned changes. `--setup`

@@ -34,17 +34,25 @@ Context warnings remain off until a threshold is configured. For example:
 
 ```toml
 [claude.warnings]
-context_tokens = "120k"
+context_enabled = true
+idle_enabled = true
+context_tokens = "400k"
 idle_minutes = 55
 
 [codex.warnings]
-context_tokens = "120k"
+context_enabled = true
+idle_enabled = true
+context_tokens = "250k"
 idle_minutes = 25
 ```
 
 `context_tokens` accepts positive integer tokens, an integer string or an integer
 string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
 are rejected. Each agent's threshold is independent and omitted by default (off).
+`context_enabled` and `idle_enabled` default to `true`; set either to `false` to
+disable that warning while retaining its threshold. The Windows installer uses
+these flags. When first enabled there without a context threshold, it supplies
+250k tokens for Codex or 400k for Claude; existing thresholds are preserved.
 Codex requires the `PostModelRequest` binding, verified with CLI
 `0.166.0-alpha.5.1`; rerun explicit hook setup to add it to an older installation.
 Other versions and desktop dispatch need separate verification. Codex uses the
@@ -68,8 +76,9 @@ hook can continue work: observable tool activity cancels the provisional timer,
 but pure model continuation and delayed hook delivery cannot be perfectly
 distinguished by these lifecycle hooks.
 
-Use resident mode. The Claude context warning additionally needs the explicitly
-installed `--statusline` wrapper; no OAuth access is needed. Both idle integrations
+Use resident mode. The Claude context warning additionally needs the `--statusline`
+wrapper, installed automatically by native setup when Claude Code and Claude
+context warnings are selected; no OAuth access is needed. Both idle integrations
 need UserPromptSubmit, PreToolUse, PostToolUse, Stop and SessionEnd; retain the
 existing PermissionRequest and agent-specific error/interruption hooks. Preview
 the updated installer with `aherald --install-hooks claude` or `codex`, inspect

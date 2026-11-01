@@ -126,7 +126,8 @@ fn removal_uses_saved_paths_and_preserves_foreign_hooks_and_settings() {
         .bounded_output();
     assert!(
         output.status.success(),
-        "{}",
+        "stdout={:?}, stderr={:?}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     let after = app.read("claude");
@@ -306,6 +307,8 @@ fn receipt_write_failure_rolls_back_hook_files() {
         "codex",
         "--codex-usage",
         "true",
+        "--claude-context",
+        "true",
         "--apply",
     ]);
     assert!(!out.status.success());
@@ -432,9 +435,13 @@ fn spawn_fixture_until(
     }
 }
 
-fn finish(mut child: std::process::Child) -> Output {
+fn finish(child: std::process::Child) -> Output {
+    finish_with_timeout(child, std::time::Duration::from_secs(5))
+}
+
+fn finish_with_timeout(mut child: std::process::Child, timeout: std::time::Duration) -> Output {
     use std::time::{Duration, Instant};
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + timeout;
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             let _ = child.kill();
@@ -447,12 +454,334 @@ fn finish(mut child: std::process::Child) -> Output {
 }
 
 #[test]
+#[cfg(windows)]
+fn generated_statusline_preserves_unicode_input_output_and_exit_code() {
+    check_statusline_execution(false);
+}
+
+#[test]
+#[cfg(windows)]
+#[ignore = "requires installed Git Bash"]
+fn generated_statusline_runs_through_git_bash() {
+    check_statusline_execution(true);
+}
+
+#[cfg(windows)]
+fn check_statusline_execution(bash: bool) {
+    use std::{io::Write, process::Stdio};
+    let app = Install::new("statusline-execution");
+    let original = "powershell.exe -NoProfile -NonInteractive -Command \"[Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput()); exit 7\"";
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    std::fs::write(
+        app.file("claude"),
+        json!({"statusLine":{"type":"command","command":original}}).to_string(),
+    )
+    .unwrap();
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let payload = "{\"session_id\":\"fixture\",\"session_name\":\"Проверка 🦀 $HOME `tick\",\"context_window\":{\"current_usage\":{\"input_tokens\":400001}}}";
+    // Run the generated native command directly: an extra PowerShell shell
+    // would transcode its stdout and remap nonzero native exits to 1.
+    let script = command
+        .strip_prefix("powershell.exe -NoProfile -NonInteractive -Command \"")
+        .unwrap()
+        .strip_suffix('"')
+        .unwrap();
+    let mut launcher = if bash {
+        let mut cmd = Command::new(
+            PathBuf::from(std::env::var_os("ProgramFiles").unwrap()).join("Git/bin/bash.exe"),
+        );
+        cmd.args(["-c", &command]);
+        cmd
+    } else {
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        cmd
+    };
+    let mut child = launcher
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    // This fixture starts PowerShell, aHerald, Git Bash and the user's PowerShell.
+    // Give shell startup a bounded budget independent of the native hook deadline.
+    let output = finish_with_timeout(child, std::time::Duration::from_secs(20));
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "stdout={:?}, stderr={:?}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, payload.as_bytes());
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn installer_preflight_uses_the_destination_installation_receipt() {
+    let app = Install::new("destination");
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    let before = std::fs::read(app.file("claude")).unwrap();
+    let preview = Install::new("preflight");
+    let out = Command::new(&preview.exe)
+        .args([
+            "--setup",
+            "--harness",
+            "claude",
+            "--claude-context",
+            "true",
+            "--setup-executable",
+        ])
+        .arg(&app.exe)
+        .env("CLAUDE_CONFIG_DIR", app.root.join("claude"))
+        .bounded_output();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read(app.file("claude")).unwrap(), before);
+    assert!(!preview.root.join("aherald-setup.json").exists());
+}
+
+#[test]
+fn invalid_statusline_prevents_all_setup_writes() {
+    let app = Install::new("invalid-statusline");
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    let before = json!({"theme":"dark", "statusLine":{"type":"command","command":123}}).to_string();
+    std::fs::write(app.file("claude"), &before).unwrap();
+    let out = app.run(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    assert!(!out.status.success());
+    assert_eq!(std::fs::read_to_string(app.file("claude")).unwrap(), before);
+    assert!(!app.file("codex").exists());
+    assert!(!app.root.join("config.toml").exists());
+    assert!(!app.root.join("aherald-setup.json").exists());
+}
+
+#[test]
+fn context_setup_installs_statusline_once_and_restores_the_original() {
+    let app = Install::new("context-statusline");
+    let original = json!({"theme":"dark", "statusLine":{"type":"command", "command":"echo original", "padding":2}});
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    std::fs::write(app.file("claude"), original.to_string()).unwrap();
+    let args = ["--setup", "--harness", "claude", "--claude-context", "true"];
+    app.ok(&args);
+    assert_eq!(app.read("claude"), original);
+    let mut apply = args.to_vec();
+    apply.push("--apply");
+    app.ok(&apply);
+    let installed = app.read("claude");
+    assert_ne!(
+        installed["statusLine"]["command"],
+        original["statusLine"]["command"]
+    );
+    assert_eq!(installed["statusLine"]["padding"], 2);
+    assert_eq!(installed["theme"], "dark");
+    app.ok(&apply);
+    assert_eq!(app.read("claude"), installed);
+    app.ok(&["--unsetup", "--apply"]);
+    assert_eq!(app.read("claude"), original);
+}
+
+#[test]
+fn context_setup_removes_only_its_unchanged_wrapper_on_disable() {
+    let app = Install::new("context-statusline-disable");
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    assert!(app.read("claude")["statusLine"].is_object());
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "false",
+        "--apply",
+    ]);
+    assert!(app.read("claude").get("statusLine").is_none());
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    let mut changed = app.read("claude");
+    changed["statusLine"] = json!({"type":"command","command":"echo new-user-bar"});
+    std::fs::write(app.file("claude"), changed.to_string()).unwrap();
+    app.ok(&["--unsetup", "--apply"]);
+    assert_eq!(app.read("claude")["statusLine"], changed["statusLine"]);
+}
+
+#[test]
+fn installer_warning_selections_preserve_thresholds_and_use_agent_defaults() {
+    let app = Install::new("warning-settings");
+    let path = app.root.join("config.toml");
+    let enable = [
+        "--unsetup",
+        "--codex-context",
+        "true",
+        "--claude-context",
+        "true",
+        "--codex-idle",
+        "true",
+        "--claude-idle",
+        "true",
+        "--apply",
+    ];
+    app.ok(&enable);
+    let first = std::fs::read_to_string(&path).unwrap();
+    let config = aherald::config::Config::parse(&first, &app.root).unwrap();
+    assert_eq!(config.codex.warnings.context_tokens.unwrap().0, 250_000);
+    assert_eq!(config.claude.warnings.context_tokens.unwrap().0, 400_000);
+    assert_eq!(config.codex.warnings.idle_minutes, Some(25));
+    assert_eq!(config.claude.warnings.idle_minutes, Some(55));
+    let custom = "# personal thresholds\n[codex.warnings]\ncontext_tokens = '233k' # keep this\nidle_minutes = 17\n[claude.warnings]\ncontext_tokens = 390000\nidle_minutes = 42\n";
+    std::fs::write(&path, custom).unwrap();
+    let disable = [
+        "--unsetup",
+        "--codex-context",
+        "false",
+        "--claude-context",
+        "false",
+        "--codex-idle",
+        "false",
+        "--claude-idle",
+        "false",
+    ];
+    app.ok(&disable);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), custom);
+    let mut apply = disable.to_vec();
+    apply.push("--apply");
+    app.ok(&apply);
+    let disabled = std::fs::read_to_string(&path).unwrap();
+    assert!(disabled.contains("context_tokens = '233k' # keep this"));
+    assert!(disabled.contains("idle_minutes = 17"));
+    assert!(disabled.contains("idle_minutes = 42"));
+    let report = app.ok(&["--setup-settings"]);
+    let report = String::from_utf8_lossy(&report.stdout);
+    for key in [
+        "codex_context",
+        "claude_context",
+        "codex_idle",
+        "claude_idle",
+    ] {
+        assert!(report.contains(&format!("{key}=false")), "{report}");
+    }
+    app.ok(&apply);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), disabled);
+    app.ok(&enable);
+    let enabled = std::fs::read_to_string(&path).unwrap();
+    let config = aherald::config::Config::parse(&enabled, &app.root).unwrap();
+    assert_eq!(config.codex.warnings.context_tokens.unwrap().0, 233_000);
+    assert_eq!(config.claude.warnings.context_tokens.unwrap().0, 390_000);
+    assert_eq!(config.codex.warnings.idle_minutes, Some(17));
+    assert_eq!(config.claude.warnings.idle_minutes, Some(42));
+    let report = app.ok(&["--setup-settings"]);
+    let report = String::from_utf8_lossy(&report.stdout);
+    for key in [
+        "codex_context",
+        "claude_context",
+        "codex_idle",
+        "claude_idle",
+    ] {
+        assert!(report.contains(&format!("{key}=true")), "{report}");
+    }
+}
+
+#[test]
+fn installer_warning_selections_are_independent_and_restore_zero_idle() {
+    let app = Install::new("warning-independent");
+    let path = app.root.join("config.toml");
+    std::fs::write(&path, "[codex.warnings]\nidle_minutes = 0 # disabled before\n[claude.warnings]\ncontext_tokens = '399k'\nidle_minutes = 19\n").unwrap();
+    app.ok(&[
+        "--unsetup",
+        "--codex-context",
+        "true",
+        "--codex-idle",
+        "true",
+        "--apply",
+    ]);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let config = aherald::config::Config::parse(&text, &app.root).unwrap();
+    assert_eq!(config.codex.warnings.idle_threshold(), Some(25));
+    assert_eq!(
+        config.codex.warnings.context_threshold().unwrap().0,
+        250_000
+    );
+    assert_eq!(
+        config.claude.warnings.context_threshold().unwrap().0,
+        399_000
+    );
+    assert_eq!(config.claude.warnings.idle_threshold(), Some(19));
+    assert!(text.contains("idle_minutes = 25 # disabled before"));
+    for flag in [
+        "--codex-context",
+        "--claude-context",
+        "--codex-idle",
+        "--claude-idle",
+    ] {
+        for args in [
+            vec![flag, "true"],
+            vec!["--unsetup", flag, "yes"],
+            vec!["--unsetup", flag, "true", flag, "false"],
+            vec!["--setup-settings", flag, "true"],
+        ] {
+            assert!(!app.run(&args).status.success(), "{args:?}");
+        }
+    }
+}
+
+#[test]
 fn installer_reads_usage_defaults_without_creating_config() {
     let app = Install::new("usage-read");
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=false"
+        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
     );
     assert!(!app.root.join("config.toml").exists());
 }
@@ -466,7 +795,7 @@ fn installer_changes_only_selected_usage_and_preserves_comments_and_sources() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=true"
+        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
     );
     let args = ["--setup", "--harness", "codex", "--codex-usage", "true"];
     app.ok(&args);
@@ -550,7 +879,7 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "codex_usage=true\nclaude_usage=false"
+        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
     );
     for args in [
         vec!["--codex-usage", "true"],

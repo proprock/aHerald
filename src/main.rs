@@ -220,7 +220,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     if cli.operation.as_deref() == Some("hook") {
         if let Some(report) = hook_context {
             if cli.hook_agent().hooks_enabled(&config)
-                && config.codex.warnings.context_tokens.is_some()
+                && config.codex.warnings.context_threshold().is_some()
                 && cli.selected_mode(&config) == aherald::config::Mode::Resident
             {
                 // Observation only: do not start a resident or fail the model request.
@@ -262,8 +262,10 @@ fn dispatch(
 ) -> Result<(), String> {
     if event.ended || event.activity {
         let idle_enabled = match event.source.agent() {
-            Some(aherald::agent::Agent::Claude) => config.claude.warnings.idle_minutes.is_some(),
-            Some(aherald::agent::Agent::Codex) => config.codex.warnings.idle_minutes.is_some(),
+            Some(aherald::agent::Agent::Claude) => {
+                config.claude.warnings.idle_threshold().is_some()
+            }
+            Some(aherald::agent::Agent::Codex) => config.codex.warnings.idle_threshold().is_some(),
             None => false,
         };
         if event.activity && !idle_enabled {

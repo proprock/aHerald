@@ -75,6 +75,14 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   loaded from existing configuration on upgrade. Explain Claude auto (local
   login, then statusLine); preserve its configured source, other settings,
   comments and formatting. Include configuration changes in setup rollback.
+  Offer per-agent context/idle warning checkboxes, loaded from live configuration.
+  First context enablement supplies Codex 250k / Claude 400k only when no threshold
+  exists; idle uses Codex 25 / Claude 55 minutes. Preserve custom thresholds when
+  disabling or re-enabling warnings, with separate persisted enabled flags.
+  When Claude context is enabled for a selected Claude harness, configure its
+  statusLine wrapper transactionally, preserve the original command and options,
+  avoid nesting on repeat setup, and restore only an unchanged owned wrapper on
+  disable, deselection or uninstall.
   Verify generated hooks, delivery and dismissal, installer GUI,
   selection changes, upgrade/uninstall, and a clean Windows machine without
   WSL/Bash or development runtimes. See docs/installation.md.

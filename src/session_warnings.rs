@@ -55,8 +55,8 @@ impl Warnings {
             return;
         }
         let minutes = match event.source {
-            Source::ClaudeHook => config.claude.warnings.idle_minutes,
-            Source::CodexHook => config.codex.warnings.idle_minutes,
+            Source::ClaudeHook => config.claude.warnings.idle_threshold(),
+            Source::CodexHook => config.codex.warnings.idle_threshold(),
             _ => return,
         };
         if event.ended {
@@ -151,12 +151,14 @@ impl Warnings {
         config: &Config,
     ) -> Option<Event> {
         let (threshold, source) = match agent {
-            crate::agent::Agent::Claude => {
-                (config.claude.warnings.context_tokens?, Source::ClaudeHook)
-            }
-            crate::agent::Agent::Codex => {
-                (config.codex.warnings.context_tokens?, Source::CodexHook)
-            }
+            crate::agent::Agent::Claude => (
+                config.claude.warnings.context_threshold()?,
+                Source::ClaudeHook,
+            ),
+            crate::agent::Agent::Codex => (
+                config.codex.warnings.context_threshold()?,
+                Source::CodexHook,
+            ),
         };
         let tokens = tokens?;
         let mut event = Event::demo("context_warning").ok()?;
