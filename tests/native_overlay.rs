@@ -38,6 +38,7 @@ fn preview_demo() {
 }
 
 fn demo_window(preview: bool) {
+    let _serial = serial();
     struct DemoChild(std::process::Child, PathBuf);
     impl Drop for DemoChild {
         fn drop(&mut self) {
