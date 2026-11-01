@@ -413,18 +413,39 @@ impl Default for Codex {
     }
 }
 /// Context is opt-in. Agent defaults supply idle time; an explicit zero disables it.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionWarnings {
+    pub context_enabled: bool,
+    pub idle_enabled: bool,
     pub context_tokens: Option<TokenThreshold>,
     pub idle_minutes: Option<u64>,
 }
 
+impl Default for SessionWarnings {
+    fn default() -> Self {
+        Self {
+            context_enabled: true,
+            idle_enabled: true,
+            context_tokens: None,
+            idle_minutes: None,
+        }
+    }
+}
+
 impl SessionWarnings {
+    pub fn context_threshold(&self) -> Option<TokenThreshold> {
+        self.context_tokens.filter(|_| self.context_enabled)
+    }
+
+    pub fn idle_threshold(&self) -> Option<u64> {
+        self.idle_minutes.filter(|_| self.idle_enabled)
+    }
+
     fn with_idle(minutes: u64) -> Self {
         Self {
-            context_tokens: None,
             idle_minutes: Some(minutes),
+            ..Self::default()
         }
     }
 }
@@ -628,9 +649,6 @@ impl Config {
         )
     }
     fn validate(&self) -> Result<(), String> {
-        if self.codex.warnings.context_tokens.is_some() {
-            return Err("invalid configuration: codex.warnings.context_tokens is unsupported (no passive context source)".into());
-        }
         for (agent, warnings) in [
             ("claude", &self.claude.warnings),
             ("codex", &self.codex.warnings),

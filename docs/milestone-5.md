@@ -186,3 +186,58 @@ The user confirmed on 2026-10-25 that a second mixed-DPI monitor and Windows 10
 are unavailable. Those checks remain unverified. Proceeding with AH-021 does not
 close AH-020's outstanding physical display acceptance. Work pauses before
 AH-022 at the user's request; no portable ZIP has been produced in this slice.
+
+## Routine artwork performance check
+
+Run `cargo test --test perf_artwork -- --nocapture` for a short, headless
+warm-file-cache check. It calls the real `artwork::prepare_at` path (metadata and
+PNG reads, decode, frame extraction, resize and premultiplication), with a frozen
+copy of the four original eight-frame 64x64 builtins in
+`tests/fixtures/perf_artwork`. Do not regenerate these fixtures with application
+assets: changing the workload requires an explicit baseline review.
+
+The scale is always 1.0, interpolation is nearest, and visual selection is builtin.
+No resident, prepared-animation cache, user configuration or monitor DPI is involved.
+Each kind is prepared three times for warmup, then 25 times for measurement;
+kind order rotates each round. Every preparation must produce eight 64x64 BGRA
+frames with the expected timing, so missing artwork cannot pass as a fast fallback.
+Each result is dropped before the next preparation. Timing stops before output
+validation and deallocation, matching the preparation boundary rather than the
+whole test iteration.
+
+The check reports sample count, mean, median, population standard deviation,
+minimum, nearest-rank p95 and maximum separately for each kind. It fails if any
+kind's mean exceeds 30 ms; the historical numerical budget is retained, not
+recalibrated from a passing run. The workload and per-kind aggregation differ from
+the resident baseline, so their means are not directly interchangeable. Filesystem
+cache warmup does not eliminate scheduling or frequency noise. This measures elapsed
+time, not CPU time, and is a regression guard, not a confidence guarantee or a
+cold-start/notification-latency measurement.
+
+The resident `perf_baseline` retains real monitor DPI. On 2026-11-01 its artwork
+mean budget changed from 30 to 61 ms and composition from 25 to 28 ms. The limits
+are rounded down to whole milliseconds within 10% above observed maximum means:
+55.805 ms for artwork in a full-suite run, 25.83 ms for composition. Ten subsequent
+isolated runs at 144 DPI gave artwork means of 35.37-40.42 ms (sample SD 1.55 ms);
+the earlier full-suite observation is retained rather than selecting only the
+quieter series. The proposed 100 ms budget was rejected as too permissive.
+Other limits and the fixed-1x `perf_artwork` 30 ms budget are unchanged. Other DPI
+is not fully calibrated. See [the investigation](perf-baseline-investigation.md)
+for evidence, calibration data and sensitivity limitations.
+The new target is included in `cargo test --all-targets` and can also run independently
+on platforms supported by the portable artwork module. Platform acceptance is only
+claimed for systems on which it has actually been executed.
+
+Initial verification before budget calibration, Windows 11 build 22621
+(2026-11-01, unoptimized test profile):
+the new check passed four standalone runs (2.51, 1.09, 0.98 and 1.13 s) and the
+full-suite run (1.15 s), excluding Cargo compilation. In the three standalone
+repeat runs, per-kind means ranged from 7.98 to 10.25 ms; the initial run under
+load reached 21.35 ms. These are local observations, not portable timing promises.
+Formatting, Clippy with warnings denied, the Windows MSVC release build and diff
+hygiene passed. The full `cargo test --all-targets --no-fail-fast` run had only the
+unchanged resident `perf_baseline` target failing (artwork.prepare mean 55.805 ms,
+30 ms budget); all other executed targets, including perf_artwork, passed.
+At that initial stage no application behavior, dependency or baseline budget changed.
+After the budget calibration above, both focused checks, the full test suite,
+formatting, Clippy and the Windows release build passed; see the investigation report.

@@ -34,6 +34,7 @@ OutputBaseFilename=aherald-v{#AppVersion}-windows-x64-setup{#OutputSuffix}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+WizardSizePercent=120,140
 LicenseFile=..\LICENSE
 
 [Tasks]
@@ -41,6 +42,10 @@ Name: codex; Description: "Configure Codex hooks for this user"; GroupDescriptio
 Name: claude; Description: "Configure Claude Code hooks for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
 Name: usagecodex; Description: "Show Codex usage"; GroupDescription: "Optional usage display:"; Flags: unchecked
 Name: usageclaude; Description: "Show Claude usage"; GroupDescription: "Optional usage display:"; Flags: unchecked
+Name: contextcodex; Description: "Codex context warning (250k tokens)"; GroupDescription: "Session warnings (existing thresholds are preserved):"; Flags: unchecked
+Name: contextclaude; Description: "Claude context warning (400k tokens)"; GroupDescription: "Session warnings (existing thresholds are preserved):"; Flags: unchecked
+Name: idlecodex; Description: "Codex idle warning (25 minutes)"; GroupDescription: "Session warnings (existing thresholds are preserved):"; Flags: unchecked
+Name: idleclaude; Description: "Claude idle warning (55 minutes)"; GroupDescription: "Session warnings (existing thresholds are preserved):"; Flags: unchecked
 
 [Files]
 Source: "{#PackageDir}\aherald.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -63,21 +68,22 @@ Filename: "{app}\aherald.exe"; Parameters: "--resident"; Description: "Launch aH
 [Code]
 var
   SetupFailed: Boolean;
-  UsageTasksLoadedFor: String;
+  SettingsTasksLoadedFor: String;
 
 procedure InitializeWizard;
 var
   UsageNote: TNewStaticText;
 begin
-  WizardForm.TasksList.Height := WizardForm.TasksList.Height - ScaleY(60);
+  WizardForm.TasksList.Height := WizardForm.TasksList.Height - ScaleY(78);
   UsageNote := TNewStaticText.Create(WizardForm);
   UsageNote.Parent := WizardForm.SelectTasksPage;
   UsageNote.AutoSize := False;
   UsageNote.WordWrap := True;
   UsageNote.SetBounds(WizardForm.TasksList.Left,
     WizardForm.TasksList.Top + WizardForm.TasksList.Height + ScaleY(6),
-    WizardForm.TasksList.Width, ScaleY(54));
-  UsageNote.Caption := 'Usage uses your signed-in account. Claude defaults to auto: local Claude login, then statusLine. Upgrades keep the configured Claude source.';
+    WizardForm.TasksList.Width, ScaleY(72));
+  UsageNote.Caption := 'Usage uses your signed-in account. Claude defaults to auto: local Claude login, then statusLine. Upgrades keep the configured Claude source.' + #13#10 +
+    'Warnings require a running resident. Enabling Claude context configures the statusLine wrapper and preserves your existing status line.';
 end;
 
 function SetupParams: String;
@@ -198,30 +204,57 @@ begin
   end;
 end;
 
-function UsageParams: String;
+function SettingsParams: String;
 begin
   if WizardIsTaskSelected('usagecodex') then Result := ' --codex-usage true'
   else Result := ' --codex-usage false';
   if WizardIsTaskSelected('usageclaude') then Result := Result + ' --claude-usage true'
   else Result := Result + ' --claude-usage false';
+  if WizardIsTaskSelected('contextcodex') then Result := Result + ' --codex-context true'
+  else Result := Result + ' --codex-context false';
+  if WizardIsTaskSelected('contextclaude') then Result := Result + ' --claude-context true'
+  else Result := Result + ' --claude-context false';
+  if WizardIsTaskSelected('idlecodex') then Result := Result + ' --codex-idle true'
+  else Result := Result + ' --codex-idle false';
+  if WizardIsTaskSelected('idleclaude') then Result := Result + ' --claude-idle true'
+  else Result := Result + ' --claude-idle false';
   Result := Result + ' --settings-file "' + ExpandConstant('{app}\config.toml') + '"';
+  Result := Result + ' --setup-executable "' + ExpandConstant('{app}\aherald.exe') + '"';
 end;
 
-function LoadUsageTasks: String;
+function ReadTaskSetting(const Lines: TArrayOfString; const Key, Task: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 0 to GetArrayLength(Lines) - 1 do begin
+    if Lines[I] = Key + '=true' then begin
+      WizardSelectTasks(Task);
+      Result := True;
+      Exit;
+    end;
+    if Lines[I] = Key + '=false' then begin
+      WizardSelectTasks('!' + Task);
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function LoadSettingsTasks: String;
 var
   Code, I: Integer;
   Output: TExecOutput;
   ConfigFile: String;
-  HasCodex, HasClaude, CodexUsage, ClaudeUsage: Boolean;
 begin
   Result := '';
   ConfigFile := ExpandConstant('{app}\config.toml');
-  if UsageTasksLoadedFor = ConfigFile then Exit;
+  if SettingsTasksLoadedFor = ConfigFile then Exit;
   ExtractTemporaryFile('aherald.exe');
   if not ExecAndCaptureOutput(ExpandConstant('{tmp}\aherald.exe'),
     '--setup-settings --settings-file "' + ConfigFile + '"', '', SW_HIDE,
     ewWaitUntilTerminated, Code, Output) then begin
-    Result := 'Could not read the existing usage settings: ' + SysErrorMessage(Code);
+    Result := 'Could not read the existing settings: ' + SysErrorMessage(Code);
     Exit;
   end;
   if (Code <> 0) or Output.Error then begin
@@ -230,29 +263,16 @@ begin
       Result := Result + #13#10 + Output.StdErr[I];
     Exit;
   end;
-  HasCodex := False;
-  HasClaude := False;
-  CodexUsage := False;
-  ClaudeUsage := False;
-  for I := 0 to GetArrayLength(Output.StdOut) - 1 do begin
-    if (Output.StdOut[I] = 'codex_usage=true') or (Output.StdOut[I] = 'codex_usage=false') then begin
-      HasCodex := True;
-      CodexUsage := Output.StdOut[I] = 'codex_usage=true';
-    end;
-    if (Output.StdOut[I] = 'claude_usage=true') or (Output.StdOut[I] = 'claude_usage=false') then begin
-      HasClaude := True;
-      ClaudeUsage := Output.StdOut[I] = 'claude_usage=true';
-    end;
-  end;
-  if not (HasCodex and HasClaude) then begin
-    Result := 'The application returned an incomplete usage settings report.';
+  if not ReadTaskSetting(Output.StdOut, 'codex_usage', 'usagecodex') or
+     not ReadTaskSetting(Output.StdOut, 'claude_usage', 'usageclaude') or
+     not ReadTaskSetting(Output.StdOut, 'codex_context', 'contextcodex') or
+     not ReadTaskSetting(Output.StdOut, 'claude_context', 'contextclaude') or
+     not ReadTaskSetting(Output.StdOut, 'codex_idle', 'idlecodex') or
+     not ReadTaskSetting(Output.StdOut, 'claude_idle', 'idleclaude') then begin
+    Result := 'The application returned an incomplete settings report.';
     Exit;
   end;
-  if CodexUsage then WizardSelectTasks('usagecodex')
-  else WizardSelectTasks('!usagecodex');
-  if ClaudeUsage then WizardSelectTasks('usageclaude')
-  else WizardSelectTasks('!usageclaude');
-  UsageTasksLoadedFor := ConfigFile;
+  SettingsTasksLoadedFor := ConfigFile;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
@@ -260,7 +280,7 @@ var
   Error: String;
 begin
   if (CurPageID = wpSelectTasks) and not WizardSilent then begin
-    Error := LoadUsageTasks;
+    Error := LoadSettingsTasks;
     if Error <> '' then SuppressibleMsgBox(Error, mbError, MB_OK, IDOK);
   end;
 end;
@@ -272,10 +292,10 @@ begin
   ExtractTemporaryFile('aherald.exe');
   // Explicit /TASKS is a complete selection. Without it, silent upgrades read config.
   if WizardSilent and (ExpandConstant('{param:TASKS|__unspecified__}') = '__unspecified__') then begin
-    Result := LoadUsageTasks;
+    Result := LoadSettingsTasks;
     if Result <> '' then Exit;
   end;
-  Result := RunSetup(ExpandConstant('{tmp}\aherald.exe'), SetupParams + UsageParams);
+  Result := RunSetup(ExpandConstant('{tmp}\aherald.exe'), SetupParams + SettingsParams);
   if Result = '' then Result := StopInstalledResident;
 end;
 
@@ -284,7 +304,7 @@ var
   Error: String;
 begin
   if CurStep = ssPostInstall then begin
-    Error := RunSetup(ExpandConstant('{app}\aherald.exe'), SetupParams + UsageParams + ' --apply');
+    Error := RunSetup(ExpandConstant('{app}\aherald.exe'), SetupParams + SettingsParams + ' --apply');
     SetupFailed := Error <> '';
     if SetupFailed then begin
       Log(Error);

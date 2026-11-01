@@ -30,7 +30,7 @@ pub struct CardText<'a> {
 /// What an event card shows: its heading, kind, queue position and (resident) age.
 pub fn event_card_text<'a>(
     config: &Config,
-    event: &Event,
+    event: &'a Event,
     controls: &'a Card,
     age: Option<&'a str>,
 ) -> CardText<'a> {

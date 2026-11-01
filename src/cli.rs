@@ -16,7 +16,7 @@ pub struct Cli {
     pub apply: bool,
     /// Harnesses explicitly selected by the user or installer.
     pub harnesses: Vec<Agent>,
-    /// Explicit installer usage preferences; omitted values are preserved.
+    /// Explicit installer preferences; omitted values are preserved.
     pub usage: crate::setup::UsageOptions,
     /// Hook file to use instead of the agent's default one.
     pub hooks_file: Option<PathBuf>,
@@ -98,20 +98,34 @@ impl Cli {
                     }
                     cli.harnesses.push(agent);
                 }
-                "--codex-usage" | "--claude-usage" => {
+                "--codex-usage" | "--claude-usage" | "--codex-context" | "--claude-context"
+                | "--codex-idle" | "--claude-idle" => {
                     let selected = match args.next().as_deref() {
                         Some("true") => true,
                         Some("false") => false,
-                        _ => return Err("usage selection must be true or false".into()),
+                        _ => return Err("setting selection must be true or false".into()),
                     };
-                    let slot = if arg == "--codex-usage" {
-                        &mut cli.usage.codex
-                    } else {
-                        &mut cli.usage.claude
+                    let slot = match arg.as_str() {
+                        "--codex-usage" => &mut cli.usage.codex,
+                        "--claude-usage" => &mut cli.usage.claude,
+                        "--codex-context" => &mut cli.usage.codex_context,
+                        "--claude-context" => &mut cli.usage.claude_context,
+                        "--codex-idle" => &mut cli.usage.codex_idle,
+                        _ => &mut cli.usage.claude_idle,
                     };
                     if slot.replace(selected).is_some() {
-                        return Err("duplicate usage selection".into());
+                        return Err("duplicate setting selection".into());
                     }
+                }
+                "--setup-executable" => {
+                    if cli.usage.executable.is_some() {
+                        return Err("duplicate --setup-executable".into());
+                    }
+                    cli.usage.executable = Some(
+                        args.next()
+                            .ok_or("--setup-executable requires a path")?
+                            .into(),
+                    );
                 }
                 "--settings-file" => {
                     if cli.usage.file.is_some() {
@@ -176,8 +190,11 @@ impl Cli {
             return Err("--harness is only valid with --setup".into());
         }
         let settings_read = cli.operation.as_deref() == Some("setup-settings");
-        if (cli.usage.codex.is_some() || cli.usage.claude.is_some()) && !native_setup {
-            return Err("usage selections are only valid with --setup or --unsetup".into());
+        if cli.usage.executable.is_some() && !native_setup {
+            return Err("--setup-executable is only valid with --setup or --unsetup".into());
+        }
+        if cli.usage.has_selections() && !native_setup {
+            return Err("setting selections are only valid with --setup or --unsetup".into());
         }
         if cli.usage.file.is_some() && !native_setup && !settings_read {
             return Err("--settings-file is only valid with native setup".into());

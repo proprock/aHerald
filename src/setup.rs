@@ -21,13 +21,43 @@ struct Receipt {
     version: u32,
     executable: PathBuf,
     bindings: Vec<Binding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    statusline: Option<StatusLineBinding>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusLineBinding {
+    file: PathBuf,
+    installed: Value,
+    original: Option<Value>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct UsageOptions {
     pub file: Option<PathBuf>,
+    pub executable: Option<PathBuf>,
     pub codex: Option<bool>,
     pub claude: Option<bool>,
+    pub codex_context: Option<bool>,
+    pub claude_context: Option<bool>,
+    pub codex_idle: Option<bool>,
+    pub claude_idle: Option<bool>,
+}
+
+impl UsageOptions {
+    pub fn has_selections(&self) -> bool {
+        [
+            self.codex,
+            self.claude,
+            self.codex_context,
+            self.claude_context,
+            self.codex_idle,
+            self.claude_idle,
+        ]
+        .iter()
+        .any(Option::is_some)
+    }
 }
 
 fn settings_file(exe: &Path, selected: Option<&Path>) -> Result<PathBuf, String> {
@@ -58,13 +88,18 @@ fn settings_text(file: &Path) -> Result<(Option<String>, crate::config::Config),
 pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, String> {
     let (_, config) = settings_text(&settings_file(exe, selected)?)?;
     Ok(format!(
-        "codex_usage={}\nclaude_usage={}\n",
-        config.codex.usage.enabled, config.claude.usage.enabled
+        "codex_usage={}\nclaude_usage={}\ncodex_context={}\nclaude_context={}\ncodex_idle={}\nclaude_idle={}\n",
+        config.codex.usage.enabled,
+        config.claude.usage.enabled,
+        config.codex.warnings.context_threshold().is_some(),
+        config.claude.warnings.context_threshold().is_some(),
+        config.codex.warnings.idle_threshold().is_some(),
+        config.claude.warnings.idle_threshold().is_some()
     ))
 }
 
 fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, String> {
-    if options.codex.is_none() && options.claude.is_none() {
+    if !options.has_selections() {
         return Ok(None);
     }
     let file = settings_file(exe, options.file.as_deref())?;
@@ -75,6 +110,7 @@ fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, Stri
     let mut document = text
         .parse::<toml_edit::DocumentMut>()
         .map_err(|_| "cannot edit configuration TOML")?;
+    let mut changed = false;
     for (agent, selected, current) in [
         ("codex", options.codex, config.codex.usage.enabled),
         ("claude", options.claude, config.claude.usage.enabled),
@@ -82,24 +118,60 @@ fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, Stri
         if let Some(selected) = selected
             && selected != current
         {
-            let item = &mut document[agent]["usage"]["enabled"];
-            // Replacing only the scalar must retain the user's surrounding comment.
-            let decor = item.as_value().map(|value| value.decor().clone());
-            let mut value = toml_edit::Value::from(selected);
-            if let Some(decor) = decor {
-                *value.decor_mut() = decor;
-            }
-            *item = toml_edit::Item::Value(value);
+            replace_setting(&mut document[agent]["usage"]["enabled"], selected.into());
+            changed = true;
         }
     }
-    let after = if before.is_some()
-        && options
-            .codex
-            .is_none_or(|value| value == config.codex.usage.enabled)
-        && options
-            .claude
-            .is_none_or(|value| value == config.claude.usage.enabled)
-    {
+    for (agent, context, idle, current, default_context, default_idle) in [
+        (
+            "codex",
+            options.codex_context,
+            options.codex_idle,
+            &config.codex.warnings,
+            "250k",
+            25_i64,
+        ),
+        (
+            "claude",
+            options.claude_context,
+            options.claude_idle,
+            &config.claude.warnings,
+            "400k",
+            55_i64,
+        ),
+    ] {
+        for (selected, key, enabled, threshold, missing, default) in [
+            (
+                context,
+                "context_enabled",
+                current.context_enabled,
+                "context_tokens",
+                current.context_tokens.is_none(),
+                toml_edit::Value::from(default_context),
+            ),
+            (
+                idle,
+                "idle_enabled",
+                current.idle_enabled,
+                "idle_minutes",
+                current.idle_minutes.is_none(),
+                toml_edit::Value::from(default_idle),
+            ),
+        ] {
+            if let Some(selected) = selected
+                && (selected != enabled || (selected && missing))
+            {
+                if selected != enabled {
+                    replace_setting(&mut document[agent]["warnings"][key], selected.into());
+                }
+                if selected && missing {
+                    replace_setting(&mut document[agent]["warnings"][threshold], default);
+                }
+                changed = true;
+            }
+        }
+    }
+    let after = if before.is_some() && !changed {
         text.to_owned()
     } else {
         document.to_string()
@@ -113,6 +185,14 @@ fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, Stri
             after,
         }))
     }
+}
+
+fn replace_setting(item: &mut toml_edit::Item, mut value: toml_edit::Value) {
+    // Replacing only the scalar retains the user's surrounding comment.
+    if let Some(old) = item.as_value() {
+        *value.decor_mut() = old.decor().clone();
+    }
+    *item = toml_edit::Item::Value(value);
 }
 
 struct Change {
@@ -224,10 +304,15 @@ fn add_plan(
         return Err("setup receipt contains a relative hook path".into());
     }
     let before = read(&binding.file)?;
+    let existing = changes
+        .iter()
+        .find(|c| c.file == binding.file)
+        .map(|c| c.after.as_str())
+        .or(before.as_deref());
     let Plan {
         text,
         changes: descriptions,
-    } = hook_setup::plan_handler(before.as_deref(), agent, &binding.handler, action, |h| {
+    } = hook_setup::plan_handler(existing, agent, &binding.handler, action, |h| {
         if action == Action::Install {
             same_execution(h, &binding.handler) || generated_handler(h, agent)
         } else {
@@ -242,13 +327,200 @@ fn add_plan(
         for description in descriptions {
             report.push_str(&format!("  {description}\n"));
         }
-        changes.push(Change {
-            file: binding.file.clone(),
-            before,
-            after: text,
-        });
+        merge_change(
+            changes,
+            Change {
+                file: binding.file.clone(),
+                before,
+                after: text,
+            },
+        );
     }
     Ok(())
+}
+
+fn merge_change(changes: &mut Vec<Change>, change: Change) {
+    if let Some(pending) = changes.iter_mut().find(|c| c.file == change.file) {
+        pending.after = change.after;
+    } else {
+        changes.push(change);
+    }
+}
+
+fn statusline_plan(
+    exe: &Path,
+    selected_file: Option<&Path>,
+    previous: Option<StatusLineBinding>,
+    changes: &mut Vec<Change>,
+    report: &mut String,
+) -> Result<Option<StatusLineBinding>, String> {
+    let mut original = None;
+    let mut owned = false;
+    if let Some(old) = previous {
+        if !old.file.is_absolute() {
+            return Err("setup receipt contains a relative statusLine path".into());
+        }
+        let before = read(&old.file)?;
+        let text = changes
+            .iter()
+            .find(|c| c.file == old.file)
+            .map(|c| c.after.as_str())
+            .or(before.as_deref())
+            .unwrap_or("{}");
+        let mut root: Value =
+            serde_json::from_str(text).map_err(|_| "invalid Claude settings JSON")?;
+        if root.get("statusLine") == Some(&old.installed) {
+            if selected_file == Some(old.file.as_path()) {
+                original = old.original;
+                owned = true;
+            } else {
+                if let Some(value) = old.original {
+                    root["statusLine"] = value;
+                } else {
+                    root.as_object_mut()
+                        .ok_or("Claude settings must be an object")?
+                        .remove("statusLine");
+                }
+                merge_change(
+                    changes,
+                    Change {
+                        file: old.file,
+                        before,
+                        after: serde_json::to_string_pretty(&root)
+                            .map_err(|_| "cannot encode Claude settings")?
+                            + "\n",
+                    },
+                );
+                report.push_str("Claude: restore the original statusLine.\n");
+            }
+        }
+    }
+    let Some(file) = selected_file else {
+        return Ok(None);
+    };
+    let before = read(file)?;
+    let text = changes
+        .iter()
+        .find(|c| c.file == file)
+        .map(|c| c.after.as_str())
+        .or(before.as_deref())
+        .unwrap_or("{}");
+    let mut root: Value = serde_json::from_str(text).map_err(|_| "invalid Claude settings JSON")?;
+    let object = root
+        .as_object_mut()
+        .ok_or("Claude settings must be an object")?;
+    let current = object.get("statusLine").cloned();
+    // A retained binding supplies the original command; never nest our wrapper.
+    if !owned {
+        original = current.clone().filter(|value| {
+            !value["command"]
+                .as_str()
+                .is_some_and(|s| s.contains("aherald") && s.contains(" --statusline"))
+        });
+        if current.is_some()
+            && original.is_none()
+            && !current
+                .as_ref()
+                .is_some_and(|v| v["command"] == statusline_command(exe, None))
+        {
+            return Err("a different aHerald statusLine is set; uninstall it first".into());
+        }
+    }
+    let command = match original.as_ref() {
+        None => None,
+        Some(value) if value["type"] == "command" => Some(
+            value["command"]
+                .as_str()
+                .ok_or("Claude statusLine has no command")?,
+        ),
+        Some(_) => return Err("Claude statusLine is not a command".into()),
+    };
+    let mut installed = original
+        .clone()
+        .unwrap_or_else(|| json!({"type":"command"}));
+    let wrapped = statusline_command(exe, command);
+    if wrapped.encode_utf16().count() > 30000 {
+        return Err("Claude statusLine command exceeds the Windows command-line limit".into());
+    }
+    installed["command"] = wrapped.into();
+    if current.as_ref() != Some(&installed) {
+        object.insert("statusLine".into(), installed.clone());
+        merge_change(
+            changes,
+            Change {
+                file: file.to_path_buf(),
+                before,
+                after: serde_json::to_string_pretty(&root)
+                    .map_err(|_| "cannot encode Claude settings")?
+                    + "\n",
+            },
+        );
+        report.push_str("Claude: configure the context statusLine wrapper.\n");
+    }
+    Ok(Some(StatusLineBinding {
+        file: file.to_path_buf(),
+        installed,
+        original,
+    }))
+}
+
+fn statusline_command(exe: &Path, original: Option<&str>) -> String {
+    #[cfg(windows)]
+    {
+        // Numeric UTF-16 literals avoid expansion by either Git Bash or PowerShell.
+        let literal = |text: &str| {
+            format!(
+                "(-join [char[]]({}))",
+                text.encode_utf16()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        let then = original
+            .map(|s| format!(" --then {}", quote_windows_argument(s)))
+            .unwrap_or_default();
+        // Process.Start initializes a text writer even though we use its byte stream.
+        // Use BOM-free input encoding so that initialization cannot prefix the payload.
+        let script = format!(
+            "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Diagnostics.ProcessStartInfo]::new(); $s.FileName='{}'; $s.Arguments='{}'; $s.UseShellExecute=$false; $s.CreateNoWindow=$true; $s.RedirectStandardInput=$true; $s.RedirectStandardOutput=$true; $p=[Diagnostics.Process]::Start($s); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.BaseStream.Close(); $p.StandardOutput.BaseStream.CopyTo([Console]::OpenStandardOutput()); $p.WaitForExit(); exit $p.ExitCode",
+            exe.display().to_string().replace('\'', "''"),
+            format!("--statusline{then}").replace('\'', "''")
+        );
+        format!(
+            "powershell.exe -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create({})); # aherald --statusline\"",
+            literal(&script)
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let base = hook_setup::statusline_command(exe);
+        match original {
+            Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
+            None => base,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn quote_windows_argument(text: &str) -> String {
+    let mut quoted = String::from("\"");
+    let mut slashes = 0;
+    for ch in text.chars() {
+        if ch == '\\' {
+            slashes += 1;
+            continue;
+        }
+        quoted.extend(std::iter::repeat_n(
+            '\\',
+            if ch == '"' { slashes * 2 + 1 } else { slashes },
+        ));
+        quoted.push(ch);
+        slashes = 0;
+    }
+    quoted.extend(std::iter::repeat_n('\\', slashes * 2));
+    quoted.push('"');
+    quoted
 }
 
 /// Preflight every selected file before writing. The receipt records paths and exact
@@ -264,6 +536,10 @@ pub fn run_with_options(
     apply: bool,
     options: &UsageOptions,
 ) -> Result<String, String> {
+    let exe = options.executable.as_deref().unwrap_or(exe);
+    if !exe.is_absolute() {
+        return Err("setup executable path must be absolute".into());
+    }
     let receipt_file =
         crate::paths::data_dir_with(exe, |key| std::env::var_os(key))?.join("aherald-setup.json");
     let receipt_before = read(&receipt_file)?;
@@ -274,6 +550,7 @@ pub fn run_with_options(
             version: 1,
             executable: exe.to_path_buf(),
             bindings: Vec::new(),
+            statusline: None,
         },
     };
     if previous.version != 1 {
@@ -318,10 +595,44 @@ pub fn run_with_options(
     for binding in &bindings {
         add_plan(binding, Action::Install, &mut changes, &mut report)?;
     }
+    let claude_file = bindings
+        .iter()
+        .find(|b| b.agent == "claude")
+        .map(|b| b.file.clone());
+    let context_enabled = if claude_file.is_some() {
+        let file = settings_file(exe, options.file.as_deref())?;
+        if let Some(change) = changes.iter().find(|c| c.file == file) {
+            crate::config::Config::parse(
+                &change.after,
+                file.parent().ok_or("configuration has no directory")?,
+            )?
+            .claude
+            .warnings
+            .context_threshold()
+            .is_some()
+        } else {
+            settings_text(&file)?
+                .1
+                .claude
+                .warnings
+                .context_threshold()
+                .is_some()
+        }
+    } else {
+        false
+    };
+    let statusline = statusline_plan(
+        exe,
+        claude_file.as_deref().filter(|_| context_enabled),
+        previous.statusline,
+        &mut changes,
+        &mut report,
+    )?;
     let receipt = serde_json::to_string_pretty(&Receipt {
         version: 1,
         executable: exe.to_path_buf(),
         bindings,
+        statusline,
     })
     .map_err(|_| "cannot encode setup receipt")?
         + "\n";

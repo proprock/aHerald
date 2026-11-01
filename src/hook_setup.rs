@@ -34,6 +34,7 @@ pub fn events(agent: Agent) -> &'static [&'static str] {
             "SessionEnd",
         ],
         Agent::Codex => &[
+            "PostModelRequest",
             "Stop",
             "PermissionRequest",
             "Interrupt",

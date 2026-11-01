@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 
 #[derive(Default)]
 pub struct Warnings {
+    context_disabled: bool,
+    idle_disabled: bool,
     sessions: VecDeque<Session>,
     sequence: u64,
     pending: VecDeque<Pending>,
@@ -21,10 +23,40 @@ struct Session {
     event: Event,
     stopped: bool,
     deadline: Option<u64>,
+    idle_started: u64,
+    idle_minutes: u64,
     above: bool,
 }
 
 impl Warnings {
+    /// Runtime gates shared by both agents; configured thresholds remain unchanged.
+    pub fn enabled(&self, kind: Kind) -> bool {
+        match kind {
+            Kind::ContextWarning => !self.context_disabled,
+            Kind::IdleWarning => !self.idle_disabled,
+            _ => true,
+        }
+    }
+
+    pub fn set_enabled(&mut self, kind: Kind, enabled: bool) {
+        match kind {
+            Kind::ContextWarning => self.context_disabled = !enabled,
+            Kind::IdleWarning => {
+                self.idle_disabled = !enabled;
+                if !enabled {
+                    for session in &mut self.sessions {
+                        session.deadline = None;
+                        session.stopped = false;
+                    }
+                }
+            }
+            _ => return,
+        }
+        if !enabled {
+            self.pending.retain(|p| p.event.kind != kind);
+        }
+    }
+
     fn session(&mut self, event: &Event) -> &mut Session {
         let index = self
             .sessions
@@ -36,6 +68,8 @@ impl Warnings {
                 event: event.clone(),
                 stopped: false,
                 deadline: None,
+                idle_started: 0,
+                idle_minutes: 0,
                 above: false,
             });
         if self.sessions.len() >= 64
@@ -55,8 +89,8 @@ impl Warnings {
             return;
         }
         let minutes = match event.source {
-            Source::ClaudeHook => config.claude.warnings.idle_minutes,
-            Source::CodexHook => config.codex.warnings.idle_minutes,
+            Source::ClaudeHook => config.claude.warnings.idle_threshold(),
+            Source::CodexHook => config.codex.warnings.idle_threshold(),
             _ => return,
         };
         if event.ended {
@@ -66,7 +100,10 @@ impl Warnings {
             self.pending.retain(|p| !same_session(&p.event, event));
             return;
         }
-        if minutes.is_none() || matches!(event.kind, Kind::ContextWarning | Kind::IdleWarning) {
+        if self.idle_disabled
+            || minutes.is_none()
+            || matches!(event.kind, Kind::ContextWarning | Kind::IdleWarning)
+        {
             return;
         }
         let pending_idle = self
@@ -82,6 +119,8 @@ impl Warnings {
         } else if !session.stopped || session.deadline.is_some() || pending_idle {
             session.stopped = true;
             session.event = event.clone();
+            session.idle_started = now;
+            session.idle_minutes = minutes.unwrap_or_default();
             session.deadline = minutes
                 .and_then(|m| m.checked_mul(60_000))
                 .and_then(|ms| now.checked_add(ms));
@@ -128,11 +167,13 @@ impl Warnings {
         for session in &mut self.sessions {
             if session.deadline.is_some_and(|deadline| now > deadline) {
                 session.deadline = None;
-                due.push(Self::warning(
-                    &session.event,
-                    Kind::IdleWarning,
-                    &mut self.sequence,
+                let mut warning =
+                    Self::warning(&session.event, Kind::IdleWarning, &mut self.sequence);
+                warning.message = Some(idle_text(
+                    now.saturating_sub(session.idle_started),
+                    session.idle_minutes,
                 ));
+                due.push(warning);
             }
         }
         self.pending
@@ -143,11 +184,29 @@ impl Warnings {
         due
     }
 
-    pub fn context(&mut self, id: &str, tokens: Option<u64>, config: &Config) -> Option<Event> {
-        let threshold = config.claude.warnings.context_tokens?;
+    pub fn context(
+        &mut self,
+        agent: crate::agent::Agent,
+        id: &str,
+        tokens: Option<u64>,
+        config: &Config,
+    ) -> Option<Event> {
+        if self.context_disabled {
+            return None;
+        }
+        let (threshold, source) = match agent {
+            crate::agent::Agent::Claude => (
+                config.claude.warnings.context_threshold()?,
+                Source::ClaudeHook,
+            ),
+            crate::agent::Agent::Codex => (
+                config.codex.warnings.context_threshold()?,
+                Source::CodexHook,
+            ),
+        };
         let tokens = tokens?;
         let mut event = Event::demo("context_warning").ok()?;
-        event.source = Source::ClaudeHook;
+        event.source = source;
         event.session_id = Some(id.into());
         event.validate().ok()?;
         let session = self.session(&event);
@@ -162,13 +221,39 @@ impl Warnings {
         if !warn {
             return None;
         }
-        let warning = Self::warning(&event, Kind::ContextWarning, &mut self.sequence);
+        let mut warning = Self::warning(&event, Kind::ContextWarning, &mut self.sequence);
+        warning.message = Some(context_text(tokens, threshold.0));
         self.pending.push_back(Pending {
             event: warning.clone(),
             logged: false,
         });
         Some(warning)
     }
+}
+
+pub(crate) fn context_text(tokens: u64, threshold: u64) -> String {
+    fn kilo(tokens: u64) -> String {
+        let whole = tokens / 1000;
+        let remainder = tokens % 1000;
+        if remainder == 0 {
+            format!("{whole}k")
+        } else {
+            format!(
+                "{whole}.{}k",
+                format!("{remainder:03}").trim_end_matches('0')
+            )
+        }
+    }
+    format!("Context: {} > {}", kilo(tokens), kilo(threshold))
+}
+
+pub(crate) fn idle_text(elapsed_ms: u64, limit_minutes: u64) -> String {
+    let seconds = elapsed_ms / 1000;
+    format!(
+        "Idle: {}m {}s (limit {limit_minutes}m)",
+        seconds / 60,
+        seconds % 60
+    )
 }
 
 fn same_session(a: &Event, b: &Event) -> bool {
@@ -208,11 +293,13 @@ mod tests {
     fn pending_warnings_log_once_and_are_cancelled_by_new_activity_or_low_context() {
         let mut state = Warnings::default();
         let config = config();
-        let warning = state.context("a", Some(120001), &config).unwrap();
+        let warning = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert!(state.admission(&warning, false));
         assert!(!state.admission(&warning, false));
         assert_eq!(state.pending().len(), 1);
-        state.context("a", Some(120000), &config);
+        state.context(crate::agent::Agent::Claude, "a", Some(120000), &config);
         assert!(state.pending().is_empty());
         let mut stop = event(Source::ClaudeHook, "a");
         state.observe(&stop, &config, 0);
@@ -289,25 +376,57 @@ mod tests {
         state.observe(&a, &config, 0);
         assert!(state.due(400_000, true).is_empty());
         assert_eq!(state.due(400_001, false).len(), 1);
-        assert!(state.context("a", Some(120001), &config).is_some());
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+                .is_some()
+        );
         a.ended = true;
         state.observe(&a, &config, 500_000);
-        assert!(state.context("a", Some(120001), &config).is_some());
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+                .is_some()
+        );
         assert!(state.due(1_000_000, false).is_empty());
     }
     #[test]
     fn context_unknown_does_not_rearm_but_a_known_low_reading_does() {
         let mut state = Warnings::default();
         let config = config();
-        assert!(state.context("a", Some(120000), &config).is_none());
-        let first = state.context("a", Some(120001), &config).unwrap();
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(120000), &config)
+                .is_none()
+        );
+        let first = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert_eq!(first.kind, Kind::ContextWarning);
         assert_eq!(first.session_id.as_deref(), Some("a"));
-        assert!(state.context("a", None, &config).is_none());
-        assert!(state.context("a", Some(130000), &config).is_none());
-        assert!(state.context("b", Some(130000), &config).is_some());
-        assert!(state.context("a", Some(119999), &config).is_none());
-        let next = state.context("a", Some(120001), &config).unwrap();
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", None, &config)
+                .is_none()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(130000), &config)
+                .is_none()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "b", Some(130000), &config)
+                .is_some()
+        );
+        assert!(
+            state
+                .context(crate::agent::Agent::Claude, "a", Some(119999), &config)
+                .is_none()
+        );
+        let next = state
+            .context(crate::agent::Agent::Claude, "a", Some(120001), &config)
+            .unwrap();
         assert_ne!(first.request_id, next.request_id);
     }
     #[test]
@@ -329,7 +448,12 @@ mod tests {
         assert!(!state.has_deadline());
         assert!(
             state
-                .context("a", Some(999999), &Config::default())
+                .context(
+                    crate::agent::Agent::Claude,
+                    "a",
+                    Some(999999),
+                    &Config::default()
+                )
                 .is_none()
         );
     }

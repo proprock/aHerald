@@ -34,21 +34,36 @@ Context warnings remain off until a threshold is configured. For example:
 
 ```toml
 [claude.warnings]
-context_tokens = "120k"
+context_enabled = true
+idle_enabled = true
+context_tokens = "400k"
 idle_minutes = 55
 
 [codex.warnings]
+context_enabled = true
+idle_enabled = true
+context_tokens = "250k"
 idle_minutes = 25
 ```
 
 `context_tokens` accepts positive integer tokens, an integer string or an integer
 string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
-are rejected. Codex context warnings are not supported in this slice; configuring
-`codex.warnings.context_tokens` reports an explicit error. Claude input context
-includes fresh input, cache creation and cache reads, each counted once. It is the
+are rejected. Each agent's threshold is independent and omitted by default (off).
+`context_enabled` and `idle_enabled` default to `true`; set either to `false` to
+disable that warning while retaining its threshold. The Windows installer uses
+these flags. When first enabled there without a context threshold, it supplies
+250k tokens for Codex or 400k for Claude; existing thresholds are preserved.
+Codex requires the `PostModelRequest` binding, verified with CLI
+`0.166.0-alpha.5.1`; rerun explicit hook setup to add it to an older installation.
+Other versions and desktop dispatch need separate verification. Codex uses the
+successful main request's `input_tokens`, which already includes cached input.
+Claude input context includes fresh input, cache creation and cache reads, each counted once. It is the
 last reported API input, not a prediction of the next request. Missing readings
 do not count as zero. A crossing strictly above the threshold queues one
 `context_warning`; a known reading at/below the threshold rearms it.
+The card shows the observed value and threshold, for example
+`Context: 250.001k > 250k`. Kilotokens use `k = 1000`, with enough fractional
+digits to preserve the exact token count. The harness is already in the heading.
 
 `idle_minutes` accepts 1..525600 minutes, or `0` to disable only that agent's idle
 reminder. Omission keeps the agent's default, including in a partial warnings
@@ -63,9 +78,13 @@ elapsed-time reminder, not proof that the provider's cache expired. Another Stop
 hook can continue work: observable tool activity cancels the provisional timer,
 but pure model continuation and delayed hook delivery cannot be perfectly
 distinguished by these lifecycle hooks.
+The card shows elapsed time and that agent's limit, for example
+`Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
+warning was created; they do not advance while waiting in the notification queue.
 
-Use resident mode. The Claude context warning additionally needs the explicitly
-installed `--statusline` wrapper; no OAuth access is needed. Both idle integrations
+Use resident mode. The Claude context warning additionally needs the `--statusline`
+wrapper, installed automatically by native setup when Claude Code and Claude
+context warnings are selected; no OAuth access is needed. Both idle integrations
 need UserPromptSubmit, PreToolUse, PostToolUse, Stop and SessionEnd; retain the
 existing PermissionRequest and agent-specific error/interruption hooks. Preview
 the updated installer with `aherald --install-hooks claude` or `codex`, inspect

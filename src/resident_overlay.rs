@@ -88,6 +88,7 @@ struct Ui {
     notice: Option<String>,
     usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
+    carousel: Option<crate::demo::Carousel>,
     source_labels: crate::session_source::Service,
     /// Heading, queue position and age text the composed event card currently shows.
     shown_card: (crate::card::Heading, usize, usize, String),
@@ -95,6 +96,14 @@ struct Ui {
     pacer: crate::perf::FramePacer,
 }
 impl Ui {
+    fn end_test(&mut self) {
+        if self.carousel.take().is_some() {
+            self.audio_cancel.store(true, Ordering::Release);
+            self.audio_cancel = Arc::new(AtomicBool::new(false));
+            self.selection = None;
+            self.presenter.invalidate();
+        }
+    }
     /// Codex usage is shown unless only Claude usage is enabled.
     fn codex_shown(&self) -> bool {
         self.config.codex.usage.enabled || self.claude.is_none()
@@ -203,6 +212,7 @@ impl Ui {
             .lock()
             .is_ok_and(|s| !s.paused && s.queue.selected().is_some_and(|e| e.duration > 0));
         let wanted = if self.demo.is_some()
+            || self.carousel.is_some()
             || counting
             || self.art_wait.is_some()
             || unsafe { IsWindowVisible(hwnd) }.as_bool()
@@ -286,7 +296,15 @@ impl Ui {
                 }
             }
         }
-        let (entry, index, count, paused) = {
+        if self.carousel.is_some()
+            && self
+                .shared
+                .lock()
+                .is_ok_and(|s| !s.queue.items().is_empty())
+        {
+            self.end_test();
+        }
+        let (mut entry, mut index, mut count, paused) = {
             let mut state = self
                 .shared
                 .lock()
@@ -304,6 +322,12 @@ impl Ui {
                 paused,
             )
         };
+        if let Some(cards) = &mut self.carousel {
+            cards.tick(now, paused);
+            entry = Some(cards.selected().clone());
+            index = cards.index();
+            count = cards.len();
+        }
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
         if !self.usage_window {
             self.notice = None;
@@ -323,11 +347,20 @@ impl Ui {
         self.audio.retain(|job| !job.is_finished());
         // Every new event sounds once, even behind a selected persistent card.
         let room = crate::presenter::sound_slots(self.audio.len());
-        let fresh = self
-            .shared
-            .lock()
-            .map(|mut state| state.queue.take_unannounced(room))
-            .unwrap_or_default();
+        let fresh = if self.carousel.is_some() {
+            if self.selection != Some(entry.id) {
+                self.audio_cancel.store(true, Ordering::Release);
+                self.audio_cancel = Arc::new(AtomicBool::new(false));
+                vec![entry.clone()]
+            } else {
+                Vec::new()
+            }
+        } else {
+            self.shared
+                .lock()
+                .map(|mut state| state.queue.take_unannounced(room))
+                .unwrap_or_default()
+        };
         for fresh in fresh {
             if let Some(audio) = crate::audio::start_controlled(
                 &fresh.event,
@@ -337,7 +370,7 @@ impl Ui {
                 self.audio.push(audio);
             }
         }
-        if !self.config.notifications.enabled {
+        if !self.config.notifications.enabled && self.carousel.is_none() {
             self.hide(hwnd);
             return Ok(());
         }
@@ -386,13 +419,24 @@ impl Ui {
             // Keep the previous picture (if any); the 16 ms timer polls for the artwork.
             return Ok(());
         }
-        let heading = self.source_labels.label(&entry.event);
+        let heading = match &self.carousel {
+            Some(cards) => crate::card::Heading::new(
+                if entry.event.source.agent().is_some() {
+                    entry.event.source.label()
+                } else {
+                    "aHerald"
+                },
+                Some("[Test]"),
+                cards.disabled().then_some("Disabled in config"),
+            ),
+            None => self.source_labels.label(&entry.event),
+        };
         let age = crate::card::age_text(self.now().saturating_sub(entry.arrived_ms));
         let controls = crate::card::Card::new(
             heading,
             index,
             count,
-            self.config.notifications.click_to_dismiss,
+            self.carousel.is_none() && self.config.notifications.click_to_dismiss,
         );
         // The card keeps one size whatever the queue holds, so a change of heading, queue
         // position or age redraws only the text.
@@ -472,8 +516,16 @@ impl Ui {
             durations: &self.durations,
             looping: self.looping,
             animation_ms: now.saturating_sub(self.animation_start),
-            fade_in_ms: self.config.notifications.fade_in_ms,
-            fade_out_ms: self.config.notifications.fade_out_ms,
+            fade_in_ms: if self.carousel.is_some() {
+                0
+            } else {
+                self.config.notifications.fade_in_ms
+            },
+            fade_out_ms: if self.carousel.is_some() {
+                0
+            } else {
+                self.config.notifications.fade_out_ms
+            },
         }) else {
             return Ok(());
         };
@@ -582,6 +634,37 @@ impl Ui {
         Ok(())
     }
     fn input(&mut self, message: u32, wp: WPARAM, lp: LPARAM) {
+        let now = self.now();
+        if let Some(cards) = &mut self.carousel {
+            let action = if message == WM_KEYDOWN {
+                match wp.0 {
+                    0x25 => Some(crate::card::Action::Previous),
+                    0x27 => Some(crate::card::Action::Next),
+                    0x1b | 0x2e => Some(crate::card::Action::Dismiss),
+                    _ => None,
+                }
+            } else {
+                let x = (lp.0 as u16) as i16 as i32 * self.width / self.display_size.0.max(1);
+                let y =
+                    ((lp.0 >> 16) as u16) as i16 as i32 * self.height / self.display_size.1.max(1);
+                let mut controls = crate::card::Card::new("", cards.index(), cards.len(), false);
+                controls.text_left = Some(self.text_left);
+                controls
+                    .hit_test(self.width, self.height, self.scale, x, y)
+                    .or_else(|| {
+                        controls
+                            .body_hit_test(self.width, self.height, self.scale, x, y)
+                            .then_some(crate::card::Action::Next)
+                    })
+            };
+            match action {
+                Some(crate::card::Action::Previous) => cards.navigate(-1, now),
+                Some(crate::card::Action::Next) => cards.navigate(1, now),
+                Some(crate::card::Action::Dismiss) => self.end_test(),
+                None => {}
+            }
+            return;
+        }
         let mut state = match self.shared.lock() {
             Ok(s) => s,
             Err(_) => return,
@@ -627,7 +710,7 @@ impl Ui {
     fn command(&mut self, hwnd: HWND, command: usize) {
         use crate::tray::*;
         match command {
-            SOUND | VISUAL | PAUSE => {
+            SOUND | VISUAL | PAUSE | CONTEXT | IDLE => {
                 if let Ok(mut state) = self.shared.lock() {
                     let paused = state.paused;
                     state.queue.tick(self.now(), paused);
@@ -635,6 +718,15 @@ impl Ui {
                         SOUND => state.sounds = !state.sounds,
                         VISUAL => state.visuals = !state.visuals,
                         PAUSE => state.paused = !state.paused,
+                        CONTEXT | IDLE => {
+                            let kind = if command == CONTEXT {
+                                crate::events::Kind::ContextWarning
+                            } else {
+                                crate::events::Kind::IdleWarning
+                            };
+                            let enabled = !state.warnings.enabled(kind);
+                            state.warnings.set_enabled(kind, enabled);
+                        }
                         _ => {}
                     }
                     self.config.sounds.enabled = state.sounds;
@@ -654,13 +746,13 @@ impl Ui {
                     }
                 });
             }
-            RESTART => {
+            TEST_CONFIG | RESTART => {
                 // A replacement that cannot load its configuration would exit silently
                 // and leave no resident: validate first and keep this one running.
                 if let Err(error) = Config::load(&self.config_path, true) {
                     self.log(crate::operational_log::Record::InvalidConfiguration);
                     self.notice = Some(format!(
-                        "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                        "aHerald\nApply cancelled; the running configuration stays active.\n{error}"
                     ));
                     if let Ok(mut state) = self.shared.lock() {
                         state.queue.show_usage();
@@ -673,7 +765,8 @@ impl Ui {
                 }
                 let stop = self.stop.clone();
                 let window = hwnd.0 as isize;
-                std::thread::spawn(move || match crate::restart::launch() {
+                let test = command == TEST_CONFIG;
+                std::thread::spawn(move || match crate::restart::launch(test) {
                     Ok(()) => {
                         stop.store(true, Ordering::Release);
                         // No timer runs while idle: wake the window so it sees the stop.
@@ -683,6 +776,7 @@ impl Ui {
                 });
             }
             SUMMARY | CLAUDE_SUMMARY => {
+                self.end_test();
                 self.notice = None;
                 let claude = command == CLAUDE_SUMMARY;
                 if let Ok(mut state) = self.shared.lock() {
@@ -703,6 +797,7 @@ impl Ui {
                 self.selection = None;
             }
             ABOUT => {
+                self.end_test();
                 let about = crate::about_card_text();
                 if let Ok(mut state) = self.shared.lock() {
                     // The same item closes its open card, like a usage line.
@@ -782,6 +877,14 @@ unsafe fn tray_callback(w: &Window, hwnd: HWND, message: Deferred) {
                 ui.config.sounds.enabled,
                 ui.config.notifications.enabled,
                 ui.shared.lock().ok().is_some_and(|s| s.paused),
+                ui.shared
+                    .lock()
+                    .ok()
+                    .is_some_and(|s| s.warnings.enabled(crate::events::Kind::ContextWarning)),
+                ui.shared
+                    .lock()
+                    .ok()
+                    .is_some_and(|s| s.warnings.enabled(crate::events::Kind::IdleWarning)),
                 codex.as_deref(),
                 claude.as_deref(),
             )
@@ -857,6 +960,18 @@ unsafe fn handle(w: &Window, hwnd: HWND, message: Deferred) -> bool {
                 });
             }
             WM_CLOSE => {
+                if w.with_ui(message, |ui| {
+                    if ui.carousel.is_some() {
+                        ui.end_test();
+                        ui.draw(hwnd);
+                        true
+                    } else {
+                        false
+                    }
+                }) == Some(true)
+                {
+                    return true;
+                }
                 if w.with_ui(message, |ui| ui.tray.take()).is_some() {
                     let _ = DestroyWindow(hwnd);
                 }
@@ -958,8 +1073,23 @@ pub fn run(
     start: Instant,
     config_path: std::path::PathBuf,
     usage: crate::usage_service::Service,
+    test: bool,
 ) -> Result<(), String> {
-    run_preview(config, shared, stop, start, config_path, usage, None)
+    run_preview(
+        config,
+        shared,
+        stop,
+        start,
+        config_path,
+        usage,
+        if test { Preview::Test } else { Preview::None },
+    )
+}
+
+pub(super) enum Preview {
+    None,
+    Demo(crate::demo::Demo),
+    Test,
 }
 
 pub(super) fn run_preview(
@@ -969,8 +1099,13 @@ pub(super) fn run_preview(
     start: Instant,
     config_path: std::path::PathBuf,
     usage: crate::usage_service::Service,
-    demo: Option<crate::demo::Demo>,
+    preview: Preview,
 ) -> Result<(), String> {
+    let carousel = matches!(preview, Preview::Test).then(|| crate::demo::Carousel::new(&config));
+    let demo = match preview {
+        Preview::Demo(demo) => Some(demo),
+        _ => None,
+    };
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
@@ -1077,6 +1212,7 @@ pub(super) fn run_preview(
             notice: None,
             usage_failing: [false; 2],
             demo,
+            carousel,
             source_labels,
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
@@ -1188,6 +1324,180 @@ pub(super) fn run_preview(
 }
 
 #[cfg(test)]
+mod warning_deadline_tests {
+    use super::*;
+    use crate::events::{Event, Kind, Source};
+    use std::time::Duration;
+
+    #[test]
+    fn native_warning_commands_toggle_only_the_selected_runtime_gate() {
+        let mut config = Config::default();
+        config.notifications.enabled = false;
+        config.sounds.enabled = false;
+        config.codex.usage.enabled = false;
+        let shared = Arc::new(Mutex::new(Shared {
+            queue: crate::queue::Queue::new(64, 0),
+            warnings: Default::default(),
+            paused: false,
+            sounds: false,
+            visuals: false,
+            window: 0,
+        }));
+        let stop = Arc::new(AtomicBool::new(false));
+        let state = shared.clone();
+        let done = stop.clone();
+        let worker = std::thread::spawn(move || {
+            let usage = crate::usage_service::Service::codex(false, Duration::from_secs(300));
+            run(
+                config,
+                state,
+                done,
+                Instant::now(),
+                "warning-controls.toml".into(),
+                usage,
+                false,
+            )
+        });
+        struct Cleanup(
+            Arc<Mutex<Shared>>,
+            Arc<AtomicBool>,
+            Option<std::thread::JoinHandle<Result<(), String>>>,
+        );
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.1.store(true, Ordering::Release);
+                crate::resident::wake(self.0.lock().unwrap().window);
+                self.2.take().unwrap().join().unwrap().unwrap();
+            }
+        }
+        let _cleanup = Cleanup(shared.clone(), stop, Some(worker));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let hwnd = loop {
+            let window = shared.lock().unwrap().window;
+            if window != 0 {
+                break HWND(window as *mut std::ffi::c_void);
+            }
+            assert!(Instant::now() < deadline, "resident did not start");
+            std::thread::yield_now();
+        };
+        for (command, context, idle) in [
+            (crate::tray::CONTEXT, false, true),
+            (crate::tray::IDLE, false, false),
+            (crate::tray::CONTEXT, true, false),
+            (crate::tray::IDLE, true, true),
+        ] {
+            // SAFETY: the owned GUI thread keeps this HWND alive through the test.
+            unsafe {
+                SendMessageW(hwnd, WM_COMMAND, Some(WPARAM(command)), Some(LPARAM(0)));
+            }
+            let state = shared.lock().unwrap();
+            assert_eq!(state.warnings.enabled(Kind::ContextWarning), context);
+            assert_eq!(state.warnings.enabled(Kind::IdleWarning), idle);
+            assert!(!state.paused);
+            assert!(!state.sounds);
+            assert!(!state.visuals);
+        }
+    }
+
+    #[test]
+    fn hidden_resident_delivers_idle_warning_from_an_empty_queue() {
+        let directory =
+            std::env::temp_dir().join(format!("aherald-warning-deadline-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let config = Config::parse(
+            "[notifications]\nenabled=false\n[sounds]\nenabled=false\n\
+             [claude.warnings]\nidle_minutes=1\n[codex.warnings]\nidle_minutes=1\n\
+             [events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_ms=0",
+            &directory,
+        )
+        .unwrap();
+        let mut state = Shared {
+            queue: crate::queue::Queue::new(64, 0),
+            warnings: Default::default(),
+            paused: false,
+            sounds: false,
+            visuals: false,
+            window: 0,
+        };
+        // Same identity across agents must still represent independent sessions.
+        let mut event = Event::demo("turn_complete").unwrap();
+        event.session_id = Some("shared-id".into());
+        for source in [Source::ClaudeHook, Source::CodexHook] {
+            event.source = source;
+            crate::resident_request::respond(
+                crate::ipc::Request::Event {
+                    event: event.clone(),
+                },
+                &mut state,
+                &config,
+                0,
+            );
+        }
+        event.source = Source::ClaudeHook;
+        event.activity = true;
+        crate::resident_request::respond(
+            crate::ipc::Request::Event { event },
+            &mut state,
+            &config,
+            1,
+        );
+        assert!(state.queue.selected().is_none());
+        let shared = Arc::new(Mutex::new(state));
+        let stop = Arc::new(AtomicBool::new(false));
+        let state = shared.clone();
+        let done = stop.clone();
+        let path = directory.join("config.toml");
+        // Seed the native clock near the deadline; retain the real Win32 timer.
+        let start = Instant::now() - Duration::from_secs(59);
+        let service = crate::usage_service::Service::codex(false, Duration::from_secs(300));
+        let worker =
+            std::thread::spawn(move || run(config, state, done, start, path, service, false));
+        struct Cleanup {
+            shared: Arc<Mutex<Shared>>,
+            stop: Arc<AtomicBool>,
+            worker: Option<std::thread::JoinHandle<Result<(), String>>>,
+            directory: std::path::PathBuf,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.stop.store(true, Ordering::Release);
+                crate::resident::wake(self.shared.lock().unwrap().window);
+                if let Some(worker) = self.worker.take() {
+                    worker.join().unwrap().unwrap();
+                }
+                let _ = std::fs::remove_dir_all(&self.directory);
+            }
+        }
+        let _cleanup = Cleanup {
+            shared: shared.clone(),
+            stop,
+            worker: Some(worker),
+            directory,
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let state = shared.lock().unwrap();
+            if let Some(entry) = state.queue.selected() {
+                assert_eq!(entry.event.kind, Kind::IdleWarning);
+                assert_eq!(entry.event.source, Source::CodexHook);
+                assert_eq!(entry.event.session_id.as_deref(), Some("shared-id"));
+                assert!(!state.warnings.has_deadline());
+                let hwnd = HWND(state.window as *mut std::ffi::c_void);
+                // SAFETY: querying visibility does not mutate or own the window.
+                assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
+                break;
+            }
+            drop(state);
+            assert!(
+                Instant::now() < deadline,
+                "native timer did not deliver idle warning"
+            );
+            std::thread::yield_now();
+        }
+    }
+}
+
+#[cfg(test)]
 mod usage_wake_tests {
     use super::*;
     use crate::{
@@ -1237,8 +1547,9 @@ mod usage_wake_tests {
         let state = shared.clone();
         let done = stop.clone();
         let path = directory.join("config.toml");
-        let worker =
-            std::thread::spawn(move || run(config, state, done, Instant::now(), path, service));
+        let worker = std::thread::spawn(move || {
+            run(config, state, done, Instant::now(), path, service, false)
+        });
         struct Cleanup(
             Arc<Mutex<Shared>>,
             Arc<AtomicBool>,

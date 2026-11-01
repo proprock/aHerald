@@ -228,18 +228,24 @@ transient_names = false
 hooks_enabled = true
 
 [claude.warnings]
+# Installer switches preserve thresholds when disabled. Both flags default to true.
+context_enabled = true
+idle_enabled = true
 # Optional input-context threshold: positive tokens (120000 or "120000") or "120k".
 # k = 1000. Omitted means off. Requires Claude Code's statusLine wrapper and a resident.
-# context_tokens = "120k"
+# context_tokens = "400k"
 # Idle reminder after a completed response: 1..525600 minutes; default 55. Zero disables it.
 # One reminder per idle episode. A new user prompt or tool activity cancels the timer.
 idle_minutes = 55
 
 [codex.warnings]
+context_enabled = true
+idle_enabled = true
 # Same idle reminder, independently configured; default 25 minutes. Zero disables it.
 # Requires the updated activity hooks.
 idle_minutes = 25
-# Codex context warnings are currently unsupported; do not set context_tokens here.
+# Optional input-context warning; requires PostModelRequest (verified: 0.166.0-alpha.5.1).
+# context_tokens = "250k"
 
 [claude.usage]
 # Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access

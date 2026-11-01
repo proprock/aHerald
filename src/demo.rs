@@ -28,7 +28,7 @@ impl Demo {
                         .duration_ms
                         .saturating_add(config.notifications.fade_out_ms)
                 };
-                scenes.push(vec![(Event::demo(kind.name())?, duration)]);
+                scenes.push(vec![(sample(config, kind), duration)]);
                 holds.push(
                     setting
                         .duration_ms
@@ -96,12 +96,120 @@ impl Demo {
         self.showing = !self.showing;
     }
 }
-/// The standard demo keeps its original sequence; optional session warnings can
-/// be previewed explicitly with `--event context_warning` / `idle_warning`.
-pub const KINDS: [crate::events::Kind; 5] = [
-    crate::events::Kind::TurnComplete,
-    crate::events::Kind::PermissionRequired,
-    crate::events::Kind::InputRequired,
-    crate::events::Kind::Error,
-    crate::events::Kind::Interrupted,
-];
+/// Preview every notification format, including warnings without a live session.
+pub const KINDS: [crate::events::Kind; 7] = crate::events::Kind::ALL;
+
+fn sample(config: &Config, kind: crate::events::Kind) -> Event {
+    use crate::events::{Kind, Source};
+    let mut event = Event::notice("");
+    event.kind = kind;
+    event.source = Source::Demo;
+    event.message = None;
+    match kind {
+        Kind::ContextWarning => {
+            let (source, limit) = if let Some(limit) = config.codex.warnings.context_tokens {
+                (Source::CodexHook, limit.0)
+            } else if let Some(limit) = config.claude.warnings.context_tokens {
+                (Source::ClaudeHook, limit.0)
+            } else {
+                // Synthetic preview only; never enables a warning threshold.
+                (Source::CodexHook, 250_000)
+            };
+            event.source = source;
+            event.message = Some(crate::session_warnings::context_text(
+                limit.saturating_add(1),
+                limit,
+            ));
+        }
+        Kind::IdleWarning => {
+            let (source, minutes) = if let Some(minutes) = config.codex.warnings.idle_minutes {
+                (Source::CodexHook, minutes)
+            } else {
+                (
+                    Source::ClaudeHook,
+                    config.claude.warnings.idle_minutes.unwrap_or(55),
+                )
+            };
+            event.source = source;
+            event.message = Some(crate::session_warnings::idle_text(
+                minutes.saturating_mul(60_000).saturating_add(1000),
+                minutes,
+            ));
+        }
+        _ => {}
+    }
+    event
+}
+
+/// Fixed configuration samples. Navigation never removes a card or touches IPC history.
+pub struct Carousel {
+    cards: Vec<crate::queue::Entry>,
+    disabled: Vec<bool>,
+    index: usize,
+    elapsed: u64,
+    last_tick: u64,
+}
+impl Carousel {
+    pub fn new(config: &Config) -> Self {
+        let cards = KINDS
+            .into_iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                let mut event = sample(config, kind);
+                event.folder = Some("[Test]".into());
+                crate::queue::Entry {
+                    id: u64::MAX - index as u64,
+                    event,
+                    duration: if config.events[kind].duration_ms == 0 {
+                        5000
+                    } else {
+                        config.events[kind].duration_ms
+                    },
+                    visible_ms: 0,
+                    announced: false,
+                    arrived_ms: 0,
+                }
+            })
+            .collect();
+        Self {
+            cards,
+            disabled: KINDS.map(|kind| !config.events[kind].enabled).into(),
+            index: 0,
+            elapsed: 0,
+            last_tick: 0,
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.cards.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.cards.is_empty()
+    }
+    pub fn index(&self) -> usize {
+        self.index
+    }
+    pub fn selected(&self) -> &crate::queue::Entry {
+        &self.cards[self.index]
+    }
+    pub fn disabled(&self) -> bool {
+        self.disabled[self.index]
+    }
+    pub fn navigate(&mut self, delta: i32, now: u64) {
+        self.index = (self.index as i32 + delta).rem_euclid(self.cards.len() as i32) as usize;
+        self.elapsed = 0;
+        self.last_tick = now;
+        self.cards[self.index].visible_ms = 0;
+    }
+    pub fn tick(&mut self, now: u64, paused: bool) {
+        let delta = now.saturating_sub(self.last_tick);
+        self.last_tick = now;
+        if paused {
+            return;
+        }
+        self.elapsed = self.elapsed.saturating_add(delta);
+        if self.elapsed >= self.selected().duration {
+            self.navigate(1, now);
+        }
+        self.cards[self.index].visible_ms = self.elapsed;
+    }
+}

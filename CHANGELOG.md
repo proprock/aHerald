@@ -9,6 +9,63 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.8.0-beta] - 2026-11-01
+
+### Added
+- Codex input-context warnings (AH-100), using the completed main-session
+  `PostModelRequest` input-token report. Both agents support independent thresholds
+  in tokens or decimal kilotokens, warn once strictly above the threshold, and rearm
+  at or below it. Unknown readings preserve the crossing state.
+- Windows installer controls for each agent's context and idle warnings. Existing
+  thresholds are preserved; first context enablement uses Codex 250k / Claude 400k
+  when no threshold exists. Idle defaults remain Codex 25 / Claude 55 minutes.
+  Separate persisted enablement flags retain thresholds while warnings are disabled.
+- Transactional Claude statusLine wrapper setup for context warnings, preserving
+  the original command/options and restoring only unchanged owned bindings.
+- Windows tray Context warnings / Idle warnings runtime switches, each controlling
+  both agents without changing saved thresholds; switches reset on resident restart.
+- Windows tray Apply and Apply + Test commands. Both validate the saved configuration
+  before restarting; an invalid file leaves the current resident running. Apply + Test
+  previews all seven card formats in the shared window, marked [Test], with navigation
+  and configured sounds. Dismissal or a real notification ends the preview.
+
+### Changed
+- Context warning text includes the measured input context and configured threshold;
+  idle warning text includes elapsed time and its limit. Values are captured when
+  the warning is created, and the agent name appears only in the heading.
+- Development and test profiles generate less debug information.
+- Artwork performance checks now include a fixed-scale check with frozen fixtures.
+  The resident baseline retains native monitor DPI; its artwork and composition
+  limits are calibrated within 10% of observed maxima. See
+  docs/perf-baseline-investigation.md for measurements and sensitivity limits.
+- Native demo checks share the GUI-test serialization guard to avoid interfering
+  with transient placement checks.
+
+### Fixed
+- The generated Windows Claude statusLine wrapper preserves input bytes when the
+  launching console uses UTF-8 with a BOM, keeping the JSON report valid.
+
+### Verification and known limitations
+- Windows beta preflight: formatting and Clippy passed; the full ordinary suite
+  passed 498 tests with 16 explicit manual/platform skips. This does not replace
+  the manual or live-session acceptance described below.
+- AH-100 and AH-101 are accepted and recorded in DONE.md. Real-session context and
+  idle delivery was verified on Windows 11 with Claude Code 2.1.311 and Codex CLI
+  0.166.0-alpha.5.1 through isolated bridges using production parsing and IPC.
+  These checks do not establish end-to-end acceptance of installed hook commands.
+- Codex context observation is version-specific; `PostModelRequest` is absent from
+  the general hooks guide. Untested versions, desktop/remote sessions, compaction
+  dispatch and subagent delivery are not claimed. Context warnings require an
+  already running resident; idle reminders do not establish provider cache expiry.
+- Native preview verified that the numeric idle label fits. Real-session queue
+  delivery does not establish card appearance or focus behavior. Installer
+  clean-machine acceptance and other open platform checks remain in TODO.md.
+- Recorded warning verification did not establish a green full suite: checks
+  encountered perf_baseline, tray_about and native startup failures. See
+  docs/ah-100-context-warnings.md and docs/ah-101-windows-acceptance.md for
+  historical commands, evidence and coverage limits. Performance calibration and
+  the fixed-scale artwork check are included in this beta.
+
 ## [0.5.0] - 2026-10-31
 
 Native Windows installation and explicit harness setup, with the first Linux

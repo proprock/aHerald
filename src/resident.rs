@@ -92,22 +92,50 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         Instant::now(),
         path.to_owned(),
         usage,
-        Some(demo),
+        overlay::Preview::Demo(demo),
     )
 }
 
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
+    run_after_apply(scope, config, path, false)
+}
+pub fn run_after_apply(
+    scope: Scope,
+    mut config: Config,
+    path: &Path,
+    test: bool,
+) -> Result<(), String> {
+    if test
+        && !config.agents.contains_key("demo")
+        && let Some(assets) = config.agents.get("codex").cloned()
+    {
+        config.agents.insert("demo".into(), assets);
+    }
     let enabled = config.codex.usage.enabled;
     let interval = Duration::from_secs(config.codex.usage.refresh_interval_sec);
-    run_with_usage(scope, config, path, move || {
-        crate::usage_service::Service::codex(enabled, interval)
-    })
+    run_with_usage_and_test(
+        scope,
+        config,
+        path,
+        move || crate::usage_service::Service::codex(enabled, interval),
+        test,
+    )
 }
+#[cfg(test)]
 fn run_with_usage(
     scope: Scope,
     config: Config,
     path: &Path,
     usage: impl FnOnce() -> crate::usage_service::Service,
+) -> Result<(), String> {
+    run_with_usage_and_test(scope, config, path, usage, false)
+}
+fn run_with_usage_and_test(
+    scope: Scope,
+    config: Config,
+    path: &Path,
+    usage: impl FnOnce() -> crate::usage_service::Service,
+    test: bool,
 ) -> Result<(), String> {
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
@@ -200,6 +228,7 @@ fn run_with_usage(
         start,
         path.to_owned(),
         usage(),
+        test,
     );
     crate::notice::clear();
     stop.store(true, Ordering::Release);

@@ -1,6 +1,6 @@
 [package]
 name = "aherald"
-version = "0.5.0"
+version = "0.8.0-beta"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -16,6 +16,10 @@ path = "src/main.rs"
 [[example]]
 name = "generate_assets"
 path = "generate_assets.rs"
+
+[[example]]
+name = "session_warning_bridge"
+path = "tests/live/fixtures/session_warning_bridge.rs"
 
 [features]
 default = ["https-client"]
@@ -46,6 +50,15 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry", "NSDictionary", "NSValue", "NSObject", "NSArray", "NSEnumerator", "NSData", "NSDate", "NSRunLoop", "NSThread"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSGraphicsContext", "NSFont", "NSColor", "NSParagraphStyle", "NSStringDrawing", "NSText", "NSAttributedString", "NSFontDescriptor", "NSGraphics", "NSPanel", "NSWindow", "NSResponder", "NSView", "NSImageView", "NSImage", "NSControl", "NSCell", "NSScreen", "NSApplication", "NSRunningApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSMenu", "NSMenuItem", "NSEvent", "objc2-core-graphics", "objc2-core-foundation", "libc"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = false
 
 [profile.release]
 lto = true

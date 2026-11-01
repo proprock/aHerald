@@ -190,7 +190,9 @@ jobs:
           if draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
             test "$draft" = true || { echo "GitHub Release $RELEASE_TAG already exists and is not a draft." >&2; exit 1; }
           else
-            gh release create "$RELEASE_TAG" --draft --title "$RELEASE_TAG" --verify-tag --notes-file release-notes.md
+            prerelease=()
+            case "$RELEASE_TAG" in *-*) prerelease=(--prerelease);; esac
+            gh release create "$RELEASE_TAG" --draft "${prerelease[@]}" --title "$RELEASE_TAG" --verify-tag --notes-file release-notes.md
           fi
           gh release upload "$RELEASE_TAG" release-artifacts/* --clobber
 

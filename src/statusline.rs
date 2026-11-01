@@ -205,20 +205,13 @@ pub fn run(input: &[u8], then: Option<&str>, send: impl FnOnce(Report) + Send) -
 }
 
 fn run_then(command: &str, input: &[u8]) -> Outcome {
-    use std::{
-        io::Write,
-        process::{Command, Stdio},
-    };
+    use std::{io::Write, process::Stdio};
     #[cfg(unix)]
-    let mut child = Command::new("sh");
+    let mut child = std::process::Command::new("sh");
     #[cfg(unix)]
     child.arg("-c").arg(command);
     #[cfg(windows)]
-    let mut child = Command::new("powershell.exe");
-    #[cfg(windows)]
-    child
-        .args(["-NoProfile", "-NonInteractive", "-Command"])
-        .arg(command);
+    let mut child = statusline_shell(command, git_bash());
     let spawned = child
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -246,6 +239,49 @@ fn run_then(command: &str, input: &[u8]) -> Outcome {
     }
 }
 
+#[cfg(windows)]
+fn statusline_shell(command: &str, bash: Option<std::path::PathBuf>) -> std::process::Command {
+    let mut child =
+        std::process::Command::new(bash.clone().unwrap_or_else(|| "powershell.exe".into()));
+    if bash.is_some() {
+        child.args(["-c", command]);
+    } else {
+        // PowerShell otherwise maps a native command's nonzero exit code to 1.
+        // Use UTF-8 when it relays native stdout to the wrapper's redirected pipe.
+        let script = format!(
+            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); {command}\nif ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
+        );
+        child.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    }
+    child
+}
+
+/// Match Claude's documented Windows statusLine shell: Git Bash, else PowerShell.
+#[cfg(windows)]
+fn git_bash() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH").filter(|v| !v.is_empty()) {
+        return Some(path.into());
+    }
+    let mut roots = Vec::new();
+    for key in ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(root) = std::env::var_os(key) {
+            roots.push(std::path::PathBuf::from(root).join("Git"));
+        }
+    }
+    if let Some(root) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(std::path::PathBuf::from(root).join("Programs/Git"));
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path).filter(|dir| dir.join("git.exe").is_file()) {
+            roots.extend(dir.ancestors().take(3).map(std::path::Path::to_path_buf));
+        }
+    }
+    roots
+        .into_iter()
+        .map(|root| root.join("bin/bash.exe"))
+        .find(|path| path.is_file())
+}
+
 static STORE: std::sync::Mutex<Option<Store>> = std::sync::Mutex::new(None);
 
 /// The resident's store. Only a resident ever records into it.
@@ -257,6 +293,14 @@ pub fn with_store<R>(f: impl FnOnce(&mut Store) -> R) -> R {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn powershell_fallback_preserves_native_unicode_output_and_exit_code() {
+        let out = statusline_shell("powershell.exe -NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Write('Проверка 🦀'); exit 7\"", None).output().unwrap();
+        assert_eq!(out.status.code(), Some(7), "{:?}", out);
+        assert_eq!(out.stdout, "Проверка 🦀".as_bytes());
+    }
 
     const FULL: &str = r#"{
       "session_id": "abc-123",
