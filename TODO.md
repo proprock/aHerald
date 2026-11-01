@@ -209,7 +209,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `0.166.0-alpha.5.1`; independent Codex threshold support is in progress on
   `feature/ah-100-context-warning`. See [current evidence and limits](docs/ah-100-context-warnings.md).
 
-- [ ] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
+- [x] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
   cache-TTL warnings for Claude and Codex, with separate enablement and thresholds
   in minutes. Warn when more than the configured number of minutes has passed since
   the last message in that session. Track the last-message time, timer and warning
@@ -230,7 +230,9 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Default idle thresholds: Claude 55 minutes, Codex 25 minutes (agreed 2026-10-30);
   `idle_minutes = 0` disables an agent's reminder. One warning per idle episode,
   resident-only, memory-only bounded state. This slice is an elapsed-time reminder,
-  not a provider cache-expiry guarantee. Live integration acceptance remains open.
+  not a provider cache-expiry guarantee. Accepted on Windows 2026-10-31 with real
+  Claude and Codex responses and one-minute reminders; the maintainer confirmed
+  reminder delivery as sufficient acceptance. See [Windows evidence](docs/ah-101-windows-acceptance.md).
 
 - [ ] **AH-099 — Notify only when Codex approval needs the user.** A Codex
   `PermissionRequest` hook can fire for an automatically reviewed request, so the

@@ -1188,6 +1188,109 @@ pub(super) fn run_preview(
 }
 
 #[cfg(test)]
+mod warning_deadline_tests {
+    use super::*;
+    use crate::events::{Event, Kind, Source};
+    use std::time::Duration;
+
+    #[test]
+    fn hidden_resident_delivers_idle_warning_from_an_empty_queue() {
+        let directory =
+            std::env::temp_dir().join(format!("aherald-warning-deadline-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let config = Config::parse(
+            "[notifications]\nenabled=false\n[sounds]\nenabled=false\n\
+             [claude.warnings]\nidle_minutes=1\n[codex.warnings]\nidle_minutes=1\n\
+             [events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_ms=0",
+            &directory,
+        )
+        .unwrap();
+        let mut state = Shared {
+            queue: crate::queue::Queue::new(64, 0),
+            warnings: Default::default(),
+            paused: false,
+            sounds: false,
+            visuals: false,
+            window: 0,
+        };
+        // Same identity across agents must still represent independent sessions.
+        let mut event = Event::demo("turn_complete").unwrap();
+        event.session_id = Some("shared-id".into());
+        for source in [Source::ClaudeHook, Source::CodexHook] {
+            event.source = source;
+            crate::resident_request::respond(
+                crate::ipc::Request::Event {
+                    event: event.clone(),
+                },
+                &mut state,
+                &config,
+                0,
+            );
+        }
+        event.source = Source::ClaudeHook;
+        event.activity = true;
+        crate::resident_request::respond(
+            crate::ipc::Request::Event { event },
+            &mut state,
+            &config,
+            1,
+        );
+        assert!(state.queue.selected().is_none());
+        let shared = Arc::new(Mutex::new(state));
+        let stop = Arc::new(AtomicBool::new(false));
+        let state = shared.clone();
+        let done = stop.clone();
+        let path = directory.join("config.toml");
+        // Seed the native clock near the deadline; retain the real Win32 timer.
+        let start = Instant::now() - Duration::from_secs(59);
+        let service = crate::usage_service::Service::codex(false, Duration::from_secs(300));
+        let worker = std::thread::spawn(move || run(config, state, done, start, path, service));
+        struct Cleanup {
+            shared: Arc<Mutex<Shared>>,
+            stop: Arc<AtomicBool>,
+            worker: Option<std::thread::JoinHandle<Result<(), String>>>,
+            directory: std::path::PathBuf,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.stop.store(true, Ordering::Release);
+                crate::resident::wake(self.shared.lock().unwrap().window);
+                if let Some(worker) = self.worker.take() {
+                    worker.join().unwrap().unwrap();
+                }
+                let _ = std::fs::remove_dir_all(&self.directory);
+            }
+        }
+        let _cleanup = Cleanup {
+            shared: shared.clone(),
+            stop,
+            worker: Some(worker),
+            directory,
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let state = shared.lock().unwrap();
+            if let Some(entry) = state.queue.selected() {
+                assert_eq!(entry.event.kind, Kind::IdleWarning);
+                assert_eq!(entry.event.source, Source::CodexHook);
+                assert_eq!(entry.event.session_id.as_deref(), Some("shared-id"));
+                assert!(!state.warnings.has_deadline());
+                let hwnd = HWND(state.window as *mut std::ffi::c_void);
+                // SAFETY: querying visibility does not mutate or own the window.
+                assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
+                break;
+            }
+            drop(state);
+            assert!(
+                Instant::now() < deadline,
+                "native timer did not deliver idle warning"
+            );
+            std::thread::yield_now();
+        }
+    }
+}
+
+#[cfg(test)]
 mod usage_wake_tests {
     use super::*;
     use crate::{

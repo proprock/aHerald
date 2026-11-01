@@ -7,6 +7,46 @@ and billable model requests may be needed. Each check must document its needs,
 isolate test configuration, bound execution and clean up its owned processes.
 Do not run the whole group automatically against a developer's live account.
 
+## Session idle reminders (AH-101, Windows)
+
+Requires PowerShell 7, authenticated native Claude/Codex installations, network
+access and permission to spend account quota. Build both executables first:
+
+```powershell
+cargo build --release --target x86_64-pc-windows-msvc
+cargo build --example session_warning_bridge
+pwsh -File tests/live/session_idle_warning.ps1 -Agent claude -HarnessPath 'C:\absolute\claude.exe' -AheraldPath "$PWD\target\x86_64-pc-windows-msvc\release\aherald.exe" -BridgePath "$PWD\target\debug\examples\session_warning_bridge.exe"
+pwsh -File tests/live/session_idle_warning.ps1 -Agent codex -Interactive -HarnessPath 'C:\absolute\codex.exe' -AheraldPath "$PWD\target\x86_64-pc-windows-msvc\release\aherald.exe" -BridgePath "$PWD\target\debug\examples\session_warning_bridge.exe"
+```
+
+Each probe owns a private IPC namespace and native resident. The optional bridge
+executes the real hook parser and IPC client; it replaces the CLI's fixed resident
+namespace, not its notification engine. It is **not** an end-to-end test of the
+installed hook command. Ordinary process tests cover that command separately.
+Normal hooks, global configuration, credentials and autostart are not edited.
+Harnesses use their normal account environment; the probe does not read/copy tokens.
+Interactive Codex can still load existing user hooks, whose results are separate
+from the private bridge evidence.
+
+Idle thresholds are one minute, completion cards and sound are disabled, and idle
+cards persist until activity/end. Claude print mode adds a separate 75-second
+test-only Stop hook so the session stays alive after its response. The bridge
+must independently finish within the three-second hook budget. The script
+requires real prompt/Stop/end records, a queued warning, and cleanup after end.
+Print/exec mode has a 160-second limit; interactive mode has a 180-second limit.
+All owned processes are stopped in `finally`. Codex exec currently lacks the
+prompt/end dispatch observed in its interactive mode and cannot pass this check.
+
+For interactive Codex, wait for the first card, submit a second short prompt and
+check that the card disappears; wait for a fresh reminder, then exit with Ctrl+D.
+The script checks lifecycle records and final queue cleanup; card appearance,
+activity reset and fresh delivery require separate observation. Use `scope.txt`
+in the printed evidence directory with `AH101_SCOPE` and the bridge's `--status`
+to observe only this probe's queue. Do not infer appearance or focus behavior from
+queue counts. Evidence retains event/session identity, timing, response and result,
+but never raw hook payloads, prompts, tool arguments or credentials. CLI output
+contains the fixed test prompt/response. Results: [Windows acceptance](../../docs/ah-101-windows-acceptance.md).
+
 ## Codex hook argument compatibility (Windows)
 
 Requires PowerShell 7 and the native `codex.exe`. Run from the repository root:
