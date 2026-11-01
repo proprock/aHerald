@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.8.0-beta] - 2026-11-01
+
 ### Added
 - Codex input-context warnings (AH-100), using the completed main-session
   `PostModelRequest` input-token report. Both agents support independent thresholds
@@ -32,8 +34,17 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   idle warning text includes elapsed time and its limit. Values are captured when
   the warning is created, and the agent name appears only in the heading.
 - Development and test profiles generate less debug information.
+- Artwork performance checks now include a fixed-scale check with frozen fixtures.
+  The resident baseline retains native monitor DPI; its artwork and composition
+  limits are calibrated within 10% of observed maxima. See
+  docs/perf-baseline-investigation.md for measurements and sensitivity limits.
+- Native demo checks share the GUI-test serialization guard to avoid interfering
+  with transient placement checks.
 
 ### Verification and known limitations
+- Windows beta preflight: formatting and Clippy passed; the full ordinary suite
+  passed 498 tests with 16 explicit manual/platform skips. This does not replace
+  the manual or live-session acceptance described below.
 - AH-100 and AH-101 are accepted and recorded in DONE.md. Real-session context and
   idle delivery was verified on Windows 11 with Claude Code 2.1.311 and Codex CLI
   0.166.0-alpha.5.1 through isolated bridges using production parsing and IPC.
@@ -48,8 +59,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 - Recorded warning verification did not establish a green full suite: checks
   encountered perf_baseline, tray_about and native startup failures. See
   docs/ah-100-context-warnings.md and docs/ah-101-windows-acceptance.md for
-  historical commands, evidence and coverage limits. Current performance work
-  remains in progress and is not included in these release notes.
+  historical commands, evidence and coverage limits. Performance calibration and
+  the fixed-scale artwork check are included in this beta.
 
 ## [0.5.0] - 2026-10-31
 
