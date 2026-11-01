@@ -255,7 +255,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Also carries the case split from AH-076: a card that opens on a second monitor with a
   different DPI is drawn at that monitor's scale (cards are not draggable by design).
 
-- [ ] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
+- [x] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
   the ones the user can fix.**
   aHerald sometimes drops or degrades what was configured or sent without a trace: a sound
   longer than five seconds, larger than 2 MiB, not 16-bit PCM or missing is ignored
@@ -312,11 +312,11 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   creation. The Unix runtime regression requires Unix execution. Windows monitor fallback
   passed its native log/card test. The real resident notice was inspected on Windows build
   22621.4317: built-in red error picture, two-line message, no kind row, 8 s timer.
-  Verification remains blocked by `native_assets`: a fresh copied executable exceeds the
-  existing 750 ms startup deadline, including outside the sandbox. Other integration suites
-  passed when continued separately; the performance baseline passed in isolation. See the
-  audit for observed timings and platform limits. Keep this item unchecked until that
-  regression check passes.
+  Verification completed on Windows: formatting, Clippy and full `cargo test --all-targets`
+  passed, including the performance baseline and native asset checks. The asset test now
+  separates Windows creation of a fresh copied executable from rendering checks; production
+  delivery budgets are unchanged. See [the startup investigation](docs/native-assets-investigation.md)
+  and the audit for observed timings and platform limits.
 
 - [ ] **AH-092 — Make the Windows resident pause test wait for the window to hide.**
   `resident_uses_one_window_and_switches_and_dismisses_only_selected_event` (`tests/resident.rs`)

@@ -94,15 +94,17 @@ passed, including the native configuration and missing-monitor checks. The remai
 integration suites were run after each full-run stop. `tray_restart` failed at desktop
 enumeration inside the sandbox, then passed all five checks outside it.
 
-The full `cargo test --all-targets` run is **not green**. `native_assets` reproducibly
-fails in its final resource case: starting a fresh executable copy with no adjacent assets
-exceeds the existing 750 ms readiness deadline, both inside and outside the sandbox.
-A separate startup probe observed 85 ms for the main executable and 1422 ms for a fresh
-copy. The reason for that delay is not established; neither the timeout nor assertions
-were changed. The test now identifies the failing resource case in its error.
+The final full `cargo test --all-targets` run passed outside the sandbox, without concurrent
+builds, including `native_assets`, `perf_baseline` and tray checks. The original native-assets
+failure spent 899 ms creating a fresh copied process inside Windows, before aHerald's
+configuration or artwork work. The resource test now starts the real display child directly
+and retains its resource/window/dismissal assertions and rendering deadlines. Production
+delivery budgets remain unchanged; slow cold launches can still exceed them. See the
+[startup investigation](native-assets-investigation.md) for measurements and limitations.
 
 One continued run also exceeded `perf_baseline`'s artwork budget (89.6 ms mean against
 61 ms) while Clippy was running concurrently. An isolated run without concurrent builds
 passed at 41.8 ms mean; this does not establish the cause of the earlier overrun.
-AH-090 remains unchecked pending the native-assets regression check. Windows logs are
-retained locally under `target/ah090-*-tests.txt` and `target/ah090-tests.txt`.
+AH-090 is checked after the successful full run. The final log is retained locally at
+`target/ah090-native-assets-full.txt`; earlier failed runs remain under
+`target/ah090-*-tests.txt` and `target/ah090-tests.txt`.
