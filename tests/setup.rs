@@ -505,7 +505,9 @@ fn check_statusline_execution(bash: bool) {
         cmd
     } else {
         let mut cmd = Command::new("powershell.exe");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        // UTF-8 input with a preamble reproduces Windows CI's console encoding.
+        let script = format!("[Console]::InputEncoding=[Text.UTF8Encoding]::new($true); {script}");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
         cmd
     };
     let mut child = launcher

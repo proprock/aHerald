@@ -41,6 +41,10 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 - Native demo checks share the GUI-test serialization guard to avoid interfering
   with transient placement checks.
 
+### Fixed
+- The generated Windows Claude statusLine wrapper preserves input bytes when the
+  launching console uses UTF-8 with a BOM, keeping the JSON report valid.
+
 ### Verification and known limitations
 - Windows beta preflight: formatting and Clippy passed; the full ordinary suite
   passed 498 tests with 16 explicit manual/platform skips. This does not replace

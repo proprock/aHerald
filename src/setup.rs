@@ -480,8 +480,10 @@ fn statusline_command(exe: &Path, original: Option<&str>) -> String {
         let then = original
             .map(|s| format!(" --then {}", quote_windows_argument(s)))
             .unwrap_or_default();
+        // Process.Start initializes a text writer even though we use its byte stream.
+        // Use BOM-free input encoding so that initialization cannot prefix the payload.
         let script = format!(
-            "$ErrorActionPreference='Stop'; $s=[Diagnostics.ProcessStartInfo]::new(); $s.FileName='{}'; $s.Arguments='{}'; $s.UseShellExecute=$false; $s.CreateNoWindow=$true; $s.RedirectStandardInput=$true; $s.RedirectStandardOutput=$true; $p=[Diagnostics.Process]::Start($s); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.Close(); $p.StandardOutput.BaseStream.CopyTo([Console]::OpenStandardOutput()); $p.WaitForExit(); exit $p.ExitCode",
+            "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Diagnostics.ProcessStartInfo]::new(); $s.FileName='{}'; $s.Arguments='{}'; $s.UseShellExecute=$false; $s.CreateNoWindow=$true; $s.RedirectStandardInput=$true; $s.RedirectStandardOutput=$true; $p=[Diagnostics.Process]::Start($s); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.BaseStream.Close(); $p.StandardOutput.BaseStream.CopyTo([Console]::OpenStandardOutput()); $p.WaitForExit(); exit $p.ExitCode",
             exe.display().to_string().replace('\'', "''"),
             format!("--statusline{then}").replace('\'', "''")
         );
