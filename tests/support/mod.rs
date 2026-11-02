@@ -33,6 +33,12 @@ pub fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, S
     run_bounded_with_input(command, &[], timeout)
 }
 
+/// [`run_bounded`] with a generous 30 s deadline for ordinary short CLI runs; panics with the
+/// diagnostic on timeout.
+pub fn output(command: &mut Command) -> Output {
+    run_bounded(command, Duration::from_secs(30)).unwrap_or_else(|error| panic!("{error}"))
+}
+
 /// As [`run_bounded`], writing `input` to the child's stdin (configure `Stdio::piped()` for it
 /// on the command) and then closing it. The write happens on its own thread, so a child that
 /// never reads cannot block the test past `timeout`.

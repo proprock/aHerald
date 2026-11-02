@@ -1,3 +1,4 @@
+mod support;
 use aherald::{
     cli::Cli,
     config::{Config, Interpolation, LogLevel, Mode, Monitor, Position, TrayStyle},
@@ -427,12 +428,12 @@ fn statusline_setup_wraps_an_existing_command_through_the_binary_and_restores_it
     let original = r#"{"statusLine":{"type":"command","command":"my-bar --x"},"theme":"dark"}"#;
     fs::write(&file, original).unwrap();
     let run = |op: &str, extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args([op, "--hooks-file"])
-            .arg(&file)
-            .args(extra)
-            .output()
-            .unwrap()
+        support::output(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args([op, "--hooks-file"])
+                .arg(&file)
+                .args(extra),
+        )
     };
     let dry = run("--install-statusline", &[]);
     assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
@@ -458,12 +459,12 @@ fn hook_setup_dry_run_and_apply_work_through_the_binary() {
     let file = dir.join("settings.json");
     fs::write(&file, r#"{"theme":"dark"}"#).unwrap();
     let run = |extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--install-hooks", "claude", "--hooks-file"])
-            .arg(&file)
-            .args(extra)
-            .output()
-            .unwrap()
+        support::output(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args(["--install-hooks", "claude", "--hooks-file"])
+                .arg(&file)
+                .args(extra),
+        )
     };
     let dry = run(&[]);
     assert!(dry.status.success());
@@ -482,11 +483,11 @@ fn hook_setup_dry_run_and_apply_work_through_the_binary() {
 fn hook_configuration_error_is_silent_and_successful() {
     let path = std::env::temp_dir().join(format!("aherald-invalid-{}.toml", std::process::id()));
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let output = support::output(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config"])
+            .arg(&path),
+    );
     fs::remove_file(path).unwrap();
     assert!(output.status.success());
     assert!(output.stdout.is_empty());

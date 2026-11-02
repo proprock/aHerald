@@ -457,8 +457,9 @@ separately from regressions introduced by this milestone.
   user's resident whenever one was running; it now uses a private `XDG_RUNTIME_DIR`.
   Baseline flake, not caused by this branch: `tests/setup.rs`
   (`malformed_second_harness_prevents_all_writes`, `a_transient_executable_write_handle_...`)
-  fails intermittently on master too (1 of 3 runs). Remaining: the other `.output()` sites
-  (`cli`, `config`, `native_overlay`, `linux_apply`), the Windows-only sleeps
+  fails intermittently on master too (1 of 3 runs). Also bounded `cli` and `config` runs
+  (`support::output`); `linux_apply` busctl calls already carry `--timeout=2s`. Remaining: the
+  Windows `native_overlay` `.output()`, the Windows-only sleeps
   (`resident_perf_log`, `tray_restart`), Windows AH-092 and its 20-run check.
 
 - [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
