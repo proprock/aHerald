@@ -3,6 +3,14 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-110 - Apply rstest selectively for named test cases** (2026-11-02).
+  Owner approved `rstest` `=0.28.0` (MIT OR Apache-2.0, MSRV 1.85, no default
+  features) as a dev-dependency only; `cargo tree -e normal` shows no runtime use.
+  Converted 3 matrices (hook silent-success payloads, hook event names, config
+  duration pairs) to named cases with all input/expected pairs preserved; a single
+  case runs alone (`-- case_4_pre_tool_use`). `cargo test --all-targets`: 705 passed,
+  0 failed; fmt, clippy and release build clean. Details: `docs/ah-110-rstest.md`.
+
 - [x] **AH-109 - Evaluate nextest and retain Cargo for mandatory CI** (2026-11-02).
   Compared pinned signed Windows nextest 0.9.150 against Cargo with equal package-cold
   builds and three alternating warm full runs. Matched exact names/ignored flags in

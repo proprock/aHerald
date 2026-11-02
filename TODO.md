@@ -436,23 +436,6 @@ framework rewrite. Keep live/account checks opt-in and preserve the agreed artwo
 performance check and resident `perf_baseline` limits. Record baseline failures
 separately from regressions introduced by this milestone.
 
-- [ ] **AH-110 — Apply rstest selectively where parameterization improves diagnostics.**
-  Depends on AH-108 and the AH-109 runner decision. Compare `rstest` with ordinary
-  table-driven Rust tests on representative configuration and hook-input matrices.
-  Seek dependency agreement before adding it: document license/maintenance, pinned
-  version, Rust 1.88 and Windows compatibility, required features, compile-time cost
-  and the absence of a runtime dependency in the distributed executable. If approved,
-  use it as a dev-dependency only and convert a small representative set first.
-  Give each case a meaningful name so one failing payload/value can be selected and
-  diagnosed independently. Reuse explicit RAII fixtures from AH-108; parameterization
-  must not weaken process ownership, timeouts, privacy or hook response assertions.
-  Avoid Cartesian-product case growth and do not rewrite simple tests merely for
-  stylistic consistency. Acceptance: the pilot preserves all existing input/expected
-  output pairs, reports and filters individual failing cases under the selected runner,
-  and passes focused and relevant full checks. Record the readability and build-time
-  comparison, then retain only conversions with a clear benefit. If the dependency
-  is declined or adds no value, document the result and keep ordinary Rust tests.
-
 ## Milestone 8 — Extensible harness integrations and basic OpenCode/Pi support
 
 Agreed scope (2026-11-02): prepare aHerald for additional harnesses and deliver
