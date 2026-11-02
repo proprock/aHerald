@@ -90,6 +90,34 @@ the sandbox remains undiagnosed. The successful full log is
 `target/ah-098/tests-all-targets.log`. Existing installed aHerald processes were
 left untouched. No macOS/Linux build or native UI result is claimed.
 
+## Live acceptance progress (2026-11-01)
+
+The user ran the native synthetic-event probe on the interactive Windows desktop.
+Read-only native queries confirmed that HWND `3151618` was a visible, valid
+`ConsoleWindowClass` window. With both suppression options enabled:
+
+- Focused `claude`: `focused=true`, `session=Same`, `window=false`, `sound=false`,
+  `accepted=true`. The user confirmed no card or sound, and no deferred card after
+  changing focus.
+- Unfocused `delayed`: `focused=false`, `session=Same`, `window=true`, `sound=true`,
+  `accepted=true`. The user confirmed the expected card and sound without focus theft.
+
+The records were read from `target/ah-098/live-both.jsonl` and match the user's
+reported output. Two earlier records in the same file have unknown focus/session:
+read-only inspection of HWND `6818932` found `CASCADIA_HOSTING_WINDOW_CLASS`
+(Windows Terminal). The user supplied screenshots of cards for both commands in
+that host. Audio there was not separately confirmed. This establishes visible
+fail-open delivery, not selected-tab identification.
+
+The four test configurations initially used unsupported `visual = 'text'`;
+this was corrected to `auto`. All four then passed configuration loading and
+private-resident startup/quit through the native probe. A fresh build and four
+focused policy/configuration/queue tests passed in this continuation.
+
+Independent output combinations, unknown-origin checks and real terminal/Desktop
+hook dispatch remain to be observed. Synthetic events do not establish actual
+agent hook capture. AH-098 remains open.
+
 ## Manual acceptance still required
 
 After explicit user authorization, the dedicated native probe was launched on
@@ -99,7 +127,7 @@ The evidence file remained empty. Computer Use also prohibits terminal automatio
 the user was asked to enter the probe commands and report card/audio observations.
 The user was away and could not observe the probe. Both owned test processes were
 then stopped; the installed resident was left running.
-No screenshot, audible result or live terminal/Desktop acceptance is claimed.
+That initial attempt supplied no screenshot, audible result or live terminal/Desktop acceptance.
 AH-098 stays open pending that evidence.
 
 Build the opt-in probe with:
