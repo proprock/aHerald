@@ -44,6 +44,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   and idle warnings off on a new configuration.
 
 ### Fixed
+- The Claude statusLine wrapper and the Codex context hook no longer wait up to 150 ms
+  for a resident to start when none is running; they now return at once (about 4 ms
+  instead of 160 ms per status line refresh without a resident), on every platform.
 - Interrupted Linux setup restores hooks, configuration and a user's own status line
   together (covered by a root-safe rollback test).
 

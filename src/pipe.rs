@@ -116,6 +116,23 @@ fn send<T: serde::Serialize>(handle: HANDLE, value: &T) -> Result<(), Failure> {
     transfer(handle, &mut frame, true, Instant::now() + IO_TIMEOUT)
 }
 pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Response, String> {
+    send_request(scope, request, timeout, true)
+}
+/// Like [`request`], but fails at once when no resident has created the pipe instead of waiting
+/// for one to start; a busy pipe is still waited for until `timeout`.
+pub fn request_if_running(
+    scope: &Scope,
+    request: &Request,
+    timeout: Duration,
+) -> Result<Response, String> {
+    send_request(scope, request, timeout, false)
+}
+fn send_request(
+    scope: &Scope,
+    request: &Request,
+    timeout: Duration,
+    wait_for_start: bool,
+) -> Result<Response, String> {
     let deadline = Instant::now() + timeout;
     let name = wide(&scope.pipe_name);
     let handle = loop {
@@ -135,8 +152,9 @@ pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Re
             Ok(handle) => break Handle(handle),
             Err(e)
                 if Instant::now() < deadline
-                    && [ERROR_PIPE_BUSY, ERROR_FILE_NOT_FOUND]
-                        .iter()
+                    && [ERROR_PIPE_BUSY]
+                        .into_iter()
+                        .chain(wait_for_start.then_some(ERROR_FILE_NOT_FOUND))
                         .any(|code| e.code() == windows::core::HRESULT::from_win32(code.0)) =>
             {
                 std::thread::sleep(Duration::from_millis(10));

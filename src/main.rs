@@ -251,7 +251,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 && cli.selected_mode(&config) == aherald::config::Mode::Resident
             {
                 // Observation only: do not start a resident or fail the model request.
-                let _ = aherald::ipc::pipe::request(
+                let _ = aherald::ipc::pipe::request_if_running(
                     &scope,
                     &aherald::ipc::Request::CodexContext { report },
                     std::time::Duration::from_millis(150),
@@ -466,7 +466,7 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             .map(|(text, options)| (text.as_str(), *options)),
         |report| {
             if let Ok(scope) = aherald::local::Scope::current("resident") {
-                let _ = aherald::ipc::pipe::request(
+                let _ = aherald::ipc::pipe::request_if_running(
                     &scope,
                     &aherald::ipc::Request::StatusLine { report },
                     std::time::Duration::from_millis(150),

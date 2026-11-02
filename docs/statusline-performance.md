@@ -8,6 +8,12 @@ resident (never starting one) and, with `--then`, runs the user's command in par
 
 ## Measurements (2026-11-02, Ubuntu 22.04.5, release build, 500 runs, `hyperfine`)
 
+Taken with a resident running. Without one the wrapper used to take about 160 ms: the IPC
+client waited up to its 150 ms timeout for a resident to start, which the status line never
+wants. `request_if_running` now fails at once when nobody listens (4.2 ms measured), and
+`tests/perf_statusline.rs` runs against an empty private runtime directory so it fails if that
+wait returns. The Codex `PostModelRequest` context hook had the same wait and uses the same call.
+
 | Command | median | p95 |
 |---|---|---|
 | minimal Rust program (std only) | 0.38 ms | 0.63 ms |

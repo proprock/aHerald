@@ -3,11 +3,12 @@
 //! The command is measured against `--version` of the same binary, interleaved in one run, so
 //! machine speed and dynamic-loader cost (the executable links the whole GUI stack, see
 //! docs/statusline-performance.md) cancel out and what remains is the wrapper's own work.
-//! Medians are used: a loaded CI runner inflates means. Use --nocapture for the table.
+//! No resident runs in the private runtime directory, which is the case that once cost
+//! 150 ms per call (the IPC client waited for a resident to start). Medians are used: a loaded CI runner inflates means. Use --nocapture for the table.
 #![cfg(unix)]
 use std::{
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -24,10 +25,11 @@ const ABSOLUTE_BUDGET_MS: f64 = 50.0;
 const PAYLOAD: &str = r#"{"session_id":"perf-sl","session_name":"N","model":{"display_name":"Opus"},"cost":{"total_lines_added":4},"context_window":{"used_percentage":12.5,"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#;
 const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window}{[ · {rate_limits.five_hour}]}\"\n";
 
-fn spawn(args: &[&str], stdin: Option<&str>) -> Duration {
+fn spawn(args: &[&str], stdin: Option<&str>, runtime: &Path) -> Duration {
     let start = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
         .args(args)
+        .env("XDG_RUNTIME_DIR", runtime)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -51,6 +53,15 @@ fn median(mut samples: Vec<Duration>) -> f64 {
 fn the_wrapper_costs_little_beyond_starting_the_executable() {
     let dir = std::env::temp_dir().join(format!("aherald-perf-sl-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    // A private, empty runtime directory: no resident is listening, whatever runs on this
+    // machine. Without one the wrapper must not wait for a resident to start.
+    let runtime = dir.join("runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::set_permissions(
+        &runtime,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
     let config: PathBuf = dir.join("config.toml");
     std::fs::write(&config, FORMAT).unwrap();
     let config = config.to_str().unwrap();
@@ -67,12 +78,12 @@ fn the_wrapper_costs_little_beyond_starting_the_executable() {
         ),
     ];
     for (_, args) in &cases {
-        spawn(args, Some(PAYLOAD)); // warm the file cache and the loader
+        spawn(args, Some(PAYLOAD), &runtime); // warm the file cache and the loader
     }
     let mut samples: Vec<Vec<Duration>> = vec![Vec::new(); cases.len()];
     for _ in 0..ROUNDS {
         for (i, (_, args)) in cases.iter().enumerate() {
-            samples[i].push(spawn(args, Some(PAYLOAD)));
+            samples[i].push(spawn(args, Some(PAYLOAD), &runtime));
         }
     }
     let medians: Vec<f64> = samples.into_iter().map(median).collect();
