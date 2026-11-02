@@ -29,7 +29,7 @@ fn start(level: &str) -> (Scope, Cleanup, PathBuf) {
     std::fs::write(
         &config,
         format!(
-            "[general]\nlogging='{level}'\n[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.permission_required]\nduration_ms=300\n"
+            "[general]\nlogging='{level}'\n[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.permission_required]\nduration_sec=1\n"
         ),
     )
     .unwrap();

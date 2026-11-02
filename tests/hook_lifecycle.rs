@@ -45,14 +45,14 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
             b"".as_slice(),
         ),
     ] {
-        for duration in [30_000, 0] {
+        for duration in [30, 0] {
             let path = std::env::temp_dir().join(format!(
                 "aherald-hook-life-{}-{event_name}-{duration}.toml",
                 std::process::id()
             ));
             std::fs::write(
                 &path,
-                format!("[events.{event_name}]\nduration_ms={duration}\n[sounds]\nenabled=false"),
+                format!("[events.{event_name}]\nduration_sec={duration}\n[sounds]\nenabled=false"),
             )
             .unwrap();
             let start = Instant::now();
@@ -121,7 +121,7 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
             }
 
             println!(
-                "event={event_name}, duration_ms={duration}, hook_return_ms={}",
+                "event={event_name}, duration_sec={duration}, hook_return_ms={}",
                 hook_return_ms
             );
             std::fs::remove_file(&path).unwrap();

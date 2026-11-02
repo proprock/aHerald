@@ -115,8 +115,8 @@ enabled = true
 # sound = 'assets/turn_complete/sound.wav'
 # Enable this event's configured sound; default true. sounds.enabled is the master.
 sound_enabled = true
-# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
-duration_ms = 3000
+# Lifetime in seconds: 0..86400; default 3. Zero means until dismissed.
+duration_sec = 3
 # Left accent color; automatic default green #41D28C.
 color = "#41D28C"
 
@@ -131,8 +131,8 @@ enabled = true
 # sound = 'assets/permission_required/sound.wav'
 # Enable this event's configured sound; default true; also needs sounds.enabled.
 sound_enabled = true
-# Lifetime in milliseconds: 0..86400000; default 0 (persistent, without countdown).
-duration_ms = 0
+# Lifetime in seconds: 0..86400; default 0 (persistent, without countdown).
+duration_sec = 0
 # Left accent color; automatic default yellow #FAB437.
 color = "#FAB437"
 
@@ -147,8 +147,8 @@ enabled = true
 # sound = 'assets/input_required/sound.wav'
 # Enable this event's configured sound; default true; also needs sounds.enabled.
 sound_enabled = true
-# Lifetime in milliseconds: 0..86400000; default 0 (persistent, without countdown).
-duration_ms = 0
+# Lifetime in seconds: 0..86400; default 0 (persistent, without countdown).
+duration_sec = 0
 # Left accent color; automatic default blue #50A5FA.
 color = "#50A5FA"
 
@@ -167,8 +167,8 @@ enabled = true
 # sound = 'assets/error/sound.wav'
 # Enable this event's configured sound; default true; also needs sounds.enabled.
 sound_enabled = true
-# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
-duration_ms = 3000
+# Lifetime in seconds: 0..86400; default 3. Zero means until dismissed.
+duration_sec = 3
 # Left accent color; automatic default red #F55564.
 color = "#F55564"
 
@@ -183,8 +183,8 @@ enabled = true
 # sound = 'assets/interrupted/sound.wav'
 # Enable this event's configured sound; default true; also needs sounds.enabled.
 sound_enabled = true
-# Lifetime in milliseconds: 0..86400000; default 3000. Zero means until dismissed.
-duration_ms = 3000
+# Lifetime in seconds: 0..86400; default 3. Zero means until dismissed.
+duration_sec = 3
 # Left accent color; automatic default purple #B482F0.
 color = "#B482F0"
 

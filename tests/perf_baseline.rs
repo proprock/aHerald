@@ -61,7 +61,7 @@ fn hot_paths_stay_inside_their_baseline_budgets() {
         "input_required",
         "error",
     ] {
-        text.push_str(&format!("[events.{kind}]\nduration_ms=400\n"));
+        text.push_str(&format!("[events.{kind}]\nduration_sec=1\n"));
     }
     std::fs::write(&config, text).unwrap();
     let _cleanup = Cleanup(scope.clone(), root.clone());

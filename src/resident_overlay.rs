@@ -1407,7 +1407,7 @@ mod warning_deadline_tests {
         let config = Config::parse(
             "[notifications]\nenabled=false\n[sounds]\nenabled=false\n\
              [claude.warnings]\nidle_minutes=1\n[codex.warnings]\nidle_minutes=1\n\
-             [events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_ms=0",
+             [events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_sec=0",
             &directory,
         )
         .unwrap();

@@ -309,8 +309,14 @@ pub struct EventConfig {
     pub animation: Option<PathBuf>,
     pub sound: Option<PathBuf>,
     pub sound_enabled: bool,
+    #[serde(rename = "duration_sec", deserialize_with = "duration_seconds")]
     pub duration_ms: u64,
     pub color: Option<Color>,
+}
+fn duration_seconds<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    u64::deserialize(deserializer)?
+        .checked_mul(1000)
+        .ok_or_else(|| serde::de::Error::custom("duration is too large"))
 }
 impl Default for EventConfig {
     fn default() -> Self {
@@ -591,13 +597,13 @@ impl Config {
         })?;
         config.validate()?;
         config.diagnostic_directory = directory.to_owned();
-        // A table that omits `duration_ms` keeps the kind's own default, not the struct's.
+        // A table that omits `duration_sec` keeps the kind's own default, not the struct's.
         let defaults = Events::default();
         for (kind, event) in config.events.iter_mut() {
             let has_duration = value
                 .get("events")
                 .and_then(|events| events.get(kind.name()))
-                .and_then(|event| event.get("duration_ms"))
+                .and_then(|event| event.get("duration_sec"))
                 .is_some();
             if !has_duration {
                 event.duration_ms = defaults[kind].duration_ms;
@@ -711,7 +717,7 @@ impl Config {
             let name = kind.name();
             if event.duration_ms > 86_400_000 {
                 return Err(format!(
-                    "invalid configuration: events.{name}.duration_ms must be at most 86400000"
+                    "invalid configuration: events.{name}.duration_sec must be at most 86400"
                 ));
             }
             if event.visual == EventVisual::Custom && event.animation.is_none() {

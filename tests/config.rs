@@ -6,6 +6,18 @@ use aherald::{
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn event_duration_seconds_are_converted_to_internal_milliseconds() {
+    let dir = PathBuf::from(".");
+    for (seconds, milliseconds) in [(0, 0), (1, 1000), (12, 12_000), (86_400, 86_400_000)] {
+        let text = format!("[events.turn_complete]\nduration_sec={seconds}");
+        let config = Config::parse(&text, &dir).unwrap();
+        assert_eq!(config.events[Kind::TurnComplete].duration_ms, milliseconds);
+    }
+    assert!(Config::parse("[events.turn_complete]\nduration_sec=86401", &dir).is_err());
+    assert!(Config::parse("[events.turn_complete]\nduration_ms=3000", &dir).is_err());
+}
+
+#[test]
 fn enumerated_settings_parse_every_documented_value() {
     let dir = PathBuf::from(".");
     for (name, mode) in [("resident", Mode::Resident), ("transient", Mode::Transient)] {
@@ -247,7 +259,7 @@ fn invalid_configuration_is_rejected() {
         "[sounds]\nvolume=1.1",
         "[notifications]\nscale=nan",
         "[notifications]\nscale=0.0",
-        "[events.error]\nduration_ms=-1",
+        "[events.error]\nduration_sec=-1",
         "[codex.usage]\nrefresh_interval_sec=0",
         "[general]\nmode='other'",
         "[events.unknown]\nenabled=true",
@@ -508,8 +520,8 @@ fn invalid_configuration_names_the_field_and_reason_without_echoing_values() {
             "SECRETMODE",
         ),
         (
-            "[events.turn_complete]\nduration_ms = 987654321987",
-            "events.turn_complete.duration_ms",
+            "[events.turn_complete]\nduration_sec = 987654321987",
+            "events.turn_complete.duration_sec",
             "987654321987",
         ),
         (

@@ -37,7 +37,7 @@ idle_minutes=1
 [events.turn_complete]
 enabled=false
 [events.idle_warning]
-duration_ms=0
+duration_sec=0
 '@ | Set-Content -LiteralPath $config
 function New-Info([string]$File,[string[]]$Arguments){
     $info=[Diagnostics.ProcessStartInfo]::new($File)

@@ -28,7 +28,7 @@ idle_minutes=0
 context_tokens=1
 idle_minutes=0
 [events.context_warning]
-duration_ms=0
+duration_sec=0
 '@ | Set-Content -LiteralPath $config
 function New-Info([string]$File, [string[]]$Arguments) {
     $info = [Diagnostics.ProcessStartInfo]::new($File)

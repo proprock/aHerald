@@ -23,12 +23,15 @@ The badge disappears at expiry and the configured fade-out completes dismissal.
 Persistent waits have no timer. Resident countdowns use selected visible time,
 so switching away or pausing preserves the remaining time.
 
-The existing `[events.NAME].duration_ms` controls every event type, including
+The `[events.NAME].duration_sec` setting controls every event type, including
 `permission_required`; there is no separate permission timeout. A positive value
-expires the card after that many milliseconds of selected visible time, followed
+expires the card after that many seconds of selected visible time, followed
 by the configured fade-out. Zero explicitly requests persistent display. For
-example, `[events.permission_required] duration_ms = 3000` gives a three-second
+example, `[events.permission_required] duration_sec = 3` gives a three-second
 notification regardless of whether Codex has already received an approval answer.
+Existing configurations using `duration_ms` must be updated to `duration_sec`,
+converting milliseconds to whole seconds (for example, `3000` becomes `3`).
+The old key is no longer accepted; subsecond durations cannot be represented.
 
 Set `color = '#RRGGBB'` under `[events.NAME]` for the accent stripe. Defaults:
 completion `#41D28C`, permission `#FAB437`, input `#50A5FA`, error `#F55564`,
