@@ -84,13 +84,11 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
-      # Off Windows only the portable tests run; the native overlay, tray and
-      # IPC tests are Windows-only (AH-060) until the Unix ports land.
       - name: cargo test
         if: needs.changes.outputs.code == 'true'
         run: cargo test --all-targets
 
-      - name: Test Linux tray apply lifecycle
+      - name: Test Linux tray and warning lifecycle
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: >-
           xvfb-run -a -s '-screen 0 1280x1024x24'

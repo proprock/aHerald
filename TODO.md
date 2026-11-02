@@ -213,6 +213,10 @@ shared development-profile and artwork performance changes need no separate port
   unsupported versions or environments are stated rather than inferred. Xorg
   and multi-monitor acceptance remains AH-093. Depends on AH-111 through AH-114
   for their respective behavior and installer checks, and coordinates with AH-104.
+  Partial 2026-11-02: isolated Xvfb/D-Bus tests exercise synthetic Codex and
+  Claude context reports, tray gating and one-minute idle delivery/clearing.
+  Real harness dispatch, sound and the remaining native desktop checks are open;
+  these synthetic tests do not establish installed hook or statusLine delivery.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;
@@ -392,6 +396,10 @@ separately from regressions introduced by this milestone.
   the guards themselves do not leave owned processes or IPC resources behind. Run
   the AH-092 Windows test 20 consecutive times and show that a resident which remains
   visible still fails. Do not hide failures with retries or relaxed assertions.
+  Partial 2026-11-02: the Linux tray fixture tracks verified resident processes
+  by pidfd, waits for exit and bounds owned-process fallback; tests exercise a
+  hung owned process and panic cleanup without stopping an independent resident.
+  The wider inventory, Windows AH-092 and remaining guards are still open.
 
 - [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
   Depends on AH-107. Introduce a focused `tests/support` module for repeated setup
@@ -408,6 +416,9 @@ separately from regressions introduced by this milestone.
   unique scopes, concurrent independent residents, startup failure, timeout and panic
   cleanup. No fixture may stop an unrelated running aHerald instance. Record focused
   and relevant full-check results; obtain agreement before any new direct dependency.
+  Partial 2026-11-02: Linux tray and Unix IPC tests share a bounded boolean wait
+  with delayed-success and missing-effect checks. The designated Windows fixture
+  migrations and complete lifecycle acceptance still depend on AH-107.
 
 - [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
   Depends on AH-107 and AH-108. Measure current Windows test build and execution time

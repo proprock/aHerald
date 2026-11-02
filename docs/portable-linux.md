@@ -41,6 +41,21 @@ acceptance is tracked in AH-115. The local IPC protocol is versioned: use matchi
 hook and resident builds, and restart the resident after updating the executable.
 Warning state is in memory and starts fresh after a resident restart.
 
+The offline Linux integration test uses a private D-Bus and an isolated Xvfb display:
+
+```sh
+xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- \
+  env AH113_ISOLATED=1 cargo test --test linux_apply -- --ignored --test-threads=1
+```
+
+On 2026-11-02 this passed on Ubuntu 22.04.5, Xvfb 21.1.4 and Rust 1.99.1.
+It sends synthetic Codex context and Claude statusLine reports over private IPC,
+exercises the tray context switch, and waits one minute for idle cards before
+clearing them with synthetic activity. It does not start either harness, verify
+installed hook dispatch or use an audio device. Those live checks remain AH-115.
+The test uses Linux pidfds for owned-process cleanup and requires a kernel that
+supports `pidfd_open` and `pidfd_send_signal`.
+
 Alternatively, Claude Code can install the repository's plugin marketplace:
 
 ```sh

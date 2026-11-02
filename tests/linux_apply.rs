@@ -1,11 +1,14 @@
 //! Run with a private D-Bus session and an isolated X11/XWayland display.
 #![cfg(target_os = "linux")]
+mod support;
 use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
     local::Scope,
 };
 use std::{
+    cell::RefCell,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
     path::PathBuf,
     process::Command,
     time::{Duration, Instant},
@@ -25,6 +28,7 @@ struct Fixture {
     root: PathBuf,
     config: PathBuf,
     exe: PathBuf,
+    processes: RefCell<Vec<OwnedFd>>,
 }
 impl Fixture {
     fn new(tag: &str) -> Self {
@@ -44,6 +48,7 @@ impl Fixture {
             root,
             config,
             exe,
+            processes: RefCell::new(Vec::new()),
         };
         fixture.valid(true);
         fixture
@@ -78,23 +83,51 @@ impl Fixture {
     }
     fn start(&self) -> u32 {
         match aherald::resident::ensure(&self.exe, &self.config, &self.scope).unwrap() {
-            Response::Status { pid, .. } => pid,
+            Response::Status { pid, .. } => {
+                self.track(pid);
+                pid
+            }
             _ => panic!("resident did not start"),
         }
     }
-    fn wait(&self, mut check: impl FnMut() -> bool, what: &str) {
-        let deadline = Instant::now() + WAIT;
-        while !check() {
-            assert!(Instant::now() < deadline, "timed out: {what}");
-            std::thread::sleep(Duration::from_millis(30));
+    fn track(&self, pid: u32) {
+        // pidfd refers to this exact process even if a PID is subsequently reused.
+        let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
+        if raw < 0 {
+            let _ = pipe::request(&self.scope, &Request::Quit, Duration::from_millis(300));
+            panic!(
+                "cannot open resident pidfd: {}",
+                std::io::Error::last_os_error()
+            );
         }
+        // SAFETY: pidfd_open returned a new owned descriptor.
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        let actual = std::fs::read_link(format!("/proc/{pid}/exe"));
+        assert!(
+            actual.as_deref().is_ok_and(|path| path == self.exe),
+            "resident executable ownership mismatch"
+        );
+        self.processes.borrow_mut().push(fd);
     }
-    fn menu(&self, pid: u32, id: i32) {
+    fn wait(&self, mut check: impl FnMut() -> bool, what: &str) {
+        self.wait_for(WAIT, &mut check, what);
+    }
+    fn wait_for(&self, timeout: Duration, mut check: impl FnMut() -> bool, what: &str) {
+        support::wait_until(timeout, Duration::from_millis(30), what, &mut check)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+    fn tray_name(&self, pid: u32) -> String {
         let mut name = None;
         self.wait(
             || {
                 let output = Command::new("busctl")
-                    .args(["--user", "--no-legend", "--no-pager", "list"])
+                    .args([
+                        "--user",
+                        "--timeout=2s",
+                        "--no-legend",
+                        "--no-pager",
+                        "list",
+                    ])
                     .output()
                     .unwrap();
                 let text = String::from_utf8_lossy(&output.stdout);
@@ -108,10 +141,14 @@ impl Fixture {
             },
             "resident tray D-Bus connection",
         );
-        let name = name.unwrap();
+        name.unwrap()
+    }
+    fn menu(&self, pid: u32, id: i32) {
+        let name = self.tray_name(pid);
         let result = Command::new("busctl")
             .args([
                 "--user",
+                "--timeout=2s",
                 "call",
                 &name,
                 "/MenuBar",
@@ -132,6 +169,32 @@ impl Fixture {
             String::from_utf8_lossy(&result.stderr)
         );
     }
+    fn wait_toggle(&self, pid: u32, id: i32, enabled: bool) {
+        let name = self.tray_name(pid);
+        let expected = format!("v i {}", i32::from(enabled));
+        self.wait(
+            || {
+                let result = Command::new("busctl")
+                    .args([
+                        "--user",
+                        "--timeout=2s",
+                        "call",
+                        &name,
+                        "/MenuBar",
+                        "com.canonical.dbusmenu",
+                        "GetProperty",
+                        "is",
+                        &id.to_string(),
+                        "toggle-state",
+                    ])
+                    .output()
+                    .unwrap();
+                result.status.success()
+                    && String::from_utf8_lossy(&result.stdout).trim() == expected
+            },
+            "tray toggle state",
+        );
+    }
     fn replacement(&self, old: u32, sounds: bool) -> u32 {
         let mut new = 0;
         self.wait(
@@ -148,14 +211,97 @@ impl Fixture {
             },
             "replacement resident with reloaded settings",
         );
+        self.track(new);
         new
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = pipe::request(&self.scope, &Request::Quit, Duration::from_millis(300));
-        let _ = std::fs::remove_dir_all(&self.root);
+        let mut clean = true;
+        for process in self.processes.get_mut().iter() {
+            clean &= stop_owned(process, Duration::from_secs(3));
+        }
+        if clean {
+            if let Err(error) = std::fs::remove_dir_all(&self.root) {
+                eprintln!("cannot remove test fixture: {error}");
+            }
+        } else {
+            eprintln!(
+                "owned resident did not exit; retaining {}",
+                self.root.display()
+            );
+        }
     }
+}
+fn stop_owned(process: &OwnedFd, graceful: Duration) -> bool {
+    if wait_for_exit(process, graceful) {
+        return true;
+    }
+    // SAFETY: the caller owns the pidfd for the process that may be terminated.
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_pidfd_send_signal,
+            process.as_raw_fd(),
+            libc::SIGKILL,
+            std::ptr::null::<libc::siginfo_t>(),
+            0,
+        )
+    };
+    if result < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+        eprintln!(
+            "cannot stop owned resident: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    wait_for_exit(process, Duration::from_secs(3))
+}
+fn wait_for_exit(process: &OwnedFd, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let milliseconds = left.as_millis().min(i32::MAX as u128) as i32;
+        let mut fd = libc::pollfd {
+            fd: process.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: fd points to a live pollfd and the timeout is bounded.
+        let result = unsafe { libc::poll(&mut fd, 1, milliseconds) };
+        if result > 0 {
+            return fd.revents & libc::POLLIN != 0;
+        }
+        if result == 0 || Instant::now() >= deadline {
+            return false;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return false;
+        }
+    }
+}
+
+#[test]
+fn bounded_cleanup_terminates_the_owned_hung_process() {
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut hung = Child(Command::new("sleep").arg("30").spawn().unwrap());
+    let mut other = Child(Command::new("sleep").arg("30").spawn().unwrap());
+    // SAFETY: pidfd_open returns a new descriptor for the owned child.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, hung.0.id(), 0) } as i32;
+    assert!(raw >= 0);
+    let pidfd = unsafe { OwnedFd::from_raw_fd(raw) };
+    assert!(!wait_for_exit(&pidfd, Duration::from_millis(20)));
+    assert!(stop_owned(&pidfd, Duration::from_millis(20)));
+    assert!(!hung.0.wait().unwrap().success());
+    assert!(
+        other.0.try_wait().unwrap().is_none(),
+        "unrelated child must remain running"
+    );
 }
 fn window(conn: &RustConnection, root: u32) -> Option<u32> {
     conn.query_tree(root)
@@ -312,4 +458,181 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
             "ordinary Apply must not inherit the preview flag"
         );
     }
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn linux_context_adapters_reach_cards_and_the_tray_switch() {
+    use std::io::Write;
+    let (conn, screen) = x11rb::connect(None).unwrap();
+    let root = conn.setup().roots[screen].root;
+    let f = Fixture::new("warnings");
+    f.valid(false);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&f.config)
+        .unwrap();
+    writeln!(
+        file,
+        "[codex.warnings]\ncontext_tokens=100\n[claude.warnings]\ncontext_tokens=200"
+    )
+    .unwrap();
+    drop(file);
+    let pid = f.start();
+    let mut win = 0;
+    f.wait(
+        || {
+            if let Some(w) = window(&conn, root) {
+                win = w;
+                true
+            } else {
+                false
+            }
+        },
+        "warning resident window",
+    );
+    let send = |codex: bool, session: &str| {
+        let request = if codex {
+            let input = format!(
+                r#"{{"hook_event_name":"PostModelRequest","session_id":"{session}","status":"completed","token_usage":{{"input_tokens":101}}}}"#
+            );
+            Request::CodexContext {
+                report: aherald::codex_context::parse(input.as_bytes())
+                    .unwrap()
+                    .unwrap(),
+            }
+        } else {
+            let input = format!(
+                r#"{{"session_id":"{session}","context_window":{{"current_usage":{{"input_tokens":201,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}}}}"#
+            );
+            Request::StatusLine {
+                report: aherald::statusline::parse(input.as_bytes()).unwrap(),
+            }
+        };
+        assert!(matches!(
+            pipe::request(&f.scope, &request, Duration::from_secs(1)).unwrap(),
+            Response::Accepted
+        ));
+    };
+    for (codex, session) in [(true, "codex-first"), (false, "claude-first")] {
+        send(codex, session);
+        f.wait(
+            || f.status().is_some_and(|(_, queued, _)| queued == 1) && shown(&conn, win),
+            "context warning card",
+        );
+        click(&conn, root, win, 150, 70, 1);
+        f.wait(
+            || f.status().is_some_and(|(_, queued, _)| queued == 0) && !shown(&conn, win),
+            "context warning dismissed",
+        );
+    }
+    f.menu(pid, 12);
+    f.wait_toggle(pid, 12, false);
+    send(true, "codex-disabled");
+    send(false, "claude-disabled");
+    assert!(f.status().is_some_and(|(_, queued, _)| queued == 0));
+    f.menu(pid, 12);
+    f.wait_toggle(pid, 12, true);
+    send(true, "codex-enabled");
+    f.wait(
+        || f.status().is_some_and(|(_, queued, _)| queued == 1) && shown(&conn, win),
+        "context warning after re-enabling",
+    );
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session; takes one minute"]
+fn linux_idle_warnings_reach_cards_and_clear_on_activity() {
+    use aherald::events::Source;
+    let (conn, screen) = x11rb::connect(None).unwrap();
+    let root = conn.setup().roots[screen].root;
+    let f = Fixture::new("idle");
+    std::fs::write(&f.config, "[sounds]\nenabled=false\n[notifications]\nenabled=true\nactivate_agent_on_click=false\nfade_in_ms=0\nfade_out_ms=0\n[codex.warnings]\nidle_minutes=1\n[claude.warnings]\nidle_minutes=1\n[events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_ms=0\n").unwrap();
+    let pid = f.start();
+    let mut win = 0;
+    f.wait(
+        || {
+            if let Some(w) = window(&conn, root) {
+                win = w;
+                true
+            } else {
+                false
+            }
+        },
+        "idle resident window",
+    );
+    let send = |source: Source, session: &str, activity: bool| {
+        let mut event = Event::demo("turn_complete").unwrap();
+        event.source = source;
+        event.session_id = Some(session.into());
+        event.activity = activity;
+        assert!(matches!(
+            pipe::request(&f.scope, &Request::Event { event }, Duration::from_secs(1)).unwrap(),
+            Response::Accepted
+        ));
+    };
+    send(Source::CodexHook, "codex-idle", false);
+    send(Source::ClaudeHook, "claude-idle", false);
+    assert!(
+        f.status()
+            .is_some_and(|(actual, queued, _)| actual == pid && queued == 0)
+    );
+    f.wait_for(
+        Duration::from_secs(70),
+        || f.status().is_some_and(|(_, queued, _)| queued == 2) && shown(&conn, win),
+        "both one-minute idle warning cards",
+    );
+    send(Source::CodexHook, "codex-idle", true);
+    f.wait(
+        || f.status().is_some_and(|(_, queued, _)| queued == 1),
+        "Codex idle warning cleared on activity",
+    );
+    send(Source::ClaudeHook, "claude-idle", true);
+    f.wait(
+        || f.status().is_some_and(|(_, queued, _)| queued == 0) && !shown(&conn, win),
+        "Claude idle warning cleared on activity",
+    );
+    f.menu(pid, 13);
+    f.wait_toggle(pid, 13, false);
+    f.menu(pid, 13);
+    f.wait_toggle(pid, 13, true);
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn fixture_panic_cleans_its_resident_without_stopping_another() {
+    let survivor = Fixture::new("survivor");
+    let survivor_pid = survivor.start();
+    let failed = Fixture::new("panic");
+    assert_ne!(survivor.scope.namespace, failed.scope.namespace);
+    let failed_pid = failed.start();
+    let root = failed.root.clone();
+    // SAFETY: pidfd_open returns a new descriptor for the known test resident.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, failed_pid, 0) } as i32;
+    assert!(raw >= 0);
+    let pidfd = unsafe { OwnedFd::from_raw_fd(raw) };
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _fixture = failed;
+        panic!("exercise fixture cleanup");
+    }));
+    assert!(caught.is_err());
+    assert!(wait_for_exit(&pidfd, Duration::from_secs(1)));
+    assert!(!root.exists());
+    assert!(
+        survivor
+            .status()
+            .is_some_and(|(pid, _, _)| pid == survivor_pid)
+    );
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn fixture_removes_files_after_resident_startup_failure() {
+    let failed = Fixture::new("startup-failure");
+    let root = failed.root.clone();
+    std::fs::write(&failed.config, "[invalid").unwrap();
+    assert!(aherald::resident::ensure(&failed.exe, &failed.config, &failed.scope).is_err());
+    assert!(failed.status().is_none());
+    drop(failed);
+    assert!(!root.exists());
 }
