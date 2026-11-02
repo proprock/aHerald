@@ -451,7 +451,7 @@ impl Default for SessionWarnings {
     fn default() -> Self {
         Self {
             context_enabled: true,
-            idle_enabled: true,
+            idle_enabled: false,
             context_tokens: None,
             idle_minutes: None,
         }

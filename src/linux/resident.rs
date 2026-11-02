@@ -850,7 +850,7 @@ mod tests {
             agent::Agent,
             events::{Kind, Source},
         };
-        let config = Config::parse("[codex.warnings]\ncontext_tokens=1\nidle_minutes=1\n[claude.warnings]\ncontext_tokens=1\nidle_minutes=1", Path::new(".")).unwrap();
+        let config = Config::parse("[codex.warnings]\nidle_enabled=true\ncontext_tokens=1\nidle_minutes=1\n[claude.warnings]\nidle_enabled=true\ncontext_tokens=1\nidle_minutes=1", Path::new(".")).unwrap();
         let state = shared(&config);
         let mut state = state.lock().unwrap();
         let queued = state
@@ -950,7 +950,7 @@ mod tests {
             events::{Kind, Source},
             ipc::Request,
         };
-        let config = Config::parse("[codex.warnings]\nidle_minutes=1\n[claude.warnings]\nidle_minutes=2\n[events.turn_complete]\nenabled=false", Path::new(".")).unwrap();
+        let config = Config::parse("[codex.warnings]\nidle_enabled=true\nidle_minutes=1\n[claude.warnings]\nidle_enabled=true\nidle_minutes=2\n[events.turn_complete]\nenabled=false", Path::new(".")).unwrap();
         let state = shared(&config);
         let mut state = state.lock().unwrap();
         state.queue = Queue::new(1, 0);

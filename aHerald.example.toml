@@ -228,8 +228,8 @@ transient_names = false
 hooks_enabled = true
 
 [claude.warnings]
-# Setup and the installer switch these on and off and keep the thresholds. A new configuration
-# starts with both warnings off; the context warning also needs context_tokens.
+# Setup and the installer switch these on and off and keep the thresholds. Both warnings are off
+# by default (idle_enabled defaults to false); the context warning also needs context_tokens.
 context_enabled = true
 idle_enabled = false
 # Optional input-context threshold: positive tokens (120000 or "120000") or "120k".

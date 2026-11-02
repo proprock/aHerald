@@ -29,9 +29,9 @@ capture. Add `--config` only when using a custom file; no automatic hook edits o
 
 ### Session warnings (AH-100 / AH-101)
 
-Idle reminders use 55 minutes for Claude and 25 minutes for Codex once enabled. A new
-configuration (the shipped example) starts with both warning types off; setup and the installer
-turn them on per agent. A configuration that omits `idle_enabled` keeps idle on, as before.
+Idle reminders use 55 minutes for Claude and 25 minutes for Codex once enabled. Both warning
+types are off until enabled: `idle_enabled` defaults to `false` (also when the key is omitted)
+and a context warning needs a threshold. Setup and the installer turn them on per agent.
 Context warnings remain off until a threshold is configured. For example:
 
 ```toml
@@ -51,8 +51,8 @@ idle_minutes = 25
 `context_tokens` accepts positive integer tokens, an integer string or an integer
 string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
 are rejected. Each agent's threshold is independent and omitted by default (off).
-`context_enabled` and `idle_enabled` default to `true` when omitted, but the shipped example
-sets `idle_enabled = false`; set either to `false` to disable that warning while retaining its
+`context_enabled` defaults to `true` (it only matters once a threshold exists) and
+`idle_enabled` to `false`; set either to `false` to disable that warning while retaining its
 threshold. The Windows installer uses
 these flags. When first enabled there without a context threshold, it supplies
 250k tokens for Codex or 400k for Claude; existing thresholds are preserved.

@@ -26,7 +26,7 @@ fn saved_warning_switches_suppress_delivery_without_removing_thresholds() {
 
 #[test]
 fn runtime_switches_suppress_both_agents_independently_of_each_other() {
-    let config = Config::parse("[claude.warnings]\ncontext_tokens=1\nidle_minutes=1\n[codex.warnings]\ncontext_tokens=1\nidle_minutes=1", Path::new(".")).unwrap();
+    let config = Config::parse("[claude.warnings]\nidle_enabled=true\ncontext_tokens=1\nidle_minutes=1\n[codex.warnings]\nidle_enabled=true\ncontext_tokens=1\nidle_minutes=1", Path::new(".")).unwrap();
     let mut warnings = Warnings::default();
     warnings.set_enabled(Kind::ContextWarning, false);
     assert!(!warnings.enabled(Kind::ContextWarning));

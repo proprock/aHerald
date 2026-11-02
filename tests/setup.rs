@@ -830,7 +830,7 @@ fn installer_warning_selections_preserve_thresholds_and_use_agent_defaults() {
 fn installer_warning_selections_are_independent_and_restore_zero_idle() {
     let app = Install::new("warning-independent");
     let path = app.root.join("config.toml");
-    std::fs::write(&path, "[codex.warnings]\nidle_minutes = 0 # disabled before\n[claude.warnings]\ncontext_tokens = '399k'\nidle_minutes = 19\n").unwrap();
+    std::fs::write(&path, "[codex.warnings]\nidle_minutes = 0 # disabled before\n[claude.warnings]\nidle_enabled = true\ncontext_tokens = '399k'\nidle_minutes = 19\n").unwrap();
     app.ok(&[
         "--unsetup",
         "--codex-context",
@@ -889,7 +889,7 @@ fn installer_changes_only_selected_usage_and_preserves_comments_and_sources() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     let args = ["--setup", "--harness", "codex", "--codex-usage", "true"];
     app.ok(&args);
@@ -973,7 +973,7 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     for args in [
         vec!["--codex-usage", "true"],
