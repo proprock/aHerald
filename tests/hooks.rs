@@ -1,4 +1,5 @@
 mod support;
+use rstest::rstest;
 use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -21,17 +22,14 @@ fn stop_returns_empty_json_without_a_decision() {
     assert!(result.status.success());
     assert_eq!(result.stdout, b"{}\n");
 }
-#[test]
-fn malformed_and_unknown_hooks_are_silent_success() {
-    for bytes in [
-        b"{".as_slice(),
-        br#"{"hook_event_name":"Unknown"}"#,
-        br#"{"hook_event_name":"PermissionRequest"}"#,
-    ] {
-        let result = invoke(bytes);
-        assert!(result.status.success());
-        assert!(result.stdout.is_empty());
-    }
+#[rstest]
+#[case::malformed_json(b"{".as_slice())]
+#[case::unknown_event(br#"{"hook_event_name":"Unknown"}"#.as_slice())]
+#[case::permission_request_without_fields(br#"{"hook_event_name":"PermissionRequest"}"#.as_slice())]
+fn malformed_and_unknown_hooks_are_silent_success(#[case] bytes: &[u8]) {
+    let result = invoke(bytes);
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
 }
 #[test]
 fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
@@ -67,24 +65,21 @@ fn open_stdin_does_not_hold_hook_process() {
     }
 }
 
-#[test]
-fn permission_and_interrupt_do_not_emit_decisions_or_payloads() {
-    for name in [
-        "PermissionRequest",
-        "Interrupt",
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "SessionEnd",
-    ] {
-        let result = invoke(
-            format!(r#"{{"hook_event_name":"{name}","session_id":"s","turn_id":"t","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
-                .as_bytes(),
-        );
-        assert!(result.status.success());
-        assert!(result.stdout.is_empty());
-        assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
-    }
+#[rstest]
+#[case::permission_request("PermissionRequest")]
+#[case::interrupt("Interrupt")]
+#[case::user_prompt_submit("UserPromptSubmit")]
+#[case::pre_tool_use("PreToolUse")]
+#[case::post_tool_use("PostToolUse")]
+#[case::session_end("SessionEnd")]
+fn permission_and_interrupt_do_not_emit_decisions_or_payloads(#[case] name: &str) {
+    let result = invoke(
+        format!(r#"{{"hook_event_name":"{name}","session_id":"s","turn_id":"t","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
+            .as_bytes(),
+    );
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
 }
 
 #[test]

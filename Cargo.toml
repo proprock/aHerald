@@ -73,5 +73,9 @@ lto = true
 codegen-units = 1
 strip = true
 
+# Test-only parameterization (AH-110); never linked into aherald.exe.
+[dev-dependencies]
+rstest = { version = "=0.28.0", default-features = false }
+
 [build-dependencies]
 embed-resource = "3.0.12"
