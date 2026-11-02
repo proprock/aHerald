@@ -45,3 +45,13 @@ hyperfine --warmup 30 --runs 500 \
   'target/release/aherald --statusline < payload.json' \
   'target/release/aherald --statusline --then true < payload.json'
 ```
+
+## macOS: `--then` costs more
+
+On a GitHub macOS runner (2026-11-02) the wrapper without `--then` costs about 1.2 ms over
+`aherald --version`, like on Linux, but `--then true` costs about 9 ms more than that (8.4 and
+9.6 ms in two runs), although starting `sh -c true` from the test costs only 0.08 ms. Spawning
+a child from the aHerald process is slower there; the cause has not been investigated.
+`tests/perf_statusline.rs` allows 12 ms extra for that case on macOS only. A status line
+refresh happens at most every 300 ms, so this is tolerable, but it is a candidate for a look
+with a profiler on real hardware.
