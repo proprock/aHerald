@@ -186,6 +186,19 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   delivery checks also depend on AH-102/AH-103. Linux warning-specific live
   acceptance and documentation are tracked in AH-115.
 
+- [ ] **AH-116 — Profile the macOS cost of `--statusline --then` on real hardware.**
+  On a GitHub macOS runner (2026-11-02) `aherald --statusline --then true` took 8.4 and
+  9.6 ms more than starting `sh` alone, while the bare wrapper costs about 1.2 ms over
+  `aherald --version` (as on Linux) and a test process starting `sh -c true` costs 0.08 ms.
+  Spawning a child from the aHerald process seems slower on macOS; the cause is unknown.
+  Reproduce on the user's MacBook Pro M1 with `cargo test --test perf_statusline --
+  --nocapture`, then profile the spawn (Instruments or `sample`, `dtruss`): suspects are the
+  size of the process image, `posix_spawn` versus fork, and the piped stdin/stdout setup in
+  `statusline::run_then`. Acceptance: the cause is recorded in
+  docs/statusline-performance.md and either fixed, or the 12 ms macOS allowance
+  (`THEN_SPAWN_ALLOWANCE_MS` in tests/perf_statusline.rs) is justified by the measurement
+  or removed. Low priority: a status line refreshes at most every 300 ms.
+
 ### Linux parity with 0.8.0-beta
 
 The warning engine, adapter parsing, setup backend and measured warning text are
