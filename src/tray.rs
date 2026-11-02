@@ -224,7 +224,7 @@ impl Menu {
             (CONTEXT, "Context warnings", context),
             (IDLE, "Idle warnings", idle),
             (ABOUT, version.as_str(), false),
-            (CONFIG, "Edit config", false),
+            (CONFIG, "Edit configuration", false),
             (TEST_CONFIG, "Apply + Test", false),
             (RESTART, "Apply", false),
             (EXIT, "Exit", false),
@@ -321,7 +321,7 @@ mod tests {
             for (id, expected) in [
                 (SUMMARY, "unavailable"),
                 (VISUAL, "Pop-up"),
-                (CONFIG, "Edit config"),
+                (CONFIG, "Edit configuration"),
                 (RESTART, "Apply"),
                 (TEST_CONFIG, "Apply + Test"),
                 (ABOUT, version.as_str()),

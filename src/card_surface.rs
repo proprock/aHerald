@@ -86,9 +86,22 @@ impl<S: CardSurface> Composition<S> {
         art: Option<Arc<PreparedAnimation>>,
         make_card: impl Fn(i32, i32, i32) -> Result<S, String>,
     ) -> Result<Self, String> {
+        Self::compose_with_text_width(scale, art, 0, make_card)
+    }
+
+    /// Require at least `text_width` pixels for the text column, including its margins.
+    pub fn compose_with_text_width(
+        scale: f64,
+        art: Option<Arc<PreparedAnimation>>,
+        text_width: i32,
+        make_card: impl Fn(i32, i32, i32) -> Result<S, String>,
+    ) -> Result<Self, String> {
         let _timer = crate::perf::span(crate::perf::Span::CompositionBuild);
         crate::perf::count(crate::perf::Counter::CompositionRebuild);
-        let (base_width, base_height) = ((320.0 * scale) as i32, crate::card::height(scale));
+        let (base_width, base_height) = (
+            ((320.0 * scale) as i32).max(text_width),
+            crate::card::height(scale),
+        );
         let has_art = art.as_ref().is_some_and(|a| !a.frames.is_empty());
         if let Some(art) = art.as_ref().filter(|a| !a.frames.is_empty()) {
             let padding = (18.0 * scale) as i32;

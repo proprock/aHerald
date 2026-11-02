@@ -7,6 +7,52 @@ and billable model requests may be needed. Each check must document its needs,
 isolate test configuration, bound execution and clean up its owned processes.
 Do not run the whole group automatically against a developer's live account.
 
+## Linux bridge smoke test (AH-115)
+
+This offline check needs a Rust build, Xvfb, `xvfb-run`, D-Bus and Python 3. It
+does not need either harness, an account or network access. Run from the root:
+
+```sh
+cargo build --bin aherald --example session_warning_bridge
+xvfb-run -a dbus-run-session -- env AH115_ISOLATED=1 bash tests/live/linux_bridge_smoke.sh
+```
+
+It starts an owned resident with a private IPC scope and runtime directory,
+then sends synthetic Codex context and Claude statusLine payloads through the
+live-test bridge. It verifies the resident PID, two queued warnings, and a
+successful quit. The script cleans up its resident and temporary files. It is a
+bridge smoke test, not a real harness, installed hook, statusLine wrapper, card
+appearance, or sound acceptance test. Linux real-session probes remain open.
+
+## Linux real-session bridge probes (AH-115)
+
+These opt-in probes require Linux, a built aHerald and bridge (see above), Python
+3, Xvfb, a private D-Bus, the named harness on `PATH`, an authenticated account,
+network access and permission for one short model request per invocation. Run
+only after authorizing the account and possible quota charges:
+
+```sh
+xvfb-run -a dbus-run-session -- env AH115_ISOLATED=1 python3 tests/live/linux_codex_context.py
+xvfb-run -a dbus-run-session -- env AH115_ISOLATED=1 python3 tests/live/linux_claude_idle.py
+```
+
+Both use an empty temporary workspace, isolated runtime and private resident;
+normal credentials are used by the harness without being copied. Codex ignores
+user configuration and rules for this invocation and trusts only the generated
+probe hooks; its probe checks model-request hooks and context queue delivery.
+Claude loads only the provided test settings and disables plugins and tools; its
+print-mode probe checks prompt, Stop and SessionEnd hooks and an idle warning.
+The latter deliberately keeps its Stop hook alive for 75 seconds; the bridge's
+own hook must finish in three seconds. Each probe bounds the harness lifetime,
+cleans up its owned process group, disables sound, and records only selected
+identity, timing, result and usage fields in a private temporary directory. Raw
+hook input, model output and credentials are not retained. These checks exercise
+the production adapters and IPC via the private bridge; they do not test the
+installed hooks, Claude's statusLine wrapper, card appearance or sound.
+On 2026-11-02 both passed on Ubuntu 22.04.5 / Xvfb 21.1.4 with Codex CLI
+0.166.0 and Claude Code 2.1.316 respectively. Those results do not extend the
+checks to other harness versions or desktop presentation.
+
 ## Session idle reminders (AH-101, Windows)
 
 Requires PowerShell 7, authenticated native Claude/Codex installations, network

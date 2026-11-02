@@ -9,11 +9,76 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- Independent notification and sound suppression for a focused originating Claude
+  session in a classic Windows console. Both options default to enabled; unknown
+  origins, tabbed terminals and desktop sessions retain delivery. Live acceptance
+  and coverage limits are recorded in docs/active-session.md (AH-098).
+- Embedded multi-size Windows application icon (AH-105).
+- Diagnostics for rejected inputs, activation and session lookup failures, and
+  missing or unusable artwork. Interactive Windows startup shows a bounded error
+  card for invalid configuration; hook responses remain independent (AH-090).
+
 ### Fixed
 - Native setup preserves another aHerald installation's hooks during initial and
   repeated setup. Legacy commands are upgraded only for the current executable;
   a moved installation replaces only bindings identified by its saved receipt
   (AH-097).
+
+## [0.9.0-beta] - 2026-11-02
+
+### Added
+- Ubuntu 22.04+ x86-64 Debian package (`aherald-vX.Y.Z-linux-x86_64-gnu.deb` with a
+  SHA-256 file) next to the portable archive, and interactive `aherald --console-setup`
+  for Codex and Claude Code hooks, usage monitoring and, per selected agent, the
+  context and idle warnings. Package scripts never touch user homes or hooks; user
+  settings, receipt, assets and logs use XDG directories and survive upgrade, removal
+  and purge. See docs/installation.md.
+- Linux parity with 0.8.0-beta: context and idle warnings, tray Context/Idle warnings
+  switches, Apply and Apply + Test, and Linux native setup with a dry-run preview.
+- Claude status line text: `[claude.statusline] format` prints a template over Claude
+  Code's statusLine JSON when you have no status line command of your own (your own
+  command is still wrapped and wins). It supports `{a.b.c}` fields, `{[ ... ]}`
+  optional groups, ready-made `{context_window}`, `{rate_limits.five_hour}` and
+  `{rate_limits.seven_day}` segments in the form of the tray menu line (`5h 79% / 3:29`)
+  with colours matching the tray icon, and short forms of token counts, dollars,
+  durations and reset times. See docs/configuration.md and `aHerald.example.toml`,
+  which lists every field.
+- CI verifies the Debian package, its isolated dpkg lifecycle and console setup on
+  Ubuntu 22.04 for every code change, in parallel with the existing checks.
+
+### Changed
+- **Breaking:** notification lifetimes are configured in seconds. Rename
+  `events.<kind>.duration_ms` to `duration_sec` (for example `3000` becomes `3`);
+  a configuration that still has `duration_ms` is rejected.
+- **Behaviour:** idle warnings are off unless `idle_enabled = true` (the default
+  changed from on to off, also in the shipped example). Configurations that already set
+  `idle_enabled` keep their value; if you relied on the old default, enable idle with
+  setup, the installer or the key. Context warnings still need a threshold.
+- The status line, tray menu and tooltip share one text form for usage windows.
+- `--setup-settings`, console setup and the Windows installer all start with context
+  and idle warnings off on a new configuration.
+
+### Fixed
+- The Claude statusLine wrapper and the Codex context hook no longer wait up to 150 ms
+  for a resident to start when none is running; they now return at once (about 4 ms
+  instead of 160 ms per status line refresh without a resident), on every platform.
+- Interrupted Linux setup restores hooks, configuration and a user's own status line
+  together (covered by a root-safe rollback test).
+
+### Verification and known limitations
+- Linux was developed and checked on Ubuntu 22.04.5 (GNOME, Wayland with XWayland):
+  tray, cards, Apply and Apply + Test, configured sounds and synthetic context and
+  idle reports were confirmed by hand. Real Codex 0.166.0 and Claude Code 2.1.316
+  sessions passed through a private test bridge. Automated checks cover the package
+  lifecycle in an isolated dpkg root, console setup in a pseudo-terminal, setup
+  rollback and the status line wrapper.
+- Not yet accepted: installed-hook delivery and the installed statusLine wrapper in a
+  live Claude Code or Codex session on Linux, a clean-machine apt and graphical
+  installation, Xorg and multi-monitor placement, and Wayland-native layer shell
+  (KDE/wlroots). See TODO.md (AH-093, AH-103, AH-115).
+- Windows and macOS behaviour is unchanged apart from the items above; their manual
+  acceptance was not repeated for this beta.
 
 ## [0.8.0-beta] - 2026-11-01
 

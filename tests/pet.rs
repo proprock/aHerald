@@ -428,7 +428,7 @@ fn native_pet_window_keeps_source_and_signal_with_or_without_artwork() {
             fs::write(fixture.0.join("sheet.webp"), b"broken").unwrap();
         }
         let config = fixture.0.join("config.toml");
-        fs::write(&config,"[notifications]\npet='pet.json'\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false\n[events.permission_required]\nduration_ms=0").unwrap();
+        fs::write(&config,"[notifications]\npet='pet.json'\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false\n[events.permission_required]\nduration_sec=0").unwrap();
         let mut child = Owned(
             deliver(
                 &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),

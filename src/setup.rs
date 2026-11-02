@@ -63,7 +63,9 @@ impl UsageOptions {
 fn settings_file(exe: &Path, selected: Option<&Path>) -> Result<PathBuf, String> {
     let file = match selected {
         Some(file) => file.to_path_buf(),
-        None => crate::paths::data_dir_with(exe, |key| std::env::var_os(key))?.join("config.toml"),
+        None => {
+            crate::paths::config_dir_with(exe, |key| std::env::var_os(key))?.join("config.toml")
+        }
     };
     if !file.is_absolute() {
         return Err("settings file must be an absolute path".into());
@@ -96,6 +98,30 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         config.codex.warnings.idle_threshold().is_some(),
         config.claude.warnings.idle_threshold().is_some()
     ))
+}
+
+/// Read the receipt without changing it, for an interactive setup's defaults.
+pub fn selected_harnesses(exe: &Path) -> Result<Vec<Agent>, String> {
+    let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
+    let Some(text) = read(&file)? else {
+        return Ok(Vec::new());
+    };
+    let receipt: Receipt = serde_json::from_str(&text)
+        .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?;
+    if receipt.version != 1 || receipt.executable != exe {
+        return Err(
+            "setup receipt belongs to another installation or has an unsupported version".into(),
+        );
+    }
+    receipt
+        .bindings
+        .iter()
+        .map(|binding| {
+            Agent::from_name(&binding.agent)
+                .ok_or_else(|| "unsupported harness in setup receipt".to_owned())
+        })
+        .collect()
 }
 
 fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, String> {
@@ -523,8 +549,8 @@ pub fn run_with_options(
     if !exe.is_absolute() {
         return Err("setup executable path must be absolute".into());
     }
-    let receipt_file =
-        crate::paths::data_dir_with(exe, |key| std::env::var_os(key))?.join("aherald-setup.json");
+    let receipt_file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
     let receipt_before = read(&receipt_file)?;
     let previous: Receipt = match receipt_before.as_deref() {
         Some(text) => serde_json::from_str(text)
@@ -581,31 +607,25 @@ pub fn run_with_options(
         .iter()
         .find(|b| b.agent == "claude")
         .map(|b| b.file.clone());
-    let context_enabled = if claude_file.is_some() {
+    // The wrapper serves the context warning and the configured status line text.
+    let wrapper_wanted = if claude_file.is_some() {
         let file = settings_file(exe, options.file.as_deref())?;
-        if let Some(change) = changes.iter().find(|c| c.file == file) {
+        let config = if let Some(change) = changes.iter().find(|c| c.file == file) {
             crate::config::Config::parse(
                 &change.after,
                 file.parent().ok_or("configuration has no directory")?,
             )?
-            .claude
-            .warnings
-            .context_threshold()
-            .is_some()
         } else {
-            settings_text(&file)?
-                .1
-                .claude
-                .warnings
-                .context_threshold()
-                .is_some()
-        }
+            settings_text(&file)?.1
+        };
+        config.claude.warnings.context_threshold().is_some()
+            || !config.claude.statusline.format.is_empty()
     } else {
         false
     };
     let statusline = statusline_plan(
         exe,
-        claude_file.as_deref().filter(|_| context_enabled),
+        claude_file.as_deref().filter(|_| wrapper_wanted),
         previous.statusline,
         &mut changes,
         &mut report,

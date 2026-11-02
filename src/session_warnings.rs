@@ -269,7 +269,7 @@ mod tests {
     };
 
     fn config() -> Config {
-        Config::parse("[claude.warnings]\ncontext_tokens = \"120k\"\nidle_minutes = 5\n[codex.warnings]\nidle_minutes = 10", std::path::Path::new(".")).unwrap()
+        Config::parse("[claude.warnings]\nidle_enabled=true\ncontext_tokens = \"120k\"\nidle_minutes = 5\n[codex.warnings]\nidle_enabled=true\nidle_minutes = 10", std::path::Path::new(".")).unwrap()
     }
     fn event(agent: Source, session: &str) -> Event {
         let mut e = Event::demo("turn_complete").unwrap();
@@ -440,7 +440,7 @@ mod tests {
         e.session_id = None;
         state.observe(&e, &config, 0);
         let disabled = Config::parse(
-            "[claude.warnings]\nidle_minutes=0\n[codex.warnings]\nidle_minutes=0",
+            "[claude.warnings]\nidle_enabled=true\nidle_minutes=0\n[codex.warnings]\nidle_enabled=true\nidle_minutes=0",
             std::path::Path::new("."),
         )
         .unwrap();

@@ -1,3 +1,4 @@
+mod support;
 use std::process::Command;
 
 #[test]
@@ -28,20 +29,18 @@ fn demo_accepts_default_and_custom_pause_and_rejects_conflicts() {
 
 #[test]
 fn help_identifies_application() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .arg("--help")
-        .output()
-        .unwrap();
+    let output = support::output(Command::new(env!("CARGO_BIN_EXE_aherald")).arg("--help"));
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("aHerald"));
 }
 
 #[test]
 fn version_prints_the_crate_version_and_needs_no_configuration() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--version", "--config", "does-not-exist.toml"])
-        .output()
-        .unwrap();
+    let output = support::output(Command::new(env!("CARGO_BIN_EXE_aherald")).args([
+        "--version",
+        "--config",
+        "does-not-exist.toml",
+    ]));
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
@@ -78,11 +77,11 @@ fn the_about_card_names_the_application_and_its_version() {
 fn status_does_not_require_loading_the_notification_configuration() {
     let path = std::env::temp_dir().join(format!("aherald-control-{}.toml", std::process::id()));
     std::fs::write(&path, "[invalid TOML").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--status", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let output = support::output(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--status", "--config"])
+            .arg(&path),
+    );
     let _ = std::fs::remove_file(&path);
     assert!(
         output.status.success(),
@@ -100,11 +99,11 @@ fn perf_report_prints_the_ranked_table_from_the_log_beside_the_configuration() {
     let config = root.join("config.toml");
     std::fs::write(&config, "[invalid TOML").unwrap(); // not needed, so never parsed
     let run = || {
-        Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--perf-report", "--config"])
-            .arg(&config)
-            .output()
-            .unwrap()
+        support::output(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args(["--perf-report", "--config"])
+                .arg(&config),
+        )
     };
     let missing = run();
     assert!(!missing.status.success(), "no log means nothing to report");

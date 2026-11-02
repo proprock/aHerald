@@ -84,6 +84,98 @@ fn setup_previews_then_installs_only_selected_harness_and_is_idempotent() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn system_package_setup_uses_user_xdg_receipt_and_saved_hook_paths() {
+    let app = Install::new("system-xdg");
+    let home = app.root.join("home");
+    let config = app.root.join("xdg-config");
+    let data = app.root.join("xdg-data");
+    let run = |args: &[&str], codex: &str| {
+        Command::new(&app.exe)
+            .args(args)
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_STATE_HOME", app.root.join("xdg-state"))
+            .env("CODEX_HOME", app.root.join(codex))
+            .bounded_output()
+    };
+    let target = "/usr/lib/aherald/aherald";
+    let install = [
+        "--setup",
+        "--harness",
+        "codex",
+        "--codex-usage",
+        "true",
+        "--setup-executable",
+        target,
+        "--apply",
+    ];
+    let result = run(&install, "first");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(config.join("aherald/config.toml").exists());
+    assert!(data.join("aherald/aherald-setup.json").exists());
+    assert!(app.root.join("first/hooks.json").exists());
+    let result = run(
+        &["--unsetup", "--setup-executable", target, "--apply"],
+        "second",
+    );
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let hooks: Value =
+        serde_json::from_slice(&std::fs::read(app.root.join("first/hooks.json")).unwrap()).unwrap();
+    assert!(hooks.get("hooks").is_none());
+    assert!(!app.root.join("second/hooks.json").exists());
+    assert!(config.join("aherald/config.toml").exists());
+    assert!(data.join("aherald/aherald-setup.json").exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn system_package_cleanup_failure_keeps_receipt_and_other_hooks() {
+    let app = Install::new("system-cleanup-failure");
+    let target = "/usr/lib/aherald/aherald";
+    let data = app.root.join("data");
+    let run = |args: &[&str]| {
+        Command::new(&app.exe)
+            .args(args)
+            .env("HOME", &app.root)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_CONFIG_HOME", app.root.join("config"))
+            .env("XDG_STATE_HOME", app.root.join("state"))
+            .env("CODEX_HOME", app.root.join("codex"))
+            .env("CLAUDE_CONFIG_DIR", app.root.join("claude"))
+            .bounded_output()
+    };
+    let result = run(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--harness",
+        "claude",
+        "--setup-executable",
+        target,
+        "--apply",
+    ]);
+    assert!(result.status.success());
+    let codex_before = std::fs::read(app.file("codex")).unwrap();
+    let receipt = data.join("aherald/aherald-setup.json");
+    let receipt_before = std::fs::read(&receipt).unwrap();
+    std::fs::write(app.file("claude"), "{invalid").unwrap();
+    let result = run(&["--unsetup", "--setup-executable", target, "--apply"]);
+    assert!(!result.status.success());
+    assert_eq!(std::fs::read(app.file("codex")).unwrap(), codex_before);
+    assert_eq!(std::fs::read(receipt).unwrap(), receipt_before);
+}
+
 #[test]
 fn malformed_second_harness_prevents_all_writes() {
     let app = Install::new("preflight");
@@ -872,7 +964,7 @@ fn installer_warning_selections_preserve_thresholds_and_use_agent_defaults() {
 fn installer_warning_selections_are_independent_and_restore_zero_idle() {
     let app = Install::new("warning-independent");
     let path = app.root.join("config.toml");
-    std::fs::write(&path, "[codex.warnings]\nidle_minutes = 0 # disabled before\n[claude.warnings]\ncontext_tokens = '399k'\nidle_minutes = 19\n").unwrap();
+    std::fs::write(&path, "[codex.warnings]\nidle_minutes = 0 # disabled before\n[claude.warnings]\nidle_enabled = true\ncontext_tokens = '399k'\nidle_minutes = 19\n").unwrap();
     app.ok(&[
         "--unsetup",
         "--codex-context",
@@ -917,7 +1009,7 @@ fn installer_reads_usage_defaults_without_creating_config() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     assert!(!app.root.join("config.toml").exists());
 }
@@ -931,7 +1023,7 @@ fn installer_changes_only_selected_usage_and_preserves_comments_and_sources() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     let args = ["--setup", "--harness", "codex", "--codex-usage", "true"];
     app.ok(&args);
@@ -1015,7 +1107,7 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     for args in [
         vec!["--codex-usage", "true"],
@@ -1101,4 +1193,100 @@ fn fixture_launch_returns_busy_error_when_the_retry_deadline_has_expired() {
     .unwrap_err();
     assert_eq!(error.raw_os_error(), Some(26));
     assert_eq!(attempts, 1);
+}
+
+#[test]
+fn a_status_line_format_alone_installs_the_wrapper_and_removing_it_removes_the_wrapper() {
+    let app = Install::new("statusline-format");
+    let config = app.root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[claude.statusline]\nformat = \"{model.display_name}\"\n",
+    )
+    .unwrap();
+    let args = ["--setup", "--harness", "claude", "--apply"];
+    app.ok(&args);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Windows installs a PowerShell relay whose text is not asserted here; see the
+    // `generated_statusline_*` tests. The Unix form is a plain shell command.
+    if cfg!(unix) {
+        assert!(
+            command.ends_with("--statusline") && !command.contains("--then"),
+            "{command}"
+        );
+    }
+    app.ok(&args);
+    assert_eq!(app.read("claude")["statusLine"]["command"], command);
+    std::fs::write(&config, "[claude.statusline]\nformat = \"\"\n").unwrap();
+    app.ok(&args);
+    assert!(app.read("claude").get("statusLine").is_none());
+}
+
+#[test]
+fn a_status_line_format_keeps_and_wraps_the_users_own_command() {
+    let app = Install::new("statusline-format-wrap");
+    std::fs::write(
+        app.root.join("config.toml"),
+        "[claude.statusline]\nformat = \"{model.display_name}\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    let original = json!({"statusLine":{"type":"command","command":"echo mine"}});
+    std::fs::write(app.file("claude"), original.to_string()).unwrap();
+    app.ok(&["--setup", "--harness", "claude", "--apply"]);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_ne!(command, "echo mine");
+    if cfg!(unix) {
+        assert!(command.contains("--then 'echo mine'"), "{command}");
+    }
+    app.ok(&["--unsetup", "--apply"]);
+    assert_eq!(app.read("claude")["statusLine"], original["statusLine"]);
+}
+
+/// Failure is injected without file permissions, which root ignores (the `.deb` lifecycle test
+/// runs as root in a user namespace): the receipt is written last and first copied to
+/// `*.aherald-backup`, so a directory at that name makes only that last write fail.
+#[cfg(unix)]
+#[test]
+fn a_failed_receipt_write_restores_hooks_config_and_the_users_status_line() {
+    let app = Install::new("rollback-unix");
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    let own = json!({"statusLine":{"type":"command","command":"echo mine","padding":1}});
+    std::fs::write(app.file("claude"), own.to_string()).unwrap();
+    app.ok(&["--setup", "--harness", "claude", "--apply"]);
+    let config_path = app.root.join("config.toml");
+    let config_before = "# preserve on transaction rollback\n[codex.usage]\nenabled = false\n";
+    std::fs::write(&config_path, config_before).unwrap();
+    let before = std::fs::read(app.file("claude")).unwrap();
+    let receipt = app.root.join("aherald-setup.json");
+    let state = std::fs::read(&receipt).unwrap();
+    std::fs::create_dir(app.root.join("aherald-setup.json.aherald-backup")).unwrap();
+    let out = app.run(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--harness",
+        "codex",
+        "--codex-usage",
+        "true",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("earlier writes were restored"));
+    assert_eq!(std::fs::read(app.file("claude")).unwrap(), before);
+    assert_eq!(app.read("claude")["statusLine"], own["statusLine"]);
+    assert_eq!(std::fs::read(&receipt).unwrap(), state);
+    assert_eq!(
+        std::fs::read_to_string(&config_path).unwrap(),
+        config_before
+    );
+    assert!(!app.file("codex").exists());
 }

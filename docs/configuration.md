@@ -42,7 +42,9 @@ console. Desktop apps, Codex and tabbed terminals retain notifications. See the
 
 ### Session warnings (AH-100 / AH-101)
 
-Idle reminders default to 55 minutes for Claude and 25 minutes for Codex.
+Idle reminders use 55 minutes for Claude and 25 minutes for Codex once enabled. Both warning
+types are off until enabled: `idle_enabled` defaults to `false` (also when the key is omitted)
+and a context warning needs a threshold. Setup and the installer turn them on per agent.
 Context warnings remain off until a threshold is configured. For example:
 
 ```toml
@@ -62,14 +64,18 @@ idle_minutes = 25
 `context_tokens` accepts positive integer tokens, an integer string or an integer
 string ending in lowercase `k` (`k = 1000`). Fractions, signs, zero and overflow
 are rejected. Each agent's threshold is independent and omitted by default (off).
-`context_enabled` and `idle_enabled` default to `true`; set either to `false` to
-disable that warning while retaining its threshold. The Windows installer uses
+`context_enabled` defaults to `true` (it only matters once a threshold exists) and
+`idle_enabled` to `false`; set either to `false` to disable that warning while retaining its
+threshold. The Windows installer uses
 these flags. When first enabled there without a context threshold, it supplies
 250k tokens for Codex or 400k for Claude; existing thresholds are preserved.
 Codex requires the `PostModelRequest` binding, verified with CLI
 `0.166.0-alpha.5.1`; rerun explicit hook setup to add it to an older installation.
 Other versions and desktop dispatch need separate verification. Codex uses the
 successful main request's `input_tokens`, which already includes cached input.
+On Linux, the explicit opt-in probe verified Codex CLI 0.166.0's real model
+request through a private bridge and resident; installed hook dispatch remains
+to be checked. See [Linux verification](portable-linux.md#verification-matrix).
 Claude input context includes fresh input, cache creation and cache reads, each counted once. It is the
 last reported API input, not a prediction of the next request. Missing readings
 do not count as zero. A crossing strictly above the threshold queues one
@@ -94,6 +100,43 @@ distinguished by these lifecycle hooks.
 The card shows elapsed time and that agent's limit, for example
 `Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
 warning was created; they do not advance while waiting in the notification queue.
+
+### Claude status line text
+
+`[claude.statusline] format` is the text `aherald --statusline` prints when you have no status
+line command of your own (empty by default: nothing is printed). If you have one, native setup
+wraps it as before and the format is ignored. Example, with the fields Claude Code documents at
+<https://code.claude.com/docs/en/statusline>:
+
+```toml
+[claude.statusline]
+format = "{context_window} · {rate_limits.five_hour} · {rate_limits.seven_day} · {model.display_name}{[ {effort.level}]} · {workspace.repo.name}{[ · {worktree.branch}]}{[ · #{pr.number}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {cost.total_cost_usd}"
+```
+
+- `{a.b.c}` inserts the JSON field at that path. Strings, numbers and booleans are inserted
+  as they are; a missing, null, object or array value is empty. `workspace.repo` is an object (`host`, `owner`, `name`), so write `{workspace.repo.name}`.
+  A field ending in `_usd` is shown as dollars (`$1.23`) and one ending in `_duration_ms` as a
+  span (`1h 12m`, `12m 30s`, `45s`).
+  A field whose name ends in `_percentage` is rounded and gets its sign (`24%`; write no `%`).
+  Whole objects `{context_window}`, `{rate_limits.five_hour}`, `{rate_limits.seven_day}` and
+  `{rate_limits.spend_limit}` render as the tray menu line does (`ctx 91%`, `5h 79% / 3:29`,
+  `7d 96% / 4d 19h`): the percentage follows `[codex.usage] display` (remaining by default) and,
+  with `[claude.statusline] color = true` (default), the label, number and time are coloured; the
+  number uses the tray icon's thresholds on remaining capacity (green above 60%, amber above 20%,
+  red below). A segment with missing data is empty, so put it in `{[ ... ]}`.
+  A field named `resets_at` is shown as the time left in the usage card's form: `3d 5h`, `4:05`, `15 min`.
+  Token counts (names ending in `tokens`, and `context_window_size`) are shortened to `18k`,
+  `18.6M`; other numbers are inserted unchanged.
+  `aHerald.example.toml` lists every field with its availability.
+- `{{` and `}}` are literal braces. `{[ ... ]}` is an optional group, dropped whole when a field
+  written directly inside it is empty, so separators disappear with their value (`worktree`,
+  `workspace.repo`, `effort` and `rate_limits` are absent in many sessions).
+- The template may contain ANSI colour escapes; control characters in inserted values become
+  spaces, a value is cut at 256 characters and the line at 4096 bytes.
+- A mistake in the template fails configuration loading with the reason; the wrapper itself
+  never fails and prints nothing if the configuration cannot be read. It never creates it.
+- Native setup installs the wrapper when Claude Code is selected and either a Claude context
+  threshold or a format is set. Run setup again after first adding a format.
 
 Use resident mode. The Claude context warning additionally needs the `--statusline`
 wrapper, installed automatically by native setup when Claude Code and Claude

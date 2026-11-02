@@ -68,7 +68,7 @@ fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_a
         let custom = path
             .map(|path| format!("\nvisual='custom'\nanimation='{}'", path.display()))
             .unwrap_or_default();
-        std::fs::write(&config,format!("[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.turn_complete]\nduration_ms=0{custom}")).unwrap();
+        std::fs::write(&config,format!("[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.turn_complete]\nduration_sec=0{custom}")).unwrap();
         // Exercise the real display-child entry point. Creating a fresh copied executable
         // can block inside Windows before aHerald runs. The hook delivery budget belongs
         // to tests/process.rs; this test bounds rendering after process creation instead.

@@ -18,12 +18,18 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    aherald::operational_log::init(directory, aherald::config::LogLevel::Warn);
+    let package_directory = std::env::current_exe().ok().and_then(|exe| {
+        aherald::paths::diagnostic_dir_with(&exe, path, |name| std::env::var_os(name)).ok()
+    });
+    aherald::operational_log::init(
+        package_directory.as_deref().unwrap_or(directory),
+        aherald::config::LogLevel::Warn,
+    );
     aherald::operational_log::log(record);
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     let mut test_after_apply = false;
     if args.first().map(String::as_str) == Some("--restart-child") {
         let pid = args
@@ -33,7 +39,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             .map_err(|_| "invalid restart parent")?;
         aherald::restart::wait_for_parent(pid)?;
         args.drain(..2);
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         if args.first().is_some_and(|a| a == "--test-after-apply") {
             test_after_apply = true;
             args.remove(0);
@@ -47,14 +53,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let path = std::path::Path::new(&args[3]);
         let config = aherald::config::Config::load(path, true)
             .inspect_err(|_| log_code(path, Record::InvalidConfiguration))?;
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let result = aherald::resident::run_after_apply(
             aherald::local::Scope::current(&args[1])?,
             config,
             path,
             test_after_apply,
         );
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let result =
             aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path);
         return result.inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
@@ -83,6 +89,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         println!("{}", aherald::version_line());
         return Ok(());
     }
+    if cli.operation.as_deref() == Some("console-setup") {
+        return console_setup();
+    }
     if cli.operation.as_deref() == Some("setup-settings") {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
         print!(
@@ -106,7 +115,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.operation.as_deref() == Some("statusline") {
-        return statusline(cli.then.as_deref());
+        return statusline(cli.then.as_deref(), cli.config.as_deref());
     }
     if let Some(action) = match cli.operation.as_deref() {
         Some("install-statusline") => Some(aherald::hook_setup::Action::Install),
@@ -164,11 +173,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
     if cli.operation.as_deref() == Some("perf-report") {
-        let directory = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(std::path::Path::new("."));
-        print!("{}", aherald::perf_report::report(directory)?);
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        let directory =
+            aherald::paths::diagnostic_dir_with(&exe, &path, |key| std::env::var_os(key))?;
+        print!("{}", aherald::perf_report::report(&directory)?);
         return Ok(());
     }
     if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
@@ -236,9 +244,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         );
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {
@@ -248,7 +256,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 && cli.selected_mode(&config) == aherald::config::Mode::Resident
             {
                 // Observation only: do not start a resident or fail the model request.
-                let _ = aherald::ipc::pipe::request(
+                let _ = aherald::ipc::pipe::request_if_running(
                     &scope,
                     &aherald::ipc::Request::CodexContext { report },
                     std::time::Duration::from_millis(150),
@@ -276,6 +284,109 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         &path,
         cli.selected_mode(&config),
     )
+}
+
+fn console_setup() -> Result<(), String> {
+    use std::io::{IsTerminal, Write};
+    if !cfg!(target_os = "linux") {
+        return Err("--console-setup is available on Linux only".into());
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err("--console-setup requires an interactive terminal".into());
+    }
+    fn choice(prompt: &str, default: bool) -> Result<bool, String> {
+        loop {
+            print!("{prompt} {} ", if default { "[Y/n]" } else { "[y/N]" });
+            std::io::stdout().flush().map_err(|e| e.to_string())?;
+            let mut line = String::new();
+            if std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                return Err("setup cancelled: input closed".into());
+            }
+            match line.trim().to_ascii_lowercase().as_str() {
+                "" => return Ok(default),
+                "y" | "yes" => return Ok(true),
+                "n" | "no" => return Ok(false),
+                _ => eprintln!("Enter y or n."),
+            }
+        }
+    }
+    let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+    let previous = aherald::setup::selected_harnesses(&exe)?;
+    let settings = aherald::setup::settings_state(&exe, None)?;
+    let enabled = |key: &str| settings.lines().any(|line| line == format!("{key}=true"));
+    println!("Select harness integrations. Existing user settings and assets are preserved.");
+    let codex = choice(
+        "Configure Codex hooks?",
+        previous.contains(&aherald::agent::Agent::Codex),
+    )?;
+    let claude = choice(
+        "Configure Claude Code hooks?",
+        previous.contains(&aherald::agent::Agent::Claude),
+    )?;
+    println!(
+        "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
+    );
+    let codex_usage = choice("Enable Codex usage monitoring?", enabled("codex_usage"))?;
+    let claude_usage = choice("Enable Claude usage monitoring?", enabled("claude_usage"))?;
+    // Warning choices apply to a selected agent only; an unselected agent keeps its settings.
+    println!(
+        "Session warnings are optional. A context warning needs a resident and, for Claude Code, the statusLine wrapper: an existing status line is kept and still shown, and without one Claude shows the [claude.statusline] format (empty by default). Existing thresholds are preserved."
+    );
+    let warning = |selected: bool, agent: &str, key: &str| -> Result<Option<bool>, String> {
+        if !selected {
+            return Ok(None);
+        }
+        let default = enabled(&format!("{}_{key}", agent.to_ascii_lowercase()));
+        let name = if key == "context" { "context" } else { "idle" };
+        choice(&format!("Enable {agent} {name} warning?"), default).map(Some)
+    };
+    let codex_context = warning(codex, "Codex", "context")?;
+    let codex_idle = warning(codex, "Codex", "idle")?;
+    let claude_context = warning(claude, "Claude", "context")?;
+    let claude_idle = warning(claude, "Claude", "idle")?;
+    let harnesses = [
+        (codex, aherald::agent::Agent::Codex),
+        (claude, aherald::agent::Agent::Claude),
+    ]
+    .into_iter()
+    .filter_map(|(selected, agent)| selected.then_some(agent))
+    .collect::<Vec<_>>();
+    let options = aherald::setup::UsageOptions {
+        codex: Some(codex_usage),
+        claude: Some(claude_usage),
+        codex_context,
+        claude_context,
+        codex_idle,
+        claude_idle,
+        ..Default::default()
+    };
+    let remove = harnesses.is_empty();
+    print!(
+        "{}",
+        aherald::setup::run_with_options(&exe, &harnesses, remove, false, &options)?
+    );
+    if !choice("Apply these changes?", false)? {
+        println!("No changes applied.");
+        return Ok(());
+    }
+    print!(
+        "{}",
+        aherald::setup::run_with_options(&exe, &harnesses, remove, true, &options)?
+    );
+    if choice("Launch aHerald now?", true)? {
+        std::process::Command::new(exe)
+            .arg("--resident")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot launch aHerald: {e}"))?;
+    }
+    Ok(())
 }
 
 fn dispatch(
@@ -325,21 +436,49 @@ fn dispatch(
 
 /// Claude Code's `statusLine` command: tells a running resident the session name and quota, and
 /// passes the payload to the user's own command (`--then`) so their status line is unchanged.
+/// Without `--then` it prints `[claude.statusline] format`, if one is configured.
 /// It never starts a resident and never fails the status line.
-fn statusline(then: Option<&str>) -> Result<(), String> {
+fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<(), String> {
     use std::io::Write;
     let input =
         aherald::events::read_bounded(std::io::stdin(), std::time::Duration::from_millis(500))
             .unwrap_or_default();
-    let outcome = aherald::statusline::run(&input, then, |report| {
-        if let Ok(scope) = aherald::local::Scope::current("resident") {
-            let _ = aherald::ipc::pipe::request(
-                &scope,
-                &aherald::ipc::Request::StatusLine { report },
-                std::time::Duration::from_millis(150),
-            );
-        }
-    });
+    // The configuration is read only when there is no command of the user's to run, so wrapping
+    // costs nothing extra. It is never created here, and any problem leaves the line empty.
+    let format = match then {
+        Some(_) => None,
+        None => config
+            .map(|path| Ok(path.to_path_buf()))
+            .unwrap_or_else(aherald::config::Config::default_path)
+            .ok()
+            .and_then(|path| aherald::config::Config::load(&path, true).ok())
+            .filter(|config| !config.claude.statusline.format.is_empty())
+            .map(|config| {
+                (
+                    config.claude.statusline.format.clone(),
+                    aherald::statusline_format::Options {
+                        display: config.codex.usage.display,
+                        color: config.claude.statusline.color,
+                    },
+                )
+            }),
+    };
+    let outcome = aherald::statusline::run_with_format(
+        &input,
+        then,
+        format
+            .as_ref()
+            .map(|(text, options)| (text.as_str(), *options)),
+        |report| {
+            if let Ok(scope) = aherald::local::Scope::current("resident") {
+                let _ = aherald::ipc::pipe::request_if_running(
+                    &scope,
+                    &aherald::ipc::Request::StatusLine { report },
+                    std::time::Duration::from_millis(150),
+                );
+            }
+        },
+    );
     let mut stdout = std::io::stdout();
     let _ = stdout.write_all(&outcome.stdout);
     let _ = stdout.flush();

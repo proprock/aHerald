@@ -1,3 +1,4 @@
+mod support;
 use aherald::{
     cli::Cli,
     config::{Config, Interpolation, LogLevel, Mode, Monitor, Position, TrayStyle},
@@ -22,6 +23,18 @@ fn focused_output_options_default_on_and_parse_independently() {
             assert_eq!(config.sounds.suppress_when_focused, sound);
         }
     }
+}
+
+#[test]
+fn event_duration_seconds_are_converted_to_internal_milliseconds() {
+    let dir = PathBuf::from(".");
+    for (seconds, milliseconds) in [(0, 0), (1, 1000), (12, 12_000), (86_400, 86_400_000)] {
+        let text = format!("[events.turn_complete]\nduration_sec={seconds}");
+        let config = Config::parse(&text, &dir).unwrap();
+        assert_eq!(config.events[Kind::TurnComplete].duration_ms, milliseconds);
+    }
+    assert!(Config::parse("[events.turn_complete]\nduration_sec=86401", &dir).is_err());
+    assert!(Config::parse("[events.turn_complete]\nduration_ms=3000", &dir).is_err());
 }
 
 #[test]
@@ -266,7 +279,7 @@ fn invalid_configuration_is_rejected() {
         "[sounds]\nvolume=1.1",
         "[notifications]\nscale=nan",
         "[notifications]\nscale=0.0",
-        "[events.error]\nduration_ms=-1",
+        "[events.error]\nduration_sec=-1",
         "[codex.usage]\nrefresh_interval_sec=0",
         "[general]\nmode='other'",
         "[events.unknown]\nenabled=true",
@@ -434,12 +447,12 @@ fn statusline_setup_wraps_an_existing_command_through_the_binary_and_restores_it
     let original = r#"{"statusLine":{"type":"command","command":"my-bar --x"},"theme":"dark"}"#;
     fs::write(&file, original).unwrap();
     let run = |op: &str, extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args([op, "--hooks-file"])
-            .arg(&file)
-            .args(extra)
-            .output()
-            .unwrap()
+        support::output(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args([op, "--hooks-file"])
+                .arg(&file)
+                .args(extra),
+        )
     };
     let dry = run("--install-statusline", &[]);
     assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
@@ -465,12 +478,12 @@ fn hook_setup_dry_run_and_apply_work_through_the_binary() {
     let file = dir.join("settings.json");
     fs::write(&file, r#"{"theme":"dark"}"#).unwrap();
     let run = |extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--install-hooks", "claude", "--hooks-file"])
-            .arg(&file)
-            .args(extra)
-            .output()
-            .unwrap()
+        support::output(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args(["--install-hooks", "claude", "--hooks-file"])
+                .arg(&file)
+                .args(extra),
+        )
     };
     let dry = run(&[]);
     assert!(dry.status.success());
@@ -489,11 +502,11 @@ fn hook_setup_dry_run_and_apply_work_through_the_binary() {
 fn hook_configuration_error_is_silent_and_successful() {
     let path = std::env::temp_dir().join(format!("aherald-invalid-{}.toml", std::process::id()));
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let output = support::output(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config"])
+            .arg(&path),
+    );
     fs::remove_file(path).unwrap();
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
@@ -527,8 +540,8 @@ fn invalid_configuration_names_the_field_and_reason_without_echoing_values() {
             "SECRETMODE",
         ),
         (
-            "[events.turn_complete]\nduration_ms = 987654321987",
-            "events.turn_complete.duration_ms",
+            "[events.turn_complete]\nduration_sec = 987654321987",
+            "events.turn_complete.duration_sec",
             "987654321987",
         ),
         (
@@ -628,4 +641,15 @@ fn session_warning_zero_disables_only_the_selected_agents_idle_timer() {
     let config = Config::parse("[codex.warnings]\nidle_minutes=0", &PathBuf::from(".")).unwrap();
     assert!(config.codex.warnings.idle_minutes.is_none());
     assert_eq!(config.claude.warnings.idle_minutes, Some(55));
+}
+
+#[test]
+fn the_status_line_format_defaults_to_empty_and_syntax_errors_name_the_setting() {
+    let dir = PathBuf::from(".");
+    assert_eq!(Config::default().claude.statusline.format, "");
+    let ok = "[claude.statusline]\nformat = \"{model.display_name}{[ · {a.b}]}\"\n";
+    assert!(Config::parse(ok, &dir).is_ok());
+    let error = Config::parse("[claude.statusline]\nformat = \"{oops\"\n", &dir).unwrap_err();
+    assert!(error.contains("claude.statusline.format"), "{error}");
+    assert!(Config::parse("[claude.statusline]\nformt = \"x\"\n", &dir).is_err());
 }

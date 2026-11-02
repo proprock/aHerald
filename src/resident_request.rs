@@ -429,7 +429,7 @@ mod tests {
     fn session_warning_retries_context_and_idle_after_the_queue_has_room() {
         use crate::events::{Kind, Source};
         let settings = Config::parse(
-            "[claude.warnings]\ncontext_tokens=100\nidle_minutes=1",
+            "[claude.warnings]\nidle_enabled=true\ncontext_tokens=100\nidle_minutes=1",
             std::path::Path::new("."),
         )
         .unwrap();
@@ -479,7 +479,7 @@ mod tests {
     fn session_warning_resident_arms_even_with_completion_disabled_and_wakes_on_activity() {
         use crate::events::{Kind, Source};
         let settings = Config::parse(
-            "[claude.warnings]\nidle_minutes=1\n[events.turn_complete]\nenabled=false",
+            "[claude.warnings]\nidle_enabled=true\nidle_minutes=1\n[events.turn_complete]\nenabled=false",
             std::path::Path::new("."),
         )
         .unwrap();

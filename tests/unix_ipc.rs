@@ -1,6 +1,7 @@
 //! Unix-domain-socket twin of the Windows named-pipe contract: per-user scope,
 //! single instance, framed exchange, rejected peers and recovery from bad clients.
 #![cfg(unix)]
+mod support;
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,
@@ -102,20 +103,13 @@ fn the_instance_lock_admits_one_owner_and_recovers_after_it_is_dropped() {
     drop(owner);
     // A child another test is spawning right now briefly holds a copy of the lock's
     // descriptor until its exec closes it, so recovery is awaited for a bounded time.
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let recovered = loop {
-        if scope.acquire().unwrap().is_some() {
-            break true;
-        }
-        if Instant::now() >= deadline {
-            break false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    assert!(
-        recovered,
-        "the lock was not released after its owner dropped it"
-    );
+    support::wait_until(
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        "the instance lock to be released",
+        || scope.acquire().unwrap().is_some(),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
 }
 
 /// Not a test of its own: the body of the process that `the_instance_lock_is_released_...`
@@ -137,23 +131,26 @@ fn the_instance_lock_is_released_when_the_owner_process_dies() {
     let scope = Scope::current(&namespace).unwrap();
     let ready = std::env::temp_dir().join(format!("{namespace}.ready"));
     let _ = std::fs::remove_file(&ready);
-    let mut owner = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "process_owner_helper", "--nocapture"])
-        .env("AHERALD_TEST_OWNER", &namespace)
-        .env("AHERALD_TEST_READY", &ready)
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !ready.exists() {
-        assert!(Instant::now() < deadline, "the owner never started");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let mut owner = support::OwnedChild(
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "process_owner_helper", "--nocapture"])
+            .env("AHERALD_TEST_OWNER", &namespace)
+            .env("AHERALD_TEST_READY", &ready)
+            .spawn()
+            .unwrap(),
+    );
+    support::wait_until(
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        "the owner process to take the scope",
+        || ready.exists(),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     assert!(
         scope.acquire().unwrap().is_none(),
         "a live owner was displaced"
     );
-    owner.kill().unwrap();
-    owner.wait().unwrap();
+    owner.stop();
     assert!(
         scope.acquire().unwrap().is_some(),
         "a dead owner kept the lock"

@@ -65,6 +65,70 @@ pub struct Surface {
 }
 
 impl Surface {
+    pub fn event_text_width(event: &crate::events::Event, scale: f64) -> Result<i32, String> {
+        if matches!(
+            event.kind,
+            crate::events::Kind::ContextWarning | crate::events::Kind::IdleWarning
+        ) {
+            Ok(Self::event_label_width(event.title(), scale)? + (54.0 * scale).ceil() as i32)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// Measure with the same Pango font and size used for an event label.
+    pub fn event_label_width(text: &str, scale: f64) -> Result<i32, String> {
+        let mut pixel = [0u8; 4];
+        // SAFETY: the temporary pixel buffer outlives the Cairo surface and context.
+        unsafe {
+            let surface = cairo_image_surface_create_for_data(pixel.as_mut_ptr(), 0, 1, 1, 4);
+            if surface.is_null() {
+                return Err("cannot create measurement surface".into());
+            }
+            if cairo_surface_status(surface) != 0 {
+                cairo_surface_destroy(surface);
+                return Err("cannot create measurement surface".into());
+            }
+            let cr = cairo_create(surface);
+            if cr.is_null() || cairo_status(cr) != 0 {
+                if !cr.is_null() {
+                    cairo_destroy(cr);
+                }
+                cairo_surface_destroy(surface);
+                return Err("cannot create measurement context".into());
+            }
+            let layout = pango_cairo_create_layout(cr);
+            let font = pango_font_description_new();
+            if layout.is_null() || font.is_null() {
+                if !layout.is_null() {
+                    g_object_unref(layout);
+                }
+                if !font.is_null() {
+                    pango_font_description_free(font);
+                }
+                cairo_destroy(cr);
+                cairo_surface_destroy(surface);
+                return Err("cannot create measurement layout".into());
+            }
+            pango_font_description_set_family(font, c"Sans".as_ptr());
+            pango_font_description_set_absolute_size(font, 22.0 * scale * 1024.0);
+            pango_layout_set_font_description(layout, font);
+            pango_layout_set_single_paragraph_mode(layout, 1);
+            pango_layout_set_text(
+                layout,
+                text.as_ptr().cast(),
+                text.len().min(i32::MAX as usize) as i32,
+            );
+            let mut width = 0;
+            pango_layout_get_pixel_size(layout, &mut width, std::ptr::null_mut());
+            pango_font_description_free(font);
+            g_object_unref(layout);
+            cairo_destroy(cr);
+            cairo_surface_destroy(surface);
+            Ok(width)
+        }
+    }
+
     pub fn card(
         width: i32,
         height: i32,
@@ -224,6 +288,65 @@ impl CardSurface for Surface {
 mod tests {
     use super::*;
     use crate::{card::Heading, config::Color};
+
+    #[test]
+    fn preview_and_live_context_labels_fit_with_and_without_artwork() {
+        use crate::{
+            agent::Agent,
+            animation::{PreparedAnimation, PreparedFrame},
+            card::Card,
+            config::Config,
+            demo::Carousel,
+            session_warnings::Warnings,
+        };
+        use std::{path::Path, sync::Arc};
+        let config =
+            Config::parse("[codex.warnings]\ncontext_tokens='250k'", Path::new(".")).unwrap();
+        let mut carousel = Carousel::new(&config);
+        carousel.navigate(5, 0);
+        let preview = carousel.selected().event.clone();
+        let live = Warnings::default()
+            .context(Agent::Codex, "session", Some(250_001), &config)
+            .unwrap();
+        let art = Arc::new(PreparedAnimation {
+            frames: vec![PreparedFrame {
+                width: 64,
+                height: 64,
+                bgra: vec![255; 64 * 64 * 4],
+            }],
+            durations_ms: vec![1000],
+            looping: false,
+        });
+        for event in [preview, live] {
+            for scale in [1.0, 1.5] {
+                let measured = Surface::event_label_width(event.title(), scale).unwrap();
+                for art in [None, Some(art.clone())] {
+                    let controls = Card::new("Codex", 0, 1, false);
+                    let composition = Composition::compose_with_text_width(
+                        scale,
+                        art,
+                        Surface::event_text_width(&event, scale).unwrap(),
+                        |w, h, left| {
+                            Surface::card(
+                                w,
+                                h,
+                                scale,
+                                left,
+                                card_paint::event_card_text(&config, &event, &controls, None),
+                            )
+                        },
+                    )
+                    .unwrap();
+                    let (width, _) = composition.size();
+                    assert!(
+                        width - composition.text_left - (18.0 * scale) as i32 >= measured,
+                        "{} at scale {scale}",
+                        event.title()
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn unicode_text_is_drawn_over_premultiplied_card_pixels() {
