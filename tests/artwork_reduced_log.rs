@@ -48,6 +48,24 @@ fn artwork_prepared_at_a_smaller_scale_is_logged_once_per_scale() {
     prepare_at(&config, &event, &root, 5.0).unwrap().unwrap();
     assert_eq!(lines(&directory, "artwork.reduced"), 2, "another scale");
 
+    // When even the configured scale exceeds the budget, the configured picture
+    // is refused. The small built-in replacement still works and the user is told once.
+    let mut too_large = config.clone();
+    too_large.notifications.scale = 4.0;
+    let notices = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let received = notices.clone();
+    aherald::notice::install(move |event| received.lock().unwrap().push(event));
+    for _ in 0..3 {
+        assert!(
+            prepare_at(&too_large, &event, &root, 4.0)
+                .unwrap()
+                .is_some()
+        );
+    }
+    aherald::notice::clear();
+    assert_eq!(lines(&directory, "artwork.rejected custom"), 1);
+    assert_eq!(notices.lock().unwrap().len(), 1);
+
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-"), "{log}");
     let _ = std::fs::remove_dir_all(&directory);

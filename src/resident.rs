@@ -176,6 +176,8 @@ fn run_with_usage_and_test(
         };
         let _ = ready_tx.send(Ok(()));
         log(Record::Started);
+        let mut diagnostics = crate::resident_request::Diagnostics::default();
+        let mut ipc_failing = false;
         let mut snapshot_clock = crate::perf::Every::new(Duration::from_secs(60));
         while !shutdown.load(Ordering::Acquire) {
             crate::perf::tick();
@@ -198,17 +200,13 @@ fn run_with_usage_and_test(
                 if effects.wake {
                     wake(window);
                 }
-                if effects.rejected {
-                    log(Record::QueueRejected);
-                }
-                if let Some(why) = effects.dropped {
-                    log(Record::EventDropped(why));
-                }
+                diagnostics.record(&response, effects);
                 response
             });
-            if result.is_err() {
+            if result.is_err() && !ipc_failing {
                 log(Record::IpcFailure);
             }
+            ipc_failing = result.is_err();
         }
         log(Record::Stopped);
     });

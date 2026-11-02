@@ -22,7 +22,7 @@ pub fn resolve(
     builtin_root: &Path,
 ) -> Result<Option<Animation>, String> {
     let settings = &config.events[event.kind];
-    let builtin = || Animation::load(&builtin_root.join(builtin_name(event.kind))).ok();
+    let builtin = || load_builtin(event, builtin_root);
     // An aHerald notice belongs to no agent, so no per-event, pet or custom picture applies.
     if event.source == crate::events::Source::App {
         return Ok(builtin());
@@ -50,6 +50,28 @@ pub fn resolve(
     Ok(selected.or_else(builtin))
 }
 
+fn load_builtin(event: &Event, root: &Path) -> Option<Animation> {
+    let path = root.join(builtin_name(event.kind));
+    match Animation::load(&path) {
+        Ok(animation) => Some(animation),
+        Err(_) => {
+            reject_builtin(event, &path);
+            None
+        }
+    }
+}
+
+fn reject_builtin(event: &Event, path: &Path) {
+    if event.source == crate::events::Source::App {
+        // The diagnostic card itself must never generate another diagnostic card.
+        if crate::operational_log::first_time("artwork", path) {
+            crate::operational_log::log(crate::operational_log::Record::ArtworkRejected("builtin"));
+        }
+    } else {
+        reject("builtin", path);
+    }
+}
+
 /// A configured picture that cannot be used is reported once per file state; the built-in
 /// artwork takes its place.
 fn reject(which: &'static str, path: &Path) {
@@ -66,11 +88,19 @@ fn reject(which: &'static str, path: &Path) {
     );
 }
 
+fn pet_path<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
+    config
+        .agents
+        .get(event.source.agent_key())
+        .and_then(|agent| agent.pet.as_deref())
+        .or(config.notifications.pet.as_deref())
+}
+
 fn pet(config: &Config, event: &Event) -> Option<Animation> {
     match crate::pet::selected(config, event) {
         Ok(animation) => animation,
         Err(_) => {
-            if let Some(path) = config.notifications.pet.as_deref() {
+            if let Some(path) = pet_path(config, event) {
                 reject("pet", path);
             }
             None
@@ -124,20 +154,36 @@ pub fn prepare_at(
             .flatten()
     };
     let selected = || resolve(config, event, builtin_root).ok().flatten();
-    let builtin = || Animation::load(&builtin_root.join(builtin_name(event.kind))).ok();
-    Ok(animation
-        .prepare(scale, bilinear)
-        .ok()
-        .or_else(|| {
-            let smaller = at_base(&selected);
-            if smaller.is_some() {
-                crate::perf::count(crate::perf::Counter::ArtworkBudgetFallback);
-                if first_reduced_at(scale) {
-                    crate::operational_log::log(crate::operational_log::Record::ArtworkReduced);
-                }
+    let builtin = || load_builtin(event, builtin_root);
+    let prepared = animation.prepare(scale, bilinear).ok().or_else(|| {
+        let smaller = at_base(&selected);
+        if smaller.is_some() {
+            crate::perf::count(crate::perf::Counter::ArtworkBudgetFallback);
+            if first_reduced_at(scale) {
+                crate::operational_log::log(crate::operational_log::Record::ArtworkReduced);
             }
-            smaller
-        })
+        }
+        smaller
+    });
+    if prepared.is_none() {
+        let settings = &config.events[event.kind];
+        let custom = (event.source != crate::events::Source::App)
+            .then(|| match settings.visual {
+                EventVisual::Custom => settings.animation.as_deref().map(|p| ("custom", p)),
+                EventVisual::Pet => pet_path(config, event).map(|p| ("pet", p)),
+                EventVisual::Inherit if config.notifications.visual != Visual::Builtin => {
+                    pet_path(config, event).map(|p| ("pet", p))
+                }
+                _ => None,
+            })
+            .flatten();
+        if let Some((kind, path)) = custom {
+            reject(kind, path);
+        } else {
+            reject_builtin(event, &builtin_root.join(builtin_name(event.kind)));
+        }
+    }
+    Ok(prepared
         .or_else(|| builtin().and_then(|a| a.prepare(scale, bilinear).ok()))
         .or_else(|| at_base(&builtin)))
 }

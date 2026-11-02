@@ -86,6 +86,8 @@ pub struct Worker {
     runner: fn(&Event) -> Result<(), String>,
     sender: Option<std::sync::mpsc::SyncSender<(Event, std::time::Instant)>>,
     handle: Option<std::thread::JoinHandle<()>>,
+    queue_failing: bool,
+    spawn_failing: bool,
 }
 
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -102,6 +104,8 @@ impl Worker {
             runner,
             sender: None,
             handle: None,
+            queue_failing: false,
+            spawn_failing: false,
         }
     }
 
@@ -127,25 +131,42 @@ impl Worker {
             match std::thread::Builder::new()
                 .name("agent-activation".into())
                 .spawn(move || {
+                    let mut failing = false;
                     for (event, clicked) in rx {
-                        log(if runner(&event).is_err() {
-                            Record::AgentActivationFailure
-                        } else {
-                            Record::AgentActivated {
-                                millis: clicked.elapsed().as_millis() as u64,
+                        if runner(&event).is_err() {
+                            if !failing {
+                                log(Record::AgentActivationFailure);
                             }
-                        });
+                            failing = true;
+                        } else {
+                            failing = false;
+                            log(Record::AgentActivated {
+                                millis: clicked.elapsed().as_millis() as u64,
+                            });
+                        }
                     }
                 }) {
                 Ok(handle) => {
+                    self.spawn_failing = false;
                     self.sender = Some(tx);
                     self.handle = Some(handle);
                 }
-                Err(_) => log(Record::AgentActivationFailure),
+                Err(_) => {
+                    if !self.spawn_failing {
+                        log(Record::AgentActivationFailure);
+                    }
+                    self.spawn_failing = true;
+                }
             }
         }
         if let Some(tx) = &self.sender {
-            let _ = tx.try_send((event.clone(), std::time::Instant::now()));
+            let failed = tx
+                .try_send((event.clone(), std::time::Instant::now()))
+                .is_err();
+            if failed && !self.queue_failing {
+                log(Record::AgentActivationDropped);
+            }
+            self.queue_failing = failed;
         }
     }
 }

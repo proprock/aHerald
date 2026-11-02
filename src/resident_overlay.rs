@@ -86,7 +86,6 @@ struct Ui {
     tooltip: String,
     /// Replaces the usage card text, e.g. a refused Restart; cleared when the card closes.
     notice: Option<String>,
-    usage_failing: [bool; 2],
     demo: Option<crate::demo::Demo>,
     carousel: Option<crate::demo::Carousel>,
     source_labels: crate::session_source::Service,
@@ -218,7 +217,11 @@ impl Ui {
             || unsafe { IsWindowVisible(hwnd) }.as_bool()
         {
             Some(16)
-        } else if self.shared.lock().is_ok_and(|s| s.warnings.has_deadline()) {
+        } else if self
+            .shared
+            .lock()
+            .is_ok_and(|s| s.warnings.has_deadline() || !s.queue.items().is_empty())
+        {
             Some(1000)
         } else if self.config.codex.usage.enabled || self.claude.is_some() {
             Some(15_000)
@@ -257,21 +260,6 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
-            // One log line per failing episode, never per poll.
-            let failing = [
-                self.codex_shown() && self.usage.view().error.is_some(),
-                self.claude
-                    .as_ref()
-                    .is_some_and(|c| c.view().error.is_some()),
-            ];
-            let mut started = 0;
-            for (was, now) in self.usage_failing.iter_mut().zip(failing) {
-                started += usize::from(now && !*was);
-                *was = now;
-            }
-            for _ in 0..started {
-                self.log(crate::operational_log::Record::UsageFailure);
-            }
             let tooltip = self.compact("\n");
             let levels = crate::tray_usage::Levels::from_views(
                 &self.usage.view(),
@@ -318,7 +306,7 @@ impl Ui {
             (
                 state.queue.selected().cloned(),
                 state.queue.selected_index(),
-                state.queue.items().len(),
+                state.queue.visible_count(),
                 paused,
             )
         };
@@ -340,14 +328,13 @@ impl Ui {
             self.selection = entry.as_ref().map(|e| e.id);
             return self.draw_usage(hwnd, index, count);
         }
-        let Some(entry) = entry.filter(|_| !paused) else {
-            self.hide(hwnd);
-            return Ok(());
-        };
         self.audio.retain(|job| !job.is_finished());
         // Every new event sounds once, even behind a selected persistent card.
         let room = crate::presenter::sound_slots(self.audio.len());
         let fresh = if self.carousel.is_some() {
+            let Some(entry) = entry.as_ref() else {
+                return Ok(());
+            };
             if self.selection != Some(entry.id) {
                 self.audio_cancel.store(true, Ordering::Release);
                 self.audio_cancel = Arc::new(AtomicBool::new(false));
@@ -355,13 +342,18 @@ impl Ui {
             } else {
                 Vec::new()
             }
-        } else {
+        } else if !paused {
             self.shared
                 .lock()
                 .map(|mut state| state.queue.take_unannounced(room))
                 .unwrap_or_default()
+        } else {
+            Vec::new()
         };
         for fresh in fresh {
+            if !fresh.outputs.sound {
+                continue;
+            }
             if let Some(audio) = crate::audio::start_controlled(
                 &fresh.event,
                 &self.config,
@@ -370,6 +362,10 @@ impl Ui {
                 self.audio.push(audio);
             }
         }
+        let Some(entry) = entry.filter(|_| !paused) else {
+            self.hide(hwnd);
+            return Ok(());
+        };
         if !self.config.notifications.enabled && self.carousel.is_none() {
             self.hide(hwnd);
             return Ok(());
@@ -684,7 +680,7 @@ impl Ui {
             let mut controls = crate::card::Card::new(
                 "",
                 state.queue.selected_index(),
-                state.queue.items().len(),
+                state.queue.visible_count(),
                 self.usage_window || self.config.notifications.click_to_dismiss,
             );
             controls.text_left = Some(self.text_left);
@@ -1036,6 +1032,13 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 wparam: wp.0,
                 lparam: lp.0,
             };
+            #[cfg(test)]
+            if msg == usage_wake_tests::OBSERVED {
+                return LRESULT(
+                    w.with_ui(message, |ui| ui.tooltip == "Codex remain: unavailable")
+                        .unwrap_or(false) as isize,
+                );
+            }
             if handle(w, hwnd, message) {
                 // Run what arrived while a handler was active, once none is.
                 while !w.gate.busy() {
@@ -1210,7 +1213,6 @@ pub(super) fn run_preview(
             timer_ms: None,
             tooltip: String::new(),
             notice: None,
-            usage_failing: [false; 2],
             demo,
             carousel,
             source_labels,
@@ -1499,6 +1501,7 @@ mod warning_deadline_tests {
 
 #[cfg(test)]
 mod usage_wake_tests {
+    pub(super) const OBSERVED: u32 = WM_APP + 90;
     use super::*;
     use crate::{
         app_server::Error,
@@ -1596,12 +1599,11 @@ mod usage_wake_tests {
             SendMessageW(hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
         }
         assert!(!unsafe { IsWindowVisible(hwnd).as_bool() });
+        // This reads the tooltip applied by the GUI thread, not the worker's view or log.
+        assert_eq!(unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0, 0);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
-        while !std::fs::read_to_string(&log)
-            .unwrap_or_default()
-            .contains("usage.failed")
-        {
+        while unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0 == 0 {
             assert!(
                 Instant::now() < deadline,
                 "hidden GUI did not observe published usage before its 15-second timer"

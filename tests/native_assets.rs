@@ -1,10 +1,9 @@
 #![cfg(windows)]
-use aherald::{
-    events::Event,
-    process::{Child, deliver},
-};
+use aherald::events::Event;
 use std::{
+    io::Write,
     path::PathBuf,
+    process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
@@ -55,26 +54,39 @@ fn native_window_loads_builtin_recovers_custom_failures_and_keeps_text_without_a
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let isolated = root.join("aherald.exe");
     std::fs::copy(&executable, &isolated).unwrap();
-    for (path, is_image) in [
+    for (case, (path, is_image)) in [
         (None, true),
         (Some(valid), true),
         (Some(corrupt), true),
         (Some(root.join("missing")), true),
         (None, false),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let config = root.join("config.toml");
         let custom = path
             .map(|path| format!("\nvisual='custom'\nanimation='{}'", path.display()))
             .unwrap_or_default();
         std::fs::write(&config,format!("[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.turn_complete]\nduration_sec=0{custom}")).unwrap();
+        // Exercise the real display-child entry point. Creating a fresh copied executable
+        // can block inside Windows before aHerald runs. The hook delivery budget belongs
+        // to tests/process.rs; this test bounds rendering after process creation instead.
         let mut child = Owned(
-            deliver(
-                if is_image { &executable } else { &isolated },
-                &config,
-                &Event::demo("turn_complete").unwrap(),
-            )
-            .unwrap(),
+            Command::new(if is_image { &executable } else { &isolated })
+                .arg("--display-child")
+                .arg("--config")
+                .arg(&config)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap_or_else(|error| panic!("resource case {case}: {error}")),
         );
+        let payload = serde_json::to_vec(&Event::demo("turn_complete").unwrap()).unwrap();
+        let mut input = child.0.stdin.take().unwrap();
+        input.write_all(&payload).unwrap();
+        drop(input);
         let mut search = Search {
             pid: child.0.id(),
             hwnd: HWND::default(),

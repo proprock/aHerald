@@ -95,7 +95,7 @@ fn a_hook_that_cannot_reach_or_start_the_resident_logs_a_fixed_code() {
         .unwrap();
     let result = child.wait_with_output().unwrap();
     assert!(result.status.success());
-    assert!(result.stdout.is_empty() || result.stdout == b"{}\n");
+    assert_eq!(result.stdout, b"{}\n");
 
     let log = log(&directory);
     assert_eq!(log.matches("hook.delivery_failed").count(), 1, "{log}");

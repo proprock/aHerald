@@ -16,6 +16,19 @@ struct Entry {
     refresh_at: Duration,
     pending: bool,
 }
+
+/// Both dedicated and shared app-server connections retain the harness-only heading
+/// on lookup errors. An unnamed thread is a successful lookup, not a failure.
+#[derive(Default)]
+pub(crate) struct LookupFailures(bool);
+impl LookupFailures {
+    pub(crate) fn observe(&mut self, failed: bool) {
+        if failed && !self.0 {
+            crate::operational_log::log(crate::operational_log::Record::SessionLookupFailure);
+        }
+        self.0 = failed;
+    }
+}
 pub struct Service {
     entries: HashMap<String, Entry>,
     jobs: Option<mpsc::SyncSender<String>>,
@@ -88,14 +101,23 @@ impl Service {
         let stop = Arc::new(AtomicBool::new(false));
         let cancel = stop.clone();
         let mut client = None;
+        let mut failures = LookupFailures::default();
         Self::start(
             move |id| {
-                if client.is_none() {
-                    client = connect(cancel.clone())
-                        .ok()
-                        .and_then(|t| Client::initialize(t, Duration::from_millis(750)).ok());
-                }
-                match client.as_mut()?.read_thread_name(id) {
+                let result = (|| {
+                    if client.is_none() {
+                        client = Some(Client::initialize(
+                            connect(cancel.clone())?,
+                            Duration::from_millis(750),
+                        )?);
+                    }
+                    client
+                        .as_mut()
+                        .ok_or(crate::app_server::Error::Disconnected)?
+                        .read_thread_name(id)
+                })();
+                failures.observe(result.is_err());
+                match result {
                     Ok(name) => name,
                     Err(_) => {
                         client = None;

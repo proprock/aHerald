@@ -27,6 +27,19 @@ capture. Add `--config` only when using a custom file; no automatic hook edits o
 
 ## Manual migration
 
+### Active originating session (AH-098)
+
+`[notifications] suppress_when_focused = true` and
+`[sounds] suppress_when_focused = true` are independent and default on, including
+in existing files that omit them. Set either to `false` to retain that output.
+Suppression requires positive window **and** active-session identification;
+unknown identity delivers both outputs. A suppressed card never appears later
+after a focus change. Lifecycle handling and deduplication continue.
+
+Current positive identification is limited to Claude hooks in a classic Windows
+console. Desktop apps, Codex and tabbed terminals retain notifications. See the
+[coverage matrix and manual checks](active-session.md) before relying on suppression.
+
 ### Session warnings (AH-100 / AH-101)
 
 Idle reminders use 55 minutes for Claude and 25 minutes for Codex once enabled. Both warning

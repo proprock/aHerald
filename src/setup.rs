@@ -254,43 +254,25 @@ fn codex_handler(exe: &Path) -> Value {
     }
 }
 
-// Recognize only the native and legacy definitions aHerald itself generates.
-// A foreign command mentioning "aherald --hook" is not an installation binding.
-fn generated_handler(hook: &Value, agent: Agent) -> bool {
+// Recognize native and legacy definitions only for this executable's full path.
+// A matching filename in another installation does not establish ownership.
+fn generated_handler(hook: &Value, exe: &Path, agent: Agent) -> bool {
     if hook["type"] != "command" {
         return false;
     }
     let Some(command) = hook["command"].as_str() else {
         return false;
     };
-    let executable_name = |path: &str| {
-        path.rsplit(['/', '\\']).next().is_some_and(|name| {
-            name.eq_ignore_ascii_case("aherald") || name.eq_ignore_ascii_case("aherald.exe")
-        })
-    };
     if let Some(args) = hook.get("args") {
         let expected = match agent {
             Agent::Claude => json!(["--hook", "--agent", "claude", "--resident"]),
             Agent::Codex => json!(["--hook", "--resident"]),
         };
-        return executable_name(command) && args == &expected;
+        return Path::new(command) == exe && args == &expected;
     }
-    let flag = if agent == Agent::Claude {
-        " --agent claude"
-    } else {
-        ""
-    };
-    let windows_suffix = format!("' --hook{flag} --resident | Out-String\"");
-    let unix_suffix = format!("' --hook{flag} --resident");
-    command
-        .strip_prefix("powershell.exe -NoProfile -NonInteractive -Command \"& '")
-        .and_then(|s| s.strip_suffix(&windows_suffix))
-        .or_else(|| {
-            command
-                .strip_prefix('\'')
-                .and_then(|s| s.strip_suffix(&unix_suffix))
-        })
-        .is_some_and(executable_name)
+    [false, true]
+        .into_iter()
+        .any(|windows| command == hook_setup::command_for(exe, agent, windows))
 }
 
 fn same_execution(a: &Value, b: &Value) -> bool {
@@ -321,6 +303,7 @@ fn read(file: &Path) -> Result<Option<String>, String> {
 
 fn add_plan(
     binding: &Binding,
+    exe: &Path,
     action: Action,
     changes: &mut Vec<Change>,
     report: &mut String,
@@ -340,7 +323,7 @@ fn add_plan(
         changes: descriptions,
     } = hook_setup::plan_handler(existing, agent, &binding.handler, action, |h| {
         if action == Action::Install {
-            same_execution(h, &binding.handler) || generated_handler(h, agent)
+            same_execution(h, &binding.handler) || generated_handler(h, exe, agent)
         } else {
             same_execution(h, &binding.handler)
         }
@@ -611,15 +594,14 @@ pub fn run_with_options(
     }
     let mut report = String::new();
     for old in &previous.bindings {
-        if !bindings
-            .iter()
-            .any(|b| b.agent == old.agent && b.file == old.file)
-        {
-            add_plan(old, Action::Uninstall, &mut changes, &mut report)?;
+        if !bindings.iter().any(|b| {
+            b.agent == old.agent && b.file == old.file && same_execution(&b.handler, &old.handler)
+        }) {
+            add_plan(old, exe, Action::Uninstall, &mut changes, &mut report)?;
         }
     }
     for binding in &bindings {
-        add_plan(binding, Action::Install, &mut changes, &mut report)?;
+        add_plan(binding, exe, Action::Install, &mut changes, &mut report)?;
     }
     let claude_file = bindings
         .iter()

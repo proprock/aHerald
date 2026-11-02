@@ -190,3 +190,12 @@ cargo test --test usage_live -- --ignored --nocapture
 It uses the installed Codex and its normal account environment and may make
 service requests. It reports a successful handshake separately from available
 usage data; it is not a notification delivery acceptance test.
+
+## Codex approval observation (AH-099, Windows)
+
+Run `./tests/live/codex_approval_observation.ps1 -CodexPath 'C:\path\to\codex.exe'`
+from PowerShell 7. This opt-in probe uses actual ephemeral model sessions and one
+harmless escalated output command with invocation-local hooks. It records only
+known field presence and run summaries, never raw payloads or command arguments.
+It does not assert a verdict or a pending human prompt. See
+[the investigation and remaining acceptance](../../docs/codex-approval-observation.md).

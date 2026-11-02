@@ -7,6 +7,25 @@ use aherald::{
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
+fn focused_output_options_default_on_and_parse_independently() {
+    let dir = PathBuf::from(".");
+    let defaults = Config::parse("", &dir).unwrap();
+    assert!(defaults.notifications.suppress_when_focused);
+    assert!(defaults.sounds.suppress_when_focused);
+    // Parsing the keys verifies that old configurations can opt out of either output.
+    for visual in [false, true] {
+        for sound in [false, true] {
+            let text = format!(
+                "[notifications]\nsuppress_when_focused={visual}\n[sounds]\nsuppress_when_focused={sound}"
+            );
+            let config = Config::parse(&text, &dir).unwrap();
+            assert_eq!(config.notifications.suppress_when_focused, visual);
+            assert_eq!(config.sounds.suppress_when_focused, sound);
+        }
+    }
+}
+
+#[test]
 fn event_duration_seconds_are_converted_to_internal_milliseconds() {
     let dir = PathBuf::from(".");
     for (seconds, milliseconds) in [(0, 0), (1, 1000), (12, 12_000), (86_400, 86_400_000)] {
