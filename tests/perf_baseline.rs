@@ -6,14 +6,9 @@
 use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
-    local::Scope,
     perf_report::{render, summarize},
-    resident,
 };
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 /// Mean microseconds a sample of the span may cost. Measured on the unoptimized test
 /// build (Windows 11, three runs within 5% of each other): ipc.handle 10, artwork.prepare
@@ -38,20 +33,11 @@ const BUDGETS: &[(&str, u64)] = &[
 /// for its artwork; a queue-count change only redraws the heading).
 const COUNTER_LIMITS: &[(&str, u64)] = &[("asset_cache.miss", 8), ("composition.rebuild", 30)];
 
-struct Cleanup(Scope, PathBuf);
-impl Drop for Cleanup {
-    fn drop(&mut self) {
-        let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-        let _ = std::fs::remove_dir_all(&self.1);
-    }
-}
+mod support;
+use support::{ResidentFixture, wait_until};
 
 #[test]
 fn hot_paths_stay_inside_their_baseline_budgets() {
-    let scope = Scope::current(&format!("resident-baseline-{}", std::process::id())).unwrap();
-    let root = std::env::temp_dir().join(&scope.namespace);
-    std::fs::create_dir_all(&root).unwrap();
-    let config = root.join("config.toml");
     let mut text = String::from(
         "[general]\nlogging='debug'\n[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n",
     );
@@ -63,13 +49,10 @@ fn hot_paths_stay_inside_their_baseline_budgets() {
     ] {
         text.push_str(&format!("[events.{kind}]\nduration_sec=1\n"));
     }
-    std::fs::write(&config, text).unwrap();
-    let _cleanup = Cleanup(scope.clone(), root.clone());
-    let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
-    assert!(matches!(
-        resident::ensure(&exe, &config, &scope).unwrap(),
-        Response::Status { .. }
-    ));
+    let mut fixture = ResidentFixture::new("resident-baseline", &text);
+    fixture.start().unwrap();
+    let scope = &fixture.scope;
+    let root = fixture.root.to_path_buf();
 
     let kinds = [
         "turn_complete",
@@ -80,35 +63,27 @@ fn hot_paths_stay_inside_their_baseline_budgets() {
     for i in 0..24 {
         let mut event = Event::demo(kinds[i % kinds.len()]).unwrap();
         event.session_id = Some(format!("baseline-{i}"));
-        pipe::request(
-            &scope,
-            &Request::Event { event },
-            Duration::from_millis(500),
-        )
-        .unwrap();
+        pipe::request(scope, &Request::Event { event }, Duration::from_millis(500)).unwrap();
         std::thread::sleep(Duration::from_millis(120));
     }
     // Cards expire, the animation timer stops and the render thread closes its window. A card
     // now lives at least one second (`duration_sec`), so the 24-card burst drains in about
     // half a minute on a slow runner.
-    let deadline = Instant::now() + Duration::from_secs(90);
-    loop {
-        let log = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
-        let idle = matches!(
-            pipe::request(&scope, &Request::Status, Duration::from_millis(500)),
-            Ok(Response::Status { queued: 0, .. })
-        );
-        if idle && log.contains(" perf frame.render n=") {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "resident never went idle:\n{log}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    pipe::request(&scope, &Request::Quit, Duration::from_millis(500)).unwrap();
-    std::thread::sleep(Duration::from_millis(500));
+    wait_until(
+        Duration::from_secs(90),
+        Duration::from_millis(100),
+        "resident baseline idle and render log",
+        || {
+            let log = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
+            let idle = matches!(
+                pipe::request(scope, &Request::Status, Duration::from_millis(500)),
+                Ok(Response::Status { queued: 0, .. })
+            );
+            idle && log.contains(" perf frame.render n=")
+        },
+    )
+    .unwrap();
+    fixture.shutdown().unwrap();
 
     let log = std::fs::read_to_string(root.join("aherald.log")).unwrap();
     let summary = summarize(&log);

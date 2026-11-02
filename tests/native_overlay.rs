@@ -1,4 +1,5 @@
 #![cfg(windows)]
+mod support;
 use aherald::{
     events::Event,
     process::{Child, deliver},
@@ -133,10 +134,8 @@ fn demo_window(preview: bool) {
         }
     }
     // A running ordinary resident may exist, but it must never be this demo.
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .arg("--status")
-        .output()
-        .unwrap();
+    let status =
+        support::output(std::process::Command::new(env!("CARGO_BIN_EXE_aherald")).arg("--status"));
     let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_ne!(status["pid"].as_u64(), Some(demo.0.id() as u64));
     unsafe {

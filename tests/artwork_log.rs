@@ -1,6 +1,7 @@
 //! Artwork that is configured but cannot be used is replaced by the built-in picture and
 //! reported once per file, with no path in the log. One test only: it points the process-wide
 //! logger at its own directory.
+mod support;
 use aherald::{
     artwork::resolve,
     config::{Config, EventVisual, LogLevel},
@@ -19,9 +20,7 @@ fn lines(directory: &Path, needle: &str) -> usize {
 
 #[test]
 fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once() {
-    let directory = std::env::temp_dir().join(format!("ah-artwork-log-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = support::TempDir::new("artwork-log");
     operational_log::init(&directory, LogLevel::Warn);
     let builtin = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
     let event = Event::demo("turn_complete").unwrap();
@@ -107,5 +106,4 @@ fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once(
 
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-"), "{log}");
-    let _ = std::fs::remove_dir_all(&directory);
 }

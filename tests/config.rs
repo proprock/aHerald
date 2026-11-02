@@ -4,6 +4,7 @@ use aherald::{
     config::{Config, Interpolation, LogLevel, Mode, Monitor, Position, TrayStyle},
     events::Kind,
 };
+use rstest::rstest;
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
@@ -25,14 +26,24 @@ fn focused_output_options_default_on_and_parse_independently() {
     }
 }
 
-#[test]
-fn event_duration_seconds_are_converted_to_internal_milliseconds() {
+#[rstest]
+#[case::zero(0, 0)]
+#[case::one_second(1, 1000)]
+#[case::twelve_seconds(12, 12_000)]
+#[case::one_day_maximum(86_400, 86_400_000)]
+fn event_duration_seconds_are_converted_to_internal_milliseconds(
+    #[case] seconds: u64,
+    #[case] milliseconds: u64,
+) {
     let dir = PathBuf::from(".");
-    for (seconds, milliseconds) in [(0, 0), (1, 1000), (12, 12_000), (86_400, 86_400_000)] {
-        let text = format!("[events.turn_complete]\nduration_sec={seconds}");
-        let config = Config::parse(&text, &dir).unwrap();
-        assert_eq!(config.events[Kind::TurnComplete].duration_ms, milliseconds);
-    }
+    let text = format!("[events.turn_complete]\nduration_sec={seconds}");
+    let config = Config::parse(&text, &dir).unwrap();
+    assert_eq!(config.events[Kind::TurnComplete].duration_ms, milliseconds);
+}
+
+#[test]
+fn event_duration_outside_the_supported_form_is_rejected() {
+    let dir = PathBuf::from(".");
     assert!(Config::parse("[events.turn_complete]\nduration_sec=86401", &dir).is_err());
     assert!(Config::parse("[events.turn_complete]\nduration_ms=3000", &dir).is_err());
 }

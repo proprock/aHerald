@@ -6,6 +6,67 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+pub mod detached;
+#[cfg(windows)]
+mod resident;
+#[cfg(windows)]
+pub mod window;
+#[cfg(windows)]
+#[allow(unused_imports)] // each integration crate uses a different subset of support
+pub use resident::ResidentFixture;
+
+/// A scratch directory owned by one test: created empty with a name unique to this process
+/// and call, and removed with its contents on drop, including when the test panics. It never
+/// touches a directory it did not create, so concurrent tests cannot remove each other's files.
+pub struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    pub fn new(tag: &str) -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        loop {
+            let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("ah-{tag}-{}-{unique}", std::process::id()));
+            match Self::create(path) {
+                Ok(directory) => return directory,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot create owned test directory: {error}"),
+            }
+        }
+    }
+
+    fn create(path: std::path::PathBuf) -> std::io::Result<Self> {
+        std::fs::create_dir(&path)?;
+        Ok(Self(path))
+    }
+}
+
+impl std::ops::Deref for TempDir {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for TempDir {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for TempDir {
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.0.as_os_str()
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A child process the test owns: killed and reaped on drop, so a failed assertion or a
 /// panic cannot leave it running. Only this exact process is signalled, never one found by name.
 pub struct OwnedChild(pub Child);
@@ -49,19 +110,35 @@ pub fn run_bounded_with_input(
 ) -> Result<Output, String> {
     let program = command.get_program().to_string_lossy().into_owned();
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = OwnedChild(
-        command
-            .spawn()
-            .map_err(|error| format!("cannot start `{program}`: {error}"))?,
-    );
-    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    let child = command
+        .spawn()
+        .map_err(|error| format!("cannot start `{program}`: {error}"))?;
+    capture_bounded_inner(child, input, timeout, &program)
+}
+
+/// Bound an already launched process, retaining specialized spawn/retry behavior.
+pub fn capture_bounded(child: Child, input: &[u8], timeout: Duration) -> Result<Output, String> {
+    capture_bounded_inner(child, input, timeout, "owned child")
+}
+
+fn capture_bounded_inner(
+    child: Child,
+    input: &[u8],
+    timeout: Duration,
+    program: &str,
+) -> Result<Output, String> {
+    let mut child = OwnedChild(child);
+    let start = Instant::now();
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let (send, recv) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut bytes);
             }
-            bytes
-        })
+            let _ = send.send(bytes);
+        });
+        recv
     }
     if let Some(mut stdin) = child.0.stdin.take() {
         let input = input.to_vec();
@@ -71,7 +148,6 @@ pub fn run_bounded_with_input(
     }
     let stdout = drain(child.0.stdout.take());
     let stderr = drain(child.0.stderr.take());
-    let start = Instant::now();
     let status = loop {
         match child.0.try_wait() {
             Ok(Some(status)) => break status,
@@ -87,10 +163,17 @@ pub fn run_bounded_with_input(
             Err(error) => return Err(format!("cannot wait for `{program}`: {error}")),
         }
     };
+    // Descendants may inherit a pipe after the owned child exits. Never join a reader
+    // without a deadline, and never kill an unowned descendant to close that pipe.
+    let receive = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| {
+        pipe.recv_timeout(timeout.saturating_sub(start.elapsed())).map_err(|_| {
+            format!("`{program}` output did not close within {timeout:?}; child exited, last output state: open")
+        })
+    };
     Ok(Output {
         status,
-        stdout: stdout.join().unwrap_or_default(),
-        stderr: stderr.join().unwrap_or_default(),
+        stdout: receive(stdout)?,
+        stderr: receive(stderr)?,
     })
 }
 
@@ -119,6 +202,59 @@ pub fn wait_until(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temp_dir_creation_preserves_an_existing_directory() {
+        let existing = TempDir::new("existing");
+        std::fs::write(existing.join("sentinel"), b"keep").unwrap();
+        let result = TempDir::create(existing.to_path_buf());
+        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists));
+        assert_eq!(std::fs::read(existing.join("sentinel")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn temp_dirs_are_unique_and_independent_and_are_removed_with_their_contents() {
+        let first = TempDir::new("fixture");
+        let second = TempDir::new("fixture");
+        assert_ne!(*first, *second);
+        std::fs::create_dir_all(first.join("nested")).unwrap();
+        std::fs::write(first.join("nested/file"), b"x").unwrap();
+        std::fs::write(second.join("file"), b"y").unwrap();
+        let (first_path, second_path) = (first.to_path_buf(), second.to_path_buf());
+        drop(first);
+        assert!(!first_path.exists(), "dropped directory remains");
+        assert!(second_path.join("file").exists(), "a sibling was removed");
+        drop(second);
+        assert!(!second_path.exists());
+    }
+
+    #[test]
+    fn a_temp_dir_is_removed_when_the_test_panics() {
+        let path = std::sync::Mutex::new(std::path::PathBuf::new());
+        let result = std::panic::catch_unwind(|| {
+            let dir = TempDir::new("fixture-panic");
+            std::fs::write(dir.join("file"), b"x").unwrap();
+            *path.lock().unwrap() = dir.to_path_buf();
+            panic!("assertion failed");
+        });
+        assert!(result.is_err());
+        let path = path.lock().unwrap();
+        assert!(!path.as_os_str().is_empty() && !path.exists());
+    }
+
+    #[test]
+    fn temp_dirs_made_concurrently_never_collide() {
+        let paths: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(|| TempDir::new("fixture-race")))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let mut names: Vec<_> = paths.iter().map(|dir| dir.to_path_buf()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 8);
+    }
 
     #[cfg(unix)]
     fn shell(script: &str) -> Command {

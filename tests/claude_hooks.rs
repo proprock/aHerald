@@ -1,23 +1,16 @@
-use std::{
-    io::Write,
-    process::{Command, Stdio},
-};
+mod support;
+use std::process::{Command, Stdio};
 
 fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(args)
-        .args(["--config", "tests/fixtures/quiet.toml"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    // A hook that rejects its arguments exits without reading stdin; the closed pipe is not a failure.
-    match child.stdin.take().unwrap().write_all(input) {
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
-        result => result.unwrap(),
-    }
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(args)
+            .args(["--config", "tests/fixtures/quiet.toml"])
+            .stdin(Stdio::piped()),
+        input,
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap()
 }
 
 #[test]

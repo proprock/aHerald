@@ -3,6 +3,68 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-110 - Apply rstest selectively for named test cases** (2026-11-02).
+  Owner approved `rstest` `=0.28.0` (MIT OR Apache-2.0, MSRV 1.85, no default
+  features) as a dev-dependency only; `cargo tree -e normal` shows no runtime use.
+  Converted 3 matrices (hook silent-success payloads, hook event names, config
+  duration pairs) to named cases with all input/expected pairs preserved; a single
+  case runs alone (`-- case_4_pre_tool_use`). `cargo test --all-targets`: 705 passed,
+  0 failed; fmt, clippy and release build clean. Details: `docs/ah-110-rstest.md`.
+
+- [x] **AH-109 - Evaluate nextest and retain Cargo for mandatory CI** (2026-11-02).
+  Compared pinned signed Windows nextest 0.9.150 against Cargo with equal package-cold
+  builds and three alternating warm full runs. Matched exact names/ignored flags in
+  93 binaries: 693 ordinary tests passed, 0 failed, 23 ignored with both runners in
+  every round. Build wall: Cargo 158.448 s, nextest 168.737 s; execution medians:
+  Cargo 117.652 s, nextest 196.335 s (66.9% higher). Retained Cargo CI and all existing
+  platform jobs; preserved integration-binary isolation and performance budgets.
+  Added conservative native serialization, exclusive performance scheduling, bounded
+  per-test execution, zero retries and opt-in JUnit reports. Independent runtime
+  fault injection reproduced both missing-group and missing-exclusivity collisions.
+  Green probes verified scheduling, hung-test classification/reporting, exact owned
+  test/resident termination, and released native mutex/pipe/file resources.
+  Format, Clippy and Windows release build passed; separate doctest command passed
+  (zero current doctests). No new visual, installed-account or Unix results claimed.
+  Reproduction, resource inventory, selections and limits: docs/ah-109-nextest.md.
+
+- [x] **AH-107 - Make asynchronous checks and process cleanup deterministic** (2026-11-02).
+  Inventoried process, timing, desktop and cleanup boundaries. Bounded hook/setup/UI
+  process capture, including inherited output after child exit; retained concurrent
+  pipe draining and owned-child timeout cleanup. Native detached guards verify
+  parentage, retain exact handles across replacement, request Quit, observe exit and
+  apply bounded owned-process fallback before directory removal. IPC stop and name
+  worker checks now synchronize on observed completion. Preserved scenario delays,
+  cold launcher races, performance limits and logger/TZ process isolation.
+  Runtime regression reproduced the inherited-pipe deadline failure. Native tests
+  cover large output, unread stdin, hung processes, panic cleanup, independent
+  resident survival and released IPC. AH-092 passed another 20 consecutive Windows
+  runs with final cleanup; its forced-visible negative case passed in the full run.
+  Format, Clippy, native release build and sequential Windows full tests passed:
+  689 passed, 0 failed, 17 ignored. No new manual UI or Unix execution is claimed.
+  Inventory, evidence and platform/resource limits: docs/ah-107-deterministic-tests.md.
+
+- [x] **AH-092 - Wait for the paused resident window to hide** (2026-11-02).
+  Preserved the native visibility assertion and added a bounded two-second wait
+  with expected/last visibility diagnostics. Native tests reproduce delayed hiding
+  (red before the wait) and reject a window that remains visible. A real paused
+  resident forced visible is also rejected after a visible card establishes readiness.
+  Both the original resident test and the negative resident test passed 20 consecutive
+  Windows runs without retries. Format, Clippy, release build and full sequential
+  Windows tests passed: 628 passed, 0 failed, 17 ignored. No production change.
+
+- [x] **AH-108 - Extract small reusable test fixtures and bounded wait helpers** (2026-11-02).
+  Added owned temporary directories, unique resident IPC scopes, configuration creation,
+  exact child-process guards and bounded state waits. Migrated the three designated
+  Windows resident/render/performance suites and six further logging suites; earlier
+  Unix migrations remain intact. Lifecycle tests verify independent live residents,
+  sibling survival, startup failure, timeout and panic cleanup. A regression reproduced
+  deletion of an existing temporary directory; allocation now skips occupied names.
+  Preserved separate logger/TZ test processes and tests that exercise launcher races.
+  Per the user's requested order, accepted this focused fixture slice before the
+  remaining AH-092/AH-107 reliability work. Format, Clippy, release build and full
+  sequential Windows tests passed: 615 passed, 0 failed, 17 ignored.
+  Evidence and retained specialized fixtures: docs/ah-108-test-fixtures.md.
+
 - [x] **AH-098 — Suppress notifications for the active originating session** (2026-11-02).
   Added independent card and sound suppression, both enabled by default, requiring
   positive originating-window and active-session evidence. Admission freezes the

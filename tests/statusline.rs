@@ -1,27 +1,19 @@
 //! The `--statusline` wrapper as Claude Code runs it: payload on stdin, the wrapped command's
 //! output on stdout, and no resident required.
 #![cfg(unix)]
-use std::{
-    io::Write,
-    process::{Command, Stdio},
-};
+mod support;
+use std::process::{Command, Stdio};
 
 fn run(args: &[&str], input: &str) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .arg("--statusline")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(input.as_bytes())
-        .unwrap();
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .arg("--statusline")
+            .args(args)
+            .stdin(Stdio::piped()),
+        input.as_bytes(),
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap()
 }
 
 const PAYLOAD: &str =

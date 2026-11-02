@@ -397,17 +397,6 @@ shared development-profile and artwork performance changes need no separate port
   delivery budgets are unchanged. See [the startup investigation](docs/native-assets-investigation.md)
   and the audit for observed timings and platform limits.
 
-- [ ] **AH-092 — Make the Windows resident pause test wait for the window to hide.**
-  `resident_uses_one_window_and_switches_and_dismisses_only_selected_event` (`tests/resident.rs`)
-  failed once on `windows-latest` (PR #63, 2026-10-29) at `assert!(!IsWindowVisible(window))` right
-  after the status reported `paused: true`, and passed on a rerun of the same commit and on master.
-  The pause reaches the status before the overlay window is hidden, so the check races. Fix test-first
-  on Windows: wait for the window to be hidden with a bounded deadline (as the wait for `paused` does)
-  and fail with a clear message on timeout; do not remove the assertion. If the window is still visible
-  well after `paused`, that is a product bug and gets its own regression test. Acceptance: the test
-  passes repeatedly on Windows (for example 20 consecutive runs) and still fails when a paused
-  resident leaves the window visible.
-
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
   pending cards) is covered by automated tests, but no live payload exists. A bad model
@@ -447,96 +436,138 @@ framework rewrite. Keep live/account checks opt-in and preserve the agreed artwo
 performance check and resident `perf_baseline` limits. Record baseline failures
 separately from regressions introduced by this milestone.
 
-- [ ] **AH-107 — Make asynchronous checks and process cleanup deterministic.**
-  Inventory process launches, unbounded waits, fixed sleeps used as synchronization,
-  shared desktop resources and cleanup paths in ordinary tests. Finish AH-092 rather
-  than duplicating its implementation: wait for actual window visibility changes,
-  not only resident status. Replace synchronization sleeps with condition-based
-  waits and bounded deadlines; retain deliberate delays that are themselves part
-  of the scenario. Ensure timeout diagnostics identify the expected and last observed
-  state without exposing sensitive payloads. Bound hook/process completion, drain
-  captured output without pipe deadlocks, and terminate and reap only owned processes
-  on timeout or assertion failure. For detached residents, retain ownership evidence,
-  request graceful shutdown, observe exit and use bounded fallback cleanup when needed.
-  Acceptance: regression tests demonstrate delayed-but-successful state changes,
-  permanently missing effects, hung children and cleanup after failure. Verify that
-  the guards themselves do not leave owned processes or IPC resources behind. Run
-  the AH-092 Windows test 20 consecutive times and show that a resident which remains
-  visible still fails. Do not hide failures with retries or relaxed assertions.
-  Partial 2026-11-02: the Linux tray fixture tracks verified resident processes
-  by pidfd, waits for exit and bounds owned-process fallback; tests exercise a
-  hung owned process and panic cleanup without stopping an independent resident.
-  Partial 2026-11-02 (branch `feature/ah-107-deterministic-tests`, Linux): `tests/support`
-  gains `run_bounded` (deadline, pipes drained on threads, owned child killed and reaped on
-  timeout, diagnostic without captured output) and `OwnedChild` (kill and reap on drop), with
-  tests for delayed output, large output, a hung child and panic cleanup. Migrated
-  `unix_hook`, `unix_ipc`, `unsupported_platform` and `codex_monitoring`. Baseline defect
-  fixed: `unsupported_platform::status_reports_that_no_service_is_running` reached the real
-  user's resident whenever one was running; it now uses a private `XDG_RUNTIME_DIR`.
-  Baseline flake, not caused by this branch: `tests/setup.rs`
-  (`malformed_second_harness_prevents_all_writes`, `a_transient_executable_write_handle_...`)
-  fails intermittently on master too (1 of 3 runs). Also bounded `cli` and `config` runs
-  (`support::output`); `linux_apply` busctl calls already carry `--timeout=2s`. Remaining: the
-  Windows `native_overlay` `.output()`, the Windows-only sleeps
-  (`resident_perf_log`, `tray_restart`), Windows AH-092 and its 20-run check.
+## Milestone 8 — Extensible harness integrations and basic OpenCode/Pi support
 
-- [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
-  Depends on AH-107. Introduce a focused `tests/support` module for repeated setup
-  in resident/render/logging tests: temporary directory ownership, unique per-test
-  IPC scope, configuration creation, resident/process guard and bounded state waits.
-  Start with `resident_render_faults`, `resident_perf_log` and `perf_baseline`, then
-  migrate other genuine duplicates. Keep platform-specific ownership and Win32
-  handle operations behind appropriately gated helpers. Use RAII to clean up on
-  success and panic, wait for owned processes to exit before removing their files,
-  and keep fixture lifetime explicit in each test. Avoid a generic fixture registry,
-  speculative traits or changes to production APIs solely to share test boilerplate.
-  Preserve tests whose separate process is intentional, including Unix `TZ` checks.
-  Acceptance: migrated tests retain their observable contracts; fixture tests cover
-  unique scopes, concurrent independent residents, startup failure, timeout and panic
-  cleanup. No fixture may stop an unrelated running aHerald instance. Record focused
-  and relevant full-check results; obtain agreement before any new direct dependency.
-  Partial 2026-11-02: Linux tray and Unix IPC tests share a bounded boolean wait
-  with delayed-success and missing-effect checks. The designated Windows fixture
-  migrations and complete lifecycle acceptance still depend on AH-107.
+Agreed scope (2026-11-02): prepare aHerald for additional harnesses and deliver
+basic OpenCode and Pi coding agent integrations through verified hooks or their
+documented equivalents. A harness is distinct from its API/model provider:
+OpenCode or Pi using an OpenAI/Anthropic API remains an OpenCode or Pi session.
+Do not reuse Codex/Claude session identity, credentials or account usage merely
+because the underlying provider matches.
 
-- [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
-  Depends on AH-107 and AH-108. Measure current Windows test build and execution time
-  separately, then compare the same test selection under a pinned, Windows-compatible
-  nextest release. Include repeated runs, pass/fail/ignored counts and any pre-existing
-  failures; do not claim a speedup from unmatched selections or cache conditions.
-  Inventory tests that share the desktop, placement mutex, tray, audio or other OS-wide
-  resources. Before parallel nextest execution, place conflicting tests in a common
-  group with concurrency one: nextest runs each test in a separate process, so the
-  existing process-local `static Mutex` is insufficient. Keep per-test unique IPC
-  scopes even within serialized groups. Configure bounded per-test execution,
-  useful failure output and CI reports, with automatic retries disabled by default.
-  Define documented selections for fast deterministic checks, native integration,
-  performance and explicit manual/live checks. Performance checks must run without
-  competing GUI/performance workloads; retain their fixtures, budgets and required
-  acceptance role unless a separate scope decision changes them. Do not blindly
-  enable ignored tests, installed harnesses or account access in CI. Keep ordinary
-  `cargo test` supported and account explicitly for any doctests or other checks
-  outside nextest's coverage. Adopt nextest as the CI runner only after Windows
-  compatibility and resource isolation pass; record a justified keep-Cargo decision
-  if it provides no practical benefit. Acceptance: both runners execute equivalent
-  intended coverage; GUI contention, hung-test reporting and owned-process cleanup
-  are verified, existing platform CI checks remain covered, and measured results,
-  commands, runner version and limitations are documented. Compare compilation costs
-  before proposing integration-binary consolidation; preserve intentional isolation.
+Basic support means notification delivery for verified observable events, with
+correct session/lifecycle handling. Permission/input-wait coverage is conditional
+on a documented passive observation interface; report unsupported cases explicitly.
+Usage, context, session cost, session-name lookup and click-to-activate are optional
+future work for new harnesses, not milestone requirements. Preserve existing
+Codex/Claude functionality without generalizing all advanced infrastructure.
 
-- [ ] **AH-110 — Apply rstest selectively where parameterization improves diagnostics.**
-  Depends on AH-108 and the AH-109 runner decision. Compare `rstest` with ordinary
-  table-driven Rust tests on representative configuration and hook-input matrices.
-  Seek dependency agreement before adding it: document license/maintenance, pinned
-  version, Rust 1.88 and Windows compatibility, required features, compile-time cost
-  and the absence of a runtime dependency in the distributed executable. If approved,
-  use it as a dev-dependency only and convert a small representative set first.
-  Give each case a meaningful name so one failing payload/value can be selected and
-  diagnosed independently. Reuse explicit RAII fixtures from AH-108; parameterization
-  must not weaken process ownership, timeouts, privacy or hook response assertions.
-  Avoid Cartesian-product case growth and do not rewrite simple tests merely for
-  stylistic consistency. Acceptance: the pilot preserves all existing input/expected
-  output pairs, reports and filters individual failing cases under the selected runner,
-  and passes focused and relevant full checks. Record the readability and build-time
-  comparison, then retain only conversions with a clear benefit. If the dependency
-  is declined or adds no value, document the result and keep ordinary Rust tests.
+Small JS/TS bridges running inside the harness's own extension runtime are approved.
+aHerald remains native Rust and requires no separate JavaScript runtime. Keep each
+slice usable, follow test-first development, and start after the current milestone.
+
+- [ ] **AH-201 — Verify OpenCode and Pi integration contracts.**
+  Inspect official documentation and matching released source/types for each
+  selected target version. Record event payloads, session identity, main-session
+  versus subagent behavior, activity/completion/error semantics, extension discovery,
+  callback responses and failure behavior. Check whether permission/input waits and
+  their resolution can be observed without intercepting decisions. Distinguish
+  final idle from intermediate turn/run completion, retries and automatic continuation.
+  Acceptance: a versioned compatibility matrix identifies supported notifications,
+  unsupported cases, sources and sanitized fixtures. Verify candidate events with
+  isolated opt-in probes; documentation/schema evidence alone is not live acceptance.
+  Do not introduce transcript parsing, proxy sessions or account-token access.
+
+- [ ] **AH-202 — Establish regression contracts for existing harnesses.**
+  Depends on AH-201. Reuse existing behavioral coverage and add only missing
+  contracts needed for adapter extraction: normalization, ignored/invalid input,
+  exact hook stdout/exit behavior, prompt process completion, activity/session-end
+  handling, deduplication and unresolved waits. Cover identical session IDs from
+  different harnesses and relevant subagent separation. Keep existing usage,
+  context, statusLine and activation behavior covered.
+  Acceptance: executable tests pass against the pre-refactor implementation,
+  with baseline failures recorded separately. Tests assert outputs and state,
+  not source text or the future module layout.
+
+- [ ] **AH-203 — Isolate harness adapters and centralize basic registration.**
+  Depends on AH-201 and AH-202. Keep statically compiled harness identities;
+  centralize keys, labels and supported basic event capabilities. Move upstream
+  parsing, hook reply contracts and lifecycle interpretation into per-harness
+  adapters. Return normalized notifications and explicit lifecycle observations
+  from the adapter boundary; do not make every harness implement usage, context,
+  naming or activation. Keep protocol-specific logic outside shared consumers.
+  Preserve existing CLI defaults, configuration, serialized events and hook responses;
+  retain legacy activity/end encoding at compatibility boundaries where needed.
+  Acceptance: Codex/Claude regression contracts pass, and an events-only test adapter
+  exercises the common path without advanced services or new GUI-specific branches.
+
+- [ ] **AH-204 — Make shared event routing independent of the harness pair.**
+  Depends on AH-203. Route enablement, lifecycle observations and session correlation
+  through the common adapter contract. Keep identity scoped by harness and session,
+  adding turn/request identity only when supplied and verified. Support explicit
+  wait resolution where available; otherwise retain documented conservative behavior.
+  Do not infer completion, request IDs or user decisions from missing information.
+  Retain shared queue, warning, presentation, artwork and audio behavior.
+  Acceptance: tests cover duplicate delivery, repeated waits, late completion,
+  resumed activity, session end and cross-harness isolation. Existing Codex/Claude
+  behavior remains intact; new event-only harnesses need no queue/rendering changes.
+  If wire semantics must change, version IPC explicitly and reject incompatible
+  clients rather than silently misinterpreting lifecycle messages.
+
+- [ ] **AH-205 — Extend native setup to owned bridge files.**
+  Depends on AH-201 and AH-203. Extend setup planning beyond JSON hook edits to
+  installation/update/removal of aHerald-owned extension files. Use fixed executable
+  paths and minimal bridges without extra packages or runtime discovery. Record
+  ownership and installed content in the receipt; preserve existing receipts.
+  Retain explicit apply, dry run, all-file preflight, backups, rollback and idempotence.
+  Preserve foreign extensions, other installations and user-modified owned files;
+  report conflicts with a repair path. Do not change autostart.
+  Acceptance: isolated tests cover first/repeated setup, selection changes, upgrade,
+  removal, path quoting, malformed settings, write failure, rollback and ownership
+  conflicts. Receipt compatibility and old-installation cleanup are verified.
+
+- [ ] **AH-206 — Add basic OpenCode notifications.**
+  Depends on AH-201 and AH-203 through AH-205. Implement the verified OpenCode
+  bridge and Rust adapter for completion/error and any confirmed observable waits.
+  Forward only permitted identity, event and sanitized display fields; exclude
+  prompts, message bodies, tool arguments and credentials. Bound pending delivery
+  and process lifetime; failures must not affect OpenCode execution or permissions.
+  Acceptance: execute the bridge against controlled upstream fixtures and the actual
+  aHerald handler/IPC path. Verify normalization, ignored events, lifecycle clearing,
+  bounded completion and safe failure with an unavailable resident/executable.
+  Record real-version compatibility separately from synthetic integration results.
+
+- [ ] **AH-207 — Add basic Pi coding agent notifications.**
+  Depends on AH-201 and AH-203 through AH-205. Implement the verified Pi extension
+  and Rust adapter. Use the target version's final-idle boundary, accounting for
+  automatic retries, compaction, queued follow-ups and interruption. Support only
+  passively observable waits; do not wrap arbitrary third-party dialogs or introduce
+  permission gates to manufacture notification events.
+  Apply the same privacy, bounded-delivery and failure-isolation rules as AH-206.
+  Acceptance: executable extension/handler tests distinguish intermediate completion
+  from final idle and cover interruption, session changes, invalid input and delivery
+  failure. Unsupported wait coverage is explicit; no advanced telemetry is required.
+
+- [ ] **AH-208 — Expose new integrations through setup and distribution.**
+  Depends on AH-205 through AH-207. Add OpenCode/Pi to native CLI setup, the Windows
+  installer, macOS setup and Linux console setup. Derive shared selection metadata
+  from the harness registry; keep platform-specific installation mechanics native.
+  Start new integrations unchecked, preserve existing selections on upgrade, and
+  package their bridge assets in installers and portable distributions.
+  Offer only supported settings; do not add empty usage/context controls.
+  Acceptance: verify selection, deselection, upgrade and uninstall delegation,
+  fixed paths and packaged assets. Visually verify native setup changes and record
+  platform limitations separately from automated packaging results.
+
+- [ ] **AH-209 — Complete compatibility, lifecycle and delivery acceptance.**
+  Depends on AH-206 through AH-208. Add opt-in live checks using isolated harness
+  configuration and bounded owned-process cleanup. Verify real event dispatch,
+  hook/extension response and lifetime, notification delivery, dismissal, repeated
+  events and mixed Codex/Claude/OpenCode/Pi sessions on supported platforms.
+  Record OS/harness versions, commands, results and required account/network/billing
+  conditions. Keep live checks outside the ordinary suite and mandatory CI.
+  Acceptance: relevant standard Cargo/platform checks pass; native visual results
+  and installed-harness evidence are recorded separately. Unsupported event/platform
+  combinations remain explicit and do not acquire claimed support from fixture tests.
+
+- [ ] **AH-210 — Document and audit the next-harness onboarding path.**
+  Depends on AH-209. Document the adapter contract, registration, sanitized fixtures,
+  setup ownership, packaging and compatibility evidence required for another harness.
+  Supply OpenCode/Pi setup, repair and removal instructions and a support matrix.
+  Acceptance: demonstrate through a test-only events-only adapter that adding basic
+  support requires adapter/registration, setup assets, tests and documentation,
+  without changes to queue/rendering or platform resident event loops.
+  Document optional extension seams for future advanced capabilities; do not build
+  a generalized usage/tray subsystem in this milestone. Any later proposal must
+  establish a verified data source and distinguish account quota, session tokens/cost
+  and context occupancy, with separate scope and privacy agreement.

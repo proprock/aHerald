@@ -9,14 +9,9 @@ use std::{
 
 /// Runs with a private runtime directory, so a resident of the real user is never reached.
 fn run(args: &[&str]) -> std::process::Output {
-    let runtime = std::env::temp_dir().join(format!(
-        "ah-unsupported-{}-{}",
-        std::process::id(),
-        args.join("_").replace('-', "")
-    ));
-    let _ = std::fs::remove_dir_all(&runtime);
-    std::fs::create_dir_all(&runtime).unwrap();
-    let output = support::run_bounded(
+    let runtime = support::TempDir::new("unsupported");
+
+    support::run_bounded(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
             .args(args)
             .args(["--config", "tests/fixtures/quiet.toml"])
@@ -24,9 +19,7 @@ fn run(args: &[&str]) -> std::process::Output {
             .stdin(Stdio::null()),
         Duration::from_secs(20),
     )
-    .unwrap_or_else(|error| panic!("{error}"));
-    let _ = std::fs::remove_dir_all(&runtime);
-    output
+    .unwrap_or_else(|error| panic!("{error}"))
 }
 
 #[test]

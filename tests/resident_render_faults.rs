@@ -5,21 +5,12 @@ use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
     local::Scope,
-    resident,
 };
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
 
-struct Cleanup(Scope, PathBuf);
-impl Drop for Cleanup {
-    fn drop(&mut self) {
-        let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-        let _ = std::fs::remove_dir_all(&self.1);
-    }
-}
+mod support;
+use support::{ResidentFixture, wait_until};
 
 fn visible_window(pid: u32) -> Option<RECT> {
     struct Found {
@@ -48,39 +39,28 @@ fn visible_window(pid: u32) -> Option<RECT> {
 }
 
 fn wait_for_window(pid: u32) -> RECT {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Some(bounds) = visible_window(pid) {
-            return bounds;
-        }
-        assert!(Instant::now() < deadline, "resident showed no card");
-        std::thread::yield_now();
-    }
-}
-
-fn start(fault: &str) -> (Scope, Cleanup, u32, PathBuf) {
-    let scope = Scope::current(&format!("resident-fault-{fault}-{}", std::process::id())).unwrap();
-    let root = std::env::temp_dir().join(&scope.namespace);
-    std::fs::create_dir_all(&root).unwrap();
-    let config = root.join("config.toml");
-    std::fs::write(
-        &config,
-        "[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0",
+    let mut bounds = None;
+    wait_until(
+        Duration::from_secs(3),
+        Duration::from_millis(5),
+        "resident card visibility",
+        || {
+            bounds = visible_window(pid);
+            bounds.is_some()
+        },
     )
     .unwrap();
-    std::fs::write(root.join("aherald.fault"), fault).unwrap();
-    let cleanup = Cleanup(scope.clone(), root.clone());
-    let pid = match resident::ensure(
-        &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
-        &config,
-        &scope,
-    )
-    .unwrap()
-    {
-        Response::Status { pid, .. } => pid,
-        _ => panic!("unexpected status response"),
-    };
-    (scope, cleanup, pid, root)
+    bounds.unwrap()
+}
+
+fn start(fault: &str) -> (ResidentFixture, u32) {
+    let mut fixture = ResidentFixture::new(
+        "render-fault",
+        "[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0",
+    );
+    std::fs::write(fixture.root.join("aherald.fault"), fault).unwrap();
+    let pid = fixture.start().unwrap();
+    (fixture, pid)
 }
 
 fn send(scope: &Scope, kind: &str, session: &str) {
@@ -98,19 +78,21 @@ fn status(scope: &Scope) -> (u32, usize) {
 
 #[test]
 fn composition_failure_shows_a_text_card_and_the_resident_keeps_serving() {
-    let (scope, _cleanup, pid, _root) = start("compose");
-    send(&scope, "permission_required", "one");
+    let (fixture, pid) = start("compose");
+    let scope = &fixture.scope;
+    send(scope, "permission_required", "one");
     let bounds = wait_for_window(pid);
     // Artwork cards are wider than 2.5 heights; the text card is not.
     assert!((bounds.right - bounds.left) * 2 <= (bounds.bottom - bounds.top) * 5);
-    send(&scope, "input_required", "two");
-    assert_eq!(status(&scope), (pid, 2));
+    send(scope, "input_required", "two");
+    assert_eq!(status(scope), (pid, 2));
 }
 
 #[test]
 fn a_card_waits_for_its_artwork_and_first_appears_with_it() {
-    let (scope, _cleanup, pid, _root) = start("none");
-    send(&scope, "permission_required", "one");
+    let (fixture, pid) = start("none");
+    let scope = &fixture.scope;
+    send(scope, "permission_required", "one");
     let bounds = wait_for_window(pid);
     // Artwork cards are wider than 2.5 heights; the text card is not.
     assert!(
@@ -121,9 +103,10 @@ fn a_card_waits_for_its_artwork_and_first_appears_with_it() {
 
 #[test]
 fn slow_artwork_delays_the_card_only_until_the_wait_limit() {
-    let (scope, _cleanup, pid, _root) = start("slowart");
+    let (fixture, pid) = start("slowart");
+    let scope = &fixture.scope;
     let sent = Instant::now();
-    send(&scope, "permission_required", "one");
+    send(scope, "permission_required", "one");
     let bounds = wait_for_window(pid);
     let waited = sent.elapsed();
     assert!(
@@ -138,45 +121,47 @@ fn slow_artwork_delays_the_card_only_until_the_wait_limit() {
         (bounds.right - bounds.left) * 2 <= (bounds.bottom - bounds.top) * 5,
         "expected the text card after the wait limit"
     );
-    assert_eq!(status(&scope).0, pid);
+    assert_eq!(status(scope).0, pid);
 }
 
 #[test]
 fn placement_failure_keeps_the_resident_accepting_events_and_recovers() {
-    let (scope, _cleanup, pid, root) = start("placement");
-    send(&scope, "permission_required", "one");
+    let (fixture, pid) = start("placement");
+    let scope = &fixture.scope;
+    send(scope, "permission_required", "one");
     let until = Instant::now() + Duration::from_millis(500);
     while Instant::now() < until {
         assert!(
             visible_window(pid).is_none(),
             "card shown without placement"
         );
-        assert_eq!(status(&scope).0, pid, "resident exited or restarted");
+        assert_eq!(status(scope).0, pid, "resident exited or restarted");
         std::thread::sleep(Duration::from_millis(50));
     }
-    send(&scope, "input_required", "two");
-    assert_eq!(status(&scope), (pid, 2));
-    std::fs::remove_file(root.join("aherald.fault")).unwrap();
+    send(scope, "input_required", "two");
+    assert_eq!(status(scope), (pid, 2));
+    std::fs::remove_file(fixture.root.join("aherald.fault")).unwrap();
     // A failed card is retried from scratch on the next wake, not on a timer, so the
     // recovery needs an event; without it the outcome raced the failing draw.
-    send(&scope, "input_required", "three");
+    send(scope, "input_required", "three");
     wait_for_window(pid);
-    assert_eq!(status(&scope).0, pid);
+    assert_eq!(status(scope).0, pid);
 }
 
 #[test]
 fn a_message_sent_during_draw_is_handled_after_it_and_the_resident_keeps_serving() {
-    let (scope, _cleanup, pid, root) = start("reenter");
-    send(&scope, "permission_required", "one");
+    let (fixture, pid) = start("reenter");
+    let scope = &fixture.scope;
+    send(scope, "permission_required", "one");
     wait_for_window(pid);
-    send(&scope, "input_required", "two");
-    assert_eq!(status(&scope), (pid, 2));
+    send(scope, "input_required", "two");
+    assert_eq!(status(scope), (pid, 2));
     // The deferred display change re-placed the card instead of dropping or hiding it.
     let until = Instant::now() + Duration::from_millis(300);
     while Instant::now() < until {
         assert!(visible_window(pid).is_some(), "card vanished");
         std::thread::sleep(Duration::from_millis(30));
     }
-    std::fs::remove_file(root.join("aherald.fault")).unwrap();
-    assert_eq!(status(&scope).0, pid);
+    std::fs::remove_file(fixture.root.join("aherald.fault")).unwrap();
+    assert_eq!(status(scope).0, pid);
 }

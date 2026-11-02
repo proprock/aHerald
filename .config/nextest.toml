@@ -1,0 +1,38 @@
+# Evaluated with the official signed Windows build; installation is version-pinned.
+nextest-version = { required = "0.9.150" }
+
+[test-groups]
+desktop = { max-threads = 1 }
+isolated = { max-threads = 4 }
+
+[profile.default]
+test-threads = 4
+retries = 0
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 4 }
+failure-output = "immediate-final"
+success-output = "never"
+
+# Conservative whitelist: remaining binaries, including the mixed library unit
+# tests, serialize across processes until their external resources are audited.
+[[profile.default.overrides]]
+filter = 'binary(=animation) | binary(=queue) | binary(=queue_outcome) | binary(=card_folder) | binary(=usage_compact) | binary(=warning_messages) | (binary(=runner_contract) & test(=background_slot))'
+test-group = "isolated"
+
+# Performance measurements must occupy the entire runner, not just the GUI group.
+[[profile.default.overrides]]
+filter = 'binary(/^perf/) | binary(=resident_perf_log) | (binary(=runner_contract) & test(=performance_slot))'
+threads-required = "num-test-threads"
+test-group = "desktop"
+
+[[profile.default.overrides]]
+filter = "all()"
+test-group = "desktop"
+
+[profile.ci]
+junit.path = "junit.xml"
+
+# Explicit diagnostic probes; the tests are ignored in every ordinary selection.
+[profile.runner-probe]
+slow-timeout = { period = "1s", terminate-after = 5 }
+junit.path = "junit.xml"

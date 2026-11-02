@@ -1,3 +1,4 @@
+mod support;
 use aherald::{
     app_server::{Error, Transport},
     config::LogLevel,
@@ -19,8 +20,7 @@ impl Transport for Unused {
 
 #[test]
 fn failed_optional_name_lookups_log_once_and_keep_the_harness_heading() {
-    let root = std::env::temp_dir().join(format!("aherald-session-log-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    let root = support::TempDir::new("session-lookup-log");
     let log = root.join("aherald.log");
     let _ = std::fs::remove_file(&log);
     operational_log::init(&root, LogLevel::Warn);
@@ -52,5 +52,4 @@ fn failed_optional_name_lookups_log_once_and_keep_the_harness_heading() {
     assert_eq!(text.matches("session.lookup_failed").count(), 2, "{text}");
     assert!(!text.contains("PRIVATE"));
     std::fs::remove_file(log).unwrap();
-    std::fs::remove_dir(root).unwrap();
 }

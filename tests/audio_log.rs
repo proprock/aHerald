@@ -1,6 +1,7 @@
 //! A sound that cannot be used leaves one log line per failing file, not one per event and not
 //! none. One test only: it points the process-wide logger at its own directory.
 #![cfg(any(windows, target_os = "macos"))]
+mod support;
 use aherald::{
     audio::start_controlled,
     config::{Config, LogLevel},
@@ -38,9 +39,7 @@ fn lines(directory: &std::path::Path, needle: &str) -> usize {
 
 #[test]
 fn an_unusable_sound_is_logged_once_per_file_and_never_with_its_path() {
-    let directory = std::env::temp_dir().join(format!("ah-audio-log-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = support::TempDir::new("audio-log");
     operational_log::init(&directory, LogLevel::Warn);
     // A resident would show these as cards; a hook or transient process has no sink.
     let cards = Arc::new(Mutex::new(Vec::new()));
@@ -95,5 +94,4 @@ fn an_unusable_sound_is_logged_once_per_file_and_never_with_its_path() {
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-folder-name"), "{log}");
     aherald::notice::clear();
-    let _ = std::fs::remove_dir_all(&directory);
 }

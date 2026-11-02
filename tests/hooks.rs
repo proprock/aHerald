@@ -1,37 +1,35 @@
+mod support;
+use rstest::rstest;
 use std::{
-    io::Write,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
 fn invoke(input: &[u8]) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
+            .stdin(Stdio::piped()),
+        input,
+        Duration::from_secs(3),
+    )
+    .unwrap()
 }
+
 #[test]
 fn stop_returns_empty_json_without_a_decision() {
     let result = invoke(include_bytes!("fixtures/stop.json"));
     assert!(result.status.success());
     assert_eq!(result.stdout, b"{}\n");
 }
-#[test]
-fn malformed_and_unknown_hooks_are_silent_success() {
-    for bytes in [
-        b"{".as_slice(),
-        br#"{"hook_event_name":"Unknown"}"#,
-        br#"{"hook_event_name":"PermissionRequest"}"#,
-    ] {
-        let result = invoke(bytes);
-        assert!(result.status.success());
-        assert!(result.stdout.is_empty());
-    }
+#[rstest]
+#[case::malformed_json(b"{".as_slice())]
+#[case::unknown_event(br#"{"hook_event_name":"Unknown"}"#.as_slice())]
+#[case::permission_request_without_fields(br#"{"hook_event_name":"PermissionRequest"}"#.as_slice())]
+fn malformed_and_unknown_hooks_are_silent_success(#[case] bytes: &[u8]) {
+    let result = invoke(bytes);
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
 }
 #[test]
 fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
@@ -43,47 +41,45 @@ fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
 }
 #[test]
 fn open_stdin_does_not_hold_hook_process() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+    let child = Command::new(env!("CARGO_BIN_EXE_aherald"))
         .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    let mut child = support::OwnedChild(child);
     let start = Instant::now();
     let deadline = start + Duration::from_secs(3);
     loop {
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = child.0.try_wait().unwrap() {
             assert!(status.success());
             break;
         }
         if Instant::now() >= deadline {
-            child.kill().unwrap();
-            child.wait().unwrap();
+            child.0.kill().unwrap();
+            child.0.wait().unwrap();
             panic!("hook did not return with stdin open");
         }
         std::thread::yield_now();
     }
 }
 
-#[test]
-fn permission_and_interrupt_do_not_emit_decisions_or_payloads() {
-    for name in [
-        "PermissionRequest",
-        "Interrupt",
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "SessionEnd",
-    ] {
-        let result = invoke(
-            format!(r#"{{"hook_event_name":"{name}","session_id":"s","turn_id":"t","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
-                .as_bytes(),
-        );
-        assert!(result.status.success());
-        assert!(result.stdout.is_empty());
-        assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
-    }
+#[rstest]
+#[case::permission_request("PermissionRequest")]
+#[case::interrupt("Interrupt")]
+#[case::user_prompt_submit("UserPromptSubmit")]
+#[case::pre_tool_use("PreToolUse")]
+#[case::post_tool_use("PostToolUse")]
+#[case::session_end("SessionEnd")]
+fn permission_and_interrupt_do_not_emit_decisions_or_payloads(#[case] name: &str) {
+    let result = invoke(
+        format!(r#"{{"hook_event_name":"{name}","session_id":"s","turn_id":"t","tool_input":{{"command":"DO_NOT_LOG"}}}}"#)
+            .as_bytes(),
+    );
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
 }
 
 #[test]
@@ -91,21 +87,15 @@ fn stop_response_survives_invalid_configuration() {
     let path =
         std::env::temp_dir().join(format!("aherald-invalid-hook-{}.toml", std::process::id()));
     std::fs::write(&path, "invalid = [").unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config"])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(include_bytes!("fixtures/stop.json"))
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+    let output = support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config"])
+            .arg(&path)
+            .stdin(Stdio::piped()),
+        include_bytes!("fixtures/stop.json"),
+        Duration::from_secs(3),
+    )
+    .unwrap();
     std::fs::remove_file(path).unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"{}\n");
@@ -134,24 +124,14 @@ fn powershell_gui_invocation_collects_hook_responses_with_quoted_paths() {
             quote(&executable),
             quote(&config)
         );
-        let mut child = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while child.try_wait().unwrap().is_none() {
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("PowerShell hook invocation exceeded its deadline");
-            }
-            std::thread::yield_now();
-        }
-        let output = child.wait_with_output().unwrap();
+        let output = support::run_bounded_with_input(
+            Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+                .stdin(Stdio::piped()),
+            input,
+            Duration::from_secs(3),
+        )
+        .unwrap();
         assert!(
             output.status.success(),
             "{}",

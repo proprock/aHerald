@@ -1,16 +1,13 @@
 //! A hook input that cannot be understood leaves one log line with a fixed code and nothing
 //! of the input, while the hook keeps its contract: silent stdout, exit 0.
+mod support;
 use std::{
-    io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
 };
 
-fn directory(test: &str) -> PathBuf {
-    let directory =
-        std::env::temp_dir().join(format!("aherald-hook-log-{test}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).unwrap();
+fn directory(test: &str) -> support::TempDir {
+    let directory = support::TempDir::new(&format!("hook-log-{test}"));
     std::fs::write(
         directory.join("config.toml"),
         "[notifications]\nenabled=false\n[sounds]\nenabled=false\n",
@@ -25,16 +22,15 @@ fn invoke(directory: &Path, agent: Option<&str>, input: &[u8]) -> std::process::
     if let Some(agent) = agent {
         command.args(["--agent", agent]);
     }
-    let mut child = command
-        .arg("--config")
-        .arg(directory.join("config.toml"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        command
+            .arg("--config")
+            .arg(directory.join("config.toml"))
+            .stdin(Stdio::piped()),
+        input,
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap()
 }
 
 fn log(directory: &Path) -> String {
@@ -57,7 +53,6 @@ fn a_hook_input_that_is_not_json_or_is_too_large_is_logged_by_code_only() {
     assert_eq!(log.matches("hook.rejected invalid").count(), 2, "{log}");
     assert_eq!(log.matches("hook.rejected too_large").count(), 1, "{log}");
     assert!(!log.contains("secret-prompt"), "{log}");
-    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]
@@ -66,7 +61,6 @@ fn an_event_the_agent_does_not_report_on_is_not_a_failure() {
     let result = invoke(&directory, None, br#"{"hook_event_name":"Unknown"}"#);
     assert!(result.status.success());
     assert!(!log(&directory).contains("hook.rejected"));
-    let _ = std::fs::remove_dir_all(&directory);
 }
 
 /// A resident that cannot be reached or started leaves the hook silent on stdout, so the log is
@@ -78,27 +72,20 @@ fn a_hook_that_cannot_reach_or_start_the_resident_logs_a_fixed_code() {
     // The runtime directory is a plain file, so no resident socket can exist or be created.
     let runtime = directory.join("not-a-directory");
     std::fs::write(&runtime, b"").unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--resident", "--config"])
-        .arg(directory.join("config.toml"))
-        .env("XDG_RUNTIME_DIR", &runtime)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(include_bytes!("fixtures/stop.json"))
-        .unwrap();
-    let result = child.wait_with_output().unwrap();
+    let result = support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--resident", "--config"])
+            .arg(directory.join("config.toml"))
+            .env("XDG_RUNTIME_DIR", &runtime)
+            .stdin(Stdio::piped()),
+        include_bytes!("fixtures/stop.json"),
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap();
     assert!(result.status.success());
     assert_eq!(result.stdout, b"{}\n");
 
     let log = log(&directory);
     assert_eq!(log.matches("hook.delivery_failed").count(), 1, "{log}");
     assert!(!log.contains("not-a-directory"), "{log}");
-    let _ = std::fs::remove_dir_all(&directory);
 }

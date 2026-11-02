@@ -1,6 +1,7 @@
 //! Playback is serialized across processes: a sound waits for another process's sound, and a
 //! process that dies mid-sound does not keep the gate.
 #![cfg(unix)]
+mod support;
 use aherald::audio::{Wave, serial::play_with};
 use std::{
     path::{Path, PathBuf},
@@ -17,11 +18,8 @@ fn wave() -> Wave {
     }
 }
 
-fn directory(tag: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!("ah-audio-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&path);
-    std::fs::create_dir_all(&path).unwrap();
-    path
+fn directory(tag: &str) -> support::TempDir {
+    support::TempDir::new(&format!("audio-{tag}"))
 }
 
 /// Not a test of its own: the body of the process that holds the gate for a while. Without
@@ -93,7 +91,6 @@ fn a_sound_waits_for_the_sound_of_another_process() {
     .unwrap();
     assert_eq!(finished_before_ours, Some(true), "the sounds overlapped");
     holder.wait().unwrap();
-    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -119,5 +116,4 @@ fn a_process_killed_mid_sound_releases_the_gate() {
     .unwrap();
     assert!(played);
     assert!(started.elapsed() < Duration::from_secs(2));
-    let _ = std::fs::remove_dir_all(dir);
 }

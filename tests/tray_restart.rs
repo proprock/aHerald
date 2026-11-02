@@ -1,4 +1,5 @@
 #![cfg(windows)]
+mod support;
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,
@@ -68,14 +69,15 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    struct Cleanup(Scope, std::path::PathBuf);
+    struct Cleanup(support::detached::Residents, std::path::PathBuf);
     impl Drop for Cleanup {
         fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-            let _ = std::fs::remove_dir_all(&self.1);
+            if self.0.shutdown().is_ok() {
+                let _ = std::fs::remove_dir_all(&self.1);
+            }
         }
     }
-    let _cleanup = Cleanup(scope.clone(), root);
+    let mut cleanup = Cleanup(support::detached::Residents::new(scope.clone()), root);
     let Response::Status { pid: old, .. } = aherald::resident::ensure(
         std::path::Path::new(env!("CARGO_BIN_EXE_aherald")),
         &config,
@@ -84,6 +86,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
     .unwrap() else {
         panic!()
     };
+    cleanup.0.retain(old).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let hwnd = loop {
         let h = window(old);
@@ -121,6 +124,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
         }) = pipe::request(&scope, &Request::Status, Duration::from_millis(100))
             && pid != old
         {
+            cleanup.0.retain(pid).unwrap();
             assert!(sounds);
             assert_eq!(queued, 0);
             assert!(!paused);
@@ -263,6 +267,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
                 pipe::request(&scope, &Request::Status, Duration::from_millis(100))
                 && pid != new
             {
+                cleanup.0.retain(pid).unwrap();
                 break pid;
             }
             assert!(Instant::now() < deadline, "second Apply did not restart");
@@ -280,6 +285,12 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             std::thread::yield_now();
         }
     }
+    cleanup.0.shutdown().unwrap();
+    assert!(
+        scope.acquire().unwrap().is_some(),
+        "replacement retained its IPC ownership after cleanup"
+    );
+    assert!(pipe::request(&scope, &Request::Status, Duration::from_millis(100)).is_err());
 }
 
 #[test]
@@ -302,14 +313,15 @@ fn invalid_apply_keeps_running(test: bool) {
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    struct Cleanup(Scope, std::path::PathBuf);
+    struct Cleanup(support::detached::Residents, std::path::PathBuf);
     impl Drop for Cleanup {
         fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-            let _ = std::fs::remove_dir_all(&self.1);
+            if self.0.shutdown().is_ok() {
+                let _ = std::fs::remove_dir_all(&self.1);
+            }
         }
     }
-    let _cleanup = Cleanup(scope.clone(), root);
+    let mut cleanup = Cleanup(support::detached::Residents::new(scope.clone()), root);
     let Response::Status { pid: old, .. } = aherald::resident::ensure(
         std::path::Path::new(env!("CARGO_BIN_EXE_aherald")),
         &config,
@@ -318,6 +330,7 @@ fn invalid_apply_keeps_running(test: bool) {
     .unwrap() else {
         panic!()
     };
+    cleanup.0.retain(old).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let hwnd = loop {
         let h = window(old);
@@ -348,7 +361,16 @@ fn invalid_apply_keeps_running(test: bool) {
         assert!(Instant::now() < deadline, "restart error was not shown");
         std::thread::yield_now();
     }
-    std::thread::sleep(Duration::from_millis(1500));
+    // Deliberate stability observation: an invalid Apply must never restart later.
+    let observation = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < observation {
+        assert!(
+            matches!(pipe::request(&scope, &Request::Status, Duration::from_millis(100)), Ok(Response::Status { pid, .. }) if pid == old),
+            "invalid Apply stopped serving from the original resident"
+        );
+        assert!(!window(old).is_invalid());
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert!(matches!(
         pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(),
         Response::Status { pid, .. } if pid == old
@@ -363,6 +385,7 @@ fn invalid_apply_keeps_running(test: bool) {
             pipe::request(&scope, &Request::Status, Duration::from_millis(100))
             && pid != old
         {
+            cleanup.0.retain(pid).unwrap();
             break;
         }
         assert!(
@@ -371,4 +394,10 @@ fn invalid_apply_keeps_running(test: bool) {
         );
         std::thread::yield_now();
     }
+    cleanup.0.shutdown().unwrap();
+    assert!(
+        scope.acquire().unwrap().is_some(),
+        "replacement retained its IPC ownership after cleanup"
+    );
+    assert!(pipe::request(&scope, &Request::Status, Duration::from_millis(100)).is_err());
 }

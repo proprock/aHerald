@@ -1,8 +1,6 @@
 #![cfg(windows)]
-use aherald::{
-    ipc::{Request, Response, pipe},
-    local::Scope,
-};
+mod support;
+use aherald::{ipc::Response, local::Scope};
 use std::time::{Duration, Instant};
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
 
@@ -54,14 +52,8 @@ fn the_about_item_shows_a_card_even_with_event_visuals_off_and_a_second_choice_c
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    struct Cleanup(Scope, std::path::PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let Response::Status { pid, .. } = aherald::resident::ensure(
         std::path::Path::new(env!("CARGO_BIN_EXE_aherald")),
         &config,
@@ -70,6 +62,7 @@ fn the_about_item_shows_a_card_even_with_event_visuals_off_and_a_second_choice_c
     .unwrap() else {
         panic!("unexpected status response")
     };
+    cleanup.0.retain(pid).unwrap();
     let mut hwnd = HWND::default();
     wait_until("the resident window", || {
         hwnd = resident_window(pid);
