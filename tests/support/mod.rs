@@ -6,6 +6,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+mod resident;
+#[cfg(windows)]
+#[allow(unused_imports)] // each integration crate uses a different subset of support
+pub use resident::ResidentFixture;
+
 /// A scratch directory owned by one test: created empty with a name unique to this process
 /// and call, and removed with its contents on drop, including when the test panics. It never
 /// touches a directory it did not create, so concurrent tests cannot remove each other's files.
@@ -14,12 +20,21 @@ pub struct TempDir(std::path::PathBuf);
 impl TempDir {
     pub fn new(tag: &str) -> Self {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("ah-{tag}-{}-{unique}", std::process::id()));
-        // Only a leftover of an earlier crashed process with the same pid can exist here.
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).unwrap();
-        Self(path)
+        loop {
+            let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("ah-{tag}-{}-{unique}", std::process::id()));
+            match Self::create(path) {
+                Ok(directory) => return directory,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot create owned test directory: {error}"),
+            }
+        }
+    }
+
+    fn create(path: std::path::PathBuf) -> std::io::Result<Self> {
+        std::fs::create_dir(&path)?;
+        Ok(Self(path))
     }
 }
 
@@ -161,6 +176,15 @@ pub fn wait_until(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temp_dir_creation_preserves_an_existing_directory() {
+        let existing = TempDir::new("existing");
+        std::fs::write(existing.join("sentinel"), b"keep").unwrap();
+        let result = TempDir::create(existing.to_path_buf());
+        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists));
+        assert_eq!(std::fs::read(existing.join("sentinel")).unwrap(), b"keep");
+    }
 
     #[test]
     fn temp_dirs_are_unique_and_independent_and_are_removed_with_their_contents() {

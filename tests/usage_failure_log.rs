@@ -1,3 +1,4 @@
+mod support;
 use aherald::{
     agent::Agent,
     app_server::Error,
@@ -17,8 +18,7 @@ impl UsageSource for Source {
 
 #[test]
 fn usage_failures_are_logged_once_per_episode_without_private_diagnostics() {
-    let directory = std::env::temp_dir().join(format!("aherald-usage-log-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = support::TempDir::new("usage-failure-log");
     let log = directory.join("aherald.log");
     let _ = std::fs::remove_file(&log);
     operational_log::init(&directory, LogLevel::Warn);
@@ -38,5 +38,4 @@ fn usage_failures_are_logged_once_per_episode_without_private_diagnostics() {
     assert_eq!(text.matches("usage.failed").count(), 4, "{text}");
     assert!(!text.contains("PRIVATE"));
     std::fs::remove_file(log).unwrap();
-    std::fs::remove_dir(directory).unwrap();
 }

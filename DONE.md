@@ -3,6 +3,19 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-108 - Extract small reusable test fixtures and bounded wait helpers** (2026-11-02).
+  Added owned temporary directories, unique resident IPC scopes, configuration creation,
+  exact child-process guards and bounded state waits. Migrated the three designated
+  Windows resident/render/performance suites and six further logging suites; earlier
+  Unix migrations remain intact. Lifecycle tests verify independent live residents,
+  sibling survival, startup failure, timeout and panic cleanup. A regression reproduced
+  deletion of an existing temporary directory; allocation now skips occupied names.
+  Preserved separate logger/TZ test processes and tests that exercise launcher races.
+  Per the user's requested order, accepted this focused fixture slice before the
+  remaining AH-092/AH-107 reliability work. Format, Clippy, release build and full
+  sequential Windows tests passed: 615 passed, 0 failed, 17 ignored.
+  Evidence and retained specialized fixtures: docs/ah-108-test-fixtures.md.
+
 - [x] **AH-098 — Suppress notifications for the active originating session** (2026-11-02).
   Added independent card and sound suppression, both enabled by default, requiring
   positive originating-window and active-session evidence. Admission freezes the

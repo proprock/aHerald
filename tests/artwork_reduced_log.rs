@@ -1,6 +1,7 @@
 //! Artwork that is too large for the memory budget at the monitor's DPI scale is shown at the
 //! configured scale instead; that is reported once per scale, with nothing of the file in the
 //! log. One test only: it points the process-wide logger at its own directory.
+mod support;
 use aherald::{
     artwork::prepare_at,
     config::{Config, LogLevel},
@@ -20,9 +21,7 @@ fn lines(directory: &std::path::Path, needle: &str) -> usize {
 
 #[test]
 fn artwork_prepared_at_a_smaller_scale_is_logged_once_per_scale() {
-    let directory = std::env::temp_dir().join(format!("ah-art-reduced-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = support::TempDir::new("artwork-reduced-log");
     operational_log::init(&directory, LogLevel::Warn);
     RgbaImage::new(1024, 1024)
         .save(directory.join("secret-large.png"))
@@ -68,5 +67,4 @@ fn artwork_prepared_at_a_smaller_scale_is_logged_once_per_scale() {
 
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-"), "{log}");
-    let _ = std::fs::remove_dir_all(&directory);
 }

@@ -480,33 +480,6 @@ separately from regressions introduced by this milestone.
   Windows `native_overlay` `.output()`, the Windows-only sleeps
   (`resident_perf_log`, `tray_restart`), Windows AH-092 and its 20-run check.
 
-- [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
-  Depends on AH-107. Introduce a focused `tests/support` module for repeated setup
-  in resident/render/logging tests: temporary directory ownership, unique per-test
-  IPC scope, configuration creation, resident/process guard and bounded state waits.
-  Start with `resident_render_faults`, `resident_perf_log` and `perf_baseline`, then
-  migrate other genuine duplicates. Keep platform-specific ownership and Win32
-  handle operations behind appropriately gated helpers. Use RAII to clean up on
-  success and panic, wait for owned processes to exit before removing their files,
-  and keep fixture lifetime explicit in each test. Avoid a generic fixture registry,
-  speculative traits or changes to production APIs solely to share test boilerplate.
-  Preserve tests whose separate process is intentional, including Unix `TZ` checks.
-  Acceptance: migrated tests retain their observable contracts; fixture tests cover
-  unique scopes, concurrent independent residents, startup failure, timeout and panic
-  cleanup. No fixture may stop an unrelated running aHerald instance. Record focused
-  and relevant full-check results; obtain agreement before any new direct dependency.
-  Partial 2026-11-02: Linux tray and Unix IPC tests share a bounded boolean wait
-  with delayed-success and missing-effect checks. The designated Windows fixture
-  migrations and complete lifecycle acceptance still depend on AH-107.
-  Partial 2026-11-02 (branch `feature/ah-108-test-fixtures`, Unix): `support::TempDir` is a
-  scratch directory unique per process and call, removed on drop and on panic; fixture
-  tests cover uniqueness, a surviving sibling, panic cleanup and concurrent creation.
-  Migrated `operational_log`, `hook_log`, `plugin_hook_script`, `unix_audio`, `unix_hook`
-  and `unsupported_platform`, dropping their manual `remove_dir_all` calls. Remaining:
-  per-test IPC scope, configuration creation and the resident guard for
-  `resident_render_faults`, `resident_perf_log` and `perf_baseline` (Windows), the
-  other `temp_dir` users, and startup-failure coverage.
-
 - [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
   Depends on AH-107 and AH-108. Measure current Windows test build and execution time
   separately, then compare the same test selection under a pinned, Windows-compatible

@@ -1,3 +1,4 @@
+mod support;
 use aherald::{
     activation::Worker,
     config::LogLevel,
@@ -40,8 +41,7 @@ fn activate(event: &Event) -> Result<(), String> {
 
 #[test]
 fn missing_agent_is_logged_once_until_activation_recovers() {
-    let root = std::env::temp_dir().join(format!("aherald-activation-log-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    let root = support::TempDir::new("activation-log");
     let log = root.join("aherald.log");
     let _ = std::fs::remove_file(&log);
     let (tx, rx) = mpsc::channel();
@@ -80,5 +80,4 @@ fn missing_agent_is_logged_once_until_activation_recovers() {
     );
     assert!(!text.contains("PRIVATE"));
     std::fs::remove_file(log).unwrap();
-    std::fs::remove_dir(root).unwrap();
 }

@@ -5,45 +5,22 @@ use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
     local::Scope,
-    resident,
 };
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
-struct Cleanup(Scope, PathBuf);
-impl Drop for Cleanup {
-    fn drop(&mut self) {
-        let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-        let _ = std::fs::remove_dir_all(&self.1);
-    }
-}
+mod support;
+use support::{ResidentFixture, wait_until};
 
-fn start(level: &str) -> (Scope, Cleanup, PathBuf) {
-    let scope = Scope::current(&format!("resident-perf-{level}-{}", std::process::id())).unwrap();
-    let root = std::env::temp_dir().join(&scope.namespace);
-    std::fs::create_dir_all(&root).unwrap();
-    let config = root.join("config.toml");
-    // Short cards, so the animation timer stops and the resident closes its window.
-    std::fs::write(
-        &config,
-        format!(
+fn start(level: &str) -> ResidentFixture {
+    // Short cards let the animation timer stop and flush its statistics.
+    let mut fixture = ResidentFixture::new(
+        "resident-perf",
+        &format!(
             "[general]\nlogging='{level}'\n[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[events.permission_required]\nduration_sec=1\n"
         ),
-    )
-    .unwrap();
-    let cleanup = Cleanup(scope.clone(), root.clone());
-    match resident::ensure(
-        &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
-        &config,
-        &scope,
-    )
-    .unwrap()
-    {
-        Response::Status { .. } => (scope, cleanup, root),
-        _ => panic!("unexpected status response"),
-    }
+    );
+    fixture.start().unwrap();
+    fixture
 }
 
 fn send(scope: &Scope, session: &str) {
@@ -53,29 +30,30 @@ fn send(scope: &Scope, session: &str) {
 }
 
 fn wait_for(root: &std::path::Path, needle: &str) -> String {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let text = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
-        if text.contains(needle) {
-            return text;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "no `{needle}` in the log:\n{text}"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let mut text = String::new();
+    wait_until(
+        Duration::from_secs(5),
+        Duration::from_millis(50),
+        "resident performance log",
+        || {
+            text = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
+            text.contains(needle)
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}: missing `{needle}`\n{text}"));
+    text
 }
 
 #[test]
 fn a_debug_resident_logs_span_statistics_for_the_work_it_did() {
-    let (scope, _cleanup, root) = start("debug");
-    send(&scope, "perf-session-one");
-    send(&scope, "perf-session-two");
+    let mut fixture = start("debug");
+    let root = fixture.root.to_path_buf();
+    send(&fixture.scope, "perf-session-one");
+    send(&fixture.scope, "perf-session-two");
     // The listener thread flushes IPC statistics when it stops; the GUI thread flushes
     // its render statistics once the cards have gone and its timer stops.
     wait_for(&root, " perf frame.render n=");
-    pipe::request(&scope, &Request::Quit, Duration::from_millis(500)).unwrap();
+    fixture.shutdown().unwrap();
     let text = wait_for(&root, " perf ipc.handle n=");
     for line in text.lines() {
         // `<timestamp> <LEVEL> <message>`: every line is well formed and carries only
@@ -103,11 +81,22 @@ fn a_debug_resident_logs_span_statistics_for_the_work_it_did() {
 
 #[test]
 fn a_default_resident_writes_no_performance_lines() {
-    let (scope, _cleanup, root) = start("warn");
-    send(&scope, "quiet-session");
-    std::thread::sleep(Duration::from_millis(700));
-    pipe::request(&scope, &Request::Quit, Duration::from_millis(500)).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    let mut fixture = start("warn");
+    let root = fixture.root.to_path_buf();
+    send(&fixture.scope, "quiet-session");
+    wait_until(
+        Duration::from_secs(5),
+        Duration::from_millis(25),
+        "quiet resident queue drained",
+        || {
+            matches!(
+                pipe::request(&fixture.scope, &Request::Status, Duration::from_millis(200)),
+                Ok(Response::Status { queued: 0, .. })
+            )
+        },
+    )
+    .unwrap();
+    fixture.shutdown().unwrap();
     let text = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
     assert!(!text.contains(" perf "), "{text}");
     assert!(!text.contains("DEBUG"), "{text}");
