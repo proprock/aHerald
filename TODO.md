@@ -156,7 +156,8 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   delivery/dismissal, update and removal on a clean supported Ubuntu desktop
   without developer tools. Record Ubuntu version, desktop/session type and
   harness versions; document required system packages, repair and removal.
-  See docs/installation.md; overlay Xorg/multi-monitor acceptance remains AH-093.
+  See docs/installation.md; warning setup controls are tracked in AH-114 and
+  overlay Xorg/multi-monitor acceptance remains AH-093.
 
 - [ ] **AH-104 — Optional live harness checks on macOS and Linux.**
   Extend the optional group in tests/live/README.md with native macOS/Linux
@@ -172,7 +173,77 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   CI; any live CI job must require deliberate invocation and its own credentials.
   Acceptance: run the applicable checks on the M1 and Ubuntu, record evidence and
   unsupported cases, and document repeatable commands. Uses AH-097; installer
-  delivery checks also depend on AH-102/AH-103.
+  delivery checks also depend on AH-102/AH-103. Linux warning-specific live
+  acceptance and documentation are tracked in AH-115.
+
+### Linux parity with 0.8.0-beta
+
+The warning engine, adapter parsing, setup backend and measured warning text are
+shared already. Verify their Linux integration and reuse them rather than creating
+parallel implementations. The tasks below cover behavior and acceptance; existing
+shared development-profile and artwork performance changes need no separate port.
+
+- [ ] **AH-111 — Verify and complete Linux session warning delivery.**
+  Trace Codex `PostModelRequest` and Claude statusLine reports through the existing
+  adapters and IPC to the Linux resident; fix any Linux integration gaps found.
+  Verify idle deadlines and delivery while the notification queue is empty, as
+  well as measured context/threshold and elapsed idle/limit text on cards.
+  Acceptance: automated Linux checks cover independent agent thresholds, context
+  crossing and rearming, cancellation of stale warnings, pause/resume and retries
+  after a full queue. Check the native presentation path and document the need
+  for a running resident and the verified agent-version/protocol limitations.
+  Real-session acceptance is tracked in AH-115.
+
+- [ ] **AH-112 — Add Linux tray warning switches.**
+  Add separate Context warnings and Idle warnings switches with the Windows
+  runtime semantics: each controls both agents, does not change saved thresholds
+  or enabled flags, and resets on resident restart. Reuse shared warning controls
+  and keep tray check states synchronized with resident state.
+  Acceptance: tests exercise both switches independently, pending and queued
+  warnings, pause/resume and restart; verify the menu and actions on a Linux
+  StatusNotifierItem host. Depends on AH-111.
+
+- [ ] **AH-113 — Add Apply and Apply + Test to the Linux tray.**
+  Validate the saved configuration before restarting the resident. On invalid
+  configuration, report the error and keep the current resident serving with its
+  existing configuration. Apply + Test starts a navigable seven-format card
+  carousel in the replacement resident, marked `[Test]`, with configured sounds;
+  dismissal or a real notification ends the preview. Reuse shared preview and
+  restart behavior where supported, retaining normal Linux tray operation.
+  Acceptance: tests cover valid and invalid Apply and Apply + Test, replacement
+  lifecycle, navigation, dismissal and interruption by a real event; verify card
+  appearance and sound on a supported Linux desktop. Depends on AH-111.
+
+- [ ] **AH-114 — Add warning options to Linux native setup.**
+  Extend the AH-103 setup UI with independent context and idle choices for each
+  agent, using the common setup backend. Load existing settings and preserve
+  custom thresholds and unrelated configuration. On first context enablement,
+  supply Codex 250k / Claude 400k only if no threshold exists; retain the idle
+  defaults of Codex 25 / Claude 55 minutes. Persist enablement separately from
+  thresholds. When Claude and its context warning are selected, configure the
+  statusLine wrapper transactionally, preserving the original command and
+  options; avoid nested wrappers and restore only an unchanged owned binding on
+  disable, deselection or uninstall. Include all changes in setup rollback.
+  Acceptance: isolated Linux lifecycle checks cover first setup, existing custom
+  settings, repeat setup, selection changes, upgrade, disable, uninstall and
+  failed writes/rollback. Verify the controls and wrapper through the native UI
+  as part of AH-103. Depends on AH-103 and the shared AH-097 setup backend.
+
+- [ ] **AH-115 — Linux live warning acceptance and documentation.**
+  Extend AH-104's opt-in native live checks to cover real Codex and Claude Code
+  context and idle warning sessions, installed hook dispatch and the Claude
+  statusLine wrapper. Distinguish adapter/bridge evidence from end-to-end installed
+  hook delivery. Use isolated configuration, bounded waits and owned-process
+  cleanup; preserve existing user hooks, trust and accounts, and declare any
+  account, network or potentially billable request requirements before each run.
+  On Ubuntu, verify the warning cards, tray switches, Apply and Apply + Test,
+  including dismissal and configured sound. Record OS, desktop/session and
+  harness versions, commands, results and limitations; update the Linux guide,
+  configuration instructions and verification matrix. Acceptance: applicable
+  automated and explicitly authorized live checks pass with evidence recorded;
+  unsupported versions or environments are stated rather than inferred. Xorg
+  and multi-monitor acceptance remains AH-093. Depends on AH-111 through AH-114
+  for their respective behavior and installer checks, and coordinates with AH-104.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;
