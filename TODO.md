@@ -448,7 +448,18 @@ separately from regressions introduced by this milestone.
   Partial 2026-11-02: the Linux tray fixture tracks verified resident processes
   by pidfd, waits for exit and bounds owned-process fallback; tests exercise a
   hung owned process and panic cleanup without stopping an independent resident.
-  The wider inventory, Windows AH-092 and remaining guards are still open.
+  Partial 2026-11-02 (branch `feature/ah-107-deterministic-tests`, Linux): `tests/support`
+  gains `run_bounded` (deadline, pipes drained on threads, owned child killed and reaped on
+  timeout, diagnostic without captured output) and `OwnedChild` (kill and reap on drop), with
+  tests for delayed output, large output, a hung child and panic cleanup. Migrated
+  `unix_hook`, `unix_ipc`, `unsupported_platform` and `codex_monitoring`. Baseline defect
+  fixed: `unsupported_platform::status_reports_that_no_service_is_running` reached the real
+  user's resident whenever one was running; it now uses a private `XDG_RUNTIME_DIR`.
+  Baseline flake, not caused by this branch: `tests/setup.rs`
+  (`malformed_second_harness_prevents_all_writes`, `a_transient_executable_write_handle_...`)
+  fails intermittently on master too (1 of 3 runs). Remaining: the other `.output()` sites
+  (`cli`, `config`, `native_overlay`, `linux_apply`), the Windows-only sleeps
+  (`resident_perf_log`, `tray_restart`), Windows AH-092 and its 20-run check.
 
 - [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
   Depends on AH-107. Introduce a focused `tests/support` module for repeated setup

@@ -1,7 +1,7 @@
 //! A hook must come back promptly and must not depend on the resident answering.
 #![cfg(unix)]
+mod support;
 use std::{
-    io::Write,
     os::unix::{fs::DirBuilderExt, net::UnixListener},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -11,7 +11,10 @@ use std::{
 /// resident socket of the real user is never touched.
 fn hook(runtime: &std::path::Path) -> (std::process::Output, Duration) {
     let started = Instant::now();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+    // Bounded well above the 5 s the tests assert, so a hang fails with a diagnostic and the
+    // hook process is killed instead of blocking the suite.
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aherald"));
+    command
         .args([
             "--hook",
             "--resident",
@@ -19,18 +22,13 @@ fn hook(runtime: &std::path::Path) -> (std::process::Output, Duration) {
             "tests/fixtures/quiet.toml",
         ])
         .env("XDG_RUNTIME_DIR", runtime)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(include_bytes!("fixtures/stop.json"))
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+        .stdin(Stdio::piped());
+    let output = support::run_bounded_with_input(
+        &mut command,
+        include_bytes!("fixtures/stop.json"),
+        Duration::from_secs(20),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     (output, started.elapsed())
 }
 
@@ -39,12 +37,14 @@ fn hook(runtime: &std::path::Path) -> (std::process::Output, Duration) {
 fn stop_residents(runtime: &std::path::Path) {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--quit", "--config", "tests/fixtures/quiet.toml"])
-            .env("XDG_RUNTIME_DIR", runtime)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let output = support::run_bounded(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args(["--quit", "--config", "tests/fixtures/quiet.toml"])
+                .env("XDG_RUNTIME_DIR", runtime)
+                .stdin(Stdio::null()),
+            Duration::from_secs(5),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
         if String::from_utf8_lossy(&output.stdout).contains("bye") {
             return;
         }
