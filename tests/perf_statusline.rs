@@ -25,9 +25,9 @@ const ABSOLUTE_BUDGET_MS: f64 = 50.0;
 const PAYLOAD: &str = r#"{"session_id":"perf-sl","session_name":"N","model":{"display_name":"Opus"},"cost":{"total_lines_added":4},"context_window":{"used_percentage":12.5,"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#;
 const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window}{[ · {rate_limits.five_hour}]}\"\n";
 
-fn spawn(args: &[&str], stdin: Option<&str>, runtime: &Path) -> Duration {
+fn spawn(program: &str, args: &[&str], stdin: Option<&str>, runtime: &Path) -> Duration {
     let start = Instant::now();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+    let mut child = Command::new(program)
         .args(args)
         .env("XDG_RUNTIME_DIR", runtime)
         .stdin(Stdio::piped())
@@ -65,39 +65,48 @@ fn the_wrapper_costs_little_beyond_starting_the_executable() {
     let config: PathBuf = dir.join("config.toml");
     std::fs::write(&config, FORMAT).unwrap();
     let config = config.to_str().unwrap();
-    let cases: [(&str, Vec<&str>); 4] = [
-        ("reference --version", vec!["--version"]),
-        ("--statusline", vec!["--statusline"]),
+    let exe = env!("CARGO_BIN_EXE_aherald");
+    // The `--then` command is the user's own and costs what starting `sh` costs on this
+    // machine (about 1 ms on Linux, 8 ms on a macOS runner), so `sh -c true` alone is measured
+    // too and its extra time is allowed for that case.
+    let cases: [(&str, &str, Vec<&str>); 5] = [
+        ("reference --version", exe, vec!["--version"]),
+        ("--statusline", exe, vec!["--statusline"]),
         (
             "--statusline + format",
+            exe,
             vec!["--statusline", "--config", config],
         ),
         (
             "--statusline --then true",
+            exe,
             vec!["--statusline", "--then", "true"],
         ),
+        ("sh -c true (alone)", "sh", vec!["-c", "true"]),
     ];
-    for (_, args) in &cases {
-        spawn(args, Some(PAYLOAD), &runtime); // warm the file cache and the loader
+    for (_, program, args) in &cases {
+        spawn(program, args, Some(PAYLOAD), &runtime); // warm the file cache and the loader
     }
     let mut samples: Vec<Vec<Duration>> = vec![Vec::new(); cases.len()];
     for _ in 0..ROUNDS {
-        for (i, (_, args)) in cases.iter().enumerate() {
-            samples[i].push(spawn(args, Some(PAYLOAD), &runtime));
+        for (i, (_, program, args)) in cases.iter().enumerate() {
+            samples[i].push(spawn(program, args, Some(PAYLOAD), &runtime));
         }
     }
     let medians: Vec<f64> = samples.into_iter().map(median).collect();
-    for ((name, _), ms) in cases.iter().zip(&medians) {
+    for ((name, _, _), ms) in cases.iter().zip(&medians) {
         println!(
             "{name:<28} median {ms:6.2} ms   (+{:5.2} vs reference)",
             ms - medians[0]
         );
     }
     let _ = std::fs::remove_dir_all(&dir);
-    for ((name, _), ms) in cases.iter().zip(&medians).skip(1) {
+    let shell_extra = (medians[4] - medians[0]).max(0.0);
+    for (i, ((name, _, _), ms)) in cases.iter().zip(&medians).enumerate().take(4).skip(1) {
+        let allowed = OVERHEAD_BUDGET_MS + if i == 3 { shell_extra } else { 0.0 };
         assert!(
-            ms - medians[0] <= OVERHEAD_BUDGET_MS,
-            "{name}: {ms:.2} ms is more than {OVERHEAD_BUDGET_MS} ms over the {:.2} ms reference",
+            ms - medians[0] <= allowed,
+            "{name}: {ms:.2} ms is more than {allowed:.1} ms over the {:.2} ms reference",
             medians[0]
         );
     }

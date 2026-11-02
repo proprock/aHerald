@@ -547,7 +547,7 @@ fn linux_idle_warnings_reach_cards_and_clear_on_activity() {
     let (conn, screen) = x11rb::connect(None).unwrap();
     let root = conn.setup().roots[screen].root;
     let f = Fixture::new("idle");
-    std::fs::write(&f.config, "[sounds]\nenabled=false\n[notifications]\nenabled=true\nactivate_agent_on_click=false\nfade_in_ms=0\nfade_out_ms=0\n[codex.warnings]\nidle_minutes=1\n[claude.warnings]\nidle_enabled=true\nidle_minutes=1\n[events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_sec=0\n").unwrap();
+    std::fs::write(&f.config, "[sounds]\nenabled=false\n[notifications]\nenabled=true\nactivate_agent_on_click=false\nfade_in_ms=0\nfade_out_ms=0\n[codex.warnings]\nidle_enabled=true\nidle_minutes=1\n[claude.warnings]\nidle_enabled=true\nidle_minutes=1\n[events.turn_complete]\nenabled=false\n[events.idle_warning]\nduration_sec=0\n").unwrap();
     let pid = f.start();
     let mut win = 0;
     f.wait(
