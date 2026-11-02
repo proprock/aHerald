@@ -94,11 +94,13 @@ wraps it as before and the format is ignored. Example, with the fields Claude Co
 
 ```toml
 [claude.statusline]
-format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · {context_window}{[ · {rate_limits.five_hour}]}{[ · {rate_limits.seven_day}]}"
+format = "{context_window} · {rate_limits.five_hour} · {rate_limits.seven_day} · {model.display_name}{[ {effort.level}]} · {workspace.repo.name}{[ · {worktree.branch}]}{[ · #{pr.number}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {cost.total_cost_usd}"
 ```
 
 - `{a.b.c}` inserts the JSON field at that path. Strings, numbers and booleans are inserted
   as they are; a missing, null, object or array value is empty. `workspace.repo` is an object (`host`, `owner`, `name`), so write `{workspace.repo.name}`.
+  A field ending in `_usd` is shown as dollars (`$1.23`) and one ending in `_duration_ms` as a
+  span (`1h 12m`, `12m 30s`, `45s`).
   A field whose name ends in `_percentage` is rounded and gets its sign (`24%`; write no `%`).
   Whole objects `{context_window}`, `{rate_limits.five_hour}`, `{rate_limits.seven_day}` and
   `{rate_limits.spend_limit}` render as the tray menu line does (`ctx 91%`, `5h 79% / 3:29`,

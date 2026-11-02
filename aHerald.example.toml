@@ -258,6 +258,7 @@ idle_minutes = 25
 #   "{model.display_name}{[ · {worktree.branch}]}"
 # A field named resets_at is shown as the time left: "3d 5h", "4:05" or "15 min".
 # A field whose name ends in _percentage is rounded and gets its sign: 23.5 -> "24%" (write no "%").
+# A field ending in _usd is dollars ($1.23); one ending in _duration_ms is a span ("1h 12m", "12m 30s").
 # Token counts (names ending in "tokens", and context_window_size) are shortened: 18000 -> "18k",
 # 18600000 -> "18.6M". Every other number is inserted as Claude Code sends it.
 # Text may contain ANSI colour escapes, e.g. "\u001b[1m{model.display_name}\u001b[0m".
@@ -321,7 +322,7 @@ idle_minutes = 25
 # Fields can differ between Claude Code versions: a field that does not exist is simply empty.
 #
 # Example:
-# format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · in {context_window.total_input_tokens} out {context_window.total_output_tokens} · {context_window}{[ · {rate_limits.five_hour}]}{[ · {rate_limits.seven_day}]}"
+# format = "{context_window} · {rate_limits.five_hour} · {rate_limits.seven_day} · {model.display_name}{[ {effort.level}]} · {workspace.repo.name}{[ · {worktree.branch}]}{[ · #{pr.number}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {cost.total_cost_usd}"
 format = ""
 # Colour the ready-made segments with 24-bit ANSI colours; default true. Set false for a terminal
 # that does not show them. Colours you write into the template yourself are not affected.

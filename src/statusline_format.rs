@@ -13,6 +13,8 @@
 //! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2h`. Their percentage follows
 //! `[codex.usage] display` (remaining by default, as in the menu and tooltip) and, with colour on,
 //! the label, the number (by remaining capacity, like the tray icon) and the time are coloured.
+//! A field whose name ends in `_usd` is shown as dollars (`$1.23`) and one ending in
+//! `_duration_ms` as a span (`1h 12m`, `12m 30s`, `45s`).
 //! Token counts (fields whose name ends in `tokens`, and `context_window_size`) are shortened to
 //! `950`, `18k`, `18.6k`, `1.2M` so they fit a narrow line even when a session reaches millions.
 //! Field values come from outside, so control characters in them are replaced by spaces; the
@@ -192,6 +194,22 @@ fn lookup(payload: &Value, path: &[String], now: i64, options: Options) -> Strin
                 None => return String::new(),
             }
         }
+        Value::Number(number) if path.last().is_some_and(|name| name.ends_with("_usd")) => {
+            match number.as_f64().filter(|v| v.is_finite() && *v >= 0.0) {
+                Some(dollars) => format!("${dollars:.2}"),
+                None => return String::new(),
+            }
+        }
+        Value::Number(number)
+            if path
+                .last()
+                .is_some_and(|name| name.ends_with("_duration_ms")) =>
+        {
+            match number.as_f64().filter(|v| v.is_finite() && *v >= 0.0) {
+                Some(millis) => span_text((millis / 1000.0) as u64),
+                None => return String::new(),
+            }
+        }
         Value::Number(number)
             if path
                 .last()
@@ -220,6 +238,16 @@ fn lookup(payload: &Value, path: &[String], now: i64, options: Options) -> Strin
         .take(MAX_VALUE)
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect()
+}
+
+/// `45s`, `12m 30s`, `1h 12m`, `2d 3h`: two units at most.
+fn span_text(seconds: u64) -> String {
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3_600 => format!("{}m {}s", seconds / 60, seconds % 60),
+        3_600..86_400 => format!("{}h {}m", seconds / 3_600, seconds % 3_600 / 60),
+        _ => format!("{}d {}h", seconds / 86_400, seconds % 86_400 / 3_600),
+    }
 }
 
 /// A ready-made `label percent / time` segment for the objects that have a `used_percentage`;
@@ -392,6 +420,31 @@ mod tests {
             strip(segments(template, now, options)),
             segments(template, now, Options::default())
         );
+    }
+
+    #[test]
+    fn dollars_and_durations_are_formatted() {
+        let payload = r#"{"cost":{"total_cost_usd":1.23456,"total_duration_ms":4342000,
+            "total_api_duration_ms":45999,"cheap_usd":0,"bad_usd":-1,"x_duration_ms":"soon"}}"#;
+        let shown = |template| render(template, payload.as_bytes(), Options::default());
+        assert_eq!(shown("{cost.total_cost_usd}"), "$1.23");
+        assert_eq!(shown("{cost.cheap_usd}"), "$0.00");
+        assert_eq!(shown("[{cost.bad_usd}]"), "[]");
+        assert_eq!(shown("{cost.total_duration_ms}"), "1h 12m");
+        assert_eq!(shown("{cost.total_api_duration_ms}"), "45s");
+        assert_eq!(shown("{cost.x_duration_ms}"), "soon");
+        for (seconds, text) in [
+            (0, "0s"),
+            (59, "59s"),
+            (60, "1m 0s"),
+            (750, "12m 30s"),
+            (3_599, "59m 59s"),
+            (3_600, "1h 0m"),
+            (86_399, "23h 59m"),
+            (90_000, "1d 1h"),
+        ] {
+            assert_eq!(span_text(seconds), text, "{seconds}");
+        }
     }
 
     #[test]
