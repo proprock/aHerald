@@ -94,11 +94,18 @@ wraps it as before and the format is ignored. Example, with the fields Claude Co
 
 ```toml
 [claude.statusline]
-format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · ctx {context_window.used_percentage}%{[ · 5h {rate_limits.five_hour.used_percentage}%]}"
+format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · {context_window}{[ · {rate_limits.five_hour}]}{[ · {rate_limits.seven_day}]}"
 ```
 
 - `{a.b.c}` inserts the JSON field at that path. Strings, numbers and booleans are inserted
   as they are; a missing, null, object or array value is empty. `workspace.repo` is an object (`host`, `owner`, `name`), so write `{workspace.repo.name}`.
+  A field whose name ends in `_percentage` is rounded and gets its sign (`24%`; write no `%`).
+  Whole objects `{context_window}`, `{rate_limits.five_hour}`, `{rate_limits.seven_day}` and
+  `{rate_limits.spend_limit}` render as the tray menu line does (`ctx 91%`, `5h 79% / 3:29`,
+  `7d 96% / 4d 19h`): the percentage follows `[codex.usage] display` (remaining by default) and,
+  with `[claude.statusline] color = true` (default), the label, number and time are coloured; the
+  number uses the tray icon's thresholds on remaining capacity (green above 60%, amber above 20%,
+  red below). A segment with missing data is empty, so put it in `{[ ... ]}`.
   A field named `resets_at` is shown as the time left in the usage card's form: `3d 5h`, `4:05`, `15 min`.
   Token counts (names ending in `tokens`, and `context_window_size`) are shortened to `18k`,
   `18.6M`; other numbers are inserted unchanged.

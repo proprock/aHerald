@@ -257,9 +257,21 @@ idle_minutes = 25
 # whole when a field written directly inside it is empty, so separators vanish with their value:
 #   "{model.display_name}{[ · {worktree.branch}]}"
 # A field named resets_at is shown as the time left: "3d 5h", "4:05" or "15 min".
+# A field whose name ends in _percentage is rounded and gets its sign: 23.5 -> "24%" (write no "%").
 # Token counts (names ending in "tokens", and context_window_size) are shortened: 18000 -> "18k",
 # 18600000 -> "18.6M". Every other number is inserted as Claude Code sends it.
 # Text may contain ANSI colour escapes, e.g. "\u001b[1m{model.display_name}\u001b[0m".
+#
+# Ready-made segments, in the form of the tray menu line "Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19h":
+#   {context_window}              "ctx 91%"
+#   {rate_limits.five_hour}       "5h 79% / 3:29"
+#   {rate_limits.seven_day}       "7d 96% / 4d 19h"
+#   {rate_limits.spend_limit}     "spend 37% / 5d 2h"
+# Their percentage follows [codex.usage] display ("remain" by default, as in the menu and tooltip;
+# "used" counts what was used), and a segment is empty when its data is missing (so wrap it in
+# {[ ... ]}). With color = true the label, the number and the time are coloured; the number uses
+# the tray icon's colours by remaining capacity: green above 60%, amber above 20%, red below, so
+# "ctx" turns red when the context is nearly full, like a limit does when it is nearly spent.
 #
 # Fields ("always" = documented without a condition; others are conditional as noted):
 #   session_id                                  Session identifier (always).
@@ -309,8 +321,11 @@ idle_minutes = 25
 # Fields can differ between Claude Code versions: a field that does not exist is simply empty.
 #
 # Example:
-# format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · ctx {context_window.used_percentage}%{[ · 5h {rate_limits.five_hour.used_percentage}% ({rate_limits.five_hour.resets_at})]}"
+# format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · in {context_window.total_input_tokens} out {context_window.total_output_tokens} · {context_window}{[ · {rate_limits.five_hour}]}{[ · {rate_limits.seven_day}]}"
 format = ""
+# Colour the ready-made segments with 24-bit ANSI colours; default true. Set false for a terminal
+# that does not show them. Colours you write into the template yourself are not affected.
+color = true
 
 [claude.usage]
 # Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access

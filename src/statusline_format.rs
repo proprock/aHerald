@@ -6,11 +6,34 @@
 //! separators vanish with the value they introduce (`{[ · {worktree.branch}]}`).
 //! A field named `resets_at` (Unix epoch seconds) is shown as the time left, in the same form as
 //! the usage card and tray (`3d 5h`, `4:05`, `15 min`).
+//! A field whose name ends in `_percentage` is shown rounded with a percent sign (`24%`).
+//! Three whole objects render as ready-made segments in the form of the tray menu line
+//! (`Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19h`): `{context_window}` as `ctx 91%`,
+//! `{rate_limits.five_hour}` as `5h 79% / 3:29`, `{rate_limits.seven_day}` as `7d 96% / 4d 19h`
+//! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2h`. Their percentage follows
+//! `[codex.usage] display` (remaining by default, as in the menu and tooltip) and, with colour on,
+//! the label, the number (by remaining capacity, like the tray icon) and the time are coloured.
 //! Token counts (fields whose name ends in `tokens`, and `context_window_size`) are shortened to
 //! `950`, `18k`, `18.6k`, `1.2M` so they fit a narrow line even when a session reaches millions.
 //! Field values come from outside, so control characters in them are replaced by spaces; the
 //! template itself may contain escape sequences such as ANSI colours.
+use crate::{
+    config::UsageDisplay,
+    tray_usage::level_rgb,
+    usage_service::{countdown, percent_text, unix_now},
+};
 use serde_json::Value;
+
+/// How the ready-made segments are shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Whether percentages count what is used or what remains.
+    pub display: UsageDisplay,
+    /// Whether segments carry ANSI colours (24-bit, the tray icon's colours).
+    pub color: bool,
+}
+const LABEL_RGB: [u8; 3] = [97, 175, 239];
+const TIME_RGB: [u8; 3] = [171, 178, 191];
 
 /// Longest template accepted from configuration, in bytes.
 pub const MAX_TEMPLATE: usize = 1024;
@@ -35,15 +58,15 @@ pub fn validate(template: &str) -> Result<(), String> {
 }
 
 /// Renders `template` against the payload. Returns nothing for an invalid template or payload.
-pub fn render(template: &str, payload: &[u8]) -> String {
-    render_at(template, payload, crate::usage_service::unix_now())
+pub fn render(template: &str, payload: &[u8], options: Options) -> String {
+    render_at(template, payload, unix_now(), options)
 }
 
-fn render_at(template: &str, payload: &[u8], now: i64) -> String {
+fn render_at(template: &str, payload: &[u8], now: i64, options: Options) -> String {
     let (Ok(nodes), Ok(value)) = (parse(template), serde_json::from_slice::<Value>(payload)) else {
         return String::new();
     };
-    let mut out = eval(&nodes, &value, now).0;
+    let mut out = eval(&nodes, &value, now, options).0;
     if out.len() > MAX_OUTPUT {
         let mut end = MAX_OUTPUT;
         while !out.is_char_boundary(end) {
@@ -127,19 +150,19 @@ fn parse(template: &str) -> Result<Vec<Node>, String> {
 }
 
 /// Returns the text and whether every field written directly in `nodes` was non-empty.
-fn eval(nodes: &[Node], payload: &Value, now: i64) -> (String, bool) {
+fn eval(nodes: &[Node], payload: &Value, now: i64, options: Options) -> (String, bool) {
     let mut out = String::new();
     let mut complete = true;
     for node in nodes {
         match node {
             Node::Text(text) => out.push_str(text),
             Node::Field(path) => {
-                let value = lookup(payload, path, now);
+                let value = lookup(payload, path, now, options);
                 complete &= !value.is_empty();
                 out.push_str(&value);
             }
             Node::Group(inner) => {
-                let (text, whole) = eval(inner, payload, now);
+                let (text, whole) = eval(inner, payload, now, options);
                 if whole {
                     out.push_str(&text);
                 }
@@ -149,7 +172,7 @@ fn eval(nodes: &[Node], payload: &Value, now: i64) -> (String, bool) {
     (out, complete)
 }
 
-fn lookup(payload: &Value, path: &[String], now: i64) -> String {
+fn lookup(payload: &Value, path: &[String], now: i64, options: Options) -> String {
     let mut value = payload;
     for part in path {
         match value.get(part) {
@@ -158,15 +181,23 @@ fn lookup(payload: &Value, path: &[String], now: i64) -> String {
         }
     }
     let text = match value {
+        Value::Object(_) => return segment(value, path, now, options),
         Value::String(text) => text.clone(),
         Value::Number(number) if path.last().is_some_and(|name| name == "resets_at") => {
             match number
                 .as_i64()
                 .or_else(|| number.as_f64().map(|n| n as i64))
             {
-                Some(reset) => crate::usage_service::countdown(Some(reset), now),
+                Some(reset) => countdown(Some(reset), now),
                 None => return String::new(),
             }
+        }
+        Value::Number(number)
+            if path
+                .last()
+                .is_some_and(|name| name.ends_with("_percentage")) =>
+        {
+            percent_text(number.as_f64())
         }
         Value::Number(number)
             if path
@@ -191,12 +222,56 @@ fn lookup(payload: &Value, path: &[String], now: i64) -> String {
         .collect()
 }
 
+/// A ready-made `label percent / time` segment for the objects that have a `used_percentage`;
+/// empty for any other object or when the percentage is missing or out of range.
+fn segment(value: &Value, path: &[String], now: i64, options: Options) -> String {
+    let label = match path {
+        [a] if a == "context_window" => "ctx",
+        [a, b] if a == "rate_limits" && b == "five_hour" => "5h",
+        [a, b] if a == "rate_limits" && b == "seven_day" => "7d",
+        [a, b] if a == "rate_limits" && b == "spend_limit" => "spend",
+        _ => return String::new(),
+    };
+    let Some(used) = value
+        .get("used_percentage")
+        .and_then(Value::as_f64)
+        .filter(|v| (0.0..=100.0).contains(v))
+    else {
+        return String::new();
+    };
+    let remaining = 100.0 - used;
+    let shown = match options.display {
+        UsageDisplay::Used => used,
+        UsageDisplay::Remain => remaining,
+    };
+    let paint = |text: &str, [r, g, b]: [u8; 3]| {
+        if options.color {
+            format!("\x1b[38;2;{r};{g};{b}m{text}\x1b[0m")
+        } else {
+            text.to_owned()
+        }
+    };
+    let mut out = format!(
+        "{} {}",
+        paint(label, LABEL_RGB),
+        paint(&percent_text(Some(shown)), level_rgb(Some(remaining)))
+    );
+    let reset = value
+        .get("resets_at")
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)));
+    if let Some(reset) = reset {
+        out.push_str(" / ");
+        out.push_str(&paint(&countdown(Some(reset), now), TIME_RGB));
+    }
+    out
+}
+
 /// `950`, `18k`, `18.6k`, `999.9k`, `1M`, `18.6M`: one decimal at most, rounded half up.
 fn compact_count(count: u64) -> String {
     let wide = u128::from(count);
     let scaled = |unit: u128| (wide * 10 + unit / 2) / unit;
     let tenths = |value: u128, suffix: &str| {
-        if value % 10 == 0 {
+        if value.is_multiple_of(10) {
             format!("{}{suffix}", value / 10)
         } else {
             format!("{}.{}{suffix}", value / 10, value % 10)
@@ -222,7 +297,7 @@ mod tests {
         "branch":"a\u001b[31mb\nc","flag":true,"nothing":null,"list":[1]}"#;
 
     fn show(template: &str) -> String {
-        render(template, PAYLOAD.as_bytes())
+        render(template, PAYLOAD.as_bytes(), Options::default())
     }
 
     #[test]
@@ -231,8 +306,92 @@ mod tests {
             show("{model.display_name} +{cost.total_lines_added}, -{cost.total_lines_removed}"),
             "Opus +12, -3"
         );
-        assert_eq!(show("{context_window.used_percentage}%"), "23.5%");
+        assert_eq!(show("{context_window.used_percentage}"), "24%");
         assert_eq!(show("{flag}"), "true");
+    }
+
+    const SEGMENTS: &str = r#"{"context_window":{"used_percentage":9.4},
+        "rate_limits":{"five_hour":{"used_percentage":31,"resets_at":1790000000},
+        "seven_day":{"used_percentage":96.4,"resets_at":1790000000}}}"#;
+
+    fn segments(template: &str, now: i64, options: Options) -> String {
+        render_at(template, SEGMENTS.as_bytes(), now, options)
+    }
+
+    #[test]
+    fn segments_follow_the_menu_form_and_the_display_setting() {
+        let now = 1_790_000_000 - 3 * 3_600 - 29 * 60;
+        let template = "{context_window} · {rate_limits.five_hour}, {rate_limits.seven_day}";
+        let remain = Options::default();
+        assert_eq!(
+            segments(template, now, remain),
+            "ctx 91% · 5h 69% / 3:29, 7d 4% / 3:29"
+        );
+        let used = Options {
+            display: UsageDisplay::Used,
+            ..remain
+        };
+        assert_eq!(
+            segments(template, now, used),
+            "ctx 9% · 5h 31% / 3:29, 7d 96% / 3:29"
+        );
+        // Missing windows and unrelated objects are empty, so an optional group drops them.
+        assert_eq!(
+            segments("[{rate_limits.spend_limit}{model}]", now, remain),
+            "[]"
+        );
+        assert_eq!(
+            segments("{[ · {rate_limits.spend_limit}]}x", now, remain),
+            "x"
+        );
+        let out_of_range = r#"{"context_window":{"used_percentage":250}}"#;
+        assert_eq!(
+            render_at("{context_window}", out_of_range.as_bytes(), 0, remain),
+            ""
+        );
+    }
+
+    #[test]
+    fn segments_are_coloured_like_the_tray_icon_by_remaining_capacity() {
+        let now = 1_790_000_000 - 3 * 3_600 - 29 * 60;
+        let options = Options {
+            color: true,
+            ..Options::default()
+        };
+        let text = segments("{rate_limits.five_hour}", now, options);
+        assert_eq!(
+            text,
+            "\u{1b}[38;2;97;175;239m5h\u{1b}[0m \u{1b}[38;2;34;180;85m69%\u{1b}[0m / \u{1b}[38;2;171;178;191m3:29\u{1b}[0m"
+        );
+        // 69% and 91% remaining are green, 4% is red; amber (21-60%) uses the icon's thresholds too.
+        assert!(segments("{context_window}", now, options).contains("\u{1b}[38;2;34;180;85m91%"));
+        let amber = r#"{"context_window":{"used_percentage":50}}"#;
+        assert!(
+            render_at("{context_window}", amber.as_bytes(), 0, options)
+                .contains("\u{1b}[38;2;216;165;0m50%")
+        );
+        assert!(
+            segments("{rate_limits.seven_day}", now, options).contains("\u{1b}[38;2;224;68;68m4%")
+        );
+        // Colour does not change the visible text.
+        let strip = |text: String| {
+            let mut out = String::new();
+            let mut skipping = false;
+            for c in text.chars() {
+                match (skipping, c) {
+                    (_, '\u{1b}') => skipping = true,
+                    (true, 'm') => skipping = false,
+                    (false, c) => out.push(c),
+                    _ => {}
+                }
+            }
+            out
+        };
+        let template = "{context_window} · {rate_limits.five_hour}";
+        assert_eq!(
+            strip(segments(template, now, options)),
+            segments(template, now, Options::default())
+        );
     }
 
     #[test]
@@ -257,7 +416,7 @@ mod tests {
             assert_eq!(compact_count(count), text, "{count}");
         }
         let payload = r#"{"context_window":{"total_input_tokens":18600000,"total_output_tokens":900,"context_window_size":1000000,"used_percentage":18600000},"cost":{"total_lines_added":18000},"tokens_note":18000}"#;
-        let shown = |template| render(template, payload.as_bytes());
+        let shown = |template| render(template, payload.as_bytes(), Options::default());
         assert_eq!(
             shown(
                 "{context_window.total_input_tokens}/{context_window.total_output_tokens}/{context_window.context_window_size}"
@@ -265,14 +424,14 @@ mod tests {
             "18.6M/900/1M"
         );
         // Only token fields are shortened; other numbers keep their value.
-        assert_eq!(shown("{context_window.used_percentage}"), "18600000");
+        assert_eq!(shown("{context_window.used_percentage}"), "18600000%");
         assert_eq!(shown("{cost.total_lines_added}{tokens_note}"), "1800018000");
     }
 
     #[test]
     fn resets_at_shows_the_time_left_like_the_usage_card() {
-        let template = "{rate_limits.five_hour.used_percentage}%/{rate_limits.five_hour.resets_at}";
-        let at = |now| render_at(template, PAYLOAD.as_bytes(), now);
+        let template = "{rate_limits.five_hour.used_percentage}/{rate_limits.five_hour.resets_at}";
+        let at = |now| render_at(template, PAYLOAD.as_bytes(), now, Options::default());
         let reset = 1_790_000_000;
         assert_eq!(at(reset - 3 * 86_400 - 5 * 3_600 - 59), "8%/3d 5h");
         assert_eq!(at(reset - 4 * 3_600 - 5 * 60), "8%/4:05");
@@ -280,7 +439,12 @@ mod tests {
         assert_eq!(at(reset + 100), "8%/0 min");
         let text = r#"{"rate_limits":{"five_hour":{"resets_at":"soon"}}}"#;
         assert_eq!(
-            render_at("[{rate_limits.five_hour.resets_at}]", text.as_bytes(), 0),
+            render_at(
+                "[{rate_limits.five_hour.resets_at}]",
+                text.as_bytes(),
+                0,
+                Options::default()
+            ),
             "[soon]"
         );
     }
@@ -313,15 +477,20 @@ mod tests {
     #[test]
     fn values_and_output_are_bounded() {
         let long = format!(r#"{{"v":"{}"}}"#, "é".repeat(1000));
-        assert_eq!(render("{v}", long.as_bytes()).chars().count(), MAX_VALUE);
+        assert_eq!(
+            render("{v}", long.as_bytes(), Options::default())
+                .chars()
+                .count(),
+            MAX_VALUE
+        );
         let template = "{v}".repeat(100);
-        assert!(render(&template, long.as_bytes()).len() <= MAX_OUTPUT);
+        assert!(render(&template, long.as_bytes(), Options::default()).len() <= MAX_OUTPUT);
     }
 
     #[test]
     fn invalid_payload_or_template_renders_nothing() {
-        assert_eq!(render("{a}", b"not json"), "");
-        assert_eq!(render("{a", PAYLOAD.as_bytes()), "");
+        assert_eq!(render("{a}", b"not json", Options::default()), "");
+        assert_eq!(render("{a", PAYLOAD.as_bytes(), Options::default()), "");
     }
 
     #[test]

@@ -198,7 +198,7 @@ pub fn run(input: &[u8], then: Option<&str>, send: impl FnOnce(Report) + Send) -
 pub fn run_with_format(
     input: &[u8],
     then: Option<&str>,
-    format: Option<&str>,
+    format: Option<(&str, crate::statusline_format::Options)>,
     send: impl FnOnce(Report) + Send,
 ) -> Outcome {
     std::thread::scope(|scope| {
@@ -209,7 +209,9 @@ pub fn run_with_format(
             Some(command) => run_then(command, input),
             None => {
                 let mut stdout = format
-                    .map(|template| crate::statusline_format::render(template, input))
+                    .map(|(template, options)| {
+                        crate::statusline_format::render(template, input, options)
+                    })
                     .unwrap_or_default();
                 if !stdout.is_empty() {
                     stdout.push('\n');

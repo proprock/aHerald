@@ -22,7 +22,7 @@ const OVERHEAD_BUDGET_MS: f64 = 6.0;
 /// Ceiling for any single median, for runners where even the reference is slow.
 const ABSOLUTE_BUDGET_MS: f64 = 50.0;
 const PAYLOAD: &str = r#"{"session_id":"perf-sl","session_name":"N","model":{"display_name":"Opus"},"cost":{"total_lines_added":4},"context_window":{"used_percentage":12.5,"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#;
-const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window.used_percentage}%\"\n";
+const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window}{[ · {rate_limits.five_hour}]}\"\n";
 
 fn spawn(args: &[&str], stdin: Option<&str>) -> Duration {
     let start = Instant::now();

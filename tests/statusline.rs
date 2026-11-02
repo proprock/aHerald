@@ -59,14 +59,17 @@ fn config(name: &str, text: &str) -> std::path::PathBuf {
 }
 
 const FORMAT_PAYLOAD: &str = r#"{"session_id":"integration-fmt","model":{"display_name":"Opus"},"cost":{"total_lines_added":4},"context_window":{"used_percentage":12.5}}"#;
-const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window.used_percentage}%\"\n";
+const FORMAT: &str = "[claude.statusline]\nformat = \"{model.display_name}{[·{worktree.branch}]}·+{cost.total_lines_added}·{context_window.used_percentage}·{context_window}\"\ncolor = false\n";
 
 #[test]
 fn a_configured_format_is_printed_when_the_user_has_no_command() {
     let path = config("format", FORMAT);
     let out = run(&["--config", path.to_str().unwrap()], FORMAT_PAYLOAD);
     assert!(out.status.success() && out.stderr.is_empty());
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "Opus·+4·12.5%\n");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "Opus·+4·12%·ctx 88%\n"
+    );
 }
 
 #[test]

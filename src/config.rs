@@ -388,11 +388,21 @@ pub struct Claude {
     pub statusline: ClaudeStatusLine,
 }
 /// The line `--statusline` prints when the user has no status line command of their own.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ClaudeStatusLine {
     /// Template for `crate::statusline_format`; empty prints nothing.
     pub format: String,
+    /// Colour the ready-made segments (`{context_window}`, `{rate_limits.five_hour}`, ...).
+    pub color: bool,
+}
+impl Default for ClaudeStatusLine {
+    fn default() -> Self {
+        Self {
+            format: String::new(),
+            color: true,
+        }
+    }
 }
 impl Default for Claude {
     fn default() -> Self {

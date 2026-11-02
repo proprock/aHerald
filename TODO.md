@@ -215,6 +215,10 @@ shared development-profile and artwork performance changes need no separate port
   only on that path, never created. Setup installs the wrapper for a context threshold or a
   format. Console prompts for the four warning choices, the Linux rollback test and the `.deb`
   lifecycle assertions remain open.
+  2026-11-02: the status line shares the tray menu's text pieces (`usage_service::window_text`,
+  `percent_text`, `countdown`) and the icon's colour thresholds (`tray_usage::level_rgb`);
+  `{context_window}`, `{rate_limits.five_hour}` and `{rate_limits.seven_day}` render as
+  `ctx 91%`, `5h 79% / 3:29`; menu and tooltip already share `View::compact` on every OS.
 
 - [ ] **AH-115 — Linux live warning acceptance and documentation.**
   Extend AH-104's opt-in native live checks to cover real Codex and Claude Code

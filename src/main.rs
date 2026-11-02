@@ -427,18 +427,33 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             .unwrap_or_else(aherald::config::Config::default_path)
             .ok()
             .and_then(|path| aherald::config::Config::load(&path, true).ok())
-            .map(|config| config.claude.statusline.format)
-            .filter(|format| !format.is_empty()),
+            .filter(|config| !config.claude.statusline.format.is_empty())
+            .map(|config| {
+                (
+                    config.claude.statusline.format.clone(),
+                    aherald::statusline_format::Options {
+                        display: config.codex.usage.display,
+                        color: config.claude.statusline.color,
+                    },
+                )
+            }),
     };
-    let outcome = aherald::statusline::run_with_format(&input, then, format.as_deref(), |report| {
-        if let Ok(scope) = aherald::local::Scope::current("resident") {
-            let _ = aherald::ipc::pipe::request(
-                &scope,
-                &aherald::ipc::Request::StatusLine { report },
-                std::time::Duration::from_millis(150),
-            );
-        }
-    });
+    let outcome = aherald::statusline::run_with_format(
+        &input,
+        then,
+        format
+            .as_ref()
+            .map(|(text, options)| (text.as_str(), *options)),
+        |report| {
+            if let Ok(scope) = aherald::local::Scope::current("resident") {
+                let _ = aherald::ipc::pipe::request(
+                    &scope,
+                    &aherald::ipc::Request::StatusLine { report },
+                    std::time::Duration::from_millis(150),
+                );
+            }
+        },
+    );
     let mut stdout = std::io::stdout();
     let _ = stdout.write_all(&outcome.stdout);
     let _ = stdout.flush();
