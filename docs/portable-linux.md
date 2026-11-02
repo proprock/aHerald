@@ -32,8 +32,10 @@ activity-only hooks start one. Configure each agent's context and idle threshold
 as described in [configuration.md](configuration.md#session-warnings-ah-100--ah-101).
 Codex context reports require the explicit `PostModelRequest` hook. Its dispatch
 and input schema were verified with Codex CLI `0.166.0-alpha.5.1` on Windows; the
-hook is not documented as a stable general protocol, and other versions and Linux
-real-session dispatch have not been verified. Claude context reports require the
+hook is not documented as a stable general protocol. On Ubuntu 22.04.5 with Xvfb,
+Codex CLI 0.166.0 dispatched a real context report through a private test bridge;
+this did not verify the installed binding. Other versions need separate checks.
+Claude context reports require the
 `--statusline` wrapper; Claude Code `2.1.311` was verified on Windows, not in a
 Linux real session. Preview `./aherald --install-statusline` before applying it.
 These observations are not evidence of installed Linux hook delivery; that live
@@ -83,3 +85,15 @@ remove any hooks and startup entry you installed separately.
   expose one are unsupported. A synthetic Claude hook returned focus to the Warp window;
   it did not restore a previously selected tab or pane. `codex-cli 0.166.0` was present
   during these checks; real-agent hooks were not tested.
+- Ubuntu 22.04.5, Xvfb 21.1.4 and Codex CLI 0.166.0: one real model request
+  reached a private resident through the context-test bridge on 2026-11-02. This
+  verifies adapter/IPC queue delivery, not the installed binding or card appearance.
+- Ubuntu 22.04.5, Xvfb 21.1.4 and Claude Code 2.1.316: one real print-mode
+  response on 2026-11-02 exercised prompt, Stop and SessionEnd through the
+  private bridge, produced an idle warning and cleared it at session end. This
+  does not verify installed hooks, the statusLine wrapper, appearance or sound.
+- Ubuntu 22.04.5 GNOME Wayland/XWayland, 2026-11-02: the user confirmed Apply,
+  Apply + Test, tray warning switches, synthetic Codex and Claude context cards,
+  configured sound and dismissal, and Claude idle delivery, activity clearing
+  and suppression while the idle switch was off. Agent-installed hook dispatch
+  and the Claude statusLine wrapper were not part of this check.

@@ -57,6 +57,9 @@ Codex requires the `PostModelRequest` binding, verified with CLI
 `0.166.0-alpha.5.1`; rerun explicit hook setup to add it to an older installation.
 Other versions and desktop dispatch need separate verification. Codex uses the
 successful main request's `input_tokens`, which already includes cached input.
+On Linux, the explicit opt-in probe verified Codex CLI 0.166.0's real model
+request through a private bridge and resident; installed hook dispatch remains
+to be checked. See [Linux verification](portable-linux.md#verification-matrix).
 Claude input context includes fresh input, cache creation and cache reads, each counted once. It is the
 last reported API input, not a prediction of the next request. Missing readings
 do not count as zero. A crossing strictly above the threshold queues one

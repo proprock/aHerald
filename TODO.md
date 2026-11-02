@@ -126,12 +126,14 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   verify a normal user installation without Homebrew or developer tools for the
   GUI path. Document setup, repair and removal. See docs/installation.md.
 
-- [ ] **AH-103 — Ubuntu package and native setup UI.**
+- [ ] **AH-103 — Ubuntu package and interactive console setup.**
   Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`
   installable through apt and a graphical package manager, preserving the
-  portable archive. Provide native user-context selection of Codex, Claude Code,
-  both or neither; start unchecked on first setup, retain the selection on
-  upgrade, and delegate changes to `--setup` / `--unsetup` with explicit `--apply`.
+  portable archive. Provide an interactive console setup run by the user after
+  installation, with selection of Codex, Claude Code, both or neither; start
+  unchecked on first setup, retain the selection on upgrade, and delegate changes
+  to `--setup` / `--unsetup` with explicit `--apply`. Do not require an
+  interactive terminal or configure user hooks from package scripts.
   Match Windows graceful shutdown before updates/removal: verify the owned app
   path, wait for process exit, and abort if graceful shutdown fails.
   Match Windows usage selection and launch-after-install behavior: read current
@@ -144,7 +146,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   customized assets, logs and backups across updates/removal.
   Agree on system package versus per-user writable data/receipt ownership before
   implementation. Package scripts must never write root's or another user's
-  hooks. Define user-context hook cleanup before binary removal for GUI/package
+  hooks. Define user-context hook cleanup before binary removal for package
   workflows, including multiple desktop users, apt removal, cleanup failures,
   repair, and an active resident; do not silently leave broken hook bindings or
   execute user hook commands as root.
@@ -152,7 +154,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   archive; add isolated native lifecycle checks for install, repeated setup,
   selection changes, malformed configuration, failed writes, upgrade, cleanup
   failure and uninstall after environment overrides change.
-  Acceptance: verify apt and graphical installation, native setup UI, hook
+  Acceptance: verify apt and graphical installation, interactive console setup, hook
   delivery/dismissal, update and removal on a clean supported Ubuntu desktop
   without developer tools. Record Ubuntu version, desktop/session type and
   harness versions; document required system packages, repair and removal.
@@ -183,8 +185,8 @@ shared already. Verify their Linux integration and reuse them rather than creati
 parallel implementations. The tasks below cover behavior and acceptance; existing
 shared development-profile and artwork performance changes need no separate port.
 
-- [ ] **AH-114 — Add warning options to Linux native setup.**
-  Extend the AH-103 setup UI with independent context and idle choices for each
+- [ ] **AH-114 — Add warning options to Linux console setup.**
+  Extend the AH-103 console setup with independent context and idle choices for each
   agent, using the common setup backend. Load existing settings and preserve
   custom thresholds and unrelated configuration. On first context enablement,
   supply Codex 250k / Claude 400k only if no threshold exists; retain the idle
@@ -195,7 +197,7 @@ shared development-profile and artwork performance changes need no separate port
   disable, deselection or uninstall. Include all changes in setup rollback.
   Acceptance: isolated Linux lifecycle checks cover first setup, existing custom
   settings, repeat setup, selection changes, upgrade, disable, uninstall and
-  failed writes/rollback. Verify the controls and wrapper through the native UI
+  failed writes/rollback. Verify the choices and wrapper through the console setup
   as part of AH-103. Depends on AH-103 and the shared AH-097 setup backend.
 
 - [ ] **AH-115 — Linux live warning acceptance and documentation.**
@@ -215,8 +217,19 @@ shared development-profile and artwork performance changes need no separate port
   for their respective behavior and installer checks, and coordinates with AH-104.
   Partial 2026-11-02: isolated Xvfb/D-Bus tests exercise synthetic Codex and
   Claude context reports, tray gating and one-minute idle delivery/clearing.
-  Real harness dispatch, sound and the remaining native desktop checks are open;
-  these synthetic tests do not establish installed hook or statusLine delivery.
+  These synthetic tests do not establish installed hook or statusLine delivery.
+  On 2026-11-02 the user confirmed on Ubuntu 22.04.5 GNOME Wayland/XWayland:
+  Apply, Apply + Test, tray switches, synthetic Codex and Claude context cards,
+  configured sounds and dismissal, and Claude idle delivery/activity clearing
+  and suppression with the idle switch disabled.
+  The private live-test bridge also builds on Linux; its offline smoke test sends
+  synthetic reports from both adapters to an isolated resident. On 2026-11-02,
+  Codex CLI 0.166.0 passed a real context request through this bridge on Ubuntu
+  22.04.5 with Xvfb and a private D-Bus. This does not test installed hooks.
+  Claude Code 2.1.316 also passed real prompt/Stop/end and idle queue/clear
+  through the bridge in the same environment. Claude context and the installed
+  statusLine wrapper and installed hooks remain open.
+  Repeatable commands and remaining probe coverage are in `tests/live/README.md`.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;

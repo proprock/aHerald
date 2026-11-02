@@ -134,10 +134,11 @@ Move a portable installation first, then rerun setup from the new location.
 
 Windows uses Inno Setup. macOS will provide an app-based setup flow and GUI
 installation, with Homebrew Cask as the package-manager path. Linux starts with an
-Ubuntu `.deb`, usable through apt or a graphical package manager, plus a native
-user-context setup flow. These macOS and Linux installer flows are tracked
-separately in TODO.md; current artifacts remain portable archives. Platform
-installers share the native setup behavior, not a shell launcher.
+Ubuntu `.deb`, usable through apt or a graphical package manager, plus an
+interactive console setup run in the user's context after installation. These
+macOS and Linux installer flows are tracked separately in TODO.md; current
+artifacts remain portable archives. Platform installers share the native setup
+backend.
 
 ## Building the Windows installer
 
