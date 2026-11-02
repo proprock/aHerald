@@ -1394,7 +1394,7 @@ mod card_tests {
     fn repeated_card_rendering_and_dpi_resize_release_native_resources() {
         if std::env::var_os("AHERALD_RESOURCE_HELPER").is_none() {
             let child = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", "notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources"])
+                .args(["--exact", "notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources", "--nocapture"])
                 .env("AHERALD_RESOURCE_HELPER", "1").spawn().unwrap();
             struct Owned(std::process::Child);
             impl Drop for Owned {

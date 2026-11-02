@@ -42,6 +42,20 @@ impl Fixture {
         std::fs::create_dir_all(&root).unwrap();
         let exe = root.join("aherald");
         std::fs::copy(env!("CARGO_BIN_EXE_aherald"), &exe).unwrap();
+        // Exercise a complete installation: missing built-ins intentionally queue
+        // diagnostics, which would interfere with the lifecycle cards under test.
+        let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+        for entry in std::fs::read_dir(assets).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                let destination = root.join("assets").join(entry.file_name());
+                std::fs::create_dir_all(&destination).unwrap();
+                for file in std::fs::read_dir(entry.path()).unwrap() {
+                    let file = file.unwrap();
+                    std::fs::copy(file.path(), destination.join(file.file_name())).unwrap();
+                }
+            }
+        }
         let config = root.join("settings.toml");
         let fixture = Self {
             scope,
@@ -114,7 +128,7 @@ impl Fixture {
     }
     fn wait_for(&self, timeout: Duration, mut check: impl FnMut() -> bool, what: &str) {
         support::wait_until(timeout, Duration::from_millis(30), what, &mut check)
-            .unwrap_or_else(|error| panic!("{error}"));
+            .unwrap_or_else(|error| panic!("{error}; resident status: {:?}", self.status()));
     }
     fn tray_name(&self, pid: u32) -> String {
         let mut name = None;
@@ -333,11 +347,20 @@ fn shown(conn: &RustConnection, win: u32) -> bool {
 }
 fn pixels(conn: &RustConnection, win: u32) -> Vec<u8> {
     let g = conn.get_geometry(win).unwrap().reply().unwrap();
-    conn.get_image(ImageFormat::Z_PIXMAP, win, 0, 66, g.width, 35, u32::MAX)
-        .unwrap()
-        .reply()
-        .unwrap()
-        .data
+    // Compare the kind text, excluding independently animated artwork at the left.
+    conn.get_image(
+        ImageFormat::Z_PIXMAP,
+        win,
+        100,
+        66,
+        g.width - 100,
+        35,
+        u32::MAX,
+    )
+    .unwrap()
+    .reply()
+    .unwrap()
+    .data
 }
 fn click(conn: &RustConnection, root: u32, win: u32, x: i16, y: i16, button: u8) {
     let event = ButtonPressEvent {
@@ -410,9 +433,9 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
             || pixels(&conn, win) == first,
             "navigation back to the first preview card",
         );
-        // No artwork exists beside the copied executable, so the dismiss button starts at x=22.
+        // The 64px built-in artwork puts the text column and dismiss button at x=100.
         let geo = conn.get_geometry(win).unwrap().reply().unwrap();
-        click(&conn, root, win, 50, geo.height as i16 - 22, 1);
+        click(&conn, root, win, 130, geo.height as i16 - 22, 1);
         f.wait(|| !shown(&conn, win), "dismissed preview");
         f.menu(new, 15);
         let latest = f.replacement(new, false);
