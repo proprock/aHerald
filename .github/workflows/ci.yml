@@ -62,11 +62,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Linux audio runtime
+      - name: Install Linux test dependencies
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse0
+          sudo apt-get install -y libpulse0 xvfb xauth dbus
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         if: needs.changes.outputs.code == 'true'
@@ -84,11 +84,16 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo clippy --all-targets -- -D warnings
 
-      # Off Windows only the portable tests run; the native overlay, tray and
-      # IPC tests are Windows-only (AH-060) until the Unix ports land.
       - name: cargo test
         if: needs.changes.outputs.code == 'true'
         run: cargo test --all-targets
+
+      - name: Test Linux tray and warning lifecycle
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
+        run: >-
+          xvfb-run -a -s '-screen 0 1280x1024x24'
+          dbus-run-session -- env AH113_ISOLATED=1
+          cargo test --test linux_apply -- --ignored --test-threads=1
 
       - name: Verify installer failure diagnostics
         if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
@@ -125,3 +130,37 @@ jobs:
           ./build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           ./tests/installer_windows.ps1 -Installer "dist/aherald-v$version-windows-x64-setup-test.exe"
+
+  # Ubuntu 22.04 is pinned on purpose: the Debian package declares libc6 >= 2.35, and the
+  # isolated lifecycle test needs unprivileged user namespaces, which 24.04's AppArmor
+  # restricts by default. It runs beside the quality matrix and is not a required check.
+  linux_package:
+    name: Linux package and console setup (ubuntu-22.04)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libglib2.0-0 libpulse0
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Verify interactive console setup
+        run: python3 tests/console_setup_linux.py target/debug/aherald
+
+      - name: Assemble the Debian package and verify its isolated lifecycle
+        run: |
+          version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
+          sh ./package-deb.sh target/debug/aherald "v$version"
+          sh ./tests/linux_deb_lifecycle.sh "dist/aherald-v$version-linux-x86_64-gnu.deb"

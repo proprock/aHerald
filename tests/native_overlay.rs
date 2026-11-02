@@ -164,7 +164,7 @@ fn preview_placement() {
     let pet = std::env::var("AHERALD_PREVIEW_PET")
         .map(|pet| format!("pet='{pet}'\n"))
         .unwrap_or_default();
-    std::fs::write(&path, format!("[notifications]\nposition='bottom_right'\nscale=1.5\n{pet}[events.permission_required]\nduration_ms=0\n[sounds]\nenabled=false")).unwrap();
+    std::fs::write(&path, format!("[notifications]\nposition='bottom_right'\nscale=1.5\n{pet}[events.permission_required]\nduration_sec=0\n[sounds]\nenabled=false")).unwrap();
     let mut child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
@@ -224,7 +224,7 @@ unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL
 fn overlay_is_nonactivating_layered_and_click_dismisses_indefinite_wait() {
     let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-native-{}.toml", std::process::id()));
-    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
+    std::fs::write(&path, "[events.permission_required]\nduration_sec=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
     let mut child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
@@ -282,7 +282,7 @@ fn overlay_is_nonactivating_layered_and_click_dismisses_indefinite_wait() {
 fn finite_notification_exits_by_its_timer() {
     let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-timer-{}.toml", std::process::id()));
-    std::fs::write(&path, "[events.turn_complete]\nduration_ms=100\n[notifications]\nfade_in_ms=0\nfade_out_ms=50\n[sounds]\nenabled=false").unwrap();
+    std::fs::write(&path, "[events.turn_complete]\nduration_sec=1\n[notifications]\nfade_in_ms=0\nfade_out_ms=50\n[sounds]\nenabled=false").unwrap();
     let mut child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
@@ -315,7 +315,7 @@ fn dismissal_during_fade_in_does_not_flash_to_full_opacity() {
 #[test]
 fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
     let path = std::env::temp_dir().join(format!("aherald-audio-only-{}.toml", std::process::id()));
-    std::fs::write(&path,"[notifications]\nenabled=false\n[events.permission_required]\nduration_ms=0\nsound='does-not-exist.wav'").unwrap();
+    std::fs::write(&path,"[notifications]\nenabled=false\n[events.permission_required]\nduration_sec=0\nsound='does-not-exist.wav'").unwrap();
     let mut child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
@@ -340,7 +340,7 @@ fn sound_only_missing_resource_exits_without_creating_an_indefinite_overlay() {
 fn simultaneous_transient_cards_do_not_overlap() {
     let _serial = serial();
     let path = std::env::temp_dir().join(format!("aherald-stack-{}.toml", std::process::id()));
-    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\nposition=\"top_center\"\n[sounds]\nenabled=false").unwrap();
+    std::fs::write(&path, "[events.permission_required]\nduration_sec=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\nposition=\"top_center\"\n[sounds]\nenabled=false").unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let event = Event::demo("permission_required").unwrap();
     // Top-centre stacks downward from the work-area top, so three cards fit on a short
@@ -388,7 +388,7 @@ fn card_is_shown_when_another_process_holds_the_placement_lock_past_the_timeout(
         .unwrap()
         .expect("placement mutex is free before the test starts");
     let path = std::env::temp_dir().join(format!("aherald-lock-{}.toml", std::process::id()));
-    std::fs::write(&path, "[events.permission_required]\nduration_ms=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
+    std::fs::write(&path, "[events.permission_required]\nduration_sec=0\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false").unwrap();
     let child = Owned(
         deliver(
             &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),

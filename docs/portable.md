@@ -80,7 +80,7 @@ Edit `config.toml` (tray: **Edit configuration**). Every setting, accepted value
 is commented in `aHerald.example.toml`; see also [configuration](configuration.md). Unknown or
 invalid fields are reported per field and the card still appears with defaults where possible.
 Useful settings: `[general] mode`, `[notifications] position`, `monitor`, `scale`,
-`background_color`, per-event `[events.NAME]` sections (`duration_ms`, `sound_enabled`,
+`background_color`, per-event `[events.NAME]` sections (`duration_sec`, `sound_enabled`,
 colour), `[sounds] volume`, `[codex.usage]` and `[claude.usage]` (quota display, both off by
 default).
 

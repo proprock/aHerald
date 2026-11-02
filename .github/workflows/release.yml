@@ -149,9 +149,16 @@ jobs:
         run: |
           cargo test --locked --all-targets
           cargo build --locked --release
+          python3 tests/console_setup_linux.py target/release/aherald
 
       - name: Assemble and verify archive
         run: ./package-linux.sh target/release/aherald "$RELEASE_TAG"
+
+      - name: Assemble and verify Debian package
+        run: sh ./package-deb.sh target/release/aherald "$RELEASE_TAG"
+
+      - name: Verify isolated Debian lifecycle
+        run: sh ./tests/linux_deb_lifecycle.sh "dist/aherald-$RELEASE_TAG-linux-x86_64-gnu.deb"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -159,6 +166,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
+            dist/*.deb
+            dist/*.deb.sha256
           if-no-files-found: error
 
   draft_release:

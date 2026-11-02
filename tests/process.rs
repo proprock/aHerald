@@ -16,14 +16,14 @@ impl Drop for OwnedChild {
 }
 #[test]
 fn transient_delivery_does_not_wait_for_finite_or_indefinite_lifetime() {
-    for duration in [5000, 0] {
+    for duration in [5, 0] {
         let path = std::env::temp_dir().join(format!(
             "aherald-delivery-{}-{duration}.toml",
             std::process::id()
         ));
         std::fs::write(
             &path,
-            format!("[events.turn_complete]\nduration_ms={duration}"),
+            format!("[events.turn_complete]\nduration_sec={duration}"),
         )
         .unwrap();
         let start = Instant::now();
@@ -86,7 +86,7 @@ fn detached_child_does_not_inherit_unrelated_hook_collector_handles() {
         std::env::temp_dir().join(format!("aherald-extra-handle-{}.toml", std::process::id()));
     std::fs::write(
         &path,
-        "[events.turn_complete]\nduration_ms=0\n[sounds]\nenabled=false",
+        "[events.turn_complete]\nduration_sec=0\n[sounds]\nenabled=false",
     )
     .unwrap();
     let child = deliver(

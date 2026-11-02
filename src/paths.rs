@@ -7,6 +7,86 @@ use std::{
 /// Environment variable that holds the user's home directory.
 pub const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
+/// Per-user locations for the system Linux package. Portable installations keep
+/// their existing layout beside the executable.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LinuxUserDirs {
+    pub config: PathBuf,
+    pub data: PathBuf,
+    pub state: PathBuf,
+}
+
+/// The package executable has a fixed path; copied portable binaries retain
+/// portable semantics regardless of the machine on which they run.
+pub fn is_linux_system_executable(executable: &Path) -> bool {
+    cfg!(target_os = "linux") && executable == Path::new("/usr/lib/aherald/aherald")
+}
+
+pub fn config_dir_with(
+    executable: &Path,
+    get: impl Fn(&str) -> Option<OsString>,
+) -> Result<PathBuf, String> {
+    if is_linux_system_executable(executable) {
+        return xdg_dir_with(&get, "XDG_CONFIG_HOME", ".config");
+    }
+    data_dir_with(executable, get)
+}
+
+pub fn receipt_dir_with(
+    executable: &Path,
+    get: impl Fn(&str) -> Option<OsString>,
+) -> Result<PathBuf, String> {
+    if is_linux_system_executable(executable) {
+        return xdg_dir_with(&get, "XDG_DATA_HOME", ".local/share");
+    }
+    data_dir_with(executable, get)
+}
+
+/// Keep explicitly chosen configuration paths and portable logs together.
+pub fn diagnostic_dir_with(
+    executable: &Path,
+    config: &Path,
+    get: impl Fn(&str) -> Option<OsString>,
+) -> Result<PathBuf, String> {
+    if is_linux_system_executable(executable)
+        && let Ok(config_dir) = xdg_dir_with(&get, "XDG_CONFIG_HOME", ".config")
+        && config == config_dir.join("config.toml")
+    {
+        return xdg_dir_with(&get, "XDG_STATE_HOME", ".local/state");
+    }
+    config
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "configuration has no directory".into())
+}
+
+pub fn linux_user_dirs_with(
+    get: impl Fn(&str) -> Option<OsString>,
+) -> Result<LinuxUserDirs, String> {
+    Ok(LinuxUserDirs {
+        config: xdg_dir_with(&get, "XDG_CONFIG_HOME", ".config")?,
+        data: xdg_dir_with(&get, "XDG_DATA_HOME", ".local/share")?,
+        state: xdg_dir_with(&get, "XDG_STATE_HOME", ".local/state")?,
+    })
+}
+
+fn xdg_dir_with(
+    get: &impl Fn(&str) -> Option<OsString>,
+    key: &str,
+    fallback: &str,
+) -> Result<PathBuf, String> {
+    if let Some(path) = non_empty(get(key))
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        return Ok(path.join("aherald"));
+    }
+    home_dir_with(get)
+        .filter(|p| p.is_absolute())
+        .map(|home| home.join(fallback).join("aherald"))
+        .ok_or_else(|| "cannot locate an absolute home directory".into())
+}
+
 /// File name of an executable: `codex` is `codex.exe` on Windows and `codex` elsewhere.
 pub fn executable_name(stem: &str) -> String {
     if cfg!(windows) {
@@ -76,6 +156,60 @@ mod tests {
                 .iter()
                 .find(|(key, _)| *key == name)
                 .map(|(_, value)| OsString::from(value))
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_user_directories_follow_xdg_and_ignore_relative_overrides() {
+        let dirs = linux_user_dirs_with(env(&[
+            (HOME_VAR, "/home/alice"),
+            ("XDG_CONFIG_HOME", "/custom/config"),
+            ("XDG_DATA_HOME", "relative"),
+            ("XDG_STATE_HOME", ""),
+        ]))
+        .unwrap();
+        assert_eq!(dirs.config, PathBuf::from("/custom/config/aherald"));
+        assert_eq!(dirs.data, PathBuf::from("/home/alice/.local/share/aherald"));
+        assert_eq!(
+            dirs.state,
+            PathBuf::from("/home/alice/.local/state/aherald")
+        );
+        assert!(linux_user_dirs_with(env(&[(HOME_VAR, "relative")])).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn package_paths_do_not_change_portable_paths() {
+        let vars = env(&[(HOME_VAR, "/home/alice")]);
+        let package = Path::new("/usr/lib/aherald/aherald");
+        let portable = Path::new("/tmp/portable/aherald");
+        assert_eq!(
+            config_dir_with(portable, &vars).unwrap(),
+            PathBuf::from("/tmp/portable")
+        );
+        if cfg!(target_os = "linux") {
+            assert_eq!(
+                config_dir_with(package, &vars).unwrap(),
+                PathBuf::from("/home/alice/.config/aherald")
+            );
+            assert_eq!(
+                receipt_dir_with(package, &vars).unwrap(),
+                PathBuf::from("/home/alice/.local/share/aherald")
+            );
+            assert_eq!(
+                diagnostic_dir_with(
+                    package,
+                    Path::new("/home/alice/.config/aherald/config.toml"),
+                    &vars
+                )
+                .unwrap(),
+                PathBuf::from("/home/alice/.local/state/aherald")
+            );
+            assert_eq!(
+                diagnostic_dir_with(package, Path::new("/custom/config.toml"), &vars).unwrap(),
+                PathBuf::from("/custom")
+            );
         }
     }
 

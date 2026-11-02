@@ -309,8 +309,14 @@ pub struct EventConfig {
     pub animation: Option<PathBuf>,
     pub sound: Option<PathBuf>,
     pub sound_enabled: bool,
+    #[serde(rename = "duration_sec", deserialize_with = "duration_seconds")]
     pub duration_ms: u64,
     pub color: Option<Color>,
+}
+fn duration_seconds<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    u64::deserialize(deserializer)?
+        .checked_mul(1000)
+        .ok_or_else(|| serde::de::Error::custom("duration is too large"))
 }
 impl Default for EventConfig {
     fn default() -> Self {
@@ -379,6 +385,24 @@ pub struct Claude {
     pub usage: ClaudeUsage,
     #[serde(deserialize_with = "deserialize_session_warnings::<_, 55>")]
     pub warnings: SessionWarnings,
+    pub statusline: ClaudeStatusLine,
+}
+/// The line `--statusline` prints when the user has no status line command of their own.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeStatusLine {
+    /// Template for `crate::statusline_format`; empty prints nothing.
+    pub format: String,
+    /// Colour the ready-made segments (`{context_window}`, `{rate_limits.five_hour}`, ...).
+    pub color: bool,
+}
+impl Default for ClaudeStatusLine {
+    fn default() -> Self {
+        Self {
+            format: String::new(),
+            color: true,
+        }
+    }
 }
 impl Default for Claude {
     fn default() -> Self {
@@ -386,6 +410,7 @@ impl Default for Claude {
             hooks_enabled: true,
             usage: ClaudeUsage::default(),
             warnings: SessionWarnings::with_idle(55),
+            statusline: ClaudeStatusLine::default(),
         }
     }
 }
@@ -426,7 +451,7 @@ impl Default for SessionWarnings {
     fn default() -> Self {
         Self {
             context_enabled: true,
-            idle_enabled: true,
+            idle_enabled: false,
             context_tokens: None,
             idle_minutes: None,
         }
@@ -562,7 +587,7 @@ impl Config {
     pub fn default_path() -> Result<PathBuf, String> {
         let executable =
             std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
-        crate::paths::data_dir_with(&executable, |name| std::env::var_os(name))
+        crate::paths::config_dir_with(&executable, |name| std::env::var_os(name))
             .map(|directory| directory.join("config.toml"))
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
@@ -591,13 +616,13 @@ impl Config {
         })?;
         config.validate()?;
         config.diagnostic_directory = directory.to_owned();
-        // A table that omits `duration_ms` keeps the kind's own default, not the struct's.
+        // A table that omits `duration_sec` keeps the kind's own default, not the struct's.
         let defaults = Events::default();
         for (kind, event) in config.events.iter_mut() {
             let has_duration = value
                 .get("events")
                 .and_then(|events| events.get(kind.name()))
-                .and_then(|event| event.get("duration_ms"))
+                .and_then(|event| event.get("duration_sec"))
                 .is_some();
             if !has_duration {
                 event.duration_ms = defaults[kind].duration_ms;
@@ -643,12 +668,20 @@ impl Config {
         }
         let absolute =
             std::path::absolute(path).map_err(|_| "cannot resolve configuration path")?;
-        Self::parse(
+        let mut config = Self::parse(
             &text,
             absolute.parent().ok_or("configuration has no directory")?,
-        )
+        )?;
+        let executable = std::env::current_exe().map_err(|_| "cannot locate executable")?;
+        config.diagnostic_directory =
+            crate::paths::diagnostic_dir_with(&executable, &absolute, |name| {
+                std::env::var_os(name)
+            })?;
+        Ok(config)
     }
     fn validate(&self) -> Result<(), String> {
+        crate::statusline_format::validate(&self.claude.statusline.format)
+            .map_err(|e| format!("invalid configuration: claude.statusline.format {e}"))?;
         for (agent, warnings) in [
             ("claude", &self.claude.warnings),
             ("codex", &self.codex.warnings),
@@ -711,7 +744,7 @@ impl Config {
             let name = kind.name();
             if event.duration_ms > 86_400_000 {
                 return Err(format!(
-                    "invalid configuration: events.{name}.duration_ms must be at most 86400000"
+                    "invalid configuration: events.{name}.duration_sec must be at most 86400"
                 ));
             }
             if event.visual == EventVisual::Custom && event.animation.is_none() {

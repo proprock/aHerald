@@ -133,11 +133,64 @@ Move a portable installation first, then rerun setup from the new location.
 ## Platform packaging plan
 
 Windows uses Inno Setup. macOS will provide an app-based setup flow and GUI
-installation, with Homebrew Cask as the package-manager path. Linux starts with an
-Ubuntu `.deb`, usable through apt or a graphical package manager, plus a native
-user-context setup flow. These macOS and Linux installer flows are tracked
-separately in TODO.md; current artifacts remain portable archives. Platform
-installers share the native setup behavior, not a shell launcher.
+installation, with Homebrew Cask as the package-manager path. The macOS installer
+is tracked separately in TODO.md.
+
+## Ubuntu system package
+
+Install the downloaded x86-64 package from a terminal, or open it in a graphical
+package manager:
+
+```sh
+sudo apt install ./aherald-vX.Y.Z-linux-x86_64-gnu.deb
+aherald --console-setup
+```
+
+Run console setup as the desktop user, without sudo. It previews the selected
+Codex and Claude hooks, usage settings and, for each selected agent, the context and
+idle warnings, then asks before applying them. Each user configures their own hooks.
+Every choice starts off on a first setup; later runs read the saved selections and
+configuration, and an agent you deselect keeps its settings. Enabling the Claude context
+warning wraps your existing status line (it is still shown and restored on removal); without
+one, Claude shows the `[claude.statusline] format` text, empty by default. Claude usage's `auto`
+source tries the login token, then the last statusLine report; existing source
+settings are preserved. The optional launch starts a
+resident for the current session; no autostart is installed. Start a new Codex
+session and trust the hook entries in `/hooks` after setup.
+
+The package places its executable and built-in assets under `/usr/lib/aherald`,
+with `/usr/bin/aherald` as a stable entry point. User settings default to
+`~/.config/aherald/config.toml`, the setup receipt to
+`~/.local/share/aherald/aherald-setup.json`, and logs to
+`~/.local/state/aherald/`; absolute `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and
+`XDG_STATE_HOME` override the corresponding bases. Custom resources may be kept
+in the data directory or elsewhere, and relative resource paths are resolved
+against the configuration file. Package updates and removal preserve user files.
+
+Before package removal, each user should run `aherald --unsetup` to preview,
+then `aherald --unsetup --apply` to remove their own saved hook bindings. The
+package manager does not inspect or modify users' homes. Removal succeeds even
+when a user has not cleaned up, in which case their harness may retain a hook
+pointing to the missing executable. Reinstall the package, then run cleanup as
+that user to repair it. Saved receipt paths remain valid when hook directory
+environment overrides change. Keep `XDG_DATA_HOME` unchanged for cleanup so the
+saved receipt can be found. The config, receipt, custom files, logs, and
+backups are retained even on `apt purge`; remove them manually only if desired.
+
+Updates do not stop running residents. Restart the resident after upgrading to
+use the new binary; an incompatible IPC version can reject messages until it
+is restarted. The package does not require an interactive terminal or configure
+hooks from maintainer scripts. A downloaded `.deb` alone does not configure an
+apt repository for automatic future updates. The `.tar.gz` portable archive
+remains available and keeps its own existing layout.
+
+Build a package from a previously compiled x86-64 GNU/Linux executable with
+`sh package-deb.sh target/release/aherald`. It produces the `.deb` and SHA-256
+file in `dist`. The isolated lifecycle check
+`sh tests/linux_deb_lifecycle.sh dist/aherald-vX.Y.Z-linux-x86_64-gnu.deb`
+requires Linux user, mount and PID namespaces plus `dpkg`. It runs in a private
+root with dependencies forced and the host libraries mounted read-only, so it
+does not verify dependency installation through apt or graphical installation.
 
 ## Building the Windows installer
 

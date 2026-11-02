@@ -8,6 +8,10 @@ use std::{
 const PARENT_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub fn launch() -> Result<(), String> {
+    launch_with_test(false)
+}
+
+pub fn launch_with_test(test: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
     let mut args = vec![
         OsString::from("--restart-child"),
@@ -16,6 +20,12 @@ pub fn launch() -> Result<(), String> {
     let mut original: Vec<OsString> = std::env::args_os().skip(1).collect();
     if original.first().is_some_and(|a| a == "--restart-child") {
         original.drain(..2);
+    }
+    if original.first().is_some_and(|a| a == "--test-after-apply") {
+        original.remove(0);
+    }
+    if test {
+        args.push(OsString::from("--test-after-apply"));
     }
     args.extend(original);
     let borrowed: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();

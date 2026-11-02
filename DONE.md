@@ -3,6 +3,34 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-113 — Add Apply and Apply + Test to the Linux tray** (2026-11-02).
+  Added validated resident replacement and the shared seven-format preview, aligned
+  the tray menu with Windows, and sized warning cards for their measured text.
+  The isolated Linux integration test covers both actions with valid and invalid
+  settings, replacement and reload, navigation, dismissal, event interruption and
+  a subsequent ordinary Apply. It passed on XWayland and Xvfb and is enabled in
+  Linux CI. The full suite and Clippy passed locally; the user confirmed both tray
+  actions and the revised preview in the live GNOME Wayland/XWayland session.
+
+- [x] **AH-112 — Add Linux tray warning switches** (2026-11-02).
+  Added independent runtime context and idle switches using shared warning
+  controls. Tests cover both agents, pending and queued warnings, pause/resume,
+  restart and tray state. The full suite passed sequentially. The GNOME
+  StatusNotifierWatcher registered the resident; D-Bus actions and check states
+  were verified, and the user confirmed the menu items in the live instance.
+
+- [x] **AH-111 — Verify Linux session warning delivery** (2026-11-02).
+  Traced both context adapters and versioned IPC to the Linux resident and its
+  shared warning and X11 card path; no Linux-specific integration gap was found.
+  Linux resident tests exercise independent thresholds, crossings and rearming,
+  empty-queue idle deadlines, pause/resume, full-queue retry and stale cancellation;
+  shared tests cover numeric card text and the remaining agent/session cases.
+  Unix IPC tests passed in an isolated runtime directory, and the existing X11
+  window test passed on GNOME Wayland/XWayland. The latter checks the native window,
+  not the appearance of a warning card. See `docs/portable-linux.md` for resident
+  and protocol limitations. Real-agent and warning-card desktop acceptance remain
+  AH-115.
+
 ## Milestone 1 — Functional notification engine
 
 - [x] **AH-001 — Bootstrap the native Rust project.** Dependencies: none.

@@ -101,8 +101,8 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Provide native user-context selection of Codex, Claude Code, both or neither;
   start unchecked on first setup, retain the selection on upgrade, and delegate
   changes to `--setup` / `--unsetup` with explicit `--apply`.
-  Match Windows graceful shutdown before updates/removal: verify the owned app
-  path, wait for process exit, and abort if graceful shutdown fails.
+  Do not block package updates/removal on resident shutdown. Check old-resident
+  and new-client IPC compatibility; document when users must restart residents.
   Match Windows usage selection and launch-after-install behavior: read current
   values on upgrades, keep new usage off, explain Claude auto, preserve configured
   sources and unrelated formatting, and include changes in setup rollback.
@@ -126,12 +126,14 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   verify a normal user installation without Homebrew or developer tools for the
   GUI path. Document setup, repair and removal. See docs/installation.md.
 
-- [ ] **AH-103 — Ubuntu package and native setup UI.**
+- [ ] **AH-103 — Ubuntu package and interactive console setup.**
   Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`
   installable through apt and a graphical package manager, preserving the
-  portable archive. Provide native user-context selection of Codex, Claude Code,
-  both or neither; start unchecked on first setup, retain the selection on
-  upgrade, and delegate changes to `--setup` / `--unsetup` with explicit `--apply`.
+  portable archive. Provide an interactive console setup run by the user after
+  installation, with selection of Codex, Claude Code, both or neither; start
+  unchecked on first setup, retain the selection on upgrade, and delegate changes
+  to `--setup` / `--unsetup` with explicit `--apply`. Do not require an
+  interactive terminal or configure user hooks from package scripts.
   Match Windows graceful shutdown before updates/removal: verify the owned app
   path, wait for process exit, and abort if graceful shutdown fails.
   Match Windows usage selection and launch-after-install behavior: read current
@@ -142,21 +144,30 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   add autostart. Reuse dry run, preflight, backups, rollback, idempotence, saved
   file paths and exact binding ownership. Preserve foreign hooks, configuration,
   customized assets, logs and backups across updates/removal.
-  Agree on system package versus per-user writable data/receipt ownership before
-  implementation. Package scripts must never write root's or another user's
-  hooks. Define user-context hook cleanup before binary removal for GUI/package
-  workflows, including multiple desktop users, apt removal, cleanup failures,
-  repair, and an active resident; do not silently leave broken hook bindings or
-  execute user hook commands as root.
+  The system package owns its executable and built-in resources. Use XDG config,
+  data and state directories for each user's config, receipt, assets and logs;
+  preserve user files even on purge and keep portable layout unchanged. Package
+  scripts must not modify user homes or hooks. Document that each user should run
+  --unsetup --apply before removal; removal remains noninteractive and may leave
+  stale hooks, recoverable by reinstalling and running cleanup as that user.
   Extend Linux release CI with the package and checksum alongside the portable
   archive; add isolated native lifecycle checks for install, repeated setup,
   selection changes, malformed configuration, failed writes, upgrade, cleanup
   failure and uninstall after environment overrides change.
-  Acceptance: verify apt and graphical installation, native setup UI, hook
+  Acceptance: verify apt and graphical installation, interactive console setup, hook
   delivery/dismissal, update and removal on a clean supported Ubuntu desktop
   without developer tools. Record Ubuntu version, desktop/session type and
   harness versions; document required system packages, repair and removal.
-  See docs/installation.md; overlay Xorg/multi-monitor acceptance remains AH-093.
+  See docs/installation.md; warning setup controls are tracked in AH-114 and
+  overlay Xorg/multi-monitor acceptance remains AH-093.
+  Partial 2026-11-02: package construction, XDG paths and console setup have
+  isolated tests. A private dpkg root exercises install, same-version upgrade,
+  user cleanup and purge with dependency checks forced; an Xvfb/D-Bus probe
+  verified new-client IPC against an older resident. On Ubuntu 22.04.5, lintian
+  reported no findings and apt-get -s resolved the local package on this host
+  (with a warning about an unreadable third-party sources file). Clean Ubuntu apt/graphical
+  installation, real hook delivery/dismissal and update/removal remain to be
+  accepted; the isolated tests do not establish those results.
 
 - [ ] **AH-104 — Optional live harness checks on macOS and Linux.**
   Extend the optional group in tests/live/README.md with native macOS/Linux
@@ -172,7 +183,89 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   CI; any live CI job must require deliberate invocation and its own credentials.
   Acceptance: run the applicable checks on the M1 and Ubuntu, record evidence and
   unsupported cases, and document repeatable commands. Uses AH-097; installer
-  delivery checks also depend on AH-102/AH-103.
+  delivery checks also depend on AH-102/AH-103. Linux warning-specific live
+  acceptance and documentation are tracked in AH-115.
+
+- [ ] **AH-116 — Profile the macOS cost of `--statusline --then` on real hardware.**
+  On a GitHub macOS runner (2026-11-02) `aherald --statusline --then true` took 8.4 and
+  9.6 ms more than starting `sh` alone, while the bare wrapper costs about 1.2 ms over
+  `aherald --version` (as on Linux) and a test process starting `sh -c true` costs 0.08 ms.
+  Spawning a child from the aHerald process seems slower on macOS; the cause is unknown.
+  Reproduce on the user's MacBook Pro M1 with `cargo test --test perf_statusline --
+  --nocapture`, then profile the spawn (Instruments or `sample`, `dtruss`): suspects are the
+  size of the process image, `posix_spawn` versus fork, and the piped stdin/stdout setup in
+  `statusline::run_then`. Acceptance: the cause is recorded in
+  docs/statusline-performance.md and either fixed, or the 12 ms macOS allowance
+  (`THEN_SPAWN_ALLOWANCE_MS` in tests/perf_statusline.rs) is justified by the measurement
+  or removed. Low priority: a status line refreshes at most every 300 ms.
+
+### Linux parity with 0.8.0-beta
+
+The warning engine, adapter parsing, setup backend and measured warning text are
+shared already. Verify their Linux integration and reuse them rather than creating
+parallel implementations. The tasks below cover behavior and acceptance; existing
+shared development-profile and artwork performance changes need no separate port.
+
+- [ ] **AH-114 — Add warning options to Linux console setup.**
+  Extend the AH-103 console setup with independent context and idle choices for each
+  agent, using the common setup backend. Load existing settings and preserve
+  custom thresholds and unrelated configuration. On first context enablement,
+  supply Codex 250k / Claude 400k only if no threshold exists; retain the idle
+  defaults of Codex 25 / Claude 55 minutes. Persist enablement separately from
+  thresholds. When Claude and its context warning are selected, configure the
+  statusLine wrapper transactionally, preserving the original command and
+  options; avoid nested wrappers and restore only an unchanged owned binding on
+  disable, deselection or uninstall. Include all changes in setup rollback.
+  Acceptance: isolated Linux lifecycle checks cover first setup, existing custom
+  settings, repeat setup, selection changes, upgrade, disable, uninstall and
+  failed writes/rollback. Verify the choices and wrapper through the console setup
+  as part of AH-103. Depends on AH-103 and the shared AH-097 setup backend.
+  Partial 2026-11-02 (statusLine only): the wrapper's start-up cost was measured
+  (release median 3.9 ms bare, 4.5 ms with `--then`; 3.5 ms of it is the loader mapping
+  63 libraries) and guarded by `tests/perf_statusline.rs`; a separate wrapper executable was
+  considered and deferred (docs/statusline-performance.md). Added `[claude.statusline] format`
+  (src/statusline_format.rs): printed only when the user has no `--then` command, config read
+  only on that path, never created. Setup installs the wrapper for a context threshold or a
+  format. Console setup now asks the four context/idle questions for each selected agent
+  (defaults off on a first setup on every OS: the shipped example has `idle_enabled = false`),
+  `tests/console_setup_linux.py` covers first setup, wrap/restore, repeat and deselection,
+  `tests/setup.rs` has a root-safe Linux rollback test, and `tests/linux_deb_lifecycle.sh`
+  asserts thresholds, wrapper, upgrade and restoration. Live-session acceptance stays AH-115.
+  2026-11-02: the status line shares the tray menu's text pieces (`usage_service::window_text`,
+  `percent_text`, `countdown`) and the icon's colour thresholds (`tray_usage::level_rgb`);
+  `{context_window}`, `{rate_limits.five_hour}` and `{rate_limits.seven_day}` render as
+  `ctx 91%`, `5h 79% / 3:29`; menu and tooltip already share `View::compact` on every OS.
+
+- [ ] **AH-115 — Linux live warning acceptance and documentation.**
+  Extend AH-104's opt-in native live checks to cover real Codex and Claude Code
+  context and idle warning sessions, installed hook dispatch and the Claude
+  statusLine wrapper. Distinguish adapter/bridge evidence from end-to-end installed
+  hook delivery. Use isolated configuration, bounded waits and owned-process
+  cleanup; preserve existing user hooks, trust and accounts, and declare any
+  account, network or potentially billable request requirements before each run.
+  On Ubuntu, verify the warning cards, tray switches, Apply and Apply + Test,
+  including dismissal and configured sound. Record OS, desktop/session and
+  harness versions, commands, results and limitations; update the Linux guide,
+  configuration instructions and verification matrix. Acceptance: applicable
+  automated and explicitly authorized live checks pass with evidence recorded;
+  unsupported versions or environments are stated rather than inferred. Xorg
+  and multi-monitor acceptance remains AH-093. Depends on AH-111 through AH-114
+  for their respective behavior and installer checks, and coordinates with AH-104.
+  Partial 2026-11-02: isolated Xvfb/D-Bus tests exercise synthetic Codex and
+  Claude context reports, tray gating and one-minute idle delivery/clearing.
+  These synthetic tests do not establish installed hook or statusLine delivery.
+  On 2026-11-02 the user confirmed on Ubuntu 22.04.5 GNOME Wayland/XWayland:
+  Apply, Apply + Test, tray switches, synthetic Codex and Claude context cards,
+  configured sounds and dismissal, and Claude idle delivery/activity clearing
+  and suppression with the idle switch disabled.
+  The private live-test bridge also builds on Linux; its offline smoke test sends
+  synthetic reports from both adapters to an isolated resident. On 2026-11-02,
+  Codex CLI 0.166.0 passed a real context request through this bridge on Ubuntu
+  22.04.5 with Xvfb and a private D-Bus. This does not test installed hooks.
+  Claude Code 2.1.316 also passed real prompt/Stop/end and idle queue/clear
+  through the bridge in the same environment. Claude context and the installed
+  statusLine wrapper and installed hooks remain open.
+  Repeatable commands and remaining probe coverage are in `tests/live/README.md`.
 
 - [ ] **AH-093 — Linux overlay Xorg and multi-monitor acceptance (split from AH-068).**
   Depends on AH-068. On Ubuntu, log in to Xorg and confirm `XDG_SESSION_TYPE=x11`;
@@ -352,6 +445,10 @@ separately from regressions introduced by this milestone.
   the guards themselves do not leave owned processes or IPC resources behind. Run
   the AH-092 Windows test 20 consecutive times and show that a resident which remains
   visible still fails. Do not hide failures with retries or relaxed assertions.
+  Partial 2026-11-02: the Linux tray fixture tracks verified resident processes
+  by pidfd, waits for exit and bounds owned-process fallback; tests exercise a
+  hung owned process and panic cleanup without stopping an independent resident.
+  The wider inventory, Windows AH-092 and remaining guards are still open.
 
 - [ ] **AH-108 — Extract small reusable test fixtures and bounded wait helpers.**
   Depends on AH-107. Introduce a focused `tests/support` module for repeated setup
@@ -368,6 +465,9 @@ separately from regressions introduced by this milestone.
   unique scopes, concurrent independent residents, startup failure, timeout and panic
   cleanup. No fixture may stop an unrelated running aHerald instance. Record focused
   and relevant full-check results; obtain agreement before any new direct dependency.
+  Partial 2026-11-02: Linux tray and Unix IPC tests share a bounded boolean wait
+  with delayed-success and missing-effect checks. The designated Windows fixture
+  migrations and complete lifecycle acceptance still depend on AH-107.
 
 - [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
   Depends on AH-107 and AH-108. Measure current Windows test build and execution time

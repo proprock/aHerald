@@ -76,16 +76,13 @@ impl View {
             return format!("{} {display_name}: {status}", self.label());
         };
         let value = |window: Option<&crate::usage::Window>| {
-            let percent = window
-                .and_then(|w| match display {
+            window_text(
+                window.and_then(|w| match display {
                     crate::config::UsageDisplay::Used => w.used_percent,
                     crate::config::UsageDisplay::Remain => w.remaining_percent(),
-                })
-                .map(|v| format!("{v:.0}%"))
-                .unwrap_or_else(|| "—".into());
-            format!(
-                "{percent} / {}",
-                countdown(window.and_then(|w| w.resets_at), unix)
+                }),
+                window.and_then(|w| w.resets_at),
+                unix,
             )
         };
         let suffix = if status == "current" {
@@ -266,6 +263,16 @@ pub fn card_pages(text: &str) -> Vec<String> {
         lines.push("Usage unavailable".into());
     }
     lines.chunks(12).map(|part| part.join("\n")).collect()
+}
+/// `79%`, or `—` when the value is unknown; the percent form of the menu, tooltip and status line.
+pub fn percent_text(percent: Option<f64>) -> String {
+    percent
+        .map(|v| format!("{v:.0}%"))
+        .unwrap_or_else(|| "—".into())
+}
+/// `79% / 3:29`: one window of the menu and tooltip text (`Claude remain: 5h 79% / 3:29, ...`).
+pub fn window_text(percent: Option<f64>, resets_at: Option<i64>, now: i64) -> String {
+    format!("{} / {}", percent_text(percent), countdown(resets_at, now))
 }
 pub fn countdown(reset: Option<i64>, now: i64) -> String {
     let Some(reset) = reset else {

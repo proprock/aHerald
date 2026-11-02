@@ -102,6 +102,25 @@ fn send<T: serde::Serialize>(stream: &UnixStream, value: &T) -> Result<(), Failu
 }
 
 pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Response, String> {
+    send_request(scope, request, timeout, true)
+}
+
+/// Like [`request`], but fails at once when no resident is listening instead of waiting for one
+/// to start; a resident whose backlog is full is still waited for until `timeout`.
+pub fn request_if_running(
+    scope: &Scope,
+    request: &Request,
+    timeout: Duration,
+) -> Result<Response, String> {
+    send_request(scope, request, timeout, false)
+}
+
+fn send_request(
+    scope: &Scope,
+    request: &Request,
+    timeout: Duration,
+    wait_for_start: bool,
+) -> Result<Response, String> {
     let deadline = Instant::now() + timeout;
     let stream = loop {
         match UnixStream::connect(scope.socket_path()) {
@@ -109,10 +128,12 @@ pub fn request(scope: &Scope, request: &Request, timeout: Duration) -> Result<Re
             // No socket yet, a dead one, or a full backlog: the resident may be starting.
             Err(e)
                 if Instant::now() < deadline
-                    && matches!(
-                        e.kind(),
-                        ErrorKind::NotFound | ErrorKind::ConnectionRefused | ErrorKind::WouldBlock
-                    ) =>
+                    && (e.kind() == ErrorKind::WouldBlock
+                        || (wait_for_start
+                            && matches!(
+                                e.kind(),
+                                ErrorKind::NotFound | ErrorKind::ConnectionRefused
+                            ))) =>
             {
                 std::thread::sleep(Duration::from_millis(10));
             }

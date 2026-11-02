@@ -9,7 +9,7 @@ use aherald::{
 
 fn config() -> Config {
     Config::parse(
-        "[codex.warnings]\ncontext_tokens='250k'\nidle_minutes=25\n[claude.warnings]\ncontext_tokens='400k'\nidle_minutes=55",
+        "[codex.warnings]\nidle_enabled=true\ncontext_tokens='250k'\nidle_minutes=25\n[claude.warnings]\nidle_enabled=true\ncontext_tokens='400k'\nidle_minutes=55",
         std::path::Path::new("."),
     ).unwrap()
 }

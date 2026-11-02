@@ -39,7 +39,7 @@ with `[claude.usage] enabled = true`, can show the quota without reading the log
 `source = "auto"` (default) tries the token first and falls back to the last statusLine report,
 `"token"` never uses it, `"statusline"` never reads the login. `rate_limits` exists only for Pro and Max
 accounts and only after the first model response; a report older than an hour, or a window that has
-already reset, is not shown. The wrapper adds about 10 ms to a status line refresh, which happens after
+already reset, is not shown. The wrapper adds about 4 ms to a status line refresh (see docs/statusline-performance.md), which happens after
 each assistant message, and cannot slow the agent's turn. Claude Desktop does not run `statusLine` (a probe command in `settings.json` was never called by a
 Desktop session, 2026-10-29), so names and the statusLine quota reach cards only for Claude Code in a
 terminal or IDE; the token quota still works for Desktop.

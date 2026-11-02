@@ -23,4 +23,4 @@ enabled = false
 
 # Completion expires after three seconds; permission/input waits require a click.
 [events.turn_complete]
-duration_ms = 3000
+duration_sec = 3

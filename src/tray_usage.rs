@@ -11,6 +11,17 @@ pub struct Levels {
     display: UsageDisplay,
 }
 
+/// RGB colour for a remaining percentage, shared by the tray icon and the status line text:
+/// green above 60, amber above 20, red at or below 20, grey when unknown.
+pub fn level_rgb(remaining: Option<f64>) -> [u8; 3] {
+    match remaining {
+        Some(v) if v > 60.0 => [34, 180, 85],
+        Some(v) if v > 20.0 => [216, 165, 0],
+        Some(_) => [224, 68, 68],
+        None => [133, 133, 133],
+    }
+}
+
 impl Levels {
     pub fn from_views(
         codex: &View,
@@ -71,11 +82,9 @@ impl Levels {
     pub fn render(&self, size: u32) -> Result<Vec<u8>, &'static str> {
         self.paint(
             size,
-            |remaining| match remaining {
-                Some(v) if v > 60.0 => [85, 180, 34, 255],
-                Some(v) if v > 20.0 => [0, 165, 216, 255],
-                Some(_) => [68, 68, 224, 255],
-                None => [133, 133, 133, 255],
+            |remaining| {
+                let [r, g, b] = level_rgb(remaining);
+                [b, g, r, 255]
             },
             [85, 85, 85, 255],
         )

@@ -61,7 +61,7 @@ fn hot_paths_stay_inside_their_baseline_budgets() {
         "input_required",
         "error",
     ] {
-        text.push_str(&format!("[events.{kind}]\nduration_ms=400\n"));
+        text.push_str(&format!("[events.{kind}]\nduration_sec=1\n"));
     }
     std::fs::write(&config, text).unwrap();
     let _cleanup = Cleanup(scope.clone(), root.clone());
@@ -88,8 +88,10 @@ fn hot_paths_stay_inside_their_baseline_budgets() {
         .unwrap();
         std::thread::sleep(Duration::from_millis(120));
     }
-    // Cards expire, the animation timer stops and the render thread closes its window.
-    let deadline = Instant::now() + Duration::from_secs(20);
+    // Cards expire, the animation timer stops and the render thread closes its window. A card
+    // now lives at least one second (`duration_sec`), so the 24-card burst drains in about
+    // half a minute on a slow runner.
+    let deadline = Instant::now() + Duration::from_secs(90);
     loop {
         let log = std::fs::read_to_string(root.join("aherald.log")).unwrap_or_default();
         let idle = matches!(

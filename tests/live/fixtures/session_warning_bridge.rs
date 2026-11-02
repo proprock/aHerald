@@ -1,6 +1,6 @@
 //! Opt-in live-test bridge: real adapters and IPC, with a private resident scope.
 //! Keeps ordinary installed hooks from contaminating an account acceptance test.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn main() -> Result<(), String> {
     use aherald::{
         cli::Cli,
@@ -129,8 +129,8 @@ fn main() -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
-    eprintln!("This optional live acceptance bridge requires Windows.");
+    eprintln!("This optional live acceptance bridge requires Windows or Linux.");
     std::process::exit(2);
 }
