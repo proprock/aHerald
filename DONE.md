@@ -3,6 +3,13 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-112 — Add Linux tray warning switches** (2026-11-02).
+  Added independent runtime context and idle switches using shared warning
+  controls. Tests cover both agents, pending and queued warnings, pause/resume,
+  restart and tray state. The full suite passed sequentially. The GNOME
+  StatusNotifierWatcher registered the resident; D-Bus actions and check states
+  were verified, and the user confirmed the menu items in the live instance.
+
 - [x] **AH-111 — Verify Linux session warning delivery** (2026-11-02).
   Traced both context adapters and versioned IPC to the Linux resident and its
   shared warning and X11 card path; no Linux-specific integration gap was found.

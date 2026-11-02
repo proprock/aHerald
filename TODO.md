@@ -183,18 +183,6 @@ shared already. Verify their Linux integration and reuse them rather than creati
 parallel implementations. The tasks below cover behavior and acceptance; existing
 shared development-profile and artwork performance changes need no separate port.
 
-- [ ] **AH-112 — Add Linux tray warning switches.**
-  Add separate Context warnings and Idle warnings switches with the Windows
-  runtime semantics: each controls both agents, does not change saved thresholds
-  or enabled flags, and resets on resident restart. Reuse shared warning controls
-  and keep tray check states synchronized with resident state.
-  Acceptance: tests exercise both switches independently, pending and queued
-  warnings, pause/resume and restart; verify the menu and actions on a Linux
-  StatusNotifierItem host. Depends on AH-111.
-  2026-11-02: implemented and exercised the menu and actions over D-Bus with
-  the GNOME StatusNotifierWatcher; visual menu presentation still needs a
-  desktop check before acceptance.
-
 - [ ] **AH-113 — Add Apply and Apply + Test to the Linux tray.**
   Validate the saved configuration before restarting the resident. On invalid
   configuration, report the error and keep the current resident serving with its
