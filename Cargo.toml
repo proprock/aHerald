@@ -18,6 +18,10 @@ name = "generate_assets"
 path = "generate_assets.rs"
 
 [[example]]
+name = "generate_app_icon"
+path = "generate_app_icon.rs"
+
+[[example]]
 name = "session_warning_bridge"
 path = "tests/live/fixtures/session_warning_bridge.rs"
 
@@ -68,3 +72,6 @@ debug = false
 lto = true
 codegen-units = 1
 strip = true
+
+[build-dependencies]
+embed-resource = "3.0.12"

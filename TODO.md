@@ -200,10 +200,12 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
 
 ## Milestone 5 — Polish and portable release
 
-- [ ] **AH-105 — Create an application icon, at least for Windows.** Design and
+- [x] **AH-105 — Create an application icon, at least for Windows.** Design and
   add an aHerald application icon, with Windows as the minimum supported platform.
   Acceptance: the built Windows executable displays the icon correctly in Explorer
-  at common icon sizes and display scales.
+  at common icon sizes and display scales. Implementation and verification:
+  [Windows application icon](docs/app-icon.md). Completed 2026-11-01: embedded
+  multi-size resource, native release-EXE loading tests and Explorer screenshots accepted.
 
 - [ ] **AH-106 — Optional context and five-hour quota indicators in notifications.**
   Discuss and agree on the design before implementation: optionally show context
