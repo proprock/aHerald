@@ -1,4 +1,5 @@
-use std::process::Command;
+mod support;
+use std::{process::Command, time::Duration};
 
 #[test]
 fn configured_input_monitoring_reports_unsupported_without_blocking_delivery() {
@@ -8,11 +9,13 @@ fn configured_input_monitoring_reports_unsupported_without_blocking_delivery() {
         "[codex]\ninput_monitoring=true\n[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--event", "turn_complete", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
+    let output = support::run_bounded(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--event", "turn_complete", "--config"])
+            .arg(&path),
+        Duration::from_secs(20),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     std::fs::remove_file(path).unwrap();
     assert!(output.status.success());
     assert!(output.stdout.is_empty());

@@ -1,15 +1,32 @@
 //! Off Windows the binary builds and parses input, but the notification service is a
 //! stand-in until the Unix implementations land. It must say so instead of crashing.
 #![cfg(not(windows))]
-use std::process::{Command, Stdio};
+mod support;
+use std::{
+    process::{Command, Stdio},
+    time::Duration,
+};
 
+/// Runs with a private runtime directory, so a resident of the real user is never reached.
 fn run(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(args)
-        .args(["--config", "tests/fixtures/quiet.toml"])
-        .stdin(Stdio::null())
-        .output()
-        .unwrap()
+    let runtime = std::env::temp_dir().join(format!(
+        "ah-unsupported-{}-{}",
+        std::process::id(),
+        args.join("_").replace('-', "")
+    ));
+    let _ = std::fs::remove_dir_all(&runtime);
+    std::fs::create_dir_all(&runtime).unwrap();
+    let output = support::run_bounded(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(args)
+            .args(["--config", "tests/fixtures/quiet.toml"])
+            .env("XDG_RUNTIME_DIR", &runtime)
+            .stdin(Stdio::null()),
+        Duration::from_secs(20),
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let _ = std::fs::remove_dir_all(&runtime);
+    output
 }
 
 #[test]
