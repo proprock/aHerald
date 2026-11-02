@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise console setup in a private pseudo-terminal and private user files."""
+import json
 import os
 from pathlib import Path
 import pty
@@ -42,6 +43,34 @@ def dialog(executable, environment, answers):
         os.close(master)
 
 
+def prompts(codex, claude):
+    """The prompts a run shows: warning questions only for a selected agent."""
+    names = ["Configure Codex hooks?", "Configure Claude Code hooks?",
+             "Enable Codex usage monitoring?", "Enable Claude usage monitoring?"]
+    if codex:
+        names += ["Enable Codex context warning?", "Enable Codex idle warning?"]
+    if claude:
+        names += ["Enable Claude context warning?", "Enable Claude idle warning?"]
+    return names + ["Apply these changes?"]
+
+
+def run(exe, env, harnesses, answers, apply=True):
+    """Answer hooks, usage and the selected agents' warnings; then apply or decline."""
+    codex, claude = harnesses
+    names = prompts(codex, claude)
+    assert len(answers) == len(names) - 1, (answers, names)
+    steps = list(zip(names, answers + ["y" if apply else "n"]))
+    if apply:
+        steps.append(("Launch aHerald now?", "n"))
+    dialog(exe, env, steps)
+
+
+def settings(exe, env):
+    out = subprocess.run([str(exe), "--setup-settings"], env=env, check=True,
+                         capture_output=True, text=True).stdout
+    return dict(line.split("=") for line in out.split())
+
+
 def main():
     binary = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="aherald-console-") as temp:
@@ -51,24 +80,62 @@ def main():
         env = os.environ.copy()
         env.update(HOME=str(root), CODEX_HOME=str(root / "codex"),
                    CLAUDE_CONFIG_DIR=str(root / "claude"))
-        questions = ["Configure Codex hooks?", "Configure Claude Code hooks?",
-                     "Enable Codex usage monitoring?", "Enable Claude usage monitoring?",
-                     "Apply these changes?"]
-        dialog(exe, env, list(zip(questions, ["y", "n", "n", "n", "n"])))
-        assert not (root / "codex/hooks.json").exists()
-        dialog(exe, env, list(zip(questions, ["y", "n", "n", "n", "y"])) +
-               [("Launch aHerald now?", "n")])
-        hook_file = root / "codex/hooks.json"
-        assert hook_file.exists()
-        first = hook_file.read_bytes()
-        # Empty answers retain the selected harness and usage values.
-        dialog(exe, env, list(zip(questions, ["", "", "", "", "y"])) +
-               [("Launch aHerald now?", "n")])
-        assert hook_file.read_bytes() == first
-        dialog(exe, env, list(zip(questions, ["n", "n", "n", "n", "y"])) +
-               [("Launch aHerald now?", "n")])
-        assert b'"hooks"' not in hook_file.read_bytes()
-        print("Console setup: preview, apply, repeat and deselection passed")
+        codex_hooks = root / "codex/hooks.json"
+        claude_file = root / "claude/settings.json"
+        config = root / "config.toml"
+
+        # Every optional feature starts off, and a declined preview changes nothing.
+        assert all(value == "false" for value in settings(exe, env).values())
+        run(exe, env, (True, False), ["y", "n", "", "", "", ""], apply=False)
+        assert not codex_hooks.exists() and not config.exists()
+
+        # Empty answers take the defaults: Codex hooks only, warnings off.
+        run(exe, env, (True, False), ["y", "n", "", "", "", ""])
+        assert codex_hooks.exists() and not claude_file.exists()
+        state = settings(exe, env)
+        assert state["codex_context"] == state["codex_idle"] == "false", state
+
+        # Both agents, with a status line of the user's own that must stay in use.
+        claude_file.parent.mkdir(parents=True)
+        original = {"theme": "dark", "statusLine": {
+            "type": "command", "command": "echo mine", "padding": 2}}
+        claude_file.write_text(json.dumps(original))
+        run(exe, env, (True, True), ["y", "y", "n", "n", "y", "y", "y", "n"])
+        state = settings(exe, env)
+        assert (state["codex_context"], state["codex_idle"], state["claude_context"],
+                state["claude_idle"]) == ("true", "true", "true", "false"), state
+        wrapped = json.loads(claude_file.read_text())["statusLine"]
+        assert "--statusline --then 'echo mine'" in wrapped["command"], wrapped
+        assert wrapped["padding"] == 2
+        text = config.read_text()
+        assert "250k" in text and "400k" in text, text
+
+        # Empty answers keep every choice, byte for byte.
+        files = [codex_hooks, claude_file, config]
+        before = [file.read_bytes() for file in files]
+        run(exe, env, (True, True), [""] * 8)
+        assert [file.read_bytes() for file in files] == before
+
+        # Turning the Claude context warning off restores the user's status line and keeps the
+        # threshold they can turn back on.
+        run(exe, env, (True, True), ["", "", "", "", "", "", "n", ""])
+        restored = json.loads(claude_file.read_text())
+        assert restored["statusLine"] == original["statusLine"], restored
+        assert restored["theme"] == "dark" and "hooks" in restored
+        assert settings(exe, env)["claude_context"] == "false"
+        assert "400k" in config.read_text()
+
+        # Deselecting Claude asks nothing about it and leaves its settings alone.
+        kept = config.read_bytes()
+        run(exe, env, (True, False), ["", "n", "", "", "", ""])
+        assert config.read_bytes() == kept
+        assert b"aherald" not in claude_file.read_bytes()
+
+        # Deselecting everything removes the hooks.
+        run(exe, env, (False, False), ["n", "n", "n", "n"])
+        assert b'"hooks"' not in codex_hooks.read_bytes()
+        print("Console setup: preview, defaults, warnings, statusLine wrap/restore, "
+              "repeat and deselection passed")
 
 
 if __name__ == "__main__":

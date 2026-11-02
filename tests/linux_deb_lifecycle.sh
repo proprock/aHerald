@@ -37,14 +37,32 @@ test -L "$root/usr/bin/aherald"
 mkdir -p "$root/usr/lib/x86_64-linux-gnu"
 mount --bind /usr/lib/x86_64-linux-gnu "$root/usr/lib/x86_64-linux-gnu"
 mount -o remount,bind,ro "$root/usr/lib/x86_64-linux-gnu"
-app --setup --harness codex --harness claude --codex-usage true --apply
+app --setup --harness codex --harness claude --codex-usage true --claude-context true --codex-context true --apply
 TASK_USER_HOME=/home/second app --setup --harness codex --apply
+# A second user's own status line is wrapped and restored exactly (the test root has no sh, so
+# running the wrapped command is left to tests/statusline.rs).
+mkdir -p "$root/home/second/claude"
+printf '%s' '{"statusLine":{"type":"command","command":"echo mine"}}' > "$root/home/second/claude/settings.json"
+TASK_USER_HOME=/home/second app --setup --harness codex --harness claude --claude-context true --apply
+grep -q "/usr/lib/aherald/aherald' --statusline --then 'echo mine'" "$root/home/second/claude/settings.json"
 test -f "$root/home/second/data/aherald/aherald-setup.json"
 receipt="$root/home/test/data/aherald/aherald-setup.json"
+receipt_config="$root/home/test/config/aherald/config.toml"
 test -f "$receipt"
-test -f "$root/home/test/config/aherald/config.toml"
+test -f "$receipt_config"
 test -f "$root/home/second/codex/hooks.json"
 grep -q '/usr/lib/aherald/aherald' "$root/home/second/codex/hooks.json"
+# Context warnings: thresholds are set and the packaged wrapper replaces no user line.
+grep -q "'/usr/lib/aherald/aherald' --statusline\"" "$root/home/test/claude/settings.json"
+grep -q 400k "$receipt_config" && grep -q 250k "$receipt_config"
+# A configured format is printed by the packaged wrapper; without a configuration nothing is
+# printed and nothing is created.
+sed -i 's/^format = ""$/format = "{model.display_name}"/; s/^color = true$/color = false/' "$receipt_config"
+grep -q '^format = "{model.display_name}"$' "$receipt_config"
+payload='{"session_id":"s","model":{"display_name":"Opus"}}'
+test "$(printf '%s' "$payload" | app --statusline)" = Opus
+test -z "$(printf '%s' "$payload" | TASK_USER_HOME=/home/nobody app --statusline)"
+test ! -e "$root/home/nobody/config"
 cp "$root/home/test/claude/settings.json" "$root/claude.valid"
 cp "$root/home/test/codex/hooks.json" "$root/codex.before"
 printf '{invalid' > "$root/home/test/claude/settings.json"
@@ -53,13 +71,20 @@ cmp "$root/codex.before" "$root/home/test/codex/hooks.json"
 test -f "$receipt"
 cp "$root/claude.valid" "$root/home/test/claude/settings.json"
 dpkg_test --install "$TASK_DEB_FILE"
+# An upgrade keeps the wrapper and the thresholds.
+grep -q -- '--statusline' "$root/home/test/claude/settings.json"
+grep -q 400k "$receipt_config"
 CODEX_HOME_TEST=/home/test/other app --unsetup --apply
 test ! -e "$root/home/test/other/hooks.json"
+! grep -q -- '--statusline' "$root/home/test/claude/settings.json"
+TASK_USER_HOME=/home/second app --unsetup --apply
+grep -q '"command": *"echo mine"' "$root/home/second/claude/settings.json"
+! grep -q -- '--statusline' "$root/home/second/claude/settings.json"
 mkdir -p "$root/home/test/data/aherald/assets"
 printf 'custom pet' > "$root/home/test/data/aherald/assets/pet.txt"
 dpkg_test --purge aherald
 test ! -e "$root/usr/lib/aherald/aherald"
 test "$(cat "$root/home/test/data/aherald/assets/pet.txt")" = 'custom pet'
 test -f "$receipt"
-test -f "$root/home/test/config/aherald/config.toml"
+test -f "$receipt_config"
 echo 'Isolated dpkg install, upgrade, cleanup failure, cleanup and purge passed'

@@ -327,6 +327,22 @@ fn console_setup() -> Result<(), String> {
     );
     let codex_usage = choice("Enable Codex usage monitoring?", enabled("codex_usage"))?;
     let claude_usage = choice("Enable Claude usage monitoring?", enabled("claude_usage"))?;
+    // Warning choices apply to a selected agent only; an unselected agent keeps its settings.
+    println!(
+        "Session warnings are optional. A context warning needs a resident and, for Claude Code, the statusLine wrapper: an existing status line is kept and still shown, and without one Claude shows the [claude.statusline] format (empty by default). Existing thresholds are preserved."
+    );
+    let warning = |selected: bool, agent: &str, key: &str| -> Result<Option<bool>, String> {
+        if !selected {
+            return Ok(None);
+        }
+        let default = enabled(&format!("{}_{key}", agent.to_ascii_lowercase()));
+        let name = if key == "context" { "context" } else { "idle" };
+        choice(&format!("Enable {agent} {name} warning?"), default).map(Some)
+    };
+    let codex_context = warning(codex, "Codex", "context")?;
+    let codex_idle = warning(codex, "Codex", "idle")?;
+    let claude_context = warning(claude, "Claude", "context")?;
+    let claude_idle = warning(claude, "Claude", "idle")?;
     let harnesses = [
         (codex, aherald::agent::Agent::Codex),
         (claude, aherald::agent::Agent::Claude),
@@ -337,6 +353,10 @@ fn console_setup() -> Result<(), String> {
     let options = aherald::setup::UsageOptions {
         codex: Some(codex_usage),
         claude: Some(claude_usage),
+        codex_context,
+        claude_context,
+        codex_idle,
+        claude_idle,
         ..Default::default()
     };
     let remove = harnesses.is_empty();

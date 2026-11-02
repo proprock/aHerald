@@ -228,9 +228,10 @@ transient_names = false
 hooks_enabled = true
 
 [claude.warnings]
-# Installer switches preserve thresholds when disabled. Both flags default to true.
+# Setup and the installer switch these on and off and keep the thresholds. A new configuration
+# starts with both warnings off; the context warning also needs context_tokens.
 context_enabled = true
-idle_enabled = true
+idle_enabled = false
 # Optional input-context threshold: positive tokens (120000 or "120000") or "120k".
 # k = 1000. Omitted means off. Requires Claude Code's statusLine wrapper and a resident.
 # context_tokens = "400k"
@@ -240,7 +241,7 @@ idle_minutes = 55
 
 [codex.warnings]
 context_enabled = true
-idle_enabled = true
+idle_enabled = false
 # Same idle reminder, independently configured; default 25 minutes. Zero disables it.
 # Requires the updated activity hooks.
 idle_minutes = 25

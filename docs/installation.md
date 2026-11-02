@@ -147,9 +147,12 @@ aherald --console-setup
 ```
 
 Run console setup as the desktop user, without sudo. It previews the selected
-Codex and Claude hooks and usage settings, then asks before applying them. Each
-user configures their own hooks. New harness and usage selections start off;
-later runs read the saved selections and configuration. Claude usage's `auto`
+Codex and Claude hooks, usage settings and, for each selected agent, the context and
+idle warnings, then asks before applying them. Each user configures their own hooks.
+Every choice starts off on a first setup; later runs read the saved selections and
+configuration, and an agent you deselect keeps its settings. Enabling the Claude context
+warning wraps your existing status line (it is still shown and restored on removal); without
+one, Claude shows the `[claude.statusline] format` text, empty by default. Claude usage's `auto`
 source tries the login token, then the last statusLine report; existing source
 settings are preserved. The optional launch starts a
 resident for the current session; no autostart is installed. Start a new Codex

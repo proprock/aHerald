@@ -875,7 +875,7 @@ fn installer_reads_usage_defaults_without_creating_config() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=true\nclaude_idle=true"
+        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
     );
     assert!(!app.root.join("config.toml").exists());
 }
@@ -1106,4 +1106,46 @@ fn a_status_line_format_keeps_and_wraps_the_users_own_command() {
     assert!(command.contains("--then 'echo mine'"), "{command}");
     app.ok(&["--unsetup", "--apply"]);
     assert_eq!(app.read("claude")["statusLine"], original["statusLine"]);
+}
+
+/// Failure is injected without file permissions, which root ignores (the `.deb` lifecycle test
+/// runs as root in a user namespace): the receipt is written last and first copied to
+/// `*.aherald-backup`, so a directory at that name makes only that last write fail.
+#[cfg(unix)]
+#[test]
+fn a_failed_receipt_write_restores_hooks_config_and_the_users_status_line() {
+    let app = Install::new("rollback-unix");
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    let own = json!({"statusLine":{"type":"command","command":"echo mine","padding":1}});
+    std::fs::write(app.file("claude"), own.to_string()).unwrap();
+    app.ok(&["--setup", "--harness", "claude", "--apply"]);
+    let config_path = app.root.join("config.toml");
+    let config_before = "# preserve on transaction rollback\n[codex.usage]\nenabled = false\n";
+    std::fs::write(&config_path, config_before).unwrap();
+    let before = std::fs::read(app.file("claude")).unwrap();
+    let receipt = app.root.join("aherald-setup.json");
+    let state = std::fs::read(&receipt).unwrap();
+    std::fs::create_dir(app.root.join("aherald-setup.json.aherald-backup")).unwrap();
+    let out = app.run(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--harness",
+        "codex",
+        "--codex-usage",
+        "true",
+        "--claude-context",
+        "true",
+        "--apply",
+    ]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("earlier writes were restored"));
+    assert_eq!(std::fs::read(app.file("claude")).unwrap(), before);
+    assert_eq!(app.read("claude")["statusLine"], own["statusLine"]);
+    assert_eq!(std::fs::read(&receipt).unwrap(), state);
+    assert_eq!(
+        std::fs::read_to_string(&config_path).unwrap(),
+        config_before
+    );
+    assert!(!app.file("codex").exists());
 }

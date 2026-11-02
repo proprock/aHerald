@@ -213,8 +213,11 @@ shared development-profile and artwork performance changes need no separate port
   considered and deferred (docs/statusline-performance.md). Added `[claude.statusline] format`
   (src/statusline_format.rs): printed only when the user has no `--then` command, config read
   only on that path, never created. Setup installs the wrapper for a context threshold or a
-  format. Console prompts for the four warning choices, the Linux rollback test and the `.deb`
-  lifecycle assertions remain open.
+  format. Console setup now asks the four context/idle questions for each selected agent
+  (defaults off on a first setup on every OS: the shipped example has `idle_enabled = false`),
+  `tests/console_setup_linux.py` covers first setup, wrap/restore, repeat and deselection,
+  `tests/setup.rs` has a root-safe Linux rollback test, and `tests/linux_deb_lifecycle.sh`
+  asserts thresholds, wrapper, upgrade and restoration. Live-session acceptance stays AH-115.
   2026-11-02: the status line shares the tray menu's text pieces (`usage_service::window_text`,
   `percent_text`, `countdown`) and the icon's colour thresholds (`tray_usage::level_rgb`);
   `{context_window}`, `{rate_limits.five_hour}` and `{rate_limits.seven_day}` render as
