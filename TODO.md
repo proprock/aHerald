@@ -324,31 +324,6 @@ shared development-profile and artwork performance changes need no separate port
   suppression remains blocked on a supported observable source; preserve current
   notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
 
-- [ ] **AH-098 — Suppress notifications for the active originating session.** Add two
-  independent configuration options, both enabled by default: suppress notification
-  windows when the originating window is focused, and suppress sounds in the same case.
-  Each option controls only its own output; disabling it preserves that output even when
-  the originating window is focused. For a desktop agent with multiple sessions, suppress
-  only when the event belongs to the active session in the focused window: an event from
-  another session must still notify. Establish reliable window and session identification
-  for each supported platform and agent; if either cannot be determined, deliver the
-  notification rather than suppress it. Preserve hook responses and event lifecycle
-  handling. Acceptance: automated tests cover both options, their defaults and independent
-  combinations, focused/unfocused windows, same/different/unknown desktop sessions and
-  unknown focus; verify the behavior in a real terminal and a desktop session.
-  Agreed: a card suppressed on arrival must not appear later after focus changes;
-  preserve lifecycle and deduplication state. Implementation and automated checks
-  are on `feature/ah-098-active-session`. On 2026-11-02, after updating the installed
-  resident from 0.5.0 to this branch's 0.9.0-beta build, the user confirmed real
-  Claude and Codex delivery from another Windows Terminal tab: card, sound and
-  preserved focus. Independent card-only/sound-only acceptance needs rechecking
-  on the updated build; the earlier daily-use report preceded discovery that
-  the installed version did not support these settings.
-  Current positive identification covers Claude hooks in a classic Windows console.
-  Codex, desktop multi-session apps, tabbed terminals, macOS and Linux deliver
-  fail-open until reliable active-session identity is available. See
-  [coverage and acceptance evidence](docs/active-session.md).
-
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
   Keep overlays in the work area and handle monitor removal, negative desktop

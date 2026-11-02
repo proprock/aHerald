@@ -3,6 +3,21 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-098 — Suppress notifications for the active originating session** (2026-11-02).
+  Added independent card and sound suppression, both enabled by default, requiring
+  positive originating-window and active-session evidence. Admission freezes the
+  decision; hidden entries retain lifecycle/deduplication state, never reappear on
+  focus changes, and do not block visible events. Automated tests cover independent
+  options, known/unknown focus and session identity, queue isolation and expiration.
+  After upgrading the installed resident to this branch's 0.9.0-beta build, the user
+  confirmed combined and independent suppression for Claude in a focused classic
+  Windows console. Real Claude and Codex completion events from another Windows
+  Terminal tab produced cards and sounds without focus theft; routine terminal/Desktop
+  completion and permission delivery was also user-confirmed. Positive suppression
+  remains limited to Claude in a classic Windows console. Codex, Desktop, tabbed
+  terminals, macOS and Linux retain delivery when active-session identity is unknown;
+  no macOS/Linux execution is claimed by this acceptance. See docs/active-session.md.
+
 - [x] **AH-113 — Add Apply and Apply + Test to the Linux tray** (2026-11-02).
   Added validated resident replacement and the shared seven-format preview, aligned
   the tray menu with Windows, and sized warning cards for their measured text.

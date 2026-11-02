@@ -138,12 +138,21 @@ card, audible sound and preserved focus. This is user-observed real-hook
 fail-open delivery when active-tab identity is unknown, not a selected-tab
 identification result. Agent versions were not recorded in this follow-up.
 
-The earlier report that independent output combinations work in daily use
-predates discovery of the unsupported installed version. It does not establish
-those new settings on this build. Recheck card-only and sound-only behavior in
-a focused classic Windows console with Claude before closing AH-098. Fully
-missing origin is covered by automated tests; the live tabbed-host case above
-provides unknown-session evidence.
+The earlier daily-use report predated discovery of the unsupported installed
+version. The user subsequently repeated the focused classic-console check on
+the updated build and explicitly confirmed that card and sound suppression work
+both together and independently. This is user-reported manual evidence; no new
+automated capture of those observations is claimed. Fully missing origin is
+covered by automated tests; the live tabbed-host case above provides
+unknown-session evidence.
+
+AH-098 is complete on 2026-11-02 with the identification coverage documented
+above. The combined and independent output checks, prior focused/unfocused
+observations and no-deferred-card check, real terminal/Desktop delivery report,
+and two-agent tabbed-terminal acceptance complete the manual evidence. The
+pre-PR Windows checks passed: formatting, Clippy, 538 tests (17 ignored), release
+build and native release-icon loading. macOS/Linux execution and separate live
+interruption/input-request/failure adapter events were not newly verified.
 
 ## Initial manual attempt and repeatable checks
 
