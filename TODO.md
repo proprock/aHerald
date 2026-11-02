@@ -191,6 +191,9 @@ shared development-profile and artwork performance changes need no separate port
   Acceptance: tests exercise both switches independently, pending and queued
   warnings, pause/resume and restart; verify the menu and actions on a Linux
   StatusNotifierItem host. Depends on AH-111.
+  2026-11-02: implemented and exercised the menu and actions over D-Bus with
+  the GNOME StatusNotifierWatcher; visual menu presentation still needs a
+  desktop check before acceptance.
 
 - [ ] **AH-113 — Add Apply and Apply + Test to the Linux tray.**
   Validate the saved configuration before restarting the resident. On invalid

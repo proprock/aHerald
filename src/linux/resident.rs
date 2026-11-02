@@ -34,6 +34,12 @@ struct Shared {
     sounds: bool,
     visuals: bool,
 }
+impl Shared {
+    fn toggle_warning(&mut self, kind: crate::events::Kind) {
+        let enabled = !self.warnings.enabled(kind);
+        self.warnings.set_enabled(kind, enabled);
+    }
+}
 impl crate::resident_request::Controls for Shared {
     fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
         &mut self.warnings
@@ -352,7 +358,11 @@ fn present(
                             }
                         });
                     }
-                    Command::Sound | Command::Visual | Command::Pause => {
+                    Command::Sound
+                    | Command::Visual
+                    | Command::Pause
+                    | Command::ContextWarnings
+                    | Command::IdleWarnings => {
                         let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
                         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
                         let paused = guard.paused;
@@ -361,6 +371,14 @@ fn present(
                             Command::Sound => guard.sounds = !guard.sounds,
                             Command::Visual => guard.visuals = !guard.visuals,
                             Command::Pause => guard.paused = !guard.paused,
+                            Command::ContextWarnings | Command::IdleWarnings => {
+                                let kind = if command == Command::ContextWarnings {
+                                    crate::events::Kind::ContextWarning
+                                } else {
+                                    crate::events::Kind::IdleWarning
+                                };
+                                guard.toggle_warning(kind);
+                            }
                             _ => unreachable!(),
                         }
                         if !guard.sounds || guard.paused {
@@ -368,7 +386,13 @@ fn present(
                         } else if audio_cancel.load(Ordering::Acquire) {
                             audio_cancel = Arc::new(AtomicBool::new(false));
                         }
-                        tray.set_state(guard.sounds, guard.visuals, guard.paused);
+                        tray.set_state(
+                            guard.sounds,
+                            guard.visuals,
+                            guard.paused,
+                            guard.warnings.enabled(crate::events::Kind::ContextWarning),
+                            guard.warnings.enabled(crate::events::Kind::IdleWarning),
+                        );
                         presenter.invalidate();
                     }
                 }
@@ -704,6 +728,54 @@ fn present(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warning_switches_keep_queued_cards_clear_pending_and_reset_on_restart() {
+        use crate::{
+            agent::Agent,
+            events::{Kind, Source},
+        };
+        let config = Config::parse("[codex.warnings]\ncontext_tokens=1\nidle_minutes=1\n[claude.warnings]\ncontext_tokens=1\nidle_minutes=1", Path::new(".")).unwrap();
+        let state = shared(&config);
+        let mut state = state.lock().unwrap();
+        let queued = state
+            .warnings
+            .context(Agent::Codex, "queued", Some(2), &config)
+            .unwrap();
+        state.queue.push(queued.clone(), 0, 0);
+        state.warnings.admission(&queued, true);
+        state
+            .warnings
+            .context(Agent::Claude, "pending", Some(2), &config)
+            .unwrap();
+        state.toggle_warning(Kind::ContextWarning);
+        assert!(state.warnings.pending().is_empty());
+        assert_eq!(state.queue.items().len(), 1);
+        assert!(state.warnings.enabled(Kind::IdleWarning));
+        let mut stop = Event::demo("turn_complete").unwrap();
+        stop.source = Source::CodexHook;
+        stop.session_id = Some("idle".into());
+        state.warnings.observe(&stop, &config, 0);
+        state.paused = true;
+        crate::resident_request::tick(&mut *state, &config, 60_001);
+        assert_eq!(state.queue.items().len(), 1);
+        state.toggle_warning(Kind::IdleWarning);
+        state.paused = false;
+        crate::resident_request::tick(&mut *state, &config, 120_000);
+        assert_eq!(state.queue.items().len(), 1);
+        state.toggle_warning(Kind::ContextWarning);
+        assert!(state.warnings.enabled(Kind::ContextWarning));
+        assert!(!state.warnings.enabled(Kind::IdleWarning));
+        let restarted = shared(&config);
+        let restarted = restarted.lock().unwrap();
+        assert!(restarted.warnings.enabled(Kind::ContextWarning));
+        assert!(restarted.warnings.enabled(Kind::IdleWarning));
+        assert_eq!(
+            config.codex.warnings.context_tokens,
+            Some(crate::config::TokenThreshold(1))
+        );
+        assert_eq!(config.claude.warnings.idle_minutes, Some(1));
+    }
 
     #[test]
     fn linux_warning_reports_cross_and_rearm_independently() {
