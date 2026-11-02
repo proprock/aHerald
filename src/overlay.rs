@@ -1513,8 +1513,17 @@ mod card_tests {
             };
             let before_memory = memory();
             let before_threads = threads();
-            for _ in 0..200 {
+            eprintln!("resource cycle baseline: private_commit={before_memory}");
+            for cycle_index in 0..200 {
                 cycle();
+                if (cycle_index + 1) % 25 == 0 {
+                    let _ = GdiFlush();
+                    eprintln!(
+                        "resource cycle {}: private_commit={}",
+                        cycle_index + 1,
+                        memory()
+                    );
+                }
             }
             let _ = GdiFlush();
             assert_eq!(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), before);
@@ -1522,9 +1531,10 @@ mod card_tests {
             GetProcessHandleCount(GetCurrentProcess(), &mut after).unwrap();
             assert_eq!(after, handles);
             assert_eq!(threads(), before_threads);
+            let after_memory = memory();
             assert!(
-                memory() <= before_memory + 8 * 1024 * 1024,
-                "repeated rendering grew private commit by more than 8 MiB"
+                after_memory <= before_memory + 8 * 1024 * 1024,
+                "repeated rendering grew private commit by more than 8 MiB: before={before_memory}, after={after_memory}"
             );
         }
     }
