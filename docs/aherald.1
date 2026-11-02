@@ -1,0 +1,31 @@
+.TH AHERALD 1
+.SH NAME
+aherald \- desktop notifications for coding agents
+.SH SYNOPSIS
+.B aherald
+.RI [ options ]
+.SH DESCRIPTION
+aHerald delivers notifications for configured coding agents.
+.SH OPTIONS
+.TP
+.B --console-setup
+Interactively select user hook integrations and usage settings.
+.TP
+.B --resident
+Start the notification service for the current user.
+.TP
+.B --status
+Show the current resident status.
+.TP
+.B --quit
+Request a graceful resident shutdown.
+.TP
+.B --unsetup
+Preview removal of this installation's saved user hook bindings.
+Add \fB--apply\fR to perform the removal.
+.TP
+.B --help
+List all options.
+.SH FILES
+The system package uses XDG user configuration, data and state directories.
+See /usr/share/doc/aherald/installation.md for setup and removal details.

@@ -101,8 +101,8 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Provide native user-context selection of Codex, Claude Code, both or neither;
   start unchecked on first setup, retain the selection on upgrade, and delegate
   changes to `--setup` / `--unsetup` with explicit `--apply`.
-  Match Windows graceful shutdown before updates/removal: verify the owned app
-  path, wait for process exit, and abort if graceful shutdown fails.
+  Do not block package updates/removal on resident shutdown. Check old-resident
+  and new-client IPC compatibility; document when users must restart residents.
   Match Windows usage selection and launch-after-install behavior: read current
   values on upgrades, keep new usage off, explain Claude auto, preserve configured
   sources and unrelated formatting, and include changes in setup rollback.
@@ -144,12 +144,12 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   add autostart. Reuse dry run, preflight, backups, rollback, idempotence, saved
   file paths and exact binding ownership. Preserve foreign hooks, configuration,
   customized assets, logs and backups across updates/removal.
-  Agree on system package versus per-user writable data/receipt ownership before
-  implementation. Package scripts must never write root's or another user's
-  hooks. Define user-context hook cleanup before binary removal for package
-  workflows, including multiple desktop users, apt removal, cleanup failures,
-  repair, and an active resident; do not silently leave broken hook bindings or
-  execute user hook commands as root.
+  The system package owns its executable and built-in resources. Use XDG config,
+  data and state directories for each user's config, receipt, assets and logs;
+  preserve user files even on purge and keep portable layout unchanged. Package
+  scripts must not modify user homes or hooks. Document that each user should run
+  --unsetup --apply before removal; removal remains noninteractive and may leave
+  stale hooks, recoverable by reinstalling and running cleanup as that user.
   Extend Linux release CI with the package and checksum alongside the portable
   archive; add isolated native lifecycle checks for install, repeated setup,
   selection changes, malformed configuration, failed writes, upgrade, cleanup
@@ -160,6 +160,14 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   harness versions; document required system packages, repair and removal.
   See docs/installation.md; warning setup controls are tracked in AH-114 and
   overlay Xorg/multi-monitor acceptance remains AH-093.
+  Partial 2026-11-02: package construction, XDG paths and console setup have
+  isolated tests. A private dpkg root exercises install, same-version upgrade,
+  user cleanup and purge with dependency checks forced; an Xvfb/D-Bus probe
+  verified new-client IPC against an older resident. On Ubuntu 22.04.5, lintian
+  reported no findings and apt-get -s resolved the local package on this host
+  (with a warning about an unreadable third-party sources file). Clean Ubuntu apt/graphical
+  installation, real hook delivery/dismissal and update/removal remain to be
+  accepted; the isolated tests do not establish those results.
 
 - [ ] **AH-104 — Optional live harness checks on macOS and Linux.**
   Extend the optional group in tests/live/README.md with native macOS/Linux

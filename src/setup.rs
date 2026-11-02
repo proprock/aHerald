@@ -63,7 +63,9 @@ impl UsageOptions {
 fn settings_file(exe: &Path, selected: Option<&Path>) -> Result<PathBuf, String> {
     let file = match selected {
         Some(file) => file.to_path_buf(),
-        None => crate::paths::data_dir_with(exe, |key| std::env::var_os(key))?.join("config.toml"),
+        None => {
+            crate::paths::config_dir_with(exe, |key| std::env::var_os(key))?.join("config.toml")
+        }
     };
     if !file.is_absolute() {
         return Err("settings file must be an absolute path".into());
@@ -96,6 +98,30 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         config.codex.warnings.idle_threshold().is_some(),
         config.claude.warnings.idle_threshold().is_some()
     ))
+}
+
+/// Read the receipt without changing it, for an interactive setup's defaults.
+pub fn selected_harnesses(exe: &Path) -> Result<Vec<Agent>, String> {
+    let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
+    let Some(text) = read(&file)? else {
+        return Ok(Vec::new());
+    };
+    let receipt: Receipt = serde_json::from_str(&text)
+        .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?;
+    if receipt.version != 1 || receipt.executable != exe {
+        return Err(
+            "setup receipt belongs to another installation or has an unsupported version".into(),
+        );
+    }
+    receipt
+        .bindings
+        .iter()
+        .map(|binding| {
+            Agent::from_name(&binding.agent)
+                .ok_or_else(|| "unsupported harness in setup receipt".to_owned())
+        })
+        .collect()
 }
 
 fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, String> {
@@ -540,8 +566,8 @@ pub fn run_with_options(
     if !exe.is_absolute() {
         return Err("setup executable path must be absolute".into());
     }
-    let receipt_file =
-        crate::paths::data_dir_with(exe, |key| std::env::var_os(key))?.join("aherald-setup.json");
+    let receipt_file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
     let receipt_before = read(&receipt_file)?;
     let previous: Receipt = match receipt_before.as_deref() {
         Some(text) => serde_json::from_str(text)

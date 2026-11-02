@@ -568,7 +568,7 @@ impl Config {
     pub fn default_path() -> Result<PathBuf, String> {
         let executable =
             std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
-        crate::paths::data_dir_with(&executable, |name| std::env::var_os(name))
+        crate::paths::config_dir_with(&executable, |name| std::env::var_os(name))
             .map(|directory| directory.join("config.toml"))
     }
     pub fn parse(text: &str, directory: &Path) -> Result<Self, String> {
@@ -649,10 +649,16 @@ impl Config {
         }
         let absolute =
             std::path::absolute(path).map_err(|_| "cannot resolve configuration path")?;
-        Self::parse(
+        let mut config = Self::parse(
             &text,
             absolute.parent().ok_or("configuration has no directory")?,
-        )
+        )?;
+        let executable = std::env::current_exe().map_err(|_| "cannot locate executable")?;
+        config.diagnostic_directory =
+            crate::paths::diagnostic_dir_with(&executable, &absolute, |name| {
+                std::env::var_os(name)
+            })?;
+        Ok(config)
     }
     fn validate(&self) -> Result<(), String> {
         for (agent, warnings) in [

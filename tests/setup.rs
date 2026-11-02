@@ -84,6 +84,98 @@ fn setup_previews_then_installs_only_selected_harness_and_is_idempotent() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn system_package_setup_uses_user_xdg_receipt_and_saved_hook_paths() {
+    let app = Install::new("system-xdg");
+    let home = app.root.join("home");
+    let config = app.root.join("xdg-config");
+    let data = app.root.join("xdg-data");
+    let run = |args: &[&str], codex: &str| {
+        Command::new(&app.exe)
+            .args(args)
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_STATE_HOME", app.root.join("xdg-state"))
+            .env("CODEX_HOME", app.root.join(codex))
+            .bounded_output()
+    };
+    let target = "/usr/lib/aherald/aherald";
+    let install = [
+        "--setup",
+        "--harness",
+        "codex",
+        "--codex-usage",
+        "true",
+        "--setup-executable",
+        target,
+        "--apply",
+    ];
+    let result = run(&install, "first");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(config.join("aherald/config.toml").exists());
+    assert!(data.join("aherald/aherald-setup.json").exists());
+    assert!(app.root.join("first/hooks.json").exists());
+    let result = run(
+        &["--unsetup", "--setup-executable", target, "--apply"],
+        "second",
+    );
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let hooks: Value =
+        serde_json::from_slice(&std::fs::read(app.root.join("first/hooks.json")).unwrap()).unwrap();
+    assert!(hooks.get("hooks").is_none());
+    assert!(!app.root.join("second/hooks.json").exists());
+    assert!(config.join("aherald/config.toml").exists());
+    assert!(data.join("aherald/aherald-setup.json").exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn system_package_cleanup_failure_keeps_receipt_and_other_hooks() {
+    let app = Install::new("system-cleanup-failure");
+    let target = "/usr/lib/aherald/aherald";
+    let data = app.root.join("data");
+    let run = |args: &[&str]| {
+        Command::new(&app.exe)
+            .args(args)
+            .env("HOME", &app.root)
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_CONFIG_HOME", app.root.join("config"))
+            .env("XDG_STATE_HOME", app.root.join("state"))
+            .env("CODEX_HOME", app.root.join("codex"))
+            .env("CLAUDE_CONFIG_DIR", app.root.join("claude"))
+            .bounded_output()
+    };
+    let result = run(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--harness",
+        "claude",
+        "--setup-executable",
+        target,
+        "--apply",
+    ]);
+    assert!(result.status.success());
+    let codex_before = std::fs::read(app.file("codex")).unwrap();
+    let receipt = data.join("aherald/aherald-setup.json");
+    let receipt_before = std::fs::read(&receipt).unwrap();
+    std::fs::write(app.file("claude"), "{invalid").unwrap();
+    let result = run(&["--unsetup", "--setup-executable", target, "--apply"]);
+    assert!(!result.status.success());
+    assert_eq!(std::fs::read(app.file("codex")).unwrap(), codex_before);
+    assert_eq!(std::fs::read(receipt).unwrap(), receipt_before);
+}
+
 #[test]
 fn malformed_second_harness_prevents_all_writes() {
     let app = Install::new("preflight");

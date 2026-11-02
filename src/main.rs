@@ -18,7 +18,13 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    aherald::operational_log::init(directory, aherald::config::LogLevel::Warn);
+    let package_directory = std::env::current_exe().ok().and_then(|exe| {
+        aherald::paths::diagnostic_dir_with(&exe, path, |name| std::env::var_os(name)).ok()
+    });
+    aherald::operational_log::init(
+        package_directory.as_deref().unwrap_or(directory),
+        aherald::config::LogLevel::Warn,
+    );
     aherald::operational_log::log(record);
 }
 
@@ -82,6 +88,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     if cli.operation.as_deref() == Some("version") {
         println!("{}", aherald::version_line());
         return Ok(());
+    }
+    if cli.operation.as_deref() == Some("console-setup") {
+        return console_setup();
     }
     if cli.operation.as_deref() == Some("setup-settings") {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
@@ -164,11 +173,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
     if cli.operation.as_deref() == Some("perf-report") {
-        let directory = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(std::path::Path::new("."));
-        print!("{}", aherald::perf_report::report(directory)?);
+        let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+        let directory =
+            aherald::paths::diagnostic_dir_with(&exe, &path, |key| std::env::var_os(key))?;
+        print!("{}", aherald::perf_report::report(&directory)?);
         return Ok(());
     }
     let scope = aherald::local::Scope::current("resident").inspect_err(|_| {
@@ -271,6 +279,89 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         &path,
         cli.selected_mode(&config),
     )
+}
+
+fn console_setup() -> Result<(), String> {
+    use std::io::{IsTerminal, Write};
+    if !cfg!(target_os = "linux") {
+        return Err("--console-setup is available on Linux only".into());
+    }
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err("--console-setup requires an interactive terminal".into());
+    }
+    fn choice(prompt: &str, default: bool) -> Result<bool, String> {
+        loop {
+            print!("{prompt} {} ", if default { "[Y/n]" } else { "[y/N]" });
+            std::io::stdout().flush().map_err(|e| e.to_string())?;
+            let mut line = String::new();
+            if std::io::stdin()
+                .read_line(&mut line)
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                return Err("setup cancelled: input closed".into());
+            }
+            match line.trim().to_ascii_lowercase().as_str() {
+                "" => return Ok(default),
+                "y" | "yes" => return Ok(true),
+                "n" | "no" => return Ok(false),
+                _ => eprintln!("Enter y or n."),
+            }
+        }
+    }
+    let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
+    let previous = aherald::setup::selected_harnesses(&exe)?;
+    let settings = aherald::setup::settings_state(&exe, None)?;
+    let enabled = |key: &str| settings.lines().any(|line| line == format!("{key}=true"));
+    println!("Select harness integrations. Existing user settings and assets are preserved.");
+    let codex = choice(
+        "Configure Codex hooks?",
+        previous.contains(&aherald::agent::Agent::Codex),
+    )?;
+    let claude = choice(
+        "Configure Claude Code hooks?",
+        previous.contains(&aherald::agent::Agent::Claude),
+    )?;
+    println!(
+        "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
+    );
+    let codex_usage = choice("Enable Codex usage monitoring?", enabled("codex_usage"))?;
+    let claude_usage = choice("Enable Claude usage monitoring?", enabled("claude_usage"))?;
+    let harnesses = [
+        (codex, aherald::agent::Agent::Codex),
+        (claude, aherald::agent::Agent::Claude),
+    ]
+    .into_iter()
+    .filter_map(|(selected, agent)| selected.then_some(agent))
+    .collect::<Vec<_>>();
+    let options = aherald::setup::UsageOptions {
+        codex: Some(codex_usage),
+        claude: Some(claude_usage),
+        ..Default::default()
+    };
+    let remove = harnesses.is_empty();
+    print!(
+        "{}",
+        aherald::setup::run_with_options(&exe, &harnesses, remove, false, &options)?
+    );
+    if !choice("Apply these changes?", false)? {
+        println!("No changes applied.");
+        return Ok(());
+    }
+    print!(
+        "{}",
+        aherald::setup::run_with_options(&exe, &harnesses, remove, true, &options)?
+    );
+    if choice("Launch aHerald now?", true)? {
+        std::process::Command::new(exe)
+            .arg("--resident")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("cannot launch aHerald: {e}"))?;
+    }
+    Ok(())
 }
 
 fn dispatch(
