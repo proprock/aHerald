@@ -96,6 +96,21 @@ fn toggle_about(queue: &mut Queue, now: u64) -> crate::queue::Outcome {
 }
 
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
+    run_after_apply(scope, config, path, false)
+}
+
+pub fn run_after_apply(
+    scope: Scope,
+    mut config: Config,
+    path: &Path,
+    test: bool,
+) -> Result<(), String> {
+    if test
+        && !config.agents.contains_key("demo")
+        && let Some(assets) = config.agents.get("codex").cloned()
+    {
+        config.agents.insert("demo".into(), assets);
+    }
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
@@ -170,6 +185,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
             stop.clone(),
             started,
             None,
+            test,
             Some(path),
         ),
         Err(e) => Err(e),
@@ -196,6 +212,7 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         Some(demo),
+        false,
         Some(path),
     )
 }
@@ -224,6 +241,7 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
         None,
+        false,
         None,
     )
 }
@@ -235,8 +253,11 @@ fn present(
     stop: Arc<AtomicBool>,
     start: Instant,
     mut demo: Option<crate::demo::Demo>,
+    test: bool,
     config_path: Option<&Path>,
 ) -> Result<(), String> {
+    let mut carousel = test.then(|| crate::demo::Carousel::new(&config));
+    let mut test_sound = None;
     let transient = config_path.is_none();
     let tray = config_path.map(|_| {
         super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false)
@@ -336,17 +357,22 @@ fn present(
                         }
                         presenter.invalidate();
                     }
-                    Command::Restart => {
+                    Command::Apply | Command::ApplyTest => {
                         if let Err(error) =
                             Config::load(config_path.expect("resident configuration path"), true)
                         {
-                            crate::notice::post("Restart cancelled: invalid configuration");
+                            crate::notice::post(&format!(
+                                "Apply cancelled; running configuration stays active. {error}"
+                            ));
                             eprintln!("aHerald: {error}");
                         } else {
                             let stop = stop.clone();
-                            std::thread::spawn(move || match crate::restart::launch() {
-                                Ok(()) => stop.store(true, Ordering::Release),
-                                Err(error) => eprintln!("aHerald: {error}"),
+                            let test = command == Command::ApplyTest;
+                            std::thread::spawn(move || {
+                                match crate::restart::launch_with_test(test) {
+                                    Ok(()) => stop.store(true, Ordering::Release),
+                                    Err(error) => eprintln!("aHerald: {error}"),
+                                }
                             });
                         }
                     }
@@ -408,6 +434,41 @@ fn present(
                     window_size,
                     &layout,
                 );
+                if let Some(cards) = &mut carousel {
+                    let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    let mut controls = Card::new("", cards.index(), cards.len(), false);
+                    controls.text_left = Some(layout.text_left);
+                    let action = match event.detail {
+                        4 => Some(crate::card::Action::Previous),
+                        5 => Some(crate::card::Action::Next),
+                        1 => controls
+                            .hit_test(layout.width, layout.height, layout.scale, point.0, point.1)
+                            .or_else(|| {
+                                controls
+                                    .body_hit_test(
+                                        layout.width,
+                                        layout.height,
+                                        layout.scale,
+                                        point.0,
+                                        point.1,
+                                    )
+                                    .then_some(crate::card::Action::Next)
+                            }),
+                        _ => None,
+                    };
+                    match action {
+                        Some(crate::card::Action::Previous) => cards.navigate(-1, now),
+                        Some(crate::card::Action::Next) => cards.navigate(1, now),
+                        Some(crate::card::Action::Dismiss) => {
+                            carousel = None;
+                            audio_cancel.store(true, Ordering::Release);
+                            audio_cancel = Arc::new(AtomicBool::new(false));
+                        }
+                        None => {}
+                    }
+                    presenter.invalidate();
+                    continue;
+                }
                 if event.detail == 1 {
                     let is_usage = guard.queue.selected().is_some_and(|entry| entry.is_usage());
                     let body = !is_usage
@@ -460,7 +521,7 @@ fn present(
         }
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
         audio_jobs.retain(|job| !job.is_finished());
-        let (entry, index, count, paused, visuals, fresh, sounds) = {
+        let (mut entry, mut index, mut count, paused, visuals, mut fresh, sounds) = {
             let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
             let paused = guard.paused;
             if let Some(demo) = &mut demo {
@@ -484,6 +545,24 @@ fn present(
                 guard.sounds,
             )
         };
+        if carousel.is_some() && entry.is_some() {
+            carousel = None;
+            audio_cancel.store(true, Ordering::Release);
+            audio_cancel = Arc::new(AtomicBool::new(false));
+        }
+        if let Some(cards) = &mut carousel {
+            cards.tick(now, paused);
+            let selected = cards.selected().clone();
+            if test_sound != Some(selected.id) && !paused {
+                audio_cancel.store(true, Ordering::Release);
+                audio_cancel = Arc::new(AtomicBool::new(false));
+                fresh = vec![selected.clone()];
+                test_sound = Some(selected.id);
+            }
+            entry = Some(selected);
+            index = cards.index();
+            count = cards.len();
+        }
         let mut audio_config = config.clone();
         audio_config.sounds.enabled = sounds;
         for fresh in fresh {
@@ -496,9 +575,9 @@ fn present(
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) =
-            entry.filter(|entry| !paused && (visuals || is_about(&entry.event) || entry.is_usage()))
-        {
+        if let Some(entry) = entry.filter(|entry| {
+            !paused && (carousel.is_some() || visuals || is_about(&entry.event) || entry.is_usage())
+        }) {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;
@@ -611,13 +690,28 @@ fn present(
                 continue;
             }
             usage_drawn = None;
-            let heading = if is_about(&entry.event) {
+            let heading = if let Some(cards) = &carousel {
+                crate::card::Heading::new(
+                    if entry.event.source.agent().is_some() {
+                        entry.event.source.label()
+                    } else {
+                        "aHerald"
+                    },
+                    Some("[Test]"),
+                    cards.disabled().then_some("Disabled in config"),
+                )
+            } else if is_about(&entry.event) {
                 about_heading(&entry.event)
             } else {
                 labels.label(&entry.event)
             };
             let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
-            let controls = Card::new(heading, index, count, config.notifications.click_to_dismiss);
+            let controls = Card::new(
+                heading,
+                index,
+                count,
+                carousel.is_none() && config.notifications.click_to_dismiss,
+            );
             let card_key = (controls.heading.clone(), index, count, age);
             let new_key = (entry.id, scale.to_bits(), monitor.area);
             if key != Some(new_key) {
@@ -625,15 +719,21 @@ fn present(
                     .ok()
                     .flatten()
                     .map(Arc::new);
-                composition = Some(Composition::compose(scale, art, |w, h, left| {
-                    Surface::card(
-                        w,
-                        h,
-                        scale,
-                        left,
-                        event_card_text(&config, &entry.event, &controls, Some(&card_key.3)),
-                    )
-                })?);
+                let text_width = Surface::event_text_width(&entry.event, scale)?;
+                composition = Some(Composition::compose_with_text_width(
+                    scale,
+                    art,
+                    text_width,
+                    |w, h, left| {
+                        Surface::card(
+                            w,
+                            h,
+                            scale,
+                            left,
+                            event_card_text(&config, &entry.event, &controls, Some(&card_key.3)),
+                        )
+                    },
+                )?);
                 key = Some(new_key);
                 shown_card = Some(card_key.clone());
                 animation_start = now;
@@ -659,8 +759,16 @@ fn present(
                 durations: &c.durations,
                 looping: c.looping,
                 animation_ms: now.saturating_sub(animation_start),
-                fade_in_ms: config.notifications.fade_in_ms,
-                fade_out_ms: config.notifications.fade_out_ms,
+                fade_in_ms: if carousel.is_some() {
+                    0
+                } else {
+                    config.notifications.fade_in_ms
+                },
+                fade_out_ms: if carousel.is_some() {
+                    0
+                } else {
+                    config.notifications.fade_out_ms
+                },
             }) {
                 let (x, y, w, h) = crate::placement::layout_rendered(
                     monitor.area,

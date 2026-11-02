@@ -15,7 +15,8 @@ pub enum Command {
     ContextWarnings,
     IdleWarnings,
     Config,
-    Restart,
+    Apply,
+    ApplyTest,
     About,
     CodexUsage,
     ClaudeUsage,
@@ -117,8 +118,8 @@ impl Item {
 
 type Props = HashMap<String, OwnedValue>;
 type Layout = (i32, Props, Vec<OwnedValue>);
-// About, controls, then application actions, matching the other platform menus.
-const MENU_ITEMS: [i32; 13] = [10, 11, 6, 8, 1, 2, 3, 12, 13, 9, 4, 5, 7];
+// Match the Windows menu, with the first separator only when usage is shown.
+const MENU_ITEMS: [i32; 15] = [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 4, 15, 14, 7];
 
 pub struct Menu {
     pub sender: Sender<Command>,
@@ -134,18 +135,20 @@ fn properties(id: i32, state: &TrayState) -> Props {
         2 => "Pop-up",
         3 => "Pause notifications",
         4 => "Edit configuration",
-        5 => "Restart",
-        6 => "About aHerald",
         7 => "Exit",
         10 => state.claude.as_deref().unwrap_or(""),
         11 => state.codex.as_deref().unwrap_or(""),
         12 => "Context warnings",
         13 => "Idle warnings",
+        14 => "Apply",
+        15 => "Apply + Test",
         _ => "",
     };
+    let version = format!("aHerald v{}", crate::VERSION);
+    let name = if id == 6 { version.as_str() } else { name };
     if id == 0 {
         p.insert("children-display".into(), label("submenu"));
-    } else if id == 8 || id == 9 {
+    } else if id == 8 || id == 9 || id == 16 {
         p.insert("type".into(), label("separator"));
     } else {
         p.insert("label".into(), label(name));
@@ -190,6 +193,7 @@ impl Menu {
                 .filter(|id| match id {
                     10 => state.claude.is_some(),
                     11 => state.codex.is_some(),
+                    8 => state.claude.is_some() || state.codex.is_some(),
                     _ => true,
                 })
                 .map(|id| {
@@ -216,7 +220,7 @@ impl Menu {
     ) -> Vec<(i32, Props)> {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
         ids.into_iter()
-            .filter(|id| (0..=13).contains(id))
+            .filter(|id| MENU_ITEMS.contains(id) || *id == 0)
             .map(|id| (id, properties(id, &state)))
             .collect()
     }
@@ -235,13 +239,14 @@ impl Menu {
             2 => Command::Visual,
             3 => Command::Pause,
             4 => Command::Config,
-            5 => Command::Restart,
             6 => Command::About,
             7 => Command::Exit,
             10 => Command::ClaudeUsage,
             11 => Command::CodexUsage,
             12 => Command::ContextWarnings,
             13 => Command::IdleWarnings,
+            14 => Command::Apply,
+            15 => Command::ApplyTest,
             _ => return,
         };
         let _ = self.sender.send(command);
@@ -412,9 +417,12 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
         let menu = Menu { sender, state };
         let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 13);
-        assert_eq!(MENU_ITEMS, [10, 11, 6, 8, 1, 2, 3, 12, 13, 9, 4, 5, 7]);
-        for separator in [8, 9] {
+        assert_eq!(children.len(), 15);
+        assert_eq!(
+            MENU_ITEMS,
+            [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 4, 15, 14, 7]
+        );
+        for separator in [8, 9, 16] {
             let value = properties(separator, &initial).remove("type").unwrap();
             assert_eq!(String::try_from(value).unwrap(), "separator");
         }
@@ -438,6 +446,25 @@ mod tests {
         assert_eq!(receiver.try_recv().unwrap(), Command::ClaudeUsage);
         menu.event(11, "clicked", Value::from(0i32), 0);
         assert_eq!(receiver.try_recv().unwrap(), Command::CodexUsage);
+        for (id, name, command) in [
+            (14, "Apply", Command::Apply),
+            (15, "Apply + Test", Command::ApplyTest),
+        ] {
+            assert_eq!(
+                String::try_from(properties(id, &initial).remove("label").unwrap()).unwrap(),
+                name
+            );
+            menu.event(id, "clicked", Value::from(0i32), 0);
+            assert_eq!(receiver.try_recv().unwrap(), command);
+        }
+        let empty = Arc::new(std::sync::Mutex::new(TrayState::default()));
+        let (sender, _) = std::sync::mpsc::channel();
+        let (_, (_, _, children)) = Menu {
+            sender,
+            state: empty,
+        }
+        .get_layout(0, -1, vec![]);
+        assert_eq!(children.len(), 12); // no usage lines and no leading separator
         menu.event(2, "hovered", Value::from(0i32), 0);
         assert!(receiver.try_recv().is_err());
         menu.event(2, "clicked", Value::from(0i32), 0);
