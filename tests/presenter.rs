@@ -8,6 +8,7 @@ use aherald::{
 
 fn entry(duration: u64, visible_ms: u64) -> Entry {
     Entry {
+        outputs: Default::default(),
         id: 1,
         event: Event::demo(Kind::PermissionRequired.name()).unwrap(),
         duration,

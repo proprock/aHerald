@@ -17,6 +17,16 @@ fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=assets");
+    println!("cargo:rerun-if-changed=resources/windows/aherald.rc");
+    println!("cargo:rerun-if-changed=resources/windows/aherald.ico");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_resource::compile_for(
+            "resources/windows/aherald.rc",
+            ["aherald"],
+            embed_resource::NONE,
+        )
+        .manifest_required()?;
+    }
     let output = env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is unavailable")?;
     let profile = Path::new(&output)
         .ancestors()

@@ -51,6 +51,11 @@ writing, preserves unrelated settings and hooks, and backs up changed existing
 files as `*.aherald-backup`. A failed write triggers restoration of earlier
 writes; any restoration failure is reported. Backups contain the previous file,
 so treat them with the same care as the original configuration.
+Setup preserves hooks belonging to aHerald executables at other paths. It upgrades
+legacy shell bindings only for its own executable path; after a move, its saved
+receipt identifies the old bindings to replace. Remove any unwanted second
+installation through that installation's own `--unsetup --apply` to avoid duplicate
+notifications.
 
 After configuring Codex, start a new Codex session, open `/hooks`, review and trust
 the exact commands. Installation never grants hook trust automatically.

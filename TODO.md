@@ -94,6 +94,17 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Verify generated hooks, delivery and dismissal, installer GUI,
   selection changes, upgrade/uninstall, and a clean Windows machine without
   WSL/Bash or development runtimes. See docs/installation.md.
+  Status 2026-11-01 (branch `feature/ah-097-windows-completion`): the setup backend,
+  Windows installer and CI packaging were already implemented. Fixed setup taking
+  over other installations' hooks; a regression failed before the fix and passes
+  afterward. Setup checks: 26 passed, one optional Git Bash test ignored. The
+  isolated installer lifecycle and real-Codex launch/response/ancestry/timing probe
+  passed; formatting, Clippy, release build and packaging passed. Full Cargo tests
+  stopped at `native_assets` with a notification startup timeout, both inside and
+  outside the sandbox; cause remains unresolved. Full installer GUI/launch-option
+  and installed-harness delivery/dismissal acceptance remain open. Clean-machine
+  acceptance is explicitly deferred by the maintainer (no machine available).
+  Evidence, commands and remaining checks: docs/ah-097-windows-acceptance.md.
 
 - [ ] **AH-102 — Native macOS installer and setup UI.**
   Uses the common native setup backend from AH-097. Deliver GUI app installation
@@ -282,10 +293,12 @@ shared development-profile and artwork performance changes need no separate port
 
 ## Milestone 5 — Polish and portable release
 
-- [ ] **AH-105 — Create an application icon, at least for Windows.** Design and
+- [x] **AH-105 — Create an application icon, at least for Windows.** Design and
   add an aHerald application icon, with Windows as the minimum supported platform.
   Acceptance: the built Windows executable displays the icon correctly in Explorer
-  at common icon sizes and display scales.
+  at common icon sizes and display scales. Implementation and verification:
+  [Windows application icon](docs/app-icon.md). Completed 2026-11-01: embedded
+  multi-size resource, native release-EXE loading tests and Explorer screenshots accepted.
 
 - [ ] **AH-106 — Optional context and five-hour quota indicators in notifications.**
   Discuss and agree on the design before implementation: optionally show context
@@ -306,19 +319,10 @@ shared development-profile and artwork performance changes need no separate port
   responses and genuinely pending permission notifications. Acceptance: tests cover
   automatic approval, a real human request, rejection/fallback and unknown outcomes;
   verify in a real Codex session and document any protocol limitations.
-
-- [ ] **AH-098 — Suppress notifications for the active originating session.** Add two
-  independent configuration options, both enabled by default: suppress notification
-  windows when the originating window is focused, and suppress sounds in the same case.
-  Each option controls only its own output; disabling it preserves that output even when
-  the originating window is focused. For a desktop agent with multiple sessions, suppress
-  only when the event belongs to the active session in the focused window: an event from
-  another session must still notify. Establish reliable window and session identification
-  for each supported platform and agent; if either cannot be determined, deliver the
-  notification rather than suppress it. Preserve hook responses and event lifecycle
-  handling. Acceptance: automated tests cover both options, their defaults and independent
-  combinations, focused/unfocused windows, same/different/unknown desktop sessions and
-  unknown focus; verify the behavior in a real terminal and a desktop session.
+  Investigation (2026-11-01): the installed `0.166.0-alpha.5.1` hook runs before
+  reviewer routing and exposes no reviewer/verdict/human-wait signal. Selective
+  suppression remains blocked on a supported observable source; preserve current
+  notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
 
 - [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
   Support center, top center, bottom right, near cursor, and selected monitor.
@@ -330,7 +334,7 @@ shared development-profile and artwork performance changes need no separate port
   Also carries the case split from AH-076: a card that opens on a second monitor with a
   different DPI is drawn at that monitor's scale (cards are not draggable by design).
 
-- [ ] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
+- [x] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
   the ones the user can fix.**
   aHerald sometimes drops or degrades what was configured or sent without a trace: a sound
   longer than five seconds, larger than 2 MiB, not 16-bit PCM or missing is ignored
@@ -378,6 +382,20 @@ shared development-profile and artwork performance changes need no separate port
   connected (`display.monitor_missing`). Seen live on the M1 as log lines and three queued cards;
   the cards were looked at on the M1 (red error icon, message wrapped in up to three lines). Remaining: the missing
   `monitor` notice on Windows, the Windows look of the notice card, and the rest of the audit above.
+  Status 2026-11-01 (branch `feature/ah-090-completion`): audited decisions and executable
+  evidence are listed in [the diagnostic audit](docs/diagnostics-audit.md). Added portable
+  usage/name-lookup failure episodes; invalid-input, framing and full-queue episodes; bounded
+  activation-mailbox diagnostics; per-agent pet, missing built-in and preparation-budget
+  diagnostics. Interactive startup configuration errors show a separate eight-second notice
+  and retain exit 2; hooks stay prompt and card-free. Hook replies now precede runtime-scope
+  creation. The Unix runtime regression requires Unix execution. Windows monitor fallback
+  passed its native log/card test. The real resident notice was inspected on Windows build
+  22621.4317: built-in red error picture, two-line message, no kind row, 8 s timer.
+  Verification completed on Windows: formatting, Clippy and full `cargo test --all-targets`
+  passed, including the performance baseline and native asset checks. The asset test now
+  separates Windows creation of a fresh copied executable from rendering checks; production
+  delivery budgets are unchanged. See [the startup investigation](docs/native-assets-investigation.md)
+  and the audit for observed timings and platform limits.
 
 - [ ] **AH-092 — Make the Windows resident pause test wait for the window to hide.**
   `resident_uses_one_window_and_switches_and_dismisses_only_selected_event` (`tests/resident.rs`)

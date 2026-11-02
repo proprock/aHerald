@@ -99,7 +99,9 @@ pub enum Record {
     Stopped,
     IpcFailure,
     QueueRejected,
+    InputRejected,
     AgentActivationFailure,
+    AgentActivationDropped,
     /// Click-to-window latency; a duration is not payload data.
     AgentActivated {
         millis: u64,
@@ -112,6 +114,7 @@ pub enum Record {
     /// queue refused it); the reason stays on the hook's stderr.
     HookDeliveryFailed,
     UsageFailure,
+    SessionLookupFailure,
     /// A configured sound file cannot be used; the reason is one of `SoundError::code`.
     SoundRejected(&'static str),
     /// A decoded sound could not be played (no output device, for example).
@@ -230,12 +233,15 @@ impl Record {
                 (Level::Debug, format!("agent.activated ms={millis}").into())
             }
             Self::QueueRejected => (Level::Warn, "ipc.queue_rejected".into()),
+            Self::InputRejected => (Level::Warn, "ipc.input_rejected".into()),
+            Self::AgentActivationDropped => (Level::Warn, "agent.activation_dropped".into()),
             Self::RenderFailure => (Level::Warn, "render.failed".into()),
             Self::RenderFallback => (Level::Warn, "render.fallback".into()),
             Self::InvalidConfiguration => (Level::Warn, "config.invalid".into()),
             Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed".into()),
             Self::HookDeliveryFailed => (Level::Warn, "hook.delivery_failed".into()),
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
+            Self::SessionLookupFailure => (Level::Warn, "session.lookup_failed".into()),
             Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),
             Self::SoundFailed => (Level::Warn, "audio.failed".into()),
             Self::HookRejected(why) => (Level::Warn, format!("hook.rejected {why}").into()),

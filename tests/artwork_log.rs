@@ -51,6 +51,27 @@ fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once(
     }
     assert_eq!(lines(&directory, "artwork.rejected pet"), 1);
 
+    // The agent override is the selected file, even without a shared pet.
+    config.notifications.pet = None;
+    config.agents.insert(
+        event.source.agent_key().to_owned(),
+        aherald::config::AgentAssets {
+            pet: Some(directory.join("secret-agent-pet")),
+            ..Default::default()
+        },
+    );
+    let notices = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let received = notices.clone();
+    aherald::notice::install(move |event| received.lock().unwrap().push(event));
+    for _ in 0..3 {
+        assert!(resolve(&config, &event, &builtin).unwrap().is_some());
+    }
+    aherald::notice::clear();
+    assert_eq!(lines(&directory, "artwork.rejected pet"), 2);
+    let notices = notices.lock().unwrap();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].source, aherald::events::Source::App);
+
     // An aHerald notice belongs to no agent: neither the custom animation nor the pet applies,
     // so the broken settings are not even tried and nothing more is reported.
     let before = lines(&directory, "artwork.rejected");
@@ -59,6 +80,30 @@ fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once(
     config.events[notice.kind].animation = Some(directory.join("another-secret-name.toml"));
     assert!(resolve(&config, &notice, &builtin).unwrap().is_some());
     assert_eq!(lines(&directory, "artwork.rejected"), before);
+
+    // Missing built-in resources degrade to text, with one diagnostic and one notice.
+    let missing_builtin = directory.join("secret-builtin-resources");
+    config.events[event.kind].visual = EventVisual::Builtin;
+    let missing_notices = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let received = missing_notices.clone();
+    aherald::notice::install(move |event| received.lock().unwrap().push(event));
+    for _ in 0..3 {
+        assert!(
+            resolve(&config, &event, &missing_builtin)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(lines(&directory, "artwork.rejected builtin"), 1);
+    assert_eq!(missing_notices.lock().unwrap().len(), 1);
+    // An error notice with no error artwork must not recursively generate notices.
+    assert!(
+        resolve(&config, &notice, &missing_builtin)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(missing_notices.lock().unwrap().len(), 1);
+    aherald::notice::clear();
 
     let log = std::fs::read_to_string(directory.join("aherald.log")).unwrap();
     assert!(!log.contains("secret-"), "{log}");

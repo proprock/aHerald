@@ -200,6 +200,140 @@ fn malformed_second_harness_prevents_all_writes() {
 }
 
 #[test]
+fn setup_and_repeated_setup_preserve_another_installations_bindings() {
+    let app = Install::new("foreign-installation");
+    let other = Install::new("foreign-owner");
+    other.ok(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--harness",
+        "claude",
+        "--apply",
+    ]);
+    for agent in ["codex", "claude"] {
+        std::fs::create_dir_all(app.file(agent).parent().unwrap()).unwrap();
+        std::fs::copy(other.file(agent), app.file(agent)).unwrap();
+    }
+    for _ in 0..2 {
+        app.ok(&[
+            "--setup",
+            "--harness",
+            "codex",
+            "--harness",
+            "claude",
+            "--apply",
+        ]);
+        for agent in ["codex", "claude"] {
+            let settings = app.read(agent);
+            let stop = settings["hooks"]["Stop"].as_array().unwrap();
+            assert_eq!(stop.len(), 2, "{agent}: both installations must remain");
+            assert_eq!(stop[0], other.read(agent)["hooks"]["Stop"][0]);
+        }
+    }
+    app.ok(&["--unsetup", "--apply"]);
+    for agent in ["codex", "claude"] {
+        assert_eq!(app.read(agent), other.read(agent));
+    }
+}
+
+#[test]
+fn setup_upgrades_only_this_executables_legacy_shell_bindings() {
+    let app = Install::new("legacy-owner");
+    let other = Install::new("legacy-foreign");
+    for (agent, kind) in [
+        ("codex", aherald::agent::Agent::Codex),
+        ("claude", aherald::agent::Agent::Claude),
+    ] {
+        let own = aherald::hook_setup::command_for(&app.exe, kind, cfg!(windows));
+        let foreign = json!({"type":"command", "command":aherald::hook_setup::command_for(&other.exe, kind, cfg!(windows)), "timeout":7});
+        let settings = json!({"hooks":{"Stop":[{"hooks":[foreign.clone(), {"type":"command", "command":own, "timeout":5}]}]}});
+        std::fs::create_dir_all(app.file(agent).parent().unwrap()).unwrap();
+        std::fs::write(app.file(agent), settings.to_string()).unwrap();
+        app.ok(&["--setup", "--harness", agent, "--apply"]);
+        let after = app.read(agent);
+        let stop = after["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(
+            stop.len(),
+            1,
+            "upgrade the existing group instead of adding a duplicate"
+        );
+        assert_eq!(stop[0]["hooks"][0], foreign);
+        assert_eq!(stop[0]["hooks"][1]["timeout"], 5);
+        let upgraded = &stop[0]["hooks"][1];
+        if agent == "claude" {
+            assert_eq!(upgraded["command"], app.exe.to_str().unwrap());
+            assert_eq!(
+                upgraded["args"],
+                json!(["--hook", "--agent", "claude", "--resident"])
+            );
+        } else {
+            assert_eq!(
+                upgraded["command"],
+                aherald::hook_setup::command_for(&app.exe, kind, false)
+            );
+            #[cfg(windows)]
+            assert_eq!(
+                upgraded["commandWindows"],
+                format!(
+                    "& '{}' --hook --resident | Out-String",
+                    app.exe.display().to_string().replace('\'', "''")
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn setup_after_a_move_replaces_only_the_receipts_saved_bindings() {
+    let app = Install::new("move-owner");
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--harness",
+        "claude",
+        "--apply",
+    ]);
+    let moved = app
+        .root
+        .join(if cfg!(windows) { "moved.exe" } else { "moved" });
+    std::fs::copy(&app.exe, &moved).unwrap();
+    let out = Command::new(&moved)
+        .args([
+            "--setup",
+            "--harness",
+            "codex",
+            "--harness",
+            "claude",
+            "--apply",
+        ])
+        .env("CODEX_HOME", app.root.join("codex"))
+        .env("CLAUDE_CONFIG_DIR", app.root.join("claude"))
+        .bounded_output();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for agent in ["codex", "claude"] {
+        let settings = app.read(agent);
+        let stop = settings["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 1);
+        let expected = if agent == "claude" {
+            moved.display().to_string()
+        } else {
+            aherald::hook_setup::command_for(&moved, aherald::agent::Agent::Codex, false)
+        };
+        assert_eq!(stop[0]["hooks"][0]["command"], expected);
+    }
+    let receipt: Value =
+        serde_json::from_slice(&std::fs::read(app.root.join("aherald-setup.json")).unwrap())
+            .unwrap();
+    assert_eq!(receipt["executable"], moved.to_str().unwrap());
+}
+
+#[test]
 fn removal_uses_saved_paths_and_preserves_foreign_hooks_and_settings() {
     let app = Install::new("remove");
     let original = json!({"theme":"dark", "hooks":{"Stop":[{"hooks":[{"type":"command","command":"my-notifier"}, {"type":"command", "command":"echo aherald --hook"}]}]}});

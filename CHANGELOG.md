@@ -9,6 +9,22 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- Independent notification and sound suppression for a focused originating Claude
+  session in a classic Windows console. Both options default to enabled; unknown
+  origins, tabbed terminals and desktop sessions retain delivery. Live acceptance
+  and coverage limits are recorded in docs/active-session.md (AH-098).
+- Embedded multi-size Windows application icon (AH-105).
+- Diagnostics for rejected inputs, activation and session lookup failures, and
+  missing or unusable artwork. Interactive Windows startup shows a bounded error
+  card for invalid configuration; hook responses remain independent (AH-090).
+
+### Fixed
+- Native setup preserves another aHerald installation's hooks during initial and
+  repeated setup. Legacy commands are upgraded only for the current executable;
+  a moved installation replaces only bindings identified by its saved receipt
+  (AH-097).
+
 ## [0.9.0-beta] - 2026-11-02
 
 ### Added

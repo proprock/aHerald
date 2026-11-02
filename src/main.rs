@@ -179,12 +179,8 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         print!("{}", aherald::perf_report::report(&directory)?);
         return Ok(());
     }
-    let scope = aherald::local::Scope::current("resident").inspect_err(|_| {
-        if cli.operation.as_deref() == Some("hook") {
-            log_code(&path, aherald::operational_log::Record::HookDeliveryFailed);
-        }
-    })?;
     if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
+        let scope = aherald::local::Scope::current("resident")?;
         let request = if cli.operation.as_deref() == Some("quit") {
             aherald::ipc::Request::Quit
         } else {
@@ -224,11 +220,20 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     } else {
         None
     };
+    let scope = aherald::local::Scope::current("resident").inspect_err(|_| {
+        if cli.operation.as_deref() == Some("hook") {
+            log_code(&path, aherald::operational_log::Record::HookDeliveryFailed);
+        }
+    })?;
     let config = aherald::config::Config::load(&path, cli.config.is_some()).inspect_err(|_| {
         log_code(
             &path,
             aherald::operational_log::Record::InvalidConfiguration,
-        )
+        );
+        #[cfg(windows)]
+        if cli.operation.is_none() && aherald::notification::configuration_notice().is_err() {
+            log_code(&path, aherald::operational_log::Record::RenderFailure);
+        }
     })?;
     if let Some(pause_sec) = cli.demo_pause_sec {
         return aherald::resident::run_demo(config, &path, pause_sec);

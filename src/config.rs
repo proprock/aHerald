@@ -247,6 +247,7 @@ pub struct Resident {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Notifications {
+    pub suppress_when_focused: bool,
     pub background_color: Color,
     /// Outline of the card and its buttons; absent draws no card outline.
     pub border_color: Option<Color>,
@@ -266,6 +267,7 @@ pub struct Notifications {
 impl Default for Notifications {
     fn default() -> Self {
         Self {
+            suppress_when_focused: true,
             background_color: Color([28, 35, 45]),
             border_color: None,
             visual: Visual::Auto,
@@ -286,6 +288,7 @@ impl Default for Notifications {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sounds {
+    pub suppress_when_focused: bool,
     pub enabled: bool,
     pub volume: f64,
     pub suppress_repeats: bool,
@@ -293,6 +296,7 @@ pub struct Sounds {
 impl Default for Sounds {
     fn default() -> Self {
         Self {
+            suppress_when_focused: true,
             enabled: true,
             volume: 0.75,
             suppress_repeats: true,

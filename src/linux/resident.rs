@@ -147,6 +147,8 @@ pub fn run_after_apply(
             };
             let _ = ready_tx.send(Ok(()));
             log(Record::Started);
+            let mut diagnostics = crate::resident_request::Diagnostics::default();
+            let mut ipc_failing = false;
             while !stop.load(Ordering::Acquire) {
                 let result = server.serve_until(&stop_event, |request| {
                     let Ok(mut state) = state.lock() else {
@@ -159,17 +161,13 @@ pub fn run_after_apply(
                     if effects.quit {
                         stop.store(true, Ordering::Release);
                     }
-                    if effects.rejected {
-                        log(Record::QueueRejected);
-                    }
-                    if let Some(reason) = effects.dropped {
-                        log(Record::EventDropped(reason));
-                    }
+                    diagnostics.record(&response, effects);
                     response
                 });
-                if result.is_err() {
+                if result.is_err() && !ipc_failing {
                     log(Record::IpcFailure);
                 }
+                ipc_failing = result.is_err();
             }
             log(Record::Stopped);
         })
@@ -545,7 +543,7 @@ fn present(
             (
                 guard.queue.selected().cloned(),
                 guard.queue.selected_index(),
-                guard.queue.items().len(),
+                guard.queue.visible_count(),
                 paused,
                 guard.visuals,
                 fresh,
@@ -573,6 +571,9 @@ fn present(
         let mut audio_config = config.clone();
         audio_config.sounds.enabled = sounds;
         for fresh in fresh {
+            if !fresh.outputs.sound {
+                continue;
+            }
             if let Some(job) =
                 crate::audio::start_controlled(&fresh.event, &audio_config, audio_cancel.clone())
             {

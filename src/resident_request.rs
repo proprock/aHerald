@@ -60,9 +60,49 @@ pub struct Effects {
     pub wake: bool,
     /// The queue refused a valid event; log it once the state lock is released.
     pub rejected: bool,
+    /// An untrusted input failed validation; never include its contents in diagnostics.
+    pub invalid: bool,
     /// A valid event produced no card on purpose; log why (`disabled`, `duplicate`, `obsolete`)
     /// once the state lock is released.
     pub dropped: Option<&'static str>,
+}
+
+/// Failure episodes belong to one listener. Status polling does not constitute recovery.
+#[derive(Default)]
+pub struct Diagnostics {
+    invalid: bool,
+    full: bool,
+}
+impl Diagnostics {
+    pub fn record(&mut self, response: &Response, effects: Effects) {
+        use crate::operational_log::{Record, log};
+        if effects.invalid && !self.invalid {
+            log(Record::InputRejected);
+        }
+        if effects.rejected && !self.full {
+            log(Record::QueueRejected);
+        }
+        if matches!(response, Response::Accepted) {
+            self.invalid = false;
+            self.full = false;
+        } else {
+            self.invalid |= effects.invalid;
+            self.full |= effects.rejected;
+        }
+        if let Some(reason) = effects.dropped {
+            log(Record::EventDropped(reason));
+        }
+    }
+}
+
+fn invalid() -> (Response, Effects) {
+    (
+        Response::Rejected,
+        Effects {
+            invalid: true,
+            ..Effects::default()
+        },
+    )
 }
 
 /// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
@@ -73,13 +113,19 @@ pub fn notice_sink<S: Controls + Send + 'static>(
     start: std::time::Instant,
     wake: impl Fn(&S) + Send + Sync + 'static,
 ) -> impl Fn(crate::events::Event) + Send + Sync + 'static {
+    let diagnostics = std::sync::Mutex::new(Diagnostics::default());
     move |event| {
         let Ok(mut state) = state.lock() else { return };
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let (_, effects) = respond(Request::Event { event }, &mut *state, &settings, now);
+        let (response, effects) = respond(Request::Event { event }, &mut *state, &settings, now);
         if effects.wake {
             wake(&state);
         }
+        drop(state);
+        diagnostics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(&response, effects);
     }
 }
 
@@ -96,6 +142,16 @@ pub fn respond(
     state: &mut impl Controls,
     settings: &Config,
     now: u64,
+) -> (Response, Effects) {
+    respond_with_focus(request, state, settings, now, crate::focus::observe)
+}
+
+fn respond_with_focus(
+    request: Request,
+    state: &mut impl Controls,
+    settings: &Config,
+    now: u64,
+    observe: impl Fn(&crate::events::Event) -> crate::focus::Evidence,
 ) -> (Response, Effects) {
     match request {
         Request::Status => (
@@ -114,7 +170,7 @@ pub fn respond(
                 || report.session_id.len() > 256
                 || report.session_id.chars().any(char::is_control)
             {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             let warning = state.warnings().context(
                 crate::agent::Agent::Claude,
@@ -139,7 +195,7 @@ pub fn respond(
         }
         Request::CodexContext { report } => {
             if !report.valid() {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             let warning = state.warnings().context(
                 crate::agent::Agent::Codex,
@@ -169,7 +225,7 @@ pub fn respond(
         ),
         Request::Event { event } => {
             if event.validate().is_err() {
-                return (Response::Rejected, Effects::default());
+                return invalid();
             }
             state.warnings().observe(&event, settings, now);
             state.queue().clear_session_warnings(&event);
@@ -223,7 +279,11 @@ pub fn respond(
                     .duration_ms
                     .saturating_add(settings.notifications.fade_out_ms)
             };
-            match state.queue().push(event, now, duration) {
+            let outputs = crate::focus::outputs(settings, observe(&event));
+            match state
+                .queue()
+                .push_with_outputs(event, now, duration, outputs)
+            {
                 Outcome::Full | Outcome::Invalid => (
                     Response::Rejected,
                     Effects {
@@ -288,6 +348,59 @@ mod tests {
     }
     fn send(state: &mut State, settings: &Config, event: Event) -> (Response, Effects) {
         respond(Request::Event { event }, state, settings, 7)
+    }
+
+    #[test]
+    fn focused_output_decisions_survive_admission_and_preserve_terminal_evidence() {
+        use crate::focus::{Evidence, Outputs, Session};
+        for visual in [false, true] {
+            for sound in [false, true] {
+                for focused in [None, Some(false), Some(true)] {
+                    for session in [Session::Same, Session::Different, Session::Unknown] {
+                        let mut settings = Config::default();
+                        settings.notifications.suppress_when_focused = visual;
+                        settings.sounds.suppress_when_focused = sound;
+                        let mut s = state(8);
+                        let mut wait = event("permission_required");
+                        wait.source = Source::ClaudeHook;
+                        wait.session_id = Some("session-a".into());
+                        let evidence = Evidence {
+                            window_focused: focused,
+                            session,
+                        };
+                        let (response, _) = respond_with_focus(
+                            Request::Event { event: wait },
+                            &mut s,
+                            &settings,
+                            0,
+                            |_| evidence,
+                        );
+                        assert!(matches!(response, Response::Accepted));
+                        let expected = if focused == Some(true) && session == Session::Same {
+                            Outputs {
+                                window: !visual,
+                                sound: !sound,
+                            }
+                        } else {
+                            Outputs::default()
+                        };
+                        assert_eq!(s.queue.items()[0].outputs, expected);
+                        let fresh = s.queue.take_unannounced(8);
+                        assert_eq!(fresh.len(), usize::from(expected.sound));
+                        assert_eq!(s.queue.visible_count(), usize::from(expected.window));
+                        assert!(s.queue.take_unannounced(8).is_empty());
+                        let mut end = event("turn_complete");
+                        end.source = Source::ClaudeHook;
+                        end.session_id = Some("session-a".into());
+                        // Focus changes cannot resurrect the hidden wait; matching terminal
+                        // evidence clears it even if the completion kind is disabled.
+                        settings.events[crate::events::Kind::TurnComplete].enabled = false;
+                        send(&mut s, &settings, end);
+                        assert!(s.queue.items().is_empty());
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -593,12 +706,13 @@ mod tests {
     }
 
     #[test]
-    fn an_invalid_event_is_rejected_without_a_log_or_a_wake() {
+    fn an_invalid_event_is_rejected_and_asks_for_a_log_without_a_wake() {
         let mut bad = event("turn_complete");
         bad.window = Some(0);
         let (response, effects) = send(&mut state(8), &Config::default(), bad);
         assert!(matches!(response, Response::Rejected));
-        assert_eq!(effects, Effects::default());
+        assert_ne!(effects, Effects::default());
+        assert!(!effects.wake);
     }
 
     #[test]

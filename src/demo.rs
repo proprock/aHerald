@@ -158,6 +158,7 @@ impl Carousel {
                 let mut event = sample(config, kind);
                 event.folder = Some("[Test]".into());
                 crate::queue::Entry {
+                    outputs: Default::default(),
                     id: u64::MAX - index as u64,
                     event,
                     duration: if config.events[kind].duration_ms == 0 {
