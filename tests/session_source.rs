@@ -135,7 +135,7 @@ fn an_aherald_notice_is_headed_by_aherald_with_its_message_and_never_looks_up_a_
     let heading = labels.label_at(&notice, Duration::ZERO);
     assert_eq!(heading.title, "aHerald notice");
     assert_eq!(heading.name.as_deref(), Some("Sound over 5 s: alert.wav"));
-    std::thread::sleep(Duration::from_millis(50));
+    drop(labels); // Join the metadata worker before checking that no lookup was queued.
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
 

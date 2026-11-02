@@ -3,7 +3,6 @@
 mod support;
 use std::{
     fs,
-    io::Write,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -46,14 +45,12 @@ fn run(agent: &str, payload: &str, env: &[(&str, &Path)]) -> std::process::Outpu
     for (key, value) in env {
         command.env(key, value);
     }
-    let mut child = command.spawn().unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(payload.as_bytes())
-        .unwrap();
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        &mut command,
+        payload.as_bytes(),
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap()
 }
 
 #[test]

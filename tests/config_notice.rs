@@ -1,6 +1,6 @@
 #![cfg(windows)]
+mod support;
 use std::{
-    io::Write,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
@@ -113,20 +113,15 @@ fn invalid_startup_config_shows_a_notice_then_exits_but_hook_stays_prompt_and_si
     );
 
     let before = Instant::now();
-    let mut hook = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config"])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    hook.stdin
-        .take()
-        .unwrap()
-        .write_all(include_bytes!("fixtures/stop.json"))
-        .unwrap();
-    let output = hook.wait_with_output().unwrap();
+    let output = support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config"])
+            .arg(&path)
+            .stdin(Stdio::piped()),
+        include_bytes!("fixtures/stop.json"),
+        Duration::from_secs(2),
+    )
+    .unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"{}\n");
     assert!(

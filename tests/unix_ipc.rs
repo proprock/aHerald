@@ -272,8 +272,12 @@ fn a_blocked_server_wakes_when_the_stop_event_is_signaled() {
     let server = scope.create_pipe().unwrap();
     let stop = Arc::new(pipe::StopEvent::new().unwrap());
     let waiting = stop.clone();
-    let thread = std::thread::spawn(move || server.serve_until(&waiting, |_| status()).unwrap());
-    std::thread::sleep(Duration::from_millis(50));
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        ready_tx.send(()).unwrap();
+        server.serve_until(&waiting, |_| status()).unwrap()
+    });
+    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     stop.signal();
     assert!(!thread.join().unwrap(), "stop must report no client served");
 }

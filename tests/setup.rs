@@ -1,3 +1,4 @@
+mod support;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -665,18 +666,8 @@ fn finish(child: std::process::Child) -> Output {
     finish_with_timeout(child, std::time::Duration::from_secs(5))
 }
 
-fn finish_with_timeout(mut child: std::process::Child, timeout: std::time::Duration) -> Output {
-    use std::time::{Duration, Instant};
-    let deadline = Instant::now() + timeout;
-    while child.try_wait().unwrap().is_none() {
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("native setup/hook exceeded deadline");
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    child.wait_with_output().unwrap()
+fn finish_with_timeout(child: std::process::Child, timeout: std::time::Duration) -> Output {
+    support::capture_bounded(child, &[], timeout).unwrap()
 }
 
 #[test]

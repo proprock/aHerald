@@ -436,39 +436,6 @@ framework rewrite. Keep live/account checks opt-in and preserve the agreed artwo
 performance check and resident `perf_baseline` limits. Record baseline failures
 separately from regressions introduced by this milestone.
 
-- [ ] **AH-107 — Make asynchronous checks and process cleanup deterministic.**
-  Inventory process launches, unbounded waits, fixed sleeps used as synchronization,
-  shared desktop resources and cleanup paths in ordinary tests. Finish AH-092 rather
-  than duplicating its implementation: wait for actual window visibility changes,
-  not only resident status. Replace synchronization sleeps with condition-based
-  waits and bounded deadlines; retain deliberate delays that are themselves part
-  of the scenario. Ensure timeout diagnostics identify the expected and last observed
-  state without exposing sensitive payloads. Bound hook/process completion, drain
-  captured output without pipe deadlocks, and terminate and reap only owned processes
-  on timeout or assertion failure. For detached residents, retain ownership evidence,
-  request graceful shutdown, observe exit and use bounded fallback cleanup when needed.
-  Acceptance: regression tests demonstrate delayed-but-successful state changes,
-  permanently missing effects, hung children and cleanup after failure. Verify that
-  the guards themselves do not leave owned processes or IPC resources behind. Run
-  the AH-092 Windows test 20 consecutive times and show that a resident which remains
-  visible still fails. Do not hide failures with retries or relaxed assertions.
-  Partial 2026-11-02: the Linux tray fixture tracks verified resident processes
-  by pidfd, waits for exit and bounds owned-process fallback; tests exercise a
-  hung owned process and panic cleanup without stopping an independent resident.
-  Partial 2026-11-02 (branch `feature/ah-107-deterministic-tests`, Linux): `tests/support`
-  gains `run_bounded` (deadline, pipes drained on threads, owned child killed and reaped on
-  timeout, diagnostic without captured output) and `OwnedChild` (kill and reap on drop), with
-  tests for delayed output, large output, a hung child and panic cleanup. Migrated
-  `unix_hook`, `unix_ipc`, `unsupported_platform` and `codex_monitoring`. Baseline defect
-  fixed: `unsupported_platform::status_reports_that_no_service_is_running` reached the real
-  user's resident whenever one was running; it now uses a private `XDG_RUNTIME_DIR`.
-  Baseline flake, not caused by this branch: `tests/setup.rs`
-  (`malformed_second_harness_prevents_all_writes`, `a_transient_executable_write_handle_...`)
-  fails intermittently on master too (1 of 3 runs). Also bounded `cli` and `config` runs
-  (`support::output`); `linux_apply` busctl calls already carry `--timeout=2s`. Remaining: the
-  Windows `native_overlay` `.output()`, the Windows-only sleeps
-  (`resident_perf_log`, `tray_restart`), Windows AH-092 and its 20-run check.
-
 - [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
   Depends on AH-107 and AH-108. Measure current Windows test build and execution time
   separately, then compare the same test selection under a pinned, Windows-compatible

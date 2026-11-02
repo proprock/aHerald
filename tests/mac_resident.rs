@@ -1,6 +1,7 @@
 //! The macOS resident: it serves IPC while its main thread runs AppKit, queues events and
 //! shuts down on request. Notifications are disabled so no card appears during the test.
 #![cfg(target_os = "macos")]
+mod support;
 use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -28,13 +29,15 @@ impl Resident {
     }
 
     fn run(&self, args: &[&str]) -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(args)
-            .args(["--config", "tests/fixtures/quiet.toml"])
-            .env("XDG_RUNTIME_DIR", &self.runtime)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let output = support::run_bounded(
+            Command::new(env!("CARGO_BIN_EXE_aherald"))
+                .args(args)
+                .args(["--config", "tests/fixtures/quiet.toml"])
+                .env("XDG_RUNTIME_DIR", &self.runtime)
+                .stdin(Stdio::null()),
+            Duration::from_secs(2),
+        )
+        .unwrap();
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 

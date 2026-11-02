@@ -1,9 +1,9 @@
+mod support;
 use aherald::{
     config::{Config, Mode},
     events::Kind,
 };
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Barrier},
@@ -100,33 +100,19 @@ fn concurrent_first_loads_publish_one_complete_configuration() {
     assert_eq!(std::fs::read_dir(&r.0).unwrap().count(), 1);
 }
 fn hook(exe: &Path, cwd: &Path, appdata: &Path, args: &[&std::ffi::OsStr]) -> std::process::Output {
-    let mut child = Command::new(exe)
-        .arg("--hook")
-        .args(args)
-        .current_dir(cwd)
-        .env("APPDATA", appdata)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(br#"{"hook_event_name":"Unknown"}"#)
-        .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    while child.try_wait().unwrap().is_none() {
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("hook startup blocked");
-        }
-        std::thread::yield_now();
-    }
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        Command::new(exe)
+            .arg("--hook")
+            .args(args)
+            .current_dir(cwd)
+            .env("APPDATA", appdata)
+            .stdin(Stdio::piped()),
+        br#"{"hook_event_name":"Unknown"}"#,
+        std::time::Duration::from_secs(3),
+    )
+    .unwrap()
 }
+
 #[test]
 fn process_uses_installation_config_ignores_cwd_and_appdata_and_honors_explicit_path() {
     let r = Root::new("process");

@@ -1,4 +1,5 @@
 #![cfg(windows)]
+mod support;
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,
@@ -73,14 +74,7 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let pid = match resident::ensure(
         &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
         &config,
@@ -91,6 +85,7 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         Response::Status { pid, .. } => pid,
         _ => panic!(),
     };
+    cleanup.0.retain(pid).unwrap();
     struct Found {
         pid: u32,
         window: HWND,

@@ -1,20 +1,20 @@
+mod support;
 use std::{
-    io::Write,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
 fn invoke(input: &[u8]) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input).unwrap();
-    child.wait_with_output().unwrap()
+    support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
+            .stdin(Stdio::piped()),
+        input,
+        Duration::from_secs(3),
+    )
+    .unwrap()
 }
+
 #[test]
 fn stop_returns_empty_json_without_a_decision() {
     let result = invoke(include_bytes!("fixtures/stop.json"));
@@ -43,23 +43,24 @@ fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
 }
 #[test]
 fn open_stdin_does_not_hold_hook_process() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
+    let child = Command::new(env!("CARGO_BIN_EXE_aherald"))
         .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    let mut child = support::OwnedChild(child);
     let start = Instant::now();
     let deadline = start + Duration::from_secs(3);
     loop {
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = child.0.try_wait().unwrap() {
             assert!(status.success());
             break;
         }
         if Instant::now() >= deadline {
-            child.kill().unwrap();
-            child.wait().unwrap();
+            child.0.kill().unwrap();
+            child.0.wait().unwrap();
             panic!("hook did not return with stdin open");
         }
         std::thread::yield_now();
@@ -91,21 +92,15 @@ fn stop_response_survives_invalid_configuration() {
     let path =
         std::env::temp_dir().join(format!("aherald-invalid-hook-{}.toml", std::process::id()));
     std::fs::write(&path, "invalid = [").unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--config"])
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(include_bytes!("fixtures/stop.json"))
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
+    let output = support::run_bounded_with_input(
+        Command::new(env!("CARGO_BIN_EXE_aherald"))
+            .args(["--hook", "--config"])
+            .arg(&path)
+            .stdin(Stdio::piped()),
+        include_bytes!("fixtures/stop.json"),
+        Duration::from_secs(3),
+    )
+    .unwrap();
     std::fs::remove_file(path).unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"{}\n");
@@ -134,24 +129,14 @@ fn powershell_gui_invocation_collects_hook_responses_with_quoted_paths() {
             quote(&executable),
             quote(&config)
         );
-        let mut child = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while child.try_wait().unwrap().is_none() {
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("PowerShell hook invocation exceeded its deadline");
-            }
-            std::thread::yield_now();
-        }
-        let output = child.wait_with_output().unwrap();
+        let output = support::run_bounded_with_input(
+            Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+                .stdin(Stdio::piped()),
+            input,
+            Duration::from_secs(3),
+        )
+        .unwrap();
         assert!(
             output.status.success(),
             "{}",

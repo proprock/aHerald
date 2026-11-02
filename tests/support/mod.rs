@@ -7,6 +7,8 @@ use std::{
 };
 
 #[cfg(windows)]
+pub mod detached;
+#[cfg(windows)]
 mod resident;
 #[cfg(windows)]
 pub mod window;
@@ -108,19 +110,35 @@ pub fn run_bounded_with_input(
 ) -> Result<Output, String> {
     let program = command.get_program().to_string_lossy().into_owned();
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = OwnedChild(
-        command
-            .spawn()
-            .map_err(|error| format!("cannot start `{program}`: {error}"))?,
-    );
-    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<Vec<u8>> {
+    let child = command
+        .spawn()
+        .map_err(|error| format!("cannot start `{program}`: {error}"))?;
+    capture_bounded_inner(child, input, timeout, &program)
+}
+
+/// Bound an already launched process, retaining specialized spawn/retry behavior.
+pub fn capture_bounded(child: Child, input: &[u8], timeout: Duration) -> Result<Output, String> {
+    capture_bounded_inner(child, input, timeout, "owned child")
+}
+
+fn capture_bounded_inner(
+    child: Child,
+    input: &[u8],
+    timeout: Duration,
+    program: &str,
+) -> Result<Output, String> {
+    let mut child = OwnedChild(child);
+    let start = Instant::now();
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let (send, recv) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
             if let Some(mut pipe) = pipe {
                 let _ = pipe.read_to_end(&mut bytes);
             }
-            bytes
-        })
+            let _ = send.send(bytes);
+        });
+        recv
     }
     if let Some(mut stdin) = child.0.stdin.take() {
         let input = input.to_vec();
@@ -130,7 +148,6 @@ pub fn run_bounded_with_input(
     }
     let stdout = drain(child.0.stdout.take());
     let stderr = drain(child.0.stderr.take());
-    let start = Instant::now();
     let status = loop {
         match child.0.try_wait() {
             Ok(Some(status)) => break status,
@@ -146,10 +163,17 @@ pub fn run_bounded_with_input(
             Err(error) => return Err(format!("cannot wait for `{program}`: {error}")),
         }
     };
+    // Descendants may inherit a pipe after the owned child exits. Never join a reader
+    // without a deadline, and never kill an unowned descendant to close that pipe.
+    let receive = |pipe: std::sync::mpsc::Receiver<Vec<u8>>| {
+        pipe.recv_timeout(timeout.saturating_sub(start.elapsed())).map_err(|_| {
+            format!("`{program}` output did not close within {timeout:?}; child exited, last output state: open")
+        })
+    };
     Ok(Output {
         status,
-        stdout: stdout.join().unwrap_or_default(),
-        stderr: stderr.join().unwrap_or_default(),
+        stdout: receive(stdout)?,
+        stderr: receive(stderr)?,
     })
 }
 

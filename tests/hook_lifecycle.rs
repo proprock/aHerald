@@ -1,6 +1,6 @@
 #![cfg(windows)]
+mod support;
 use std::{
-    io::Write,
     mem::size_of,
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -56,7 +56,7 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
             )
             .unwrap();
             let start = Instant::now();
-            let mut hook = Command::new(env!("CARGO_BIN_EXE_aherald"))
+            let hook = Command::new(env!("CARGO_BIN_EXE_aherald"))
                 .args(["--hook", "--config"])
                 .arg(&path)
                 .stdin(Stdio::piped())
@@ -65,22 +65,14 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
                 .spawn()
                 .unwrap();
             let parent = hook.id();
-            hook.stdin.take().unwrap().write_all(fixture).unwrap();
-            let deadline = start + Duration::from_secs(3);
-            loop {
-                if hook.try_wait().unwrap().is_some() {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    let _ = hook.kill();
-                    let _ = hook.wait();
-                    panic!("hook process blocked");
-                }
-                std::thread::yield_now();
-            }
+            let root = support::TempDir::new("hook-lifecycle");
+            let scope = aherald::local::Scope::current(root.file_name().unwrap().to_str().unwrap())
+                .unwrap();
+            let mut owned = support::detached::Residents::new(scope);
+            owned.retain(parent).unwrap();
+            let output = support::capture_bounded(hook, fixture, Duration::from_secs(3)).unwrap();
             let hook_return_ms = start.elapsed().as_millis();
             assert!(hook_return_ms < 3000);
-            let output = hook.wait_with_output().unwrap();
             assert!(output.status.success());
             assert!(
                 output.stderr.is_empty(),

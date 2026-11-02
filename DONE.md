@@ -3,6 +3,22 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-107 - Make asynchronous checks and process cleanup deterministic** (2026-11-02).
+  Inventoried process, timing, desktop and cleanup boundaries. Bounded hook/setup/UI
+  process capture, including inherited output after child exit; retained concurrent
+  pipe draining and owned-child timeout cleanup. Native detached guards verify
+  parentage, retain exact handles across replacement, request Quit, observe exit and
+  apply bounded owned-process fallback before directory removal. IPC stop and name
+  worker checks now synchronize on observed completion. Preserved scenario delays,
+  cold launcher races, performance limits and logger/TZ process isolation.
+  Runtime regression reproduced the inherited-pipe deadline failure. Native tests
+  cover large output, unread stdin, hung processes, panic cleanup, independent
+  resident survival and released IPC. AH-092 passed another 20 consecutive Windows
+  runs with final cleanup; its forced-visible negative case passed in the full run.
+  Format, Clippy, native release build and sequential Windows full tests passed:
+  689 passed, 0 failed, 17 ignored. No new manual UI or Unix execution is claimed.
+  Inventory, evidence and platform/resource limits: docs/ah-107-deterministic-tests.md.
+
 - [x] **AH-092 - Wait for the paused resident window to hide** (2026-11-02).
   Preserved the native visibility assertion and added a bounded two-second wait
   with expected/last visibility diagnostics. Native tests reproduce delayed hiding

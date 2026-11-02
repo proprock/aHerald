@@ -19,24 +19,14 @@ fn resident_crash_restarts_and_accepts_fresh_events() {
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
-            let deadline = std::time::Instant::now() + Duration::from_secs(3);
-            while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none()
-            {
-                std::thread::yield_now();
-            }
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let pid = match resident::ensure(&exe, &config, &scope).unwrap() {
         Response::Status { pid, .. } => pid,
         _ => panic!(),
     };
+    cleanup.0.retain(pid).unwrap();
     // SAFETY: PID was returned by this test's private resident; the handle is
     // closed after a bounded wait. No unrelated process is terminated.
     unsafe {
@@ -53,6 +43,7 @@ fn resident_crash_restarts_and_accepts_fresh_events() {
         &aherald::events::Event::demo("permission_required").unwrap(),
     )
     .unwrap();
+    cleanup.0.retain_current().unwrap();
     assert!(matches!(
         pipe::request(&scope, &Request::Status, Duration::from_millis(300)).unwrap(),
         Response::Status { queued: 1, .. }
@@ -66,27 +57,15 @@ fn disabled_terminal_cards_still_resolve_matching_waits_over_ipc() {
     let config = root.join("config.toml");
     std::fs::write(&config, "[notifications]\nenabled=false\n[sounds]\nenabled=false\n[events.interrupted]\nenabled=false").unwrap();
     let scope = Scope::current(&format!("resolved-test-{}", std::process::id())).unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
-            let deadline = std::time::Instant::now() + Duration::from_secs(3);
-            while std::time::Instant::now() < deadline {
-                if self.0.acquire().ok().flatten().is_some() {
-                    break;
-                }
-                std::thread::yield_now();
-            }
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     resident::ensure(
         &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
         &config,
         &scope,
     )
     .unwrap();
+    cleanup.0.retain_current().unwrap();
     let event = |name: &str| {
         aherald::events::parse_hook(
             format!(r#"{{"hook_event_name":"{name}","session_id":"one","turn_id":"turn-a"}}"#)
@@ -137,14 +116,8 @@ fn resident_startup_races_status_forwarding_and_quit() {
     )
     .unwrap();
     let scope = Scope::current(&format!("resident-test-{}", std::process::id())).unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(100));
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let mut jobs = Vec::new();
     for _ in 0..4 {
         let config = config.clone();
@@ -165,6 +138,7 @@ fn resident_startup_races_status_forwarding_and_quit() {
             _ => panic!("expected status"),
         })
         .collect();
+    cleanup.0.retain_current().unwrap();
     assert!(pids.iter().all(|p| *p == pids[0]));
     assert!(matches!(
         pipe::request(
@@ -199,19 +173,8 @@ fn sixteen_concurrent_hooks_reach_one_resident_exactly_once() {
     )
     .unwrap();
     let scope = Scope::current(&format!("burst-test-{}", std::process::id())).unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
-            let deadline = std::time::Instant::now() + Duration::from_secs(3);
-            while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none()
-            {
-                std::thread::yield_now();
-            }
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     // All hooks start together against a cold resident, as parallel subagent hooks do.
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
@@ -236,6 +199,7 @@ fn sixteen_concurrent_hooks_reach_one_resident_exactly_once() {
     for job in jobs {
         job.join().unwrap().expect("every concurrent hook succeeds");
     }
+    cleanup.0.retain_current().unwrap();
     assert!(matches!(
         pipe::request(&scope, &Request::Status, Duration::from_millis(500)).unwrap(),
         Response::Status { queued: 16, .. }
@@ -256,14 +220,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         "[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0",
     )
     .unwrap();
-    struct Cleanup(Scope, PathBuf);
-    impl Drop for Cleanup {
-        fn drop(&mut self) {
-            let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(200));
-            let _ = std::fs::remove_dir_all(&self.1);
-        }
-    }
-    let _cleanup = Cleanup(scope.clone(), root);
+
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let pid = match resident::ensure(
         &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
         &config,
@@ -274,6 +232,7 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         Response::Status { pid, .. } => pid,
         _ => panic!(),
     };
+    cleanup.0.retain(pid).unwrap();
     for (kind, session) in [("permission_required", "one"), ("input_required", "two")] {
         let mut event = Event::demo(kind).unwrap();
         event.session_id = Some(session.into());
@@ -493,18 +452,6 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     }
 }
 
-struct EndCleanup(Scope, PathBuf);
-impl Drop for EndCleanup {
-    fn drop(&mut self) {
-        let _ = pipe::request(&self.0, &Request::Quit, Duration::from_millis(300));
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        while std::time::Instant::now() < deadline && self.0.acquire().ok().flatten().is_none() {
-            std::thread::yield_now();
-        }
-        let _ = std::fs::remove_dir_all(&self.1);
-    }
-}
-
 fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Event {
     aherald::events::Event {
         kind,
@@ -533,7 +480,7 @@ fn session_end_clears_a_running_residents_wait_and_never_starts_one() {
         "[notifications]\nenabled=false\n[sounds]\nenabled=false",
     )
     .unwrap();
-    let _cleanup = EndCleanup(scope.clone(), root);
+    let mut cleanup = support::detached::Cleanup::new(scope.clone(), root);
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_aherald"));
     let end = claude_event(Kind::TurnComplete, true);
     // Nothing is running: there is nothing to clear and no resident is launched for it.
@@ -546,6 +493,7 @@ fn session_end_clears_a_running_residents_wait_and_never_starts_one() {
         &claude_event(Kind::PermissionRequired, false),
     )
     .unwrap();
+    cleanup.0.retain_current().unwrap();
     let queued = || match pipe::request(&scope, &Request::Status, Duration::from_millis(300)) {
         Ok(Response::Status { queued, .. }) => queued,
         other => panic!("{other:?}"),

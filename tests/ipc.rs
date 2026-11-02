@@ -158,6 +158,7 @@ fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
     let thread_stop = stop.clone();
     let thread_scope = scope.clone();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
     let listener = std::thread::spawn(move || {
         // The server handle stays on its owning thread, as in the resident.
         let server = thread_scope.create_pipe().unwrap();
@@ -167,6 +168,7 @@ fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
             .serve_until(&thread_stop, |_| Response::Accepted)
             .unwrap();
         let idle_for = started.elapsed();
+        stopped_tx.send(()).unwrap();
         // A request arriving while waiting is served and reported.
         let fresh = pipe::StopEvent::new().unwrap();
         let served = server.serve_until(&fresh, |_| Response::Accepted).unwrap();
@@ -179,7 +181,7 @@ fn listener_blocks_until_a_client_or_the_stop_event_without_polling() {
         "an idle listener must keep waiting"
     );
     stop.signal();
-    std::thread::sleep(Duration::from_millis(50));
+    stopped_rx.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(matches!(
         pipe::request(&scope, &Request::Status, Duration::from_millis(1000)).unwrap(),
         Response::Accepted
