@@ -1076,10 +1076,14 @@ fn a_status_line_format_alone_installs_the_wrapper_and_removing_it_removes_the_w
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(
-        command.ends_with("--statusline") && !command.contains("--then"),
-        "{command}"
-    );
+    // Windows installs a PowerShell relay whose text is not asserted here; see the
+    // `generated_statusline_*` tests. The Unix form is a plain shell command.
+    if cfg!(unix) {
+        assert!(
+            command.ends_with("--statusline") && !command.contains("--then"),
+            "{command}"
+        );
+    }
     app.ok(&args);
     assert_eq!(app.read("claude")["statusLine"]["command"], command);
     std::fs::write(&config, "[claude.statusline]\nformat = \"\"\n").unwrap();
@@ -1103,7 +1107,10 @@ fn a_status_line_format_keeps_and_wraps_the_users_own_command() {
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(command.contains("--then 'echo mine'"), "{command}");
+    assert_ne!(command, "echo mine");
+    if cfg!(unix) {
+        assert!(command.contains("--then 'echo mine'"), "{command}");
+    }
     app.ok(&["--unsetup", "--apply"]);
     assert_eq!(app.read("claude")["statusLine"], original["statusLine"]);
 }
