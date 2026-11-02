@@ -706,6 +706,105 @@ mod tests {
     use super::*;
 
     #[test]
+    fn linux_warning_reports_cross_and_rearm_independently() {
+        use crate::ipc::Request;
+        let config = Config::parse(
+            "[codex.warnings]\ncontext_tokens=100\n[claude.warnings]\ncontext_tokens=200",
+            Path::new("."),
+        )
+        .unwrap();
+        let state = shared(&config);
+        let mut state = state.lock().unwrap();
+        for (codex, tokens, expected) in [
+            (true, 101, 1),
+            (false, 101, 1),
+            (false, 201, 2),
+            (true, 101, 2),
+            (true, 100, 2),
+            (true, 101, 3),
+        ] {
+            let request = if codex {
+                let input = format!(
+                    r#"{{"hook_event_name":"PostModelRequest","session_id":"same","status":"completed","token_usage":{{"input_tokens":{tokens}}}}}"#
+                );
+                Request::CodexContext {
+                    report: crate::codex_context::parse(input.as_bytes())
+                        .unwrap()
+                        .unwrap(),
+                }
+            } else {
+                let input = format!(
+                    r#"{{"session_id":"same","context_window":{{"current_usage":{{"input_tokens":{tokens},"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}}}}"#
+                );
+                Request::StatusLine {
+                    report: crate::statusline::parse(input.as_bytes()).unwrap(),
+                }
+            };
+            let request = crate::ipc::decode(&crate::ipc::encode(&request).unwrap()).unwrap();
+            assert!(matches!(
+                crate::resident_request::respond(request, &mut *state, &config, 0).0,
+                Response::Accepted
+            ));
+            assert_eq!(state.queue.items().len(), expected);
+        }
+        assert_eq!(
+            state.queue.items()[0].event.title(),
+            "Context: 0.101k > 0.1k"
+        );
+        assert_eq!(
+            state.queue.items()[1].event.title(),
+            "Context: 0.201k > 0.2k"
+        );
+    }
+
+    #[test]
+    fn linux_idle_deadline_pauses_retries_and_cancels_stale_cards() {
+        use crate::{
+            events::{Kind, Source},
+            ipc::Request,
+        };
+        let config = Config::parse("[codex.warnings]\nidle_minutes=1\n[claude.warnings]\nidle_minutes=2\n[events.turn_complete]\nenabled=false", Path::new(".")).unwrap();
+        let state = shared(&config);
+        let mut state = state.lock().unwrap();
+        state.queue = Queue::new(1, 0);
+        let mut stop = Event::demo("turn_complete").unwrap();
+        stop.source = Source::CodexHook;
+        stop.session_id = Some("idle".into());
+        crate::resident_request::respond(
+            Request::Event {
+                event: stop.clone(),
+            },
+            &mut *state,
+            &config,
+            0,
+        );
+        assert!(state.queue.items().is_empty());
+        state.paused = true;
+        crate::resident_request::tick(&mut *state, &config, 60_001);
+        assert!(state.queue.items().is_empty());
+        state.paused = false;
+        let mut blocker = Event::demo("permission_required").unwrap();
+        blocker.session_id = Some("other".into());
+        state.queue.push(blocker, 60_001, 0);
+        crate::resident_request::tick(&mut *state, &config, 60_001);
+        state.queue.dismiss();
+        crate::resident_request::tick(&mut *state, &config, 90_000);
+        let event = &state.queue.items()[0].event;
+        assert_eq!(event.kind, Kind::IdleWarning);
+        assert_eq!(event.title(), "Idle: 1m 0s (limit 1m)");
+        stop.activity = true;
+        crate::resident_request::respond(
+            Request::Event { event: stop },
+            &mut *state,
+            &config,
+            90_001,
+        );
+        assert!(state.queue.items().is_empty());
+        crate::resident_request::tick(&mut *state, &config, 180_000);
+        assert!(state.queue.items().is_empty());
+    }
+
+    #[test]
     fn about_is_persistent_green_and_dismissible() {
         let mut queue = Queue::new(8, 0);
         assert_eq!(toggle_about(&mut queue, 0), crate::queue::Outcome::Queued);

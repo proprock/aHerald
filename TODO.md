@@ -183,17 +183,6 @@ shared already. Verify their Linux integration and reuse them rather than creati
 parallel implementations. The tasks below cover behavior and acceptance; existing
 shared development-profile and artwork performance changes need no separate port.
 
-- [ ] **AH-111 — Verify and complete Linux session warning delivery.**
-  Trace Codex `PostModelRequest` and Claude statusLine reports through the existing
-  adapters and IPC to the Linux resident; fix any Linux integration gaps found.
-  Verify idle deadlines and delivery while the notification queue is empty, as
-  well as measured context/threshold and elapsed idle/limit text on cards.
-  Acceptance: automated Linux checks cover independent agent thresholds, context
-  crossing and rearming, cancellation of stale warnings, pause/resume and retries
-  after a full queue. Check the native presentation path and document the need
-  for a running resident and the verified agent-version/protocol limitations.
-  Real-session acceptance is tracked in AH-115.
-
 - [ ] **AH-112 — Add Linux tray warning switches.**
   Add separate Context warnings and Idle warnings switches with the Windows
   runtime semantics: each controls both agents, does not change saved thresholds

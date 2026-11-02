@@ -27,6 +27,20 @@ commands in `/hooks`. For manual setup, `examples/aherald-*-hook-linux.sh` use
 or edit your hook configuration to point at the chosen installation. Hook setup is never
 automatic. Remove hooks with `./aherald --uninstall-hooks claude --apply` or `codex`.
 
+Session warnings require an already running resident: neither context reports nor
+activity-only hooks start one. Configure each agent's context and idle thresholds
+as described in [configuration.md](configuration.md#session-warnings-ah-100--ah-101).
+Codex context reports require the explicit `PostModelRequest` hook. Its dispatch
+and input schema were verified with Codex CLI `0.166.0-alpha.5.1` on Windows; the
+hook is not documented as a stable general protocol, and other versions and Linux
+real-session dispatch have not been verified. Claude context reports require the
+`--statusline` wrapper; Claude Code `2.1.311` was verified on Windows, not in a
+Linux real session. Preview `./aherald --install-statusline` before applying it.
+These observations are not evidence of installed Linux hook delivery; that live
+acceptance is tracked in AH-115. The local IPC protocol is versioned: use matching
+hook and resident builds, and restart the resident after updating the executable.
+Warning state is in memory and starts fresh after a resident restart.
+
 Alternatively, Claude Code can install the repository's plugin marketplace:
 
 ```sh
