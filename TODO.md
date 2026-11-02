@@ -338,7 +338,12 @@ shared development-profile and artwork performance changes need no separate port
   unknown focus; verify the behavior in a real terminal and a desktop session.
   Agreed: a card suppressed on arrival must not appear later after focus changes;
   preserve lifecycle and deduplication state. Implementation and automated checks
-  are on `feature/ah-098-active-session`; live visual/audio acceptance remains open.
+  are on `feature/ah-098-active-session`. On 2026-11-02, after updating the installed
+  resident from 0.5.0 to this branch's 0.9.0-beta build, the user confirmed real
+  Claude and Codex delivery from another Windows Terminal tab: card, sound and
+  preserved focus. Independent card-only/sound-only acceptance needs rechecking
+  on the updated build; the earlier daily-use report preceded discovery that
+  the installed version did not support these settings.
   Current positive identification covers Claude hooks in a classic Windows console.
   Codex, desktop multi-session apps, tabbed terminals, macOS and Linux deliver
   fail-open until reliable active-session identity is available. See

@@ -114,11 +114,38 @@ this was corrected to `auto`. All four then passed configuration loading and
 private-resident startup/quit through the native probe. A fresh build and four
 focused policy/configuration/queue tests passed in this continuation.
 
-Independent output combinations, unknown-origin checks and real terminal/Desktop
-hook dispatch remain to be observed. Synthetic events do not establish actual
-agent hook capture. AH-098 remains open.
+At that point, independent output combinations, unknown-origin checks and real
+terminal/Desktop hook dispatch remained to be observed. Synthetic events do not
+establish actual agent hook capture.
 
-## Manual acceptance still required
+## Live acceptance progress (2026-11-02)
+
+The user reported routine real-hook completion and permission delivery from
+terminal/Desktop sessions. Interruption, input-request and failure cards were
+not observed; no manual acceptance of those separate adapter events is claimed.
+
+During follow-up, the installed resident was found to be version 0.5.0, which
+rejected the new suppression settings. It was updated to the tested 0.9.0-beta
+build from this branch. The existing configuration was backed up, its five
+duration values converted from milliseconds to seconds without changing their
+times, and loaded successfully by the new executable. The restarted installed
+resident answered status with visuals and sounds enabled.
+
+After that update, the user ran the two-tab Windows Terminal scenario: start a
+real agent task in one tab, switch to another tab of the same focused window,
+and wait for completion. For both Claude and Codex, the user confirmed a visible
+card, audible sound and preserved focus. This is user-observed real-hook
+fail-open delivery when active-tab identity is unknown, not a selected-tab
+identification result. Agent versions were not recorded in this follow-up.
+
+The earlier report that independent output combinations work in daily use
+predates discovery of the unsupported installed version. It does not establish
+those new settings on this build. Recheck card-only and sound-only behavior in
+a focused classic Windows console with Claude before closing AH-098. Fully
+missing origin is covered by automated tests; the live tabbed-host case above
+provides unknown-session evidence.
+
+## Initial manual attempt and repeatable checks
 
 After explicit user authorization, the dedicated native probe was launched on
 2026-11-01, then restarted with a normal visible-window launch. Its process and
@@ -128,7 +155,7 @@ the user was asked to enter the probe commands and report card/audio observation
 The user was away and could not observe the probe. Both owned test processes were
 then stopped; the installed resident was left running.
 That initial attempt supplied no screenshot, audible result or live terminal/Desktop acceptance.
-AH-098 stays open pending that evidence.
+The later user observations above supersede this initial attempt's evidence gap.
 
 Build the opt-in probe with:
 
