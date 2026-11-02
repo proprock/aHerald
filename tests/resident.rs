@@ -5,6 +5,7 @@ use aherald::{
     resident,
 };
 use std::{path::PathBuf, time::Duration};
+mod support;
 
 #[test]
 fn resident_crash_restarts_and_accepts_fresh_events() {
@@ -391,6 +392,7 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
             "tray pause action did not take effect"
         );
     }
+    support::window::wait_hidden(window, Duration::from_secs(2)).unwrap();
     assert!(!unsafe { IsWindowVisible(window) }.as_bool());
     let mut event = Event::demo("input_required").unwrap();
     event.session_id = Some("while-paused".into());
@@ -551,4 +553,73 @@ fn session_end_clears_a_running_residents_wait_and_never_starts_one() {
     assert_eq!(queued(), 1);
     resident::forward_if_running(&scope, &end).unwrap();
     assert_eq!(queued(), 0);
+}
+
+#[test]
+fn paused_resident_that_stays_visible_is_rejected_by_the_window_wait() {
+    use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+    let mut fixture = support::ResidentFixture::new(
+        "paused-visible",
+        "[sounds]\nenabled=false\n[notifications]\nfade_in_ms=0\nfade_out_ms=0",
+    );
+    let pid = fixture.start().unwrap();
+    let mut window = HWND::default();
+    support::wait_until(
+        Duration::from_secs(3),
+        Duration::from_millis(5),
+        "resident window",
+        || {
+            window = support::window::resident_window(pid).unwrap_or_default();
+            !window.is_invalid()
+        },
+    )
+    .unwrap();
+    pipe::request(
+        &fixture.scope,
+        &Request::Event {
+            event: aherald::events::Event::demo("permission_required").unwrap(),
+        },
+        Duration::from_millis(500),
+    )
+    .unwrap();
+    support::wait_until(
+        Duration::from_secs(3),
+        Duration::from_millis(5),
+        "first visible card",
+        || unsafe { IsWindowVisible(window) }.as_bool(),
+    )
+    .unwrap();
+    // Pause a private resident, then simulate a renderer which incorrectly leaves it visible.
+    unsafe {
+        PostMessageW(
+            Some(window),
+            WM_COMMAND,
+            WPARAM(aherald::tray::PAUSE),
+            LPARAM(0),
+        )
+        .unwrap();
+    }
+    support::wait_until(
+        Duration::from_secs(2),
+        Duration::from_millis(5),
+        "paused status",
+        || {
+            matches!(
+                pipe::request(&fixture.scope, &Request::Status, Duration::from_millis(100)),
+                Ok(Response::Status { paused: true, .. })
+            )
+        },
+    )
+    .unwrap();
+    support::window::wait_hidden(window, Duration::from_secs(2)).unwrap();
+    unsafe {
+        let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+    }
+    assert!(unsafe { IsWindowVisible(window) }.as_bool());
+    let error = support::window::wait_hidden(window, Duration::from_millis(50)).unwrap_err();
+    assert!(error.contains("last visible=true"), "{error}");
+    assert!(matches!(
+        pipe::request(&fixture.scope, &Request::Status, Duration::from_millis(200)),
+        Ok(Response::Status { paused: true, .. })
+    ));
 }

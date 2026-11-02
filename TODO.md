@@ -397,17 +397,6 @@ shared development-profile and artwork performance changes need no separate port
   delivery budgets are unchanged. See [the startup investigation](docs/native-assets-investigation.md)
   and the audit for observed timings and platform limits.
 
-- [ ] **AH-092 — Make the Windows resident pause test wait for the window to hide.**
-  `resident_uses_one_window_and_switches_and_dismisses_only_selected_event` (`tests/resident.rs`)
-  failed once on `windows-latest` (PR #63, 2026-10-29) at `assert!(!IsWindowVisible(window))` right
-  after the status reported `paused: true`, and passed on a rerun of the same commit and on master.
-  The pause reaches the status before the overlay window is hidden, so the check races. Fix test-first
-  on Windows: wait for the window to be hidden with a bounded deadline (as the wait for `paused` does)
-  and fail with a clear message on timeout; do not remove the assertion. If the window is still visible
-  well after `paused`, that is a product bug and gets its own regression test. Acceptance: the test
-  passes repeatedly on Windows (for example 20 consecutive runs) and still fails when a paused
-  resident leaves the window visible.
-
 - [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
   pending cards) is covered by automated tests, but no live payload exists. A bad model

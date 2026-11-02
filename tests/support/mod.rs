@@ -9,6 +9,8 @@ use std::{
 #[cfg(windows)]
 mod resident;
 #[cfg(windows)]
+pub mod window;
+#[cfg(windows)]
 #[allow(unused_imports)] // each integration crate uses a different subset of support
 pub use resident::ResidentFixture;
 

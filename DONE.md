@@ -3,6 +3,15 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-092 - Wait for the paused resident window to hide** (2026-11-02).
+  Preserved the native visibility assertion and added a bounded two-second wait
+  with expected/last visibility diagnostics. Native tests reproduce delayed hiding
+  (red before the wait) and reject a window that remains visible. A real paused
+  resident forced visible is also rejected after a visible card establishes readiness.
+  Both the original resident test and the negative resident test passed 20 consecutive
+  Windows runs without retries. Format, Clippy, release build and full sequential
+  Windows tests passed: 628 passed, 0 failed, 17 ignored. No production change.
+
 - [x] **AH-108 - Extract small reusable test fixtures and bounded wait helpers** (2026-11-02).
   Added owned temporary directories, unique resident IPC scopes, configuration creation,
   exact child-process guards and bounded state waits. Migrated the three designated
