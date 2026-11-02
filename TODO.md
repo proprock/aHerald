@@ -183,17 +183,6 @@ shared already. Verify their Linux integration and reuse them rather than creati
 parallel implementations. The tasks below cover behavior and acceptance; existing
 shared development-profile and artwork performance changes need no separate port.
 
-- [ ] **AH-113 — Add Apply and Apply + Test to the Linux tray.**
-  Validate the saved configuration before restarting the resident. On invalid
-  configuration, report the error and keep the current resident serving with its
-  existing configuration. Apply + Test starts a navigable seven-format card
-  carousel in the replacement resident, marked `[Test]`, with configured sounds;
-  dismissal or a real notification ends the preview. Reuse shared preview and
-  restart behavior where supported, retaining normal Linux tray operation.
-  Acceptance: tests cover valid and invalid Apply and Apply + Test, replacement
-  lifecycle, navigation, dismissal and interruption by a real event; verify card
-  appearance and sound on a supported Linux desktop. Depends on AH-111.
-
 - [ ] **AH-114 — Add warning options to Linux native setup.**
   Extend the AH-103 setup UI with independent context and idle choices for each
   agent, using the common setup backend. Load existing settings and preserve

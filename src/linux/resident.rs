@@ -184,8 +184,7 @@ pub fn run_after_apply(
             state,
             stop.clone(),
             started,
-            None,
-            test,
+            if test { Preview::Test } else { Preview::None },
             Some(path),
         ),
         Err(e) => Err(e),
@@ -211,8 +210,7 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         state,
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
-        Some(demo),
-        false,
+        Preview::Demo(demo),
         Some(path),
     )
 }
@@ -240,10 +238,15 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         state,
         Arc::new(AtomicBool::new(false)),
         Instant::now(),
-        None,
-        false,
+        Preview::None,
         None,
     )
+}
+
+enum Preview {
+    None,
+    Demo(crate::demo::Demo),
+    Test,
 }
 
 fn present(
@@ -252,11 +255,15 @@ fn present(
     state: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
     start: Instant,
-    mut demo: Option<crate::demo::Demo>,
-    test: bool,
+    preview: Preview,
     config_path: Option<&Path>,
 ) -> Result<(), String> {
-    let mut carousel = test.then(|| crate::demo::Carousel::new(&config));
+    let mut carousel =
+        matches!(preview, Preview::Test).then(|| crate::demo::Carousel::new(&config));
+    let mut demo = match preview {
+        Preview::Demo(demo) => Some(demo),
+        _ => None,
+    };
     let mut test_sound = None;
     let transient = config_path.is_none();
     let tray = config_path.map(|_| {

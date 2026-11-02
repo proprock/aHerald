@@ -62,11 +62,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Linux audio runtime
+      - name: Install Linux test dependencies
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse0
+          sudo apt-get install -y libpulse0 xvfb xauth dbus
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         if: needs.changes.outputs.code == 'true'
@@ -89,6 +89,13 @@ jobs:
       - name: cargo test
         if: needs.changes.outputs.code == 'true'
         run: cargo test --all-targets
+
+      - name: Test Linux tray apply lifecycle
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
+        run: >-
+          xvfb-run -a -s '-screen 0 1280x1024x24'
+          dbus-run-session -- env AH113_ISOLATED=1
+          cargo test --test linux_apply -- --ignored --test-threads=1
 
       - name: Verify installer failure diagnostics
         if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'

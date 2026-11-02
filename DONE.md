@@ -3,6 +3,15 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-113 — Add Apply and Apply + Test to the Linux tray** (2026-11-02).
+  Added validated resident replacement and the shared seven-format preview, aligned
+  the tray menu with Windows, and sized warning cards for their measured text.
+  The isolated Linux integration test covers both actions with valid and invalid
+  settings, replacement and reload, navigation, dismissal, event interruption and
+  a subsequent ordinary Apply. It passed on XWayland and Xvfb and is enabled in
+  Linux CI. The full suite and Clippy passed locally; the user confirmed both tray
+  actions and the revised preview in the live GNOME Wayland/XWayland session.
+
 - [x] **AH-112 — Add Linux tray warning switches** (2026-11-02).
   Added independent runtime context and idle switches using shared warning
   controls. Tests cover both agents, pending and queued warnings, pause/resume,
