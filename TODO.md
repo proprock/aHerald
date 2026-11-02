@@ -436,31 +436,6 @@ framework rewrite. Keep live/account checks opt-in and preserve the agreed artwo
 performance check and resident `perf_baseline` limits. Record baseline failures
 separately from regressions introduced by this milestone.
 
-- [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
-  Depends on AH-107 and AH-108. Measure current Windows test build and execution time
-  separately, then compare the same test selection under a pinned, Windows-compatible
-  nextest release. Include repeated runs, pass/fail/ignored counts and any pre-existing
-  failures; do not claim a speedup from unmatched selections or cache conditions.
-  Inventory tests that share the desktop, placement mutex, tray, audio or other OS-wide
-  resources. Before parallel nextest execution, place conflicting tests in a common
-  group with concurrency one: nextest runs each test in a separate process, so the
-  existing process-local `static Mutex` is insufficient. Keep per-test unique IPC
-  scopes even within serialized groups. Configure bounded per-test execution,
-  useful failure output and CI reports, with automatic retries disabled by default.
-  Define documented selections for fast deterministic checks, native integration,
-  performance and explicit manual/live checks. Performance checks must run without
-  competing GUI/performance workloads; retain their fixtures, budgets and required
-  acceptance role unless a separate scope decision changes them. Do not blindly
-  enable ignored tests, installed harnesses or account access in CI. Keep ordinary
-  `cargo test` supported and account explicitly for any doctests or other checks
-  outside nextest's coverage. Adopt nextest as the CI runner only after Windows
-  compatibility and resource isolation pass; record a justified keep-Cargo decision
-  if it provides no practical benefit. Acceptance: both runners execute equivalent
-  intended coverage; GUI contention, hung-test reporting and owned-process cleanup
-  are verified, existing platform CI checks remain covered, and measured results,
-  commands, runner version and limitations are documented. Compare compilation costs
-  before proposing integration-binary consolidation; preserve intentional isolation.
-
 - [ ] **AH-110 — Apply rstest selectively where parameterization improves diagnostics.**
   Depends on AH-108 and the AH-109 runner decision. Compare `rstest` with ordinary
   table-driven Rust tests on representative configuration and hook-input matrices.

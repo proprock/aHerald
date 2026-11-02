@@ -3,6 +3,22 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-109 - Evaluate nextest and retain Cargo for mandatory CI** (2026-11-02).
+  Compared pinned signed Windows nextest 0.9.150 against Cargo with equal package-cold
+  builds and three alternating warm full runs. Matched exact names/ignored flags in
+  93 binaries: 693 ordinary tests passed, 0 failed, 23 ignored with both runners in
+  every round. Build wall: Cargo 158.448 s, nextest 168.737 s; execution medians:
+  Cargo 117.652 s, nextest 196.335 s (66.9% higher). Retained Cargo CI and all existing
+  platform jobs; preserved integration-binary isolation and performance budgets.
+  Added conservative native serialization, exclusive performance scheduling, bounded
+  per-test execution, zero retries and opt-in JUnit reports. Independent runtime
+  fault injection reproduced both missing-group and missing-exclusivity collisions.
+  Green probes verified scheduling, hung-test classification/reporting, exact owned
+  test/resident termination, and released native mutex/pipe/file resources.
+  Format, Clippy and Windows release build passed; separate doctest command passed
+  (zero current doctests). No new visual, installed-account or Unix results claimed.
+  Reproduction, resource inventory, selections and limits: docs/ah-109-nextest.md.
+
 - [x] **AH-107 - Make asynchronous checks and process cleanup deterministic** (2026-11-02).
   Inventoried process, timing, desktop and cleanup boundaries. Bounded hook/setup/UI
   process capture, including inherited output after child exit; retained concurrent

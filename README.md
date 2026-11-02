@@ -68,6 +68,9 @@ cargo test --all-targets
 cargo build --release --target x86_64-pc-windows-msvc
 ```
 
+Runner scheduling, optional nextest selections and measured evaluation commands are in
+[the test runner guide](docs/ah-109-nextest.md). Ordinary Cargo remains supported.
+
 Optional checks against installed harnesses belong to the [live test group](tests/live/README.md).
 Run them explicitly; they are separate from the commands above and mandatory CI.
 Some require account access, network requests, or model usage.
