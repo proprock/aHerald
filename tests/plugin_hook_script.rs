@@ -1,5 +1,6 @@
 //! The plugin launcher finds the executable and hands it the hook payload; failures stay silent.
 #![cfg(unix)]
+mod support;
 use std::{
     fs,
     io::Write,
@@ -10,11 +11,8 @@ use std::{
 
 const SCRIPT: &str = "plugins/aherald/hooks/aherald-hook.sh";
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("aherald-plugin-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+fn scratch(name: &str) -> support::TempDir {
+    support::TempDir::new(&format!("plugin-{name}"))
 }
 
 /// An app bundle whose program records its arguments and the payload it received.
@@ -75,7 +73,6 @@ fn the_payload_reaches_the_app_named_by_the_override() {
         "{seen}"
     );
     assert!(seen.contains(r#"{"hook_event_name":"Stop"}"#), "{seen}");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -87,7 +84,6 @@ fn the_app_in_the_users_applications_folder_is_found_and_codex_omits_the_agent_f
     assert!(out.status.success());
     let seen = fs::read_to_string(&record).unwrap();
     assert!(seen.starts_with("--hook --resident"), "{seen}");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -95,7 +91,6 @@ fn without_an_app_the_script_drains_the_payload_and_stays_silent() {
     let dir = scratch("none");
     let out = run("claude", &"x".repeat(200_000), &[("HOME", &dir)]);
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -106,7 +101,6 @@ fn an_unknown_agent_is_ignored_without_running_anything() {
     let out = run("gemini", "{}", &[("AHERALD_APP", &app)]);
     assert!(out.status.success() && out.stdout.is_empty());
     assert!(!record.exists());
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -135,7 +129,6 @@ fn linux_override_passes_payload_and_suppresses_a_failing_program() {
         fs::read_to_string(&record).unwrap(),
         "--hook --agent claude --resident\npayload"
     );
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -160,7 +153,6 @@ fn linux_portable_location_is_discovered() {
         fs::read_to_string(&record).unwrap(),
         "--hook --resident\npayload"
     );
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -180,7 +172,6 @@ fn a_missing_explicit_binary_does_not_run_a_different_installation() {
     );
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
     assert!(!record.exists());
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -192,7 +183,6 @@ fn codex_preserves_only_the_valid_stop_acknowledgement() {
     let out = run("codex", "payload", &[("AHERALD_PATH", &exe)]);
     assert!(out.status.success() && out.stderr.is_empty());
     assert_eq!(out.stdout, b"{}\n");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -219,5 +209,4 @@ fn linux_path_is_used_when_no_override_or_portable_binary_exists() {
         fs::read_to_string(&record).unwrap(),
         "--hook --agent claude --resident\npayload"
     );
-    fs::remove_dir_all(dir).unwrap();
 }

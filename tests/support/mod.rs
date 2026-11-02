@@ -6,6 +6,48 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// A scratch directory owned by one test: created empty with a name unique to this process
+/// and call, and removed with its contents on drop, including when the test panics. It never
+/// touches a directory it did not create, so concurrent tests cannot remove each other's files.
+pub struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    pub fn new(tag: &str) -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("ah-{tag}-{}-{unique}", std::process::id()));
+        // Only a leftover of an earlier crashed process with the same pid can exist here.
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl std::ops::Deref for TempDir {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for TempDir {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for TempDir {
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.0.as_os_str()
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A child process the test owns: killed and reaped on drop, so a failed assertion or a
 /// panic cannot leave it running. Only this exact process is signalled, never one found by name.
 pub struct OwnedChild(pub Child);
@@ -119,6 +161,50 @@ pub fn wait_until(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temp_dirs_are_unique_and_independent_and_are_removed_with_their_contents() {
+        let first = TempDir::new("fixture");
+        let second = TempDir::new("fixture");
+        assert_ne!(*first, *second);
+        std::fs::create_dir_all(first.join("nested")).unwrap();
+        std::fs::write(first.join("nested/file"), b"x").unwrap();
+        std::fs::write(second.join("file"), b"y").unwrap();
+        let (first_path, second_path) = (first.to_path_buf(), second.to_path_buf());
+        drop(first);
+        assert!(!first_path.exists(), "dropped directory remains");
+        assert!(second_path.join("file").exists(), "a sibling was removed");
+        drop(second);
+        assert!(!second_path.exists());
+    }
+
+    #[test]
+    fn a_temp_dir_is_removed_when_the_test_panics() {
+        let path = std::sync::Mutex::new(std::path::PathBuf::new());
+        let result = std::panic::catch_unwind(|| {
+            let dir = TempDir::new("fixture-panic");
+            std::fs::write(dir.join("file"), b"x").unwrap();
+            *path.lock().unwrap() = dir.to_path_buf();
+            panic!("assertion failed");
+        });
+        assert!(result.is_err());
+        let path = path.lock().unwrap();
+        assert!(!path.as_os_str().is_empty() && !path.exists());
+    }
+
+    #[test]
+    fn temp_dirs_made_concurrently_never_collide() {
+        let paths: Vec<_> = (0..8)
+            .map(|_| std::thread::spawn(|| TempDir::new("fixture-race")))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let mut names: Vec<_> = paths.iter().map(|dir| dir.to_path_buf()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 8);
+    }
 
     #[cfg(unix)]
     fn shell(script: &str) -> Command {

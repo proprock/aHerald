@@ -480,6 +480,14 @@ separately from regressions introduced by this milestone.
   Partial 2026-11-02: Linux tray and Unix IPC tests share a bounded boolean wait
   with delayed-success and missing-effect checks. The designated Windows fixture
   migrations and complete lifecycle acceptance still depend on AH-107.
+  Partial 2026-11-02 (branch `feature/ah-108-test-fixtures`, Unix): `support::TempDir` is a
+  scratch directory unique per process and call, removed on drop and on panic; fixture
+  tests cover uniqueness, a surviving sibling, panic cleanup and concurrent creation.
+  Migrated `operational_log`, `hook_log`, `plugin_hook_script`, `unix_audio`, `unix_hook`
+  and `unsupported_platform`, dropping their manual `remove_dir_all` calls. Remaining:
+  per-test IPC scope, configuration creation and the resident guard for
+  `resident_render_faults`, `resident_perf_log` and `perf_baseline` (Windows), the
+  other `temp_dir` users, and startup-failure coverage.
 
 - [ ] **AH-109 — Evaluate and adopt cargo-nextest with explicit resource scheduling.**
   Depends on AH-107 and AH-108. Measure current Windows test build and execution time

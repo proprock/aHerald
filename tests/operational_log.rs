@@ -1,14 +1,12 @@
+mod support;
 use aherald::config::LogLevel;
 use aherald::operational_log::{
     self, Level, Log, MAX_DEBUG_LOG_BYTES, MAX_LOG_BYTES, Record, format_timestamp,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn temp(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("aherald-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    root
+fn temp(name: &str) -> support::TempDir {
+    support::TempDir::new(name)
 }
 
 /// Splits `<timestamp> <LEVEL> <message>`; the level is padded to five characters.
@@ -79,7 +77,6 @@ fn every_line_has_a_local_timestamp_a_padded_level_and_a_dotted_message() {
             assert!(ok, "{stamp} at {i}");
         }
     }
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -97,7 +94,6 @@ fn records_below_the_configured_level_are_not_written() {
         .record(Record::Started)
         .unwrap();
     assert!(!root.join("aherald.log").exists());
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -124,7 +120,6 @@ fn rotation_keeps_the_log_and_its_backup_within_the_cap_and_recovers_from_unwrit
     assert!(broken.record(Record::IpcFailure).is_err());
     std::fs::remove_file(&blocked).unwrap();
     assert!(broken.record(Record::IpcFailure).is_ok());
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -140,7 +135,6 @@ fn debug_logging_keeps_a_larger_window_than_the_default() {
         let size = std::fs::metadata(root.join(name)).unwrap().len();
         assert!(size <= MAX_DEBUG_LOG_BYTES);
     }
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -169,9 +163,6 @@ fn the_shared_logger_gates_by_level_and_follows_reconfiguration() {
 
     operational_log::init(&second, LogLevel::Off);
     assert!(!operational_log::enabled(Level::Error));
-    for root in [first, second] {
-        std::fs::remove_dir_all(root).unwrap();
-    }
 }
 
 #[test]
@@ -189,5 +180,4 @@ fn a_dropped_event_is_a_debug_line_and_a_refused_hook_a_warning() {
     let all = lines(&root, "aherald.log");
     let (_, level, message) = parse(all.last().unwrap());
     assert_eq!((level, message), ("DEBUG", "event.dropped disabled"));
-    let _ = std::fs::remove_dir_all(&root);
 }

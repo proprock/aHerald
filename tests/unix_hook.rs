@@ -52,11 +52,8 @@ fn stop_residents(runtime: &std::path::Path) {
     }
 }
 
-fn runtime(tag: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("ah-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&path);
-    std::fs::create_dir_all(&path).unwrap();
-    path
+fn runtime(tag: &str) -> support::TempDir {
+    support::TempDir::new(tag)
 }
 
 #[test]
@@ -66,7 +63,6 @@ fn the_hook_returns_its_reply_when_no_resident_can_be_reached() {
     assert_eq!(output.stdout, b"{}\n");
     assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
     stop_residents(&runtime);
-    let _ = std::fs::remove_dir_all(runtime);
 }
 
 #[test]
@@ -94,5 +90,4 @@ fn the_hook_returns_its_reply_when_the_resident_accepts_but_never_answers() {
     assert_eq!(output.stdout, b"{}\n");
     assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
     held.join().unwrap();
-    let _ = std::fs::remove_dir_all(runtime);
 }
