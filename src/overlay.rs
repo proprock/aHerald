@@ -1422,6 +1422,10 @@ mod card_tests {
             Win32::{Graphics::Gdi::GdiFlush, System::Threading::*, UI::WindowsAndMessaging::*},
             core::w,
         };
+        #[link(name = "dwmapi")]
+        unsafe extern "system" {
+            fn DwmFlush() -> windows::core::HRESULT;
+        }
         // SAFETY: this isolated test owns the window and every DIB and destroys them
         // on the same thread. Sampling excludes other test processes.
         unsafe {
@@ -1481,6 +1485,9 @@ mod card_tests {
             };
             cycle();
             let _ = GdiFlush();
+            // GdiFlush only drains this thread's GDI batch. Layered-window updates
+            // also enqueue compositor work; compare commit after that work completes.
+            DwmFlush().ok().unwrap();
             let before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
             let mut handles = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut handles).unwrap();
@@ -1526,12 +1533,18 @@ mod card_tests {
                 }
             }
             let _ = GdiFlush();
+            eprintln!(
+                "resource cycle before compositor flush: private_commit={}",
+                memory()
+            );
+            DwmFlush().ok().unwrap();
             assert_eq!(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), before);
             let mut after = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut after).unwrap();
             assert_eq!(after, handles);
             assert_eq!(threads(), before_threads);
             let after_memory = memory();
+            eprintln!("resource cycle after compositor flush: private_commit={after_memory}");
             assert!(
                 after_memory <= before_memory + 8 * 1024 * 1024,
                 "repeated rendering grew private commit by more than 8 MiB: before={before_memory}, after={after_memory}"
