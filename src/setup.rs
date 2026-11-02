@@ -625,31 +625,25 @@ pub fn run_with_options(
         .iter()
         .find(|b| b.agent == "claude")
         .map(|b| b.file.clone());
-    let context_enabled = if claude_file.is_some() {
+    // The wrapper serves the context warning and the configured status line text.
+    let wrapper_wanted = if claude_file.is_some() {
         let file = settings_file(exe, options.file.as_deref())?;
-        if let Some(change) = changes.iter().find(|c| c.file == file) {
+        let config = if let Some(change) = changes.iter().find(|c| c.file == file) {
             crate::config::Config::parse(
                 &change.after,
                 file.parent().ok_or("configuration has no directory")?,
             )?
-            .claude
-            .warnings
-            .context_threshold()
-            .is_some()
         } else {
-            settings_text(&file)?
-                .1
-                .claude
-                .warnings
-                .context_threshold()
-                .is_some()
-        }
+            settings_text(&file)?.1
+        };
+        config.claude.warnings.context_threshold().is_some()
+            || !config.claude.statusline.format.is_empty()
     } else {
         false
     };
     let statusline = statusline_plan(
         exe,
-        claude_file.as_deref().filter(|_| context_enabled),
+        claude_file.as_deref().filter(|_| wrapper_wanted),
         previous.statusline,
         &mut changes,
         &mut report,

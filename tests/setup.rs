@@ -1060,3 +1060,50 @@ fn fixture_launch_returns_busy_error_when_the_retry_deadline_has_expired() {
     assert_eq!(error.raw_os_error(), Some(26));
     assert_eq!(attempts, 1);
 }
+
+#[test]
+fn a_status_line_format_alone_installs_the_wrapper_and_removing_it_removes_the_wrapper() {
+    let app = Install::new("statusline-format");
+    let config = app.root.join("config.toml");
+    std::fs::write(
+        &config,
+        "[claude.statusline]\nformat = \"{model.display_name}\"\n",
+    )
+    .unwrap();
+    let args = ["--setup", "--harness", "claude", "--apply"];
+    app.ok(&args);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        command.ends_with("--statusline") && !command.contains("--then"),
+        "{command}"
+    );
+    app.ok(&args);
+    assert_eq!(app.read("claude")["statusLine"]["command"], command);
+    std::fs::write(&config, "[claude.statusline]\nformat = \"\"\n").unwrap();
+    app.ok(&args);
+    assert!(app.read("claude").get("statusLine").is_none());
+}
+
+#[test]
+fn a_status_line_format_keeps_and_wraps_the_users_own_command() {
+    let app = Install::new("statusline-format-wrap");
+    std::fs::write(
+        app.root.join("config.toml"),
+        "[claude.statusline]\nformat = \"{model.display_name}\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+    let original = json!({"statusLine":{"type":"command","command":"echo mine"}});
+    std::fs::write(app.file("claude"), original.to_string()).unwrap();
+    app.ok(&["--setup", "--harness", "claude", "--apply"]);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(command.contains("--then 'echo mine'"), "{command}");
+    app.ok(&["--unsetup", "--apply"]);
+    assert_eq!(app.read("claude")["statusLine"], original["statusLine"]);
+}

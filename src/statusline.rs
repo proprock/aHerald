@@ -190,16 +190,35 @@ pub struct Outcome {
 /// delays the status line), and `then`, when given, receives the same payload on its standard
 /// input. The payload need not be valid for `then` to run.
 pub fn run(input: &[u8], then: Option<&str>, send: impl FnOnce(Report) + Send) -> Outcome {
+    run_with_format(input, then, None, send)
+}
+
+/// Like [`run`]; without `then`, a non-empty `format` is rendered from the payload and printed
+/// with a final newline (see `crate::statusline_format`). A user's `then` command always wins.
+pub fn run_with_format(
+    input: &[u8],
+    then: Option<&str>,
+    format: Option<&str>,
+    send: impl FnOnce(Report) + Send,
+) -> Outcome {
     std::thread::scope(|scope| {
         if let Ok(report) = parse(input) {
             scope.spawn(move || send(report));
         }
         match then {
             Some(command) => run_then(command, input),
-            None => Outcome {
-                code: 0,
-                stdout: Vec::new(),
-            },
+            None => {
+                let mut stdout = format
+                    .map(|template| crate::statusline_format::render(template, input))
+                    .unwrap_or_default();
+                if !stdout.is_empty() {
+                    stdout.push('\n');
+                }
+                Outcome {
+                    code: 0,
+                    stdout: stdout.into_bytes(),
+                }
+            }
         }
     })
 }

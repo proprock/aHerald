@@ -622,3 +622,14 @@ fn session_warning_zero_disables_only_the_selected_agents_idle_timer() {
     assert!(config.codex.warnings.idle_minutes.is_none());
     assert_eq!(config.claude.warnings.idle_minutes, Some(55));
 }
+
+#[test]
+fn the_status_line_format_defaults_to_empty_and_syntax_errors_name_the_setting() {
+    let dir = PathBuf::from(".");
+    assert_eq!(Config::default().claude.statusline.format, "");
+    let ok = "[claude.statusline]\nformat = \"{model.display_name}{[ · {a.b}]}\"\n";
+    assert!(Config::parse(ok, &dir).is_ok());
+    let error = Config::parse("[claude.statusline]\nformat = \"{oops\"\n", &dir).unwrap_err();
+    assert!(error.contains("claude.statusline.format"), "{error}");
+    assert!(Config::parse("[claude.statusline]\nformt = \"x\"\n", &dir).is_err());
+}

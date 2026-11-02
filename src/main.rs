@@ -115,7 +115,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.operation.as_deref() == Some("statusline") {
-        return statusline(cli.then.as_deref());
+        return statusline(cli.then.as_deref(), cli.config.as_deref());
     }
     if let Some(action) = match cli.operation.as_deref() {
         Some("install-statusline") => Some(aherald::hook_setup::Action::Install),
@@ -411,13 +411,26 @@ fn dispatch(
 
 /// Claude Code's `statusLine` command: tells a running resident the session name and quota, and
 /// passes the payload to the user's own command (`--then`) so their status line is unchanged.
+/// Without `--then` it prints `[claude.statusline] format`, if one is configured.
 /// It never starts a resident and never fails the status line.
-fn statusline(then: Option<&str>) -> Result<(), String> {
+fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<(), String> {
     use std::io::Write;
     let input =
         aherald::events::read_bounded(std::io::stdin(), std::time::Duration::from_millis(500))
             .unwrap_or_default();
-    let outcome = aherald::statusline::run(&input, then, |report| {
+    // The configuration is read only when there is no command of the user's to run, so wrapping
+    // costs nothing extra. It is never created here, and any problem leaves the line empty.
+    let format = match then {
+        Some(_) => None,
+        None => config
+            .map(|path| Ok(path.to_path_buf()))
+            .unwrap_or_else(aherald::config::Config::default_path)
+            .ok()
+            .and_then(|path| aherald::config::Config::load(&path, true).ok())
+            .map(|config| config.claude.statusline.format)
+            .filter(|format| !format.is_empty()),
+    };
+    let outcome = aherald::statusline::run_with_format(&input, then, format.as_deref(), |report| {
         if let Ok(scope) = aherald::local::Scope::current("resident") {
             let _ = aherald::ipc::pipe::request(
                 &scope,

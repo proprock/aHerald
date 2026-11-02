@@ -247,6 +247,71 @@ idle_minutes = 25
 # Optional input-context warning; requires PostModelRequest (verified: 0.166.0-alpha.5.1).
 # context_tokens = "250k"
 
+[claude.statusline]
+# Text `aherald --statusline` prints when you have no status line command of your own; empty
+# (default) prints nothing. With your own command, that command wins and this is ignored.
+# Run setup again after changing it from empty to non-empty so the wrapper gets installed.
+#
+# Syntax: {a.b.c} inserts that field of Claude Code's statusLine JSON; a missing, null, object
+# or array value is empty. {{ and }} are literal braces. {[ ... ]} is an optional group, dropped
+# whole when a field written directly inside it is empty, so separators vanish with their value:
+#   "{model.display_name}{[ · {worktree.branch}]}"
+# A field named resets_at is shown as the time left: "3d 5h", "4:05" or "15 min".
+# Token counts (names ending in "tokens", and context_window_size) are shortened: 18000 -> "18k",
+# 18600000 -> "18.6M". Every other number is inserted as Claude Code sends it.
+# Text may contain ANSI colour escapes, e.g. "\u001b[1m{model.display_name}\u001b[0m".
+#
+# Fields ("always" = documented without a condition; others are conditional as noted):
+#   session_id                                  Session identifier (always).
+#   session_name                                Name set with --name or /rename, or an AI title; often absent.
+#   cwd, workspace.current_dir                  Current directory (always; both are the same).
+#   workspace.project_dir                       Directory Claude Code was launched in (always).
+#   workspace.git_worktree                      Linked git worktree name; absent in the main working tree.
+#   workspace.repo.host                         Host of the origin remote, e.g. github.com. Only in a git
+#   workspace.repo.owner                        repository with an origin remote. NOTE: workspace.repo is an
+#   workspace.repo.name                         object, so use .name, not {workspace.repo}.
+#   model.id, model.display_name                Model identifier and display name (always).
+#   effort.level                                low|medium|high|xhigh|max; absent for models without effort.
+#   fast_mode, thinking.enabled                 true/false flags for fast mode and extended thinking.
+#   cost.total_cost_usd                         Estimated session cost in USD at list price (always).
+#   cost.total_lines_added                      Lines of code added and removed in the session (always).
+#   cost.total_lines_removed
+#   cost.total_duration_ms                      Session wall-clock time in milliseconds (always).
+#   cost.total_api_duration_ms                  Time spent waiting for API responses in milliseconds (always).
+#   context_window.total_input_tokens           Tokens in the context window now, input and output
+#   context_window.total_output_tokens          (0 before the first response).
+#   context_window.context_window_size          Maximum context size in tokens (200000 or 1000000).
+#   context_window.used_percentage              Context used and left, 0-100, pre-calculated by Claude Code.
+#   context_window.remaining_percentage
+#   context_window.current_usage.input_tokens   Token counts of the last API call split by kind.
+#   context_window.current_usage.output_tokens
+#   context_window.current_usage.cache_creation_input_tokens
+#   context_window.current_usage.cache_read_input_tokens
+#   exceeds_200k_tokens                         true when the last response was over 200k tokens.
+#   rate_limits.five_hour.used_percentage       5-hour and weekly limit use, 0-100. Only for Pro and Max
+#   rate_limits.seven_day.used_percentage       subscribers (or behind a gateway) and only after the first
+#   rate_limits.five_hour.resets_at             response; each window can be missing. resets_at is the
+#   rate_limits.seven_day.resets_at             time left until the window resets.
+#   rate_limits.spend_limit.used_percentage     Gateway spend limit use and reset (Claude Code 2.1.251+).
+#   rate_limits.spend_limit.resets_at
+#   rate_limits.spend_limit.used_usd            Spend and limit in USD and the period, e.g. "monthly";
+#   rate_limits.spend_limit.limit_usd           may be absent even behind a gateway (2.1.284+).
+#   rate_limits.spend_limit.period
+#   worktree.name, worktree.path                Only while the session runs in a Claude worktree session.
+#   worktree.branch, worktree.original_branch   branch and original_branch may be missing for hook worktrees.
+#   worktree.original_cwd
+#   pr.number, pr.url, pr.review_state          Open pull/merge request of the current branch; absent
+#                                               otherwise. review_state can be missing on its own.
+#   agent.name                                  Only with --agent or agent settings.
+#   vim.mode                                    Only when vim mode is enabled (NORMAL or INSERT).
+#   prompt_cache.*                              Prompt-cache statistics after the first response (2.1.251+).
+# Arrays (e.g. workspace.added_dirs) and objects cannot be inserted; address a field inside them.
+# Fields can differ between Claude Code versions: a field that does not exist is simply empty.
+#
+# Example:
+# format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · ctx {context_window.used_percentage}%{[ · 5h {rate_limits.five_hour.used_percentage}% ({rate_limits.five_hour.resets_at})]}"
+format = ""
+
 [claude.usage]
 # Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access
 # token Claude Code stores in ~/.claude/.credentials.json (or CLAUDE_CONFIG_DIR) and sends it only

@@ -385,6 +385,14 @@ pub struct Claude {
     pub usage: ClaudeUsage,
     #[serde(deserialize_with = "deserialize_session_warnings::<_, 55>")]
     pub warnings: SessionWarnings,
+    pub statusline: ClaudeStatusLine,
+}
+/// The line `--statusline` prints when the user has no status line command of their own.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClaudeStatusLine {
+    /// Template for `crate::statusline_format`; empty prints nothing.
+    pub format: String,
 }
 impl Default for Claude {
     fn default() -> Self {
@@ -392,6 +400,7 @@ impl Default for Claude {
             hooks_enabled: true,
             usage: ClaudeUsage::default(),
             warnings: SessionWarnings::with_idle(55),
+            statusline: ClaudeStatusLine::default(),
         }
     }
 }
@@ -661,6 +670,8 @@ impl Config {
         Ok(config)
     }
     fn validate(&self) -> Result<(), String> {
+        crate::statusline_format::validate(&self.claude.statusline.format)
+            .map_err(|e| format!("invalid configuration: claude.statusline.format {e}"))?;
         for (agent, warnings) in [
             ("claude", &self.claude.warnings),
             ("codex", &self.codex.warnings),

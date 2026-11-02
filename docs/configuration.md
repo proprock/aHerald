@@ -85,6 +85,34 @@ The card shows elapsed time and that agent's limit, for example
 `Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
 warning was created; they do not advance while waiting in the notification queue.
 
+### Claude status line text
+
+`[claude.statusline] format` is the text `aherald --statusline` prints when you have no status
+line command of your own (empty by default: nothing is printed). If you have one, native setup
+wraps it as before and the format is ignored. Example, with the fields Claude Code documents at
+<https://code.claude.com/docs/en/statusline>:
+
+```toml
+[claude.statusline]
+format = "{workspace.repo.name}{[ · {worktree.branch}]} · +{cost.total_lines_added} -{cost.total_lines_removed} · {model.display_name}{[ · {effort.level}]} · ctx {context_window.used_percentage}%{[ · 5h {rate_limits.five_hour.used_percentage}%]}"
+```
+
+- `{a.b.c}` inserts the JSON field at that path. Strings, numbers and booleans are inserted
+  as they are; a missing, null, object or array value is empty. `workspace.repo` is an object (`host`, `owner`, `name`), so write `{workspace.repo.name}`.
+  A field named `resets_at` is shown as the time left in the usage card's form: `3d 5h`, `4:05`, `15 min`.
+  Token counts (names ending in `tokens`, and `context_window_size`) are shortened to `18k`,
+  `18.6M`; other numbers are inserted unchanged.
+  `aHerald.example.toml` lists every field with its availability.
+- `{{` and `}}` are literal braces. `{[ ... ]}` is an optional group, dropped whole when a field
+  written directly inside it is empty, so separators disappear with their value (`worktree`,
+  `workspace.repo`, `effort` and `rate_limits` are absent in many sessions).
+- The template may contain ANSI colour escapes; control characters in inserted values become
+  spaces, a value is cut at 256 characters and the line at 4096 bytes.
+- A mistake in the template fails configuration loading with the reason; the wrapper itself
+  never fails and prints nothing if the configuration cannot be read. It never creates it.
+- Native setup installs the wrapper when Claude Code is selected and either a Claude context
+  threshold or a format is set. Run setup again after first adding a format.
+
 Use resident mode. The Claude context warning additionally needs the `--statusline`
 wrapper, installed automatically by native setup when Claude Code and Claude
 context warnings are selected; no OAuth access is needed. Both idle integrations

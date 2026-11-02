@@ -207,6 +207,14 @@ shared development-profile and artwork performance changes need no separate port
   settings, repeat setup, selection changes, upgrade, disable, uninstall and
   failed writes/rollback. Verify the choices and wrapper through the console setup
   as part of AH-103. Depends on AH-103 and the shared AH-097 setup backend.
+  Partial 2026-11-02 (statusLine only): the wrapper's start-up cost was measured
+  (release median 3.9 ms bare, 4.5 ms with `--then`; 3.5 ms of it is the loader mapping
+  63 libraries) and guarded by `tests/perf_statusline.rs`; a separate wrapper executable was
+  considered and deferred (docs/statusline-performance.md). Added `[claude.statusline] format`
+  (src/statusline_format.rs): printed only when the user has no `--then` command, config read
+  only on that path, never created. Setup installs the wrapper for a context threshold or a
+  format. Console prompts for the four warning choices, the Linux rollback test and the `.deb`
+  lifecycle assertions remain open.
 
 - [ ] **AH-115 — Linux live warning acceptance and documentation.**
   Extend AH-104's opt-in native live checks to cover real Codex and Claude Code
