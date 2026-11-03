@@ -216,7 +216,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   delivery checks also depend on AH-102/AH-103. Linux warning-specific live
   acceptance and documentation are tracked in AH-115.
 
-- [ ] **AH-116 — Profile the macOS cost of `--statusline --then` on real hardware.**
+- [x] **AH-116 — Profile the macOS cost of `--statusline --then` on real hardware.**
   On a GitHub macOS runner (2026-11-02) `aherald --statusline --then true` took 8.4 and
   9.6 ms more than starting `sh` alone, while the bare wrapper costs about 1.2 ms over
   `aherald --version` (as on Linux) and a test process starting `sh -c true` costs 0.08 ms.
@@ -228,6 +228,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   docs/statusline-performance.md and either fixed, or the 12 ms macOS allowance
   (`THEN_SPAWN_ALLOWANCE_MS` in tests/perf_statusline.rs) is justified by the measurement
   or removed. Low priority: a status line refreshes at most every 300 ms.
+  Done 2026-11-03 on the M1: `--then true` costs 3.3-3.5 ms over the bare wrapper, equal to
+  starting `sh` (3.28 ms); the spawn adds nothing. The CI figure came from subtracting the
+  `--version` median, which clamped the shell's cost to zero. The macOS allowance is removed and
+  the check uses the absolute `sh -c true` median (docs/statusline-performance.md).
 
 - [ ] **AH-117 — Homebrew Cask for aHerald (split from AH-102).**
   Publish a Cask for the Apple Silicon app in a separate tap repository, installing the
