@@ -110,9 +110,19 @@ pub fn run_bounded_with_input(
 ) -> Result<Output, String> {
     let program = command.get_program().to_string_lossy().into_owned();
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = command
-        .spawn()
-        .map_err(|error| format!("cannot start `{program}`: {error}"))?;
+    // A binary just copied by a parallel test can still have a write handle inherited by a
+    // sibling thread's fork; Linux reports ETXTBSY until that child execs. Retry briefly.
+    let mut attempts = 0;
+    let child = loop {
+        match command.spawn() {
+            Ok(child) => break child,
+            Err(error) if error.raw_os_error() == Some(26) && attempts < 100 => {
+                attempts += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => return Err(format!("cannot start `{program}`: {error}")),
+        }
+    };
     capture_bounded_inner(child, input, timeout, &program)
 }
 
