@@ -46,9 +46,15 @@ hook configuration, not a bridge, once the universal input exists.
   (non-interactive runs reject), the tool fails with `permission.rejected` and the turn still
   ends with `session.execution.succeeded`. In a TUI the pair is expected to be separated by
   the user's answer; that was not observed. Request ids pair the two events.
-- Not verified: sub-agent (child) sessions (the `task` tool name differs from v1: a call to
-  `task` failed as unknown, and `session.created` carries no parent field), the TUI permission
-  flow, `session.form.*`, compaction, and what a throwing plugin does to the agent.
+- Sub-agents (live): the built-in tool is `subagent` (v1 called it `task`; it takes `agent`
+  and an optional `sessionID`). A child session announces itself with `session.created`
+  carrying `parentID`, and runs its own `session.execution.started` / `succeeded` pair with
+  the child's `sessionID`; the parent's `session.tool.progress` / `session.tool.success`
+  surround it. A bridge must remember the ids of sessions created with a `parentID` and ignore
+  their events, otherwise every sub-agent produces a completion notice. Unknown: child
+  sessions resumed after a plugin restart.
+- Not verified: the TUI permission flow, `session.form.*`, compaction, and what a throwing
+  plugin does to the agent.
 - Operational: `opencode run --standalone` hangs on this version unless `--print-logs` is
   given. The managed service listens on a fixed port (49374) and keeps `service.json` in
   `~/.config/opencode`, so probes run with a private `HOME`.
@@ -81,12 +87,18 @@ hook configuration, not a bridge, once the universal input exists.
   (`Request timed out.`), so the success scenario shows three failed rounds before the
   completed one. The cause was not found (a plain `python3 -m http.server` is also
   unreachable from `curl` in the same sandbox); the settle boundary is unaffected.
-- Not verified: compaction, queued follow-ups, sub-agents.
+- Sub-agents (live): Pi's core has none. The example `subagent` extension runs each as a
+  child process, `pi --mode json -p --no-session`, which loads the same global extensions
+  again. Such a child reports `ctx.mode === "json"`, `ctx.hasUI === false` and its own session
+  id, while an interactive session reports `ctx.mode === "tui"` and an RPC client
+  `ctx.mode === "rpc"` (both `hasUI` true; live). A bridge should notify only when
+  `ctx.hasUI` is true: that also silences `pi -p` scripts, which is intended.
+- Not verified: compaction and queued follow-ups.
 
 ## Repeating the probes
 
 ```sh
-sh tests/live/harness_probes/run.sh pi [ok|error|abort|ui]
+sh tests/live/harness_probes/run.sh pi [ok|error|abort|ui|child|tui]
 sh tests/live/harness_probes/run.sh opencode [ok|error|permission|interrupt|subagent]
 ```
 

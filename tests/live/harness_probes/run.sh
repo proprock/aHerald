@@ -1,6 +1,6 @@
 #!/bin/sh
 # Opt-in probe (AH-201): runs a real harness turn in a private HOME and prints the events its
-# extension saw. Usage: run.sh pi [ok|error|abort|ui]   run.sh opencode [ok|error|permission|interrupt]
+# extension saw. Usage: run.sh pi [ok|error|abort|ui|child|tui]   run.sh opencode [ok|error|permission|interrupt]
 # Pi 1.5 (needs Node >= 22.19) and OpenCode 2.2 talk to a local fake OpenAI endpoint
 # (fake_openai.py), so no account, no model network traffic and no billing. Exceptions:
 #   opencode ok       sends one trivial prompt to OpenCode's free hosted model (network)
@@ -32,12 +32,19 @@ pi)
   error) fake error; mode=-p ;;
   abort) fake slow; mode=-p; export PROBE_ABORT=1 ;;
   ui) fake ok; mode=rpc; export PROBE_UI=1 ;;
+  child) fake ok; mode=child ;;
+  tui) fake ok; mode=tui ;;
   *) echo "unknown pi scenario" >&2; exit 2 ;;
   esac
   export HOME="$tmp/home" PI_CODING_AGENT_DIR="$tmp/agent" PROBE_OUT="$out" PI_OFFLINE=1
   cd "$tmp/work"
   if [ "$mode" = rpc ]; then
     python3 "$here/pi_rpc_ui.py" > /dev/null
+  elif [ "$mode" = tui ]; then
+    python3 "$here/pi_tui.py" > /dev/null 2>&1 || true
+  elif [ "$mode" = child ]; then
+    # how the sub-agent example extension starts a child: JSON mode, no session file
+    timeout 120 pi --mode json -p --no-session --provider fake --model fake-model "say ok" < /dev/null > /dev/null 2>&1 || true
   else
     timeout 600 pi --provider fake --model fake-model -p "say ok" < /dev/null > /dev/null 2>&1 || true
   fi
@@ -56,7 +63,7 @@ opencode)
   ok) ;;
   error) fake error ;;
   permission) export FAKE_TOOL=shell; fake tool ;;
-  subagent) export FAKE_TOOL=task FAKE_ARGS='{"description":"probe","prompt":"say ok","subagent_type":"general"}'; fake once ;;
+  subagent) export FAKE_TOOL=subagent FAKE_ARGS='{"agent":"general","prompt":"say ok","description":"probe"}'; fake once ;;
   interrupt) export PROBE_INTERRUPT=1; fake slow ;;
   *) echo "unknown opencode scenario" >&2; exit 2 ;;
   esac

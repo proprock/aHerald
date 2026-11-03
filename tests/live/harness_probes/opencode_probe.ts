@@ -20,7 +20,7 @@ export default Plugin.define({
             setTimeout(() => Promise.resolve(call?.call(ctx.session, { sessionID: e.data.sessionID })).catch((x: any) => log({ interruptError: String(x).slice(0, 120) })), 3000)
           }
           const err = e.data?.error
-          log({ type: e.type, dataKeys: Object.keys(e.data ?? {}), scalars: scalars(e.data), ...(err ? { error: { keys: Object.keys(err), type: err.type ?? err.name ?? err._tag, message: String(err.message ?? "").slice(0, 80) } } : {}) })
+          log({ type: e.type, dataKeys: Object.keys(e.data ?? {}), scalars: scalars(e.data), parentID: e.data?.parentID, ...(err ? { error: { keys: Object.keys(err), type: err.type ?? err.name ?? err._tag, message: String(err.message ?? "").slice(0, 80) } } : {}) })
         }
       } catch (err: any) { log({ subscribeError: String(err) }) }
     })()
