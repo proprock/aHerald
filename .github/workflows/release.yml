@@ -253,3 +253,8 @@ jobs:
           git commit -am "aherald ${RELEASE_TAG#v}"
           git push --force origin "$branch"
           gh pr create --base main --head "$branch" --title "aherald ${RELEASE_TAG#v}" --body "Release ${RELEASE_TAG} of proprock/aHerald."
+          # The release is already published and approved, so the cask pull request is merged
+          # once the tap's own style check passes. The tap has no branch protection, hence the wait.
+          sleep 20
+          gh pr checks "$branch" --watch --fail-fast
+          gh pr merge "$branch" --squash --delete-branch
