@@ -63,33 +63,95 @@ pub enum Source {
     App,
     CodexHook,
     ClaudeHook,
+    /// Any other harness, named by its key (`--notify <key>`); see [`is_harness_key`].
+    External(String),
     Demo,
 }
 impl Source {
-    /// The agent that produced a hook event; `None` for internal/demo sources.
+    /// The agent that produced a hook event; `None` for internal/demo sources and for
+    /// external harnesses, which have no Codex/Claude-specific services.
     pub fn agent(&self) -> Option<crate::agent::Agent> {
         match self {
             Self::CodexHook => Some(crate::agent::Agent::Codex),
             Self::ClaudeHook => Some(crate::agent::Agent::Claude),
-            Self::Usage | Self::App | Self::Demo => None,
+            Self::Usage | Self::App | Self::Demo | Self::External(_) => None,
         }
     }
-    pub fn agent_key(&self) -> &'static str {
+    /// The key that names the source in configuration and in the queue's identity.
+    pub fn agent_key(&self) -> &str {
         match self {
             Self::Usage => "usage",
             Self::App => "aherald",
             Self::Demo => "demo",
-            hook => hook.agent().map_or("demo", |a| a.key()),
+            Self::External(key) => key,
+            Self::CodexHook => "codex",
+            Self::ClaudeHook => "claude",
         }
     }
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> &str {
         match self {
             Self::Usage => "Codex",
             Self::App => "aHerald",
             Self::Demo => "aHerald demo",
-            hook => hook.agent().map_or("aHerald demo", |a| a.label()),
+            Self::External(key) => harness_label(key),
+            Self::CodexHook => "Codex",
+            Self::ClaudeHook => "Claude",
         }
     }
+    /// Whether this source's waits are one per session and its turn end is told by session
+    /// (Claude hooks and every external harness carry no turn id).
+    pub fn waits_are_per_session(&self) -> bool {
+        match self {
+            Self::External(_) => true,
+            other => other.agent().is_some_and(|a| a.waits_are_per_session()),
+        }
+    }
+    /// Whether the source's own lifecycle evidence says that `event` ended its session's turn.
+    pub fn ends_turn(&self, event: &Event) -> bool {
+        match self {
+            Self::External(_) => {
+                event.ended
+                    || matches!(
+                        event.kind,
+                        Kind::TurnComplete | Kind::Error | Kind::Interrupted
+                    )
+            }
+            other => other.agent().is_some_and(|a| a.ends_turn(event)),
+        }
+    }
+}
+/// Display names of the harnesses aHerald knows; any other key is drawn as it is.
+const HARNESS_LABELS: [(&str, &str); 4] = [
+    ("opencode", "OpenCode"),
+    ("pi", "Pi"),
+    ("goose", "Goose"),
+    ("crush", "Crush"),
+];
+fn harness_label(key: &str) -> &str {
+    HARNESS_LABELS
+        .iter()
+        .find(|(known, _)| *known == key)
+        .map_or(key, |(_, label)| *label)
+}
+/// Keys that other parts of aHerald already use: the two hook-based agents, internal card
+/// sources and the reserved words of the `[pets]` tables.
+const RESERVED_KEYS: [&str; 7] = [
+    "codex",
+    "claude",
+    "demo",
+    "usage",
+    "aherald",
+    "default",
+    "animations",
+];
+/// A harness key names a card source in configuration: 1..=32 lowercase ASCII letters,
+/// digits, `-` or `_`, and none of the [`RESERVED_KEYS`].
+pub fn is_harness_key(key: &str) -> bool {
+    (1..=32).contains(&key.len())
+        && key
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
+        && !RESERVED_KEYS.contains(&key)
 }
 impl Kind {
     pub fn label(self) -> &'static str {
@@ -169,11 +231,7 @@ impl Event {
         if self.activity {
             return false;
         }
-        let turn_ended = self.ended
-            || self
-                .source
-                .agent()
-                .is_some_and(|agent| agent.ends_turn(self));
+        let turn_ended = self.ended || self.source.ends_turn(self);
         turn_ended && self.session_id.is_some() && self.validate().is_ok()
     }
     pub fn demo(name: &str) -> Result<Self, String> {
@@ -233,6 +291,11 @@ impl Event {
         if self.window == Some(0) {
             return Err("invalid event window".into());
         }
+        if let Source::External(key) = &self.source
+            && !is_harness_key(key)
+        {
+            return Err("invalid event harness".into());
+        }
         if let Some(tty) = &self.tty
             && !is_terminal_device(tty)
         {
@@ -267,6 +330,48 @@ pub fn is_terminal_device(path: &str) -> bool {
     })
 }
 
+/// The event of `aherald --notify <harness> --kind <kind>`. The harness or its bridge states
+/// the kind itself; stdin may carry a JSON object of which only `session_id` and the folder
+/// (`cwd`, or Goose's `working_dir`) are read. Anything else, or input that is missing,
+/// oversized or not an object, leaves the event without a session or folder: a notice is better
+/// than none, and nothing from the payload is kept.
+pub fn external_event(
+    harness: &str,
+    kind: Kind,
+    activity: bool,
+    ended: bool,
+    stdin: &[u8],
+) -> Event {
+    #[derive(Deserialize)]
+    struct Fields {
+        session_id: Option<serde_json::Value>,
+        cwd: Option<serde_json::Value>,
+        working_dir: Option<serde_json::Value>,
+    }
+    let fields = (stdin.len() <= MAX_INPUT)
+        .then(|| serde_json::from_slice::<Fields>(stdin).ok())
+        .flatten();
+    let session_id = fields
+        .as_ref()
+        .and_then(|f| f.session_id.as_ref()?.as_str())
+        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .map(str::to_owned);
+    let folder = fields.and_then(|f| hook_folder(f.cwd.or(f.working_dir)));
+    Event {
+        kind,
+        source: Source::External(harness.to_owned()),
+        session_id,
+        turn_id: None,
+        request_id: None,
+        agent_id: None,
+        window: None,
+        tty: None,
+        ended,
+        activity,
+        folder,
+        message: None,
+    }
+}
 pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     if bytes.len() > MAX_INPUT {
         return Err("hook input exceeds 64 KiB".into());
@@ -463,6 +568,107 @@ mod tests {
             crate::agent::Agent::Claude.parse_hook(b"{").is_err(),
             "malformed JSON is an error"
         );
+    }
+    #[test]
+    fn an_external_event_takes_only_the_session_and_the_folder_from_stdin() {
+        let input = br#"{"session_id":"s-1","cwd":"/home/me/project","prompt":"SECRET","tool_input":{"command":"SECRET"},"last_assistant_message":"SECRET"}"#;
+        let event = external_event("crush", Kind::TurnComplete, false, false, input);
+        assert_eq!(event.source, Source::External("crush".into()));
+        assert_eq!(event.kind, Kind::TurnComplete);
+        assert_eq!(event.session_id.as_deref(), Some("s-1"));
+        assert_eq!(event.folder.as_deref(), Some("project"));
+        assert!(!event.activity && !event.ended);
+        assert!(event.validate().is_ok());
+        assert!(!serde_json::to_string(&event).unwrap().contains("SECRET"));
+        // Goose names the folder `working_dir`.
+        let goose = external_event(
+            "goose",
+            Kind::Error,
+            true,
+            false,
+            br#"{"working_dir":"C:\\work\\app"}"#,
+        );
+        assert_eq!(goose.folder.as_deref(), Some("app"));
+        assert!(goose.activity);
+        assert!(external_event("pi", Kind::TurnComplete, false, true, b"{}").ended);
+    }
+    #[test]
+    fn an_external_event_survives_missing_or_hostile_stdin() {
+        let long = format!(r#"{{"session_id":"{}"}}"#, "x".repeat(300));
+        for input in [
+            &b""[..],
+            b"not json",
+            b"[1,2]",
+            br#"{"session_id":42,"cwd":7}"#,
+            br#"{"session_id":"a\u0007b"}"#,
+            br#"{"session_id":""}"#,
+            long.as_bytes(),
+        ] {
+            let event = external_event("pi", Kind::InputRequired, false, false, input);
+            assert_eq!(event.session_id, None, "{input:?}");
+            assert_eq!(event.folder, None, "{input:?}");
+            assert_eq!(event.kind, Kind::InputRequired);
+            assert!(event.validate().is_ok());
+        }
+        let oversized = vec![b' '; MAX_INPUT + 1];
+        assert_eq!(
+            external_event("pi", Kind::Error, false, false, &oversized).session_id,
+            None
+        );
+    }
+    #[test]
+    fn an_external_harness_has_its_own_identity_and_a_label() {
+        let opencode = Source::External("opencode".into());
+        assert_eq!(opencode.agent(), None);
+        assert_eq!(opencode.agent_key(), "opencode");
+        assert_eq!(opencode.label(), "OpenCode");
+        assert_eq!(Source::External("pi".into()).label(), "Pi");
+        // A harness without a table entry is drawn by its key.
+        assert_eq!(Source::External("mytool".into()).label(), "mytool");
+        assert_ne!(opencode, Source::External("pi".into()));
+    }
+    #[test]
+    fn a_harness_key_is_a_short_plain_name_that_is_not_reserved() {
+        for good in ["opencode", "pi", "my-tool_2", &"a".repeat(32)] {
+            assert!(is_harness_key(good), "{good}");
+        }
+        for bad in [
+            "",
+            "Open Code",
+            "OpenCode",
+            "a/b",
+            "é",
+            "a\nb",
+            &"a".repeat(33),
+            // Codex and Claude have their own hooks; the rest name other card sources or
+            // configuration keys.
+            "codex",
+            "claude",
+            "demo",
+            "usage",
+            "aherald",
+            "default",
+            "animations",
+        ] {
+            assert!(!is_harness_key(bad), "{bad:?}");
+        }
+    }
+    #[test]
+    fn an_external_event_with_an_invalid_key_is_rejected_and_a_valid_one_survives_the_wire() {
+        let mut event = Event::demo("turn_complete").unwrap();
+        event.source = Source::External("opencode".into());
+        event.session_id = Some("s1".into());
+        assert!(event.validate().is_ok());
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(
+            json.contains(r#""source":{"external":"opencode"}"#),
+            "{json}"
+        );
+        assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);
+        for bad in ["", "Claude", "claude", "a b", "demo"] {
+            event.source = Source::External(bad.into());
+            assert!(event.validate().is_err(), "{bad:?}");
+        }
     }
     #[test]
     fn agent_identity_is_derived_from_source() {

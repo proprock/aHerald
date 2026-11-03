@@ -140,3 +140,71 @@ fn setup_window_stands_alone_and_rejects_other_options() {
         assert!(parse(&args).is_err(), "{args:?} must be rejected");
     }
 }
+
+#[test]
+fn notify_names_a_harness_and_an_existing_event_kind() {
+    use aherald::cli::Cli;
+    use aherald::events::Kind;
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    let cli = parse(&["--notify", "opencode", "--kind", "turn_complete"]).unwrap();
+    assert_eq!(cli.operation.as_deref(), Some("notify"));
+    assert_eq!(cli.notify.as_deref(), Some("opencode"));
+    assert_eq!(cli.kind, Some(Kind::TurnComplete));
+    assert!(!cli.activity && !cli.ended);
+    // The kind may come first, and one lifecycle flag is allowed.
+    let cli = parse(&[
+        "--kind",
+        "permission_required",
+        "--notify",
+        "pi",
+        "--activity",
+    ])
+    .unwrap();
+    assert!(cli.activity && cli.notify.as_deref() == Some("pi"));
+    assert!(
+        parse(&["--notify", "my-tool_2", "--kind", "error", "--ended"])
+            .unwrap()
+            .ended
+    );
+    assert!(parse(&["--notify", "goose", "--kind", "interrupted", "--resident"]).is_ok());
+    assert!(
+        parse(&[
+            "--notify",
+            "goose",
+            "--kind",
+            "input_required",
+            "--config",
+            "c.toml"
+        ])
+        .is_ok()
+    );
+}
+
+#[test]
+fn notify_rejects_unknown_kinds_reserved_keys_and_misplaced_options() {
+    use aherald::cli::Cli;
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    for args in [
+        vec!["--notify", "opencode"],
+        vec!["--notify", "opencode", "--kind", "nope"],
+        vec!["--notify", "opencode", "--kind", "context_warning"],
+        vec!["--notify", "opencode", "--kind", "idle_warning"],
+        vec!["--notify", "OpenCode", "--kind", "error"],
+        vec!["--notify", "codex", "--kind", "error"],
+        vec!["--notify", "claude", "--kind", "error"],
+        vec!["--notify", "default", "--kind", "error"],
+        vec!["--notify", "", "--kind", "error"],
+        vec!["--notify", "pi", "--kind", "error", "--activity", "--ended"],
+        vec!["--notify", "pi", "--kind", "error", "--kind", "error"],
+        vec!["--notify", "pi", "--kind", "error", "--notify", "goose"],
+        vec!["--notify", "pi", "--kind", "error", "--hook"],
+        vec!["--notify", "pi", "--kind", "error", "--event", "error"],
+        vec!["--notify", "pi", "--kind", "error", "--agent", "claude"],
+        vec!["--kind", "error"],
+        vec!["--activity"],
+        vec!["--hook", "--ended"],
+        vec!["--notify"],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?} must be rejected");
+    }
+}

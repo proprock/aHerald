@@ -2,7 +2,8 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let hook = args.iter().any(|arg| arg == "--hook");
+    // A hook-like command never fails its harness: its problems go to stderr only.
+    let hook = args.iter().any(|arg| arg == "--hook" || arg == "--notify");
     if let Err(error) = run(args) {
         eprintln!("aHerald: {error}");
         if !hook {
@@ -233,8 +234,24 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     } else {
         None
     };
+    // `--notify`: the harness or its bridge names the kind; stdin only adds session and folder.
+    let notify_event = match (cli.operation.as_deref(), cli.notify.as_deref(), cli.kind) {
+        (Some("notify"), Some(harness), Some(kind)) => {
+            let input =
+                aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
+                    .unwrap_or_default();
+            Some(aherald::events::external_event(
+                harness,
+                kind,
+                cli.activity,
+                cli.ended,
+                &input,
+            ))
+        }
+        _ => None,
+    };
     let scope = aherald::local::Scope::current("resident").inspect_err(|_| {
-        if cli.operation.as_deref() == Some("hook") {
+        if matches!(cli.operation.as_deref(), Some("hook" | "notify")) {
             log_code(&path, aherald::operational_log::Record::HookDeliveryFailed);
         }
     })?;
@@ -292,10 +309,13 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         return Ok(());
     }
+    if let Some(event) = notify_event {
+        return dispatch(&event, &config, &path, cli.selected_mode(&config));
+    }
     let name = cli
         .event
         .as_deref()
-        .ok_or("specify --event EVENT or --hook; see --help")?;
+        .ok_or("specify --event EVENT, --hook or --notify; see --help")?;
     dispatch(
         &aherald::events::Event::demo(name)?,
         &config,
@@ -397,7 +417,8 @@ fn dispatch(
                 config.claude.warnings.idle_threshold().is_some()
             }
             Some(aherald::agent::Agent::Codex) => config.codex.warnings.idle_threshold().is_some(),
-            None => false,
+            // An external harness reports its waits' answers as activity: always forward it.
+            None => matches!(event.source, aherald::events::Source::External(_)),
         };
         if event.activity && !idle_enabled {
             return Ok(());

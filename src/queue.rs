@@ -78,19 +78,13 @@ fn same(a: &Event, b: &Event) -> bool {
         && a.request_id == b.request_id
         && (a.session_id.is_some() || (a.source == Source::Demo && b.source == Source::Demo))
 }
-/// The agent's waits are one per session instead of one per turn.
+/// The source's waits are one per session instead of one per turn.
 fn per_session(event: &Event) -> bool {
-    event
-        .source
-        .agent()
-        .is_some_and(|agent| agent.waits_are_per_session())
+    event.source.waits_are_per_session()
 }
 /// An agent event whose waits are told apart by turn (Codex); demo and usage events are not.
 fn waits_by_turn(event: &Event) -> bool {
-    event
-        .source
-        .agent()
-        .is_some_and(|agent| !agent.waits_are_per_session())
+    event.source.agent().is_some() && !per_session(event)
 }
 fn pending(event: &Event) -> bool {
     matches!(event.kind, Kind::PermissionRequired | Kind::InputRequired)
@@ -143,6 +137,19 @@ impl Queue {
                 .terminal_history
                 .iter()
                 .any(|terminal| same_turn(terminal, event))
+    }
+    /// Resumed activity of an external harness resolves its session's waits: such a harness
+    /// reports the answer or the next step explicitly. Claude and Codex activity only clears
+    /// reminders (their waits end with the turn), so it resolves nothing here.
+    pub fn observe_activity(&mut self, event: &Event) -> usize {
+        if !event.activity
+            || !matches!(event.source, Source::External(_))
+            || event.session_id.is_none()
+            || event.validate().is_err()
+        {
+            return 0;
+        }
+        self.resolve(|e| pending(e) && e.source == event.source && e.session_id == event.session_id)
     }
     /// Process verified lifecycle evidence even while presentation is disabled.
     pub fn observe_terminal(&mut self, event: &Event) -> usize {
