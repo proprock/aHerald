@@ -237,7 +237,13 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   visible failure and the repair path, and document that Homebrew runs as the user while
   hooks belong to that user. Updates must not block on a running resident; document the
   restart. Acceptance: `brew install --cask`, setup window, hooks, delivery and dismissal,
-  upgrade and uninstall on the MacBook Pro M1. Needs a decision on the tap repository name.
+  upgrade and uninstall on the MacBook Pro M1.
+  Decisions 2026-11-03: tap `proprock/homebrew-tap` (`brew tap proprock/tap`), shared by
+  future projects; no quarantine removal (README documents right-click, Open); stable releases
+  only, updated by the `update_tap` release job through a pull request using the secret
+  `TAP_TOKEN`. Status: Cask, README, `update-cask.sh` and a style-audit CI are drafted locally
+  in `~/repos/homebrew-tap`; the GitHub repository is not created yet and nothing has been
+  installed with brew.
 
 ### macOS parity with 0.9.0-beta
 

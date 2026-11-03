@@ -138,7 +138,16 @@ Move a portable installation first, then rerun setup from the new location.
 ## Platform packaging plan
 
 Windows uses Inno Setup. macOS uses a disk image and the app's own setup window; a
-Homebrew Cask is planned separately (AH-117 in TODO.md).
+Homebrew Cask (stable releases; Apple Silicon):
+
+```bash
+brew tap proprock/tap
+brew install --cask aherald
+```
+
+It installs the same disk image's app, does not remove the Gatekeeper quarantine (right-click,
+Open), and `brew uninstall --cask aherald` first runs `aherald --unsetup --apply` as your user
+to remove aHerald's hook entries. See the tap's README for upgrade and repair.
 
 ## macOS disk image and setup window
 

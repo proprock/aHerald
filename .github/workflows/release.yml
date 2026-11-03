@@ -224,3 +224,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh release edit "$RELEASE_TAG" --draft=false
+
+  update_tap:
+    name: Update the Homebrew cask
+    needs: publish
+    # Pre-releases are not offered through the cask.
+    if: ${{ !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: proprock/homebrew-tap
+          token: ${{ secrets.TAP_TOKEN }}
+          persist-credentials: true
+      - name: Set version and checksum, then open a pull request
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "Secret TAP_TOKEN is not set; update the cask by hand." >&2; exit 1; }
+          ./update-cask.sh aherald "$RELEASE_TAG"
+          git diff --quiet && { echo "The cask already matches $RELEASE_TAG."; exit 0; }
+          branch="aherald-${RELEASE_TAG}"
+          git config user.name "aHerald release"
+          git config user.email "noreply@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -am "aherald ${RELEASE_TAG#v}"
+          git push --force origin "$branch"
+          gh pr create --base main --head "$branch" --title "aherald ${RELEASE_TAG#v}" --body "Release ${RELEASE_TAG} of proprock/aHerald."
