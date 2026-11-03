@@ -107,3 +107,23 @@ hosted model) talk to a local fake OpenAI endpoint: no account and no billing. T
 OpenCode scenarios let OpenCode install `@ai-sdk/openai-compatible` from npm on first use.
 `opencode error` takes about 100 s. They use a private `HOME`, bound their run time and remove their files. They are opt-in
 and are not part of `cargo test` or CI.
+
+## The `--notify` input
+
+Any harness that can run a command reports through one input; no per-harness adapter exists:
+
+```sh
+aherald --notify <harness> --kind <kind> [--activity | --ended]
+```
+
+- `<harness>` is `[a-z0-9_-]{1,32}` and not `codex`, `claude`, `demo`, `usage`, `aherald`,
+  `default` or `animations`. OpenCode, Pi, Goose and Crush get a readable label; others show the key.
+- `<kind>` is `turn_complete`, `permission_required`, `input_required`, `error` or
+  `interrupted` (the context and idle warnings stay Codex/Claude only).
+- `--activity` marks progress of a session without a card: it resolves that session's pending
+  waits. `--ended` marks the session as over and clears its waits.
+- Stdin may carry JSON; only `session_id` and the folder (`cwd`, or Goose's `working_dir`) are
+  read, bounded to 64 KiB and 250 ms. Nothing is echoed or logged.
+- The command always exits 0 and prints nothing to stdout, so it never changes what the harness
+  does; failures go to stderr. Waits are per session; the same session id in two harnesses stays
+  independent. Colour pets per harness with `[pets]` (see [pets](pets.md)).

@@ -593,7 +593,7 @@ are deferred (AH-204, AH-205).
   Crush/Goose rows, the OpenCode TUI permission flow, Pi compaction and queued follow-ups
   are not live-verified and must be re-checked in AH-203 before their mappings are shipped.
 
-- [ ] **AH-202 — Universal external event input and per-harness pets.**
+- [x] **AH-202 — Universal external event input and per-harness pets.**
   Depends on AH-201. `--notify <harness> --kind <existing kind> [--activity|--ended]`
   with the session id and `cwd` (card folder) read from bounded stdin; nothing else is
   read or logged. The harness key matches `[a-z0-9_-]{1,32}`; labels come from a short
