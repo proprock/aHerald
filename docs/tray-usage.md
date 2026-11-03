@@ -4,7 +4,7 @@
 
 Usage lines are followed by a separator, Sound / Pop-up / Pause notifications,
 another separator, Context warnings / Idle warnings, another separator, then
-aHerald v<version> (About), Edit config, Apply + Test, Apply and Exit. When usage lines
+aHerald v<version> (About), another separator, Edit config, Apply + Test, Apply and Exit. When usage lines
 are absent, the menu starts with Sound without a leading separator.
 
 The two warning switches are runtime gates for both agents. Configured thresholds

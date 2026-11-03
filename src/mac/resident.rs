@@ -138,6 +138,42 @@ pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), Strin
     )
 }
 
+/// Shows one aHerald notice with this process's own AppKit loop and exits after it has expired.
+/// It owns no resident scope and no IPC, so a running resident is unaffected.
+pub fn run_notice(event: Event, config: Config) -> Result<(), String> {
+    let shared = new_shared(&config);
+    let stop = Arc::new(AtomicBool::new(false));
+    let start = Instant::now();
+    let waker = Arc::new(Waker(Mutex::new(None)));
+    let wake = waker.clone();
+    crate::resident_request::notice_sink(
+        shared.clone(),
+        config.clone(),
+        start,
+        move |_: &Shared| wake.wake(),
+    )(event);
+    let lifetime = Duration::from_millis(
+        crate::resident_request::NOTICE_MS + config.notifications.fade_out_ms + 1000,
+    );
+    {
+        let (stop, waker) = (stop.clone(), waker.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(lifetime);
+            stop.store(true, Ordering::Release);
+            waker.wake();
+        });
+    }
+    present(
+        config,
+        shared,
+        stop,
+        start,
+        waker,
+        Path::new("."),
+        Preview::None,
+    )
+}
+
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
     run_after_apply(scope, config, path, false)
 }

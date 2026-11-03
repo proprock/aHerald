@@ -9,6 +9,15 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Changed
+- Tray menu (Windows, macOS, Linux): a separator now follows the version (About) line.
+
+### Fixed
+- macOS and Linux: an interactive start that fails on its configuration now shows the reason on an
+  aHerald card, as Windows already did (it was only on stderr, invisible when started from Finder).
+  Docs: on macOS 15+ the first start of the ad-hoc signed app needs Open Anyway in Privacy &
+  Security; right-click, Open no longer works.
+
 ### Added
 - `aherald --notify <harness> --kind <kind> [--activity|--ended]`: one input for events of
   other coding harnesses, with per-harness queues and pets (AH-202).

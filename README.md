@@ -41,8 +41,16 @@ and keeps a queue so nothing is lost while you are away.
 | OS | Get it |
 |---|---|
 | **Windows** | Per-user setup EXE (Codex / Claude Code checkboxes) or the portable ZIP from [Releases](https://github.com/proprock/aHerald/releases/latest) |
-| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald`, or the disk image (ad-hoc signed: right-click, Open) |
+| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald`, or the disk image (ad-hoc signed, see below) |
 | **Linux** (x86-64, glibc) | `.deb` (`sudo apt install ./aherald-*.deb`) or the `.tar.gz` portable archive |
+
+The macOS app is ad-hoc signed, not notarized, so Gatekeeper blocks its first start. Either open it once
+and choose **Open Anyway** in System Settings, Privacy & Security (macOS 15 and later; right-click, Open no
+longer works), or remove the quarantine mark yourself, which is quicker after `brew install`:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/aHerald.app
+```
 
 Then connect your agent. The program writes hook entries only when you ask, with a dry run first:
 

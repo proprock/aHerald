@@ -99,7 +99,7 @@ pub fn items(
             checked,
             separator_before: match command {
                 Command::Sound => has_usage,
-                Command::ContextWarnings | Command::About => true,
+                Command::ContextWarnings | Command::About | Command::Config => true,
                 _ => false,
             },
         })
@@ -206,7 +206,7 @@ mod tests {
             let expected: Vec<Command> = has_usage
                 .then_some(Command::Sound)
                 .into_iter()
-                .chain([Command::ContextWarnings, Command::About])
+                .chain([Command::ContextWarnings, Command::About, Command::Config])
                 .collect();
             assert_eq!(separated, expected);
             assert!(!list[0].separator_before);
