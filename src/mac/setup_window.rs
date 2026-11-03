@@ -50,7 +50,7 @@ const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
     (Box::CodexIdle, "Idle warning", Some(0), 196.0),
     (Box::ClaudeContext, "Context warning", Some(1), 168.0),
     (Box::ClaudeIdle, "Idle warning", Some(1), 196.0),
-    (Box::Launch, "Launch aHerald after applying", None, 272.0),
+    (Box::Launch, "Launch aHerald after applying", None, 284.0),
 ];
 
 struct Controls {
@@ -247,16 +247,16 @@ pub fn run() -> Result<(), String> {
         })
         .collect();
     let note = label(
-        "Claude usage auto tries your login token, then the last statusLine report. Warnings apply to selected agents; existing thresholds are kept.",
+        "Claude usage auto: login token, then the last statusLine report. A Claude context warning wraps your statusLine command (kept and still shown; restored when turned off or removed). Warnings apply to selected agents; thresholds are kept.",
         MARGIN,
         230.0,
         inner,
-        34.0,
+        46.0,
     );
     note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     note.setTextColor(Some(&NSColor::secondaryLabelColor()));
 
-    let heading = label("Details", MARGIN, 350.0, inner, 18.0);
+    let heading = label("Details", MARGIN, 356.0, inner, 18.0);
     heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     // A framed, selectable, scrolling box so it reads as the output area; the note about a
     // receipt from another installation, when there is one, is the first thing shown in it.
@@ -272,7 +272,7 @@ pub fn run() -> Result<(), String> {
         "Preview shows what Apply would change; Apply makes the changes.{note_text}"
     )));
     scroll.setBorderType(NSBorderType::BezelBorder);
-    scroll.setFrame(frame(MARGIN, 372.0, inner, 168.0));
+    scroll.setFrame(frame(MARGIN, 376.0, inner, 164.0));
     content.addSubview(&scroll);
 
     let controller = mtm
@@ -294,7 +294,7 @@ pub fn run() -> Result<(), String> {
                 mtm,
             )
         };
-        button.setFrame(frame(x, 304.0, 100.0, 32.0));
+        button.setFrame(frame(x, 316.0, 100.0, 32.0));
         content.addSubview(&button);
     }
 
