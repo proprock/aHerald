@@ -9,8 +9,12 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-03
+
 ### Changed
 - Tray menu (Windows, macOS, Linux): a separator now follows the version (About) line.
+- Breaking: `[pets]` and `[pet_animations]` replace `notifications.pet`,
+  `notifications.pet_animations` and `[agents.*]`; the old keys are rejected (AH-202).
 
 ### Fixed
 - macOS and Linux: an interactive start that fails on its configuration now shows the reason on an
@@ -25,10 +29,6 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   `docs/harnesses.md` (AH-203).
 - `aherald --setup --harness opencode|pi|goose` installs those bridges as aHerald-owned files
   (dry run by default, receipt, backups, rollback); `--unsetup` removes them (AH-204).
-
-### Changed
-- Breaking: `[pets]` and `[pet_animations]` replace `notifications.pet`,
-  `notifications.pet_animations` and `[agents.*]`; the old keys are rejected (AH-202).
 
 ## [0.9.1] - 2026-11-03
 
