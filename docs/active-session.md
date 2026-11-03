@@ -34,7 +34,8 @@ worker, dependency, desktop permission, transcript access or payload logging is 
 | Windows, Claude hook in Windows Terminal/other tabbed hosts | Root-owner HWND can identify a host, but not its selected tab/session | Deliver; no session guessed from host focus |
 | Windows, Claude Desktop | Existing `cliSessionId` mapping supplies a deep link, not active-session evidence | Deliver; no additional session-file fields read |
 | Windows, Codex CLI/Desktop | Session ID alone does not identify the active client window/session; hooks may run under an app-server | Deliver; no private server started to observe another client |
-| macOS, both agents | Existing terminal capture identifies an application PID, not a selected window/tab; no active desktop-session adapter | Deliver |
+| macOS, Claude hook in Terminal.app or iTerm2, `[general] detect_terminal_tab = true` | The terminal application is in front (`NSRunningApplication.isActive`) and the selected tab's device, read with AppleScript (Automation access, asked by macOS), equals the device of the hook's session (`ps -o tty=` of the nearest ancestor that has one) | Suppression supported (AH-120) |
+| macOS, other terminals, Codex, the option off, Automation denied or slow (1.5 s) | No proof of the selected tab | Deliver |
 | Linux, both agents | Existing X11 capture can identify a host window, not its selected tab/session; no Wayland active-session adapter | Deliver |
 | Any source with missing/invalid window or session, subagent, demo, application notice or usage | Insufficient origin evidence or no originating agent session | Deliver according to existing output rules |
 

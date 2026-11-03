@@ -287,6 +287,15 @@ and the acceptance evidence; reuse the Linux and Windows pieces rather than para
   implementation; keep both `suppress_when_focused` options and their defaults.
   Acceptance: pure policy tests with the macOS evidence, and live checks on the M1 in Terminal
   and in a second terminal app, including unknown origins that must still be delivered.
+  Design agreed 2026-11-03: opt-in Automation. `[general] detect_terminal_tab` (default false)
+  adds `Event::tty` (the nearest ancestor's device, one `ps` per hook) and, for Terminal.app
+  and iTerm2 only, reads the selected tab's device with `osascript` (1.5 s bound) when that
+  terminal is in front (`NSRunningApplication.isActive`, no NSWorkspace feature added). Equal
+  devices are `Session::Same`; everything else delivers. Claude main sessions only, as on
+  Windows. Status 2026-11-03 (branch `feature/ah-120-mac-focus-suppression`): implemented with
+  unit tests (761 pass); NOT checked live: the Automation prompt, the real tab comparison in
+  Terminal.app and iTerm2, a second tab/terminal delivering, and the `NSAppleEventsUsageDescription`
+  text in the bundle.
 
 ### Linux parity with 0.8.0-beta
 

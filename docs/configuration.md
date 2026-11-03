@@ -37,7 +37,8 @@ unknown identity delivers both outputs. A suppressed card never appears later
 after a focus change. Lifecycle handling and deduplication continue.
 
 Current positive identification is limited to Claude hooks in a classic Windows
-console. Desktop apps, Codex and tabbed terminals retain notifications. See the
+console, and on macOS (opt-in) to Claude hooks in the selected tab of Terminal.app or
+iTerm2. Desktop apps, Codex and tabbed terminals retain notifications. See the
 [coverage matrix and manual checks](active-session.md) before relying on suppression.
 
 ### Session warnings (AH-100 / AH-101)

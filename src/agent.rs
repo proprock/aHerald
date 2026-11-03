@@ -133,6 +133,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         request_id: None,
         agent_id: hook.agent_id,
         window: None,
+        tty: None,
         ended,
         activity,
         folder: crate::events::hook_folder(hook.cwd),

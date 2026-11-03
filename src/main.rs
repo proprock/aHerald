@@ -283,6 +283,11 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             if cli.hook_agent().records_console_window() || cfg!(target_os = "linux") {
                 event.window = aherald::console_window::current();
             }
+            // One `ps` per hook, so only when tab detection is switched on.
+            #[cfg(target_os = "macos")]
+            if config.general.detect_terminal_tab && event.window.is_some() {
+                event.tty = aherald::mac::console_window::tty();
+            }
             dispatch(&event, &config, &path, cli.selected_mode(&config))?;
         }
         return Ok(());

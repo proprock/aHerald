@@ -37,8 +37,8 @@ pub fn outputs(config: &Config, evidence: Evidence) -> Outputs {
     }
 }
 
-#[cfg(not(windows))]
-pub fn observe(_event: &Event) -> Evidence {
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn observe(_event: &Event, _config: &Config) -> Evidence {
     Evidence {
         window_focused: None,
         session: Session::Unknown,
@@ -46,8 +46,13 @@ pub fn observe(_event: &Event) -> Evidence {
 }
 
 #[cfg(windows)]
-pub fn observe(event: &Event) -> Evidence {
+pub fn observe(event: &Event, _config: &Config) -> Evidence {
     native::observe(event)
+}
+
+#[cfg(target_os = "macos")]
+pub fn observe(event: &Event, config: &Config) -> Evidence {
+    crate::mac::focus::observe(event, config)
 }
 
 #[cfg(windows)]
@@ -155,7 +160,7 @@ mod tests {
             event.source = source;
             event.session_id = Some("sanitized-session".into());
             assert_eq!(
-                outputs(&config, observe(&event)),
+                outputs(&config, observe(&event, &config)),
                 Outputs {
                     window: true,
                     sound: true
@@ -163,7 +168,7 @@ mod tests {
             );
             event.window = Some(u64::MAX);
             assert_eq!(
-                outputs(&config, observe(&event)),
+                outputs(&config, observe(&event, &config)),
                 Outputs {
                     window: true,
                     sound: true

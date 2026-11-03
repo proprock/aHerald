@@ -16,7 +16,7 @@ pub fn configuration_notice() -> Result<(), String> {
 
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     crate::process::acknowledge()?;
-    let outputs = crate::focus::outputs(config, crate::focus::observe(event));
+    let outputs = crate::focus::outputs(config, crate::focus::observe(event, config));
     let mut effective = config.clone();
     effective.notifications.enabled &= outputs.window;
     effective.sounds.enabled &= outputs.sound;

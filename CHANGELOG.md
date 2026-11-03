@@ -10,6 +10,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- macOS: opt-in `[general] detect_terminal_tab` lets `suppress_when_focused` hide a card for
+  the selected tab of Terminal.app or iTerm2 (asks macOS for Automation access; other
+  terminals and Codex keep delivery) (AH-120).
 - macOS disk image with an in-app setup window: choose Codex and Claude Code, usage and
   warnings, preview and apply through the common setup backend; opening the app from Finder
   or `aherald --setup-window` starts it (AH-102).

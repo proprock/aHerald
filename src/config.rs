@@ -229,6 +229,9 @@ pub struct General {
     pub mode: Mode,
     pub logging: LogLevel,
     pub deduplicate_ms: u64,
+    /// macOS only: read the selected tab of Terminal.app or iTerm2 (needs Automation access)
+    /// so a card for the session you are looking at can be suppressed.
+    pub detect_terminal_tab: bool,
 }
 impl Default for General {
     fn default() -> Self {
@@ -236,6 +239,7 @@ impl Default for General {
             mode: Mode::default(),
             logging: LogLevel::default(),
             deduplicate_ms: 1500,
+            detect_terminal_tab: false,
         }
     }
 }
