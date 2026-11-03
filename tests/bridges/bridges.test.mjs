@@ -122,7 +122,8 @@ test("opencode: malformed events never throw, even when sending fails", () => {
 })
 
 // The real spawn path: a recorder script stands in for aherald.
-test("the spawned command receives only the session id and folder on stdin and may be missing", async () => {
+// The recorder is a `sh` script, so this real-spawn check runs on Unix only.
+test("the spawned command receives only the session id and folder on stdin and may be missing", { skip: process.platform === "win32" }, async () => {
   const dir = mkdtempSync(join(tmpdir(), "bridge-"))
   const out = join(dir, "out.txt")
   const exe = join(dir, "aherald")
