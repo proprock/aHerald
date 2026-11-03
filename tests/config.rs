@@ -230,7 +230,7 @@ fn visual_selection_validates_scope_and_custom_paths() {
 #[test]
 fn event_accent_colors_and_pet_state_maps_are_validated() {
     let dir = PathBuf::from(".");
-    let config = Config::parse("[events.error]\ncolor='#102030'\n[notifications.pet_animations]\nerror='waiting'\n[agents.codex.pet_animations]\nturn_complete='review'", &dir).unwrap();
+    let config = Config::parse("[events.error]\ncolor='#102030'\n[pet_animations]\nerror='waiting'\n[pet_animations.codex]\nturn_complete='review'", &dir).unwrap();
     assert_eq!(
         config.event_color(aherald::events::Kind::Error).0,
         [16, 32, 48]
@@ -244,9 +244,14 @@ fn event_accent_colors_and_pet_state_maps_are_validated() {
         "[events.error]\ncolor='#12345'",
         "[events.error]\ncolor='#gg0000'",
         "[events.error]\ncolor='#11223344'",
-        "[notifications.pet_animations]\nunknown='idle'",
-        "[notifications.pet_animations]\nerror='unknown'",
-        "[agents.codex.pet_animations]\nunknown='idle'",
+        "[pet_animations]\nunknown='idle'",
+        "[pet_animations]\nerror='unknown'",
+        "[pet_animations.codex]\nunknown='idle'",
+        "[pet_animations.Bad_Key]\nerror='idle'",
+        "[pets]\nBad_Key='pet.json'",
+        "[notifications]\npet='pet.json'",
+        "[notifications.pet_animations]\nerror='idle'",
+        "[agents.codex]\npet='pet.json'",
     ] {
         assert!(Config::parse(text, &dir).is_err(), "{text}");
     }

@@ -151,8 +151,8 @@ for the rest of that scenario. Click dismissal does not end the loop.
 
 The demo loads the default configuration or `--config`, retaining event enablement,
 artwork overrides, sounds/volume, fades, placement and scale. Cards are labelled
-`aHerald demo`; artwork uses `agents.demo`, then `agents.codex` when available,
-then the shared pet. Disabled events are skipped; disabling all events is an error.
+`aHerald demo`; artwork uses `pets.demo`, then `pets.codex` when available,
+then `pets.default`. Disabled events are skipped; disabling all events is an error.
 Disabled visuals or sounds stay disabled. Use the tray to try pause, sound/visual
 switches and usage details (real usage is queried only when enabled in the config).
 Exit from this demo's tray to stop the cycle. Pause freezes the cycle as well.
@@ -294,9 +294,9 @@ removal remain unverified; see the Milestone 5 evidence.
 
 ## Codex pet artwork
 
-The card always shows the event source and signal text. Use `agents.codex.pet`
+The card always shows the event source and signal text. Use `pets.codex`
 to point to a downloaded local `pet.json`; its PNG/WebP sprite sheet animates beside
-the text. `notifications.pet` supplies an optional shared default. Standard v1/v2 packages are
+the text. `pets.default` supplies an optional shared default. Standard v1/v2 packages are
 supported. See [pet setup and format limits](docs/pets.md) and `examples/pet.toml`.
 In auto mode, configuring a pet replaces builtin artwork for all inherited events.
 Use an event's `visual` for explicit builtin/pet/custom exceptions; `animation` is

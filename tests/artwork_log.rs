@@ -44,20 +44,17 @@ fn unusable_configured_artwork_falls_back_to_the_builtin_one_and_is_logged_once(
 
     // A pet that cannot be loaded.
     config.events[event.kind].visual = EventVisual::Pet;
-    config.notifications.pet = Some(directory.join("secret-pet-name"));
+    config.pets.default = Some(directory.join("secret-pet-name"));
     for _ in 0..2 {
         assert!(resolve(&config, &event, &builtin).unwrap().is_some());
     }
     assert_eq!(lines(&directory, "artwork.rejected pet"), 1);
 
     // The agent override is the selected file, even without a shared pet.
-    config.notifications.pet = None;
-    config.agents.insert(
+    config.pets.default = None;
+    config.pets.by_harness.insert(
         event.source.agent_key().to_owned(),
-        aherald::config::AgentAssets {
-            pet: Some(directory.join("secret-agent-pet")),
-            ..Default::default()
-        },
+        directory.join("secret-agent-pet"),
     );
     let notices = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let received = notices.clone();

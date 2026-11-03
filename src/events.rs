@@ -153,6 +153,10 @@ pub fn is_harness_key(key: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_'))
         && !RESERVED_KEYS.contains(&key)
 }
+/// A key that may own a pet: a built-in agent or a valid external harness name.
+pub fn is_pet_owner(key: &str) -> bool {
+    matches!(key, "codex" | "claude") || is_harness_key(key)
+}
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {

@@ -10,8 +10,8 @@ Use a downloaded local package containing `pet.json` and its PNG/WebP sprite she
 scale = 1.0
 interpolation = 'bilinear'
 
-[agents.codex]
-pet = 'C:\Users\you\.codex\pets\becky--natewanggg\pet.json'
+[pets]
+codex = 'C:\Users\you\.codex\pets\becky--natewanggg\pet.json'
 ```
 
 Set the actual absolute path, or a path relative to the configuration file. Environment
@@ -22,12 +22,12 @@ separately if needed; aHerald does not interpret a configuration value as a comm
 
 With `[notifications] visual = 'auto'` (the default), setting a pet switches all
 inherited events to that pet. Without a pet, events use builtin aHerald artwork.
-`[agents.SOURCE].pet` selects the character before `[notifications].pet` as a shared
-default. A configured but broken pet falls back to builtin artwork, then text.
-`codex` selects Codex hook artwork; `demo`
-selects `--event` demo artwork. Unknown agent entries can be stored for future
-adapters but are never selected by existing sources. In particular, a
-`[agents.claude]` entry does not enable Claude event ingestion.
+`[pets]` maps a harness name to its character (`codex`, `claude`, or the name given to
+`--notify`, for example `opencode`); `default` serves every harness without its own entry.
+`demo` selects `--event` demo artwork and falls back to `codex`. A configured but broken
+pet falls back to builtin artwork, then text. A `[pets]` entry never enables event
+ingestion for that harness. Keys other than `default`, `demo` and valid harness names are
+configuration errors; the former `[notifications].pet` and `[agents.*]` keys are gone.
 
 Choose `[events.NAME] visual = 'builtin', 'pet', or 'custom'` for explicit exceptions;
 the default is `'inherit'`. Only `'custom'` uses that event's `animation` path.
@@ -66,15 +66,15 @@ implementation of Codex's chat-status transitions, directional movement, or cont
 Choose a standard pet state for each event instead of its automatic default:
 
 ```toml
-[notifications.pet_animations]
+[pet_animations]
 turn_complete = 'jumping'
 
-[agents.codex.pet_animations]
+[pet_animations.codex]
 permission_required = 'waiting'
 ```
 
-The agent's mapping takes priority over the shared mapping, followed by the default
-event mapping above. This also works when an agent uses the shared pet manifest.
+The harness's table takes priority over the shared entries, followed by the default
+event mapping above. This also works when a harness uses the default pet manifest.
 `[events.NAME] visual = 'custom'` selects external artwork instead of a pet state.
 Unknown event keys or state names are configuration errors. The mapping selects
 an atlas track; it does not recolor the artwork. Event `color` changes the card stripe.
