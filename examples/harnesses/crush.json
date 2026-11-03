@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "TurnStart": [{ "command": "aherald --notify crush --kind turn_complete --activity" }],
+    "TurnEnd": [{ "command": "aherald --notify crush --kind turn_complete" }],
+    "StopFailure": [{ "command": "aherald --notify crush --kind error" }],
+    "Interrupt": [{ "command": "aherald --notify crush --kind interrupted" }],
+    "PermissionRequest": [{ "command": "aherald --notify crush --kind permission_required" }],
+    "PermissionResult": [{ "command": "aherald --notify crush --kind turn_complete --activity" }],
+    "SessionEnd": [{ "command": "aherald --notify crush --kind turn_complete --ended" }]
+  }
+}

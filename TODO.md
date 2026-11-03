@@ -611,7 +611,7 @@ are deferred (AH-204, AH-205).
   harnesses, label fallback, the new pet configuration and its rejection of the old
   keys; the existing Codex/Claude suite passes unchanged except for configuration keys.
 
-- [ ] **AH-203 — OpenCode and Pi bridges, Goose and Crush examples.**
+- [x] **AH-203 — OpenCode and Pi bridges, Goose and Crush examples.**
   Depends on AH-201 and AH-202. A minimal TS bridge for each of OpenCode and Pi runs
   inside the harness runtime and calls `aherald --notify` at a fixed path, passing only
   the permitted fields (never prompts, message bodies, tool arguments or credentials).
@@ -626,6 +626,12 @@ are deferred (AH-204, AH-205).
   IPC path (normalization, ignored events, lifecycle clearing, bounded completion,
   safe failure with no resident or executable); real-version results are recorded
   separately from synthetic ones.
+  Result (2026-11-03): bridge contract tests (`tests/bridges`, Node) use synthetic events and a
+  recorder in place of aherald; the bridges also ran live on OpenCode 2.2.0 and Pi 1.5.0
+  (`BRIDGE=1 sh tests/live/harness_probes/run.sh ...`). Not checked live: the OpenCode TUI
+  permission flow, Pi compaction and queued follow-ups, and the Crush and Goose examples
+  (documentation only). Calls are serialized, so a short headless OpenCode run can end
+  before its last call.
 
 - [ ] **AH-204 — Setup and installers for harness bridge files (deferred).**
   Former AH-205 and AH-208. Install, update and remove aHerald-owned bridge files

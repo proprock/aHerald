@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "aherald --notify goose --kind turn_complete --activity", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "aherald --notify goose --kind turn_complete", "timeout": 5 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "aherald --notify goose --kind turn_complete --ended", "timeout": 5 }] }
+    ]
+  }
+}

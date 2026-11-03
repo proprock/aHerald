@@ -313,6 +313,7 @@ transcript parsing, token reading, or automatic Codex installation are performed
 See [manual Windows hook setup](docs/codex-hooks.md) and the
 [version/coverage matrix](docs/codex-compatibility.md). Input-wait monitoring for
 unrelated CLI/app sessions is [explicitly unsupported](docs/codex-input-waits.md).
+OpenCode, Pi, Crush and Goose are supported through `--notify`: see [other harnesses](docs/harnesses.md).
 All seven event types can be exercised with `--event` or together with `--demo`.
 
 See [asset formats and sound scheduling](docs/assets.md) and

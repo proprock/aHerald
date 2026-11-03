@@ -9,6 +9,16 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- `aherald --notify <harness> --kind <kind> [--activity|--ended]`: one input for events of
+  other coding harnesses, with per-harness queues and pets (AH-202).
+- Bridges and hook examples for OpenCode, Pi, Crush and Goose in `examples/harnesses`; see
+  `docs/harnesses.md` (AH-203).
+
+### Changed
+- Breaking: `[pets]` and `[pet_animations]` replace `notifications.pet`,
+  `notifications.pet_animations` and `[agents.*]`; the old keys are rejected (AH-202).
+
 ## [0.9.1] - 2026-11-03
 
 ### Added
