@@ -15,8 +15,8 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
-    NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSTextField,
-    NSWindow, NSWindowStyleMask,
+    NSBorderType, NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont,
+    NSTextField, NSTextView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 use std::path::PathBuf;
@@ -56,7 +56,7 @@ const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
 struct Controls {
     exe: PathBuf,
     boxes: Vec<Retained<NSButton>>,
-    result: Retained<NSTextField>,
+    result: Retained<NSTextView>,
 }
 
 impl Controls {
@@ -96,7 +96,7 @@ impl Controls {
             }
             Err(message) => format!("Nothing was changed: {message}"),
         };
-        self.result.setStringValue(&NSString::from_str(&text));
+        self.result.setString(&NSString::from_str(&text));
     }
 }
 
@@ -258,20 +258,22 @@ pub fn run() -> Result<(), String> {
 
     let heading = label("Details", MARGIN, 350.0, inner, 18.0);
     heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
-    // A framed, selectable box so it reads as the output area; the note about a receipt
-    // from another installation, when there is one, is the first thing shown in it.
-    let result = NSTextField::wrappingLabelWithString(
-        &NSString::from_str(&format!(
-            "Preview shows what Apply would change; Apply makes the changes.{note_text}"
-        )),
-        mtm,
-    );
-    result.setBezeled(true);
-    result.setDrawsBackground(true);
-    result.setBackgroundColor(Some(&NSColor::textBackgroundColor()));
+    // A framed, selectable, scrolling box so it reads as the output area; the note about a
+    // receipt from another installation, when there is one, is the first thing shown in it.
+    let scroll = NSTextView::scrollableTextView(mtm);
+    let result = scroll
+        .documentView()
+        .and_then(|view| view.downcast::<NSTextView>().ok())
+        .ok_or("the details box has no text view")?;
+    result.setEditable(false);
+    result.setSelectable(true);
     result.setFont(Some(&NSFont::systemFontOfSize(11.0)));
-    result.setFrame(frame(MARGIN, 372.0, inner, 168.0));
-    content.addSubview(&result);
+    result.setString(&NSString::from_str(&format!(
+        "Preview shows what Apply would change; Apply makes the changes.{note_text}"
+    )));
+    scroll.setBorderType(NSBorderType::BezelBorder);
+    scroll.setFrame(frame(MARGIN, 372.0, inner, 168.0));
+    content.addSubview(&scroll);
 
     let controller = mtm
         .alloc::<Controller>()
