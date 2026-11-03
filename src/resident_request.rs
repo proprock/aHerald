@@ -151,7 +151,7 @@ fn respond_with_focus(
     state: &mut impl Controls,
     settings: &Config,
     now: u64,
-    observe: impl Fn(&crate::events::Event) -> crate::focus::Evidence,
+    observe: impl Fn(&crate::events::Event, &Config) -> crate::focus::Evidence,
 ) -> (Response, Effects) {
     match request {
         Request::Status => (
@@ -279,7 +279,7 @@ fn respond_with_focus(
                     .duration_ms
                     .saturating_add(settings.notifications.fade_out_ms)
             };
-            let outputs = crate::focus::outputs(settings, observe(&event));
+            let outputs = crate::focus::outputs(settings, observe(&event, settings));
             match state
                 .queue()
                 .push_with_outputs(event, now, duration, outputs)
@@ -373,7 +373,7 @@ mod tests {
                             &mut s,
                             &settings,
                             0,
-                            |_| evidence,
+                            |_, _| evidence,
                         );
                         assert!(matches!(response, Response::Accepted));
                         let expected = if focused == Some(true) && session == Session::Same {

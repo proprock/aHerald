@@ -36,6 +36,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>aHerald reads which tab of Terminal or iTerm2 is selected, only when detect_terminal_tab is on, to hide a card for the session you are looking at.</string>
 </dict>
 </plist>
 PLIST

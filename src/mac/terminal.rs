@@ -118,6 +118,32 @@ pub fn current() -> Option<u64> {
     nearest_terminal(&chain, bundle_of).map(u64::from)
 }
 
+/// The device path from `ps -o tty=` output (`ttys003`); processes without a terminal print `??`.
+pub fn parse_ps_tty(output: &str) -> Option<String> {
+    let name = output.trim();
+    let path = format!("/dev/{name}");
+    (name != "??" && crate::events::is_terminal_device(&path)).then_some(path)
+}
+
+/// The device of the first process of `chain` that has one: the agent's own terminal.
+pub fn nearest_tty(chain: &[u32], tty: impl Fn(u32) -> Option<String>) -> Option<String> {
+    chain.iter().find_map(|pid| tty(*pid))
+}
+
+fn tty_of(pid: u32) -> Option<String> {
+    let output = crate::mac::focus::run_bounded(
+        "/bin/ps",
+        &["-o", "tty=", "-p", &pid.to_string()],
+        std::time::Duration::from_secs(1),
+    )?;
+    parse_ps_tty(&output)
+}
+
+/// The terminal device of the agent session this hook runs under, for `Event::tty`.
+pub fn current_tty() -> Option<String> {
+    nearest_tty(&ancestors(std::process::id(), parent_of), tty_of)
+}
+
 /// Brings the terminal application `window` (a process id from `current`) to the front. The id
 /// is untrusted: it must still be a running terminal.
 pub fn raise(window: u64) -> Result<(), String> {
@@ -189,6 +215,26 @@ mod tests {
         let deep = ancestors(1000, |pid| pid.checked_sub(1).filter(|p| *p > 0));
         assert_eq!(deep.len(), MAX_ANCESTORS);
         assert_eq!(deep[0], 999);
+    }
+
+    #[test]
+    fn ps_output_becomes_a_device_path_only_for_a_real_terminal() {
+        assert_eq!(parse_ps_tty("ttys003\n").as_deref(), Some("/dev/ttys003"));
+        for bad in ["", "??\n", "ttys 3", "../etc", "a\nb"] {
+            assert_eq!(parse_ps_tty(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_nearest_process_with_a_terminal_names_the_session() {
+        let ttys: HashMap<u32, &str> = [(20, "/dev/ttys001"), (10, "/dev/ttys002")].into();
+        let tty = |pid| ttys.get(&pid).map(|t| (*t).to_owned());
+        assert_eq!(
+            nearest_tty(&[30, 20, 10], tty).as_deref(),
+            Some("/dev/ttys001")
+        );
+        assert_eq!(nearest_tty(&[30], tty), None);
+        assert_eq!(nearest_tty(&[], tty), None);
     }
 
     #[test]

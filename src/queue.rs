@@ -320,6 +320,7 @@ impl Queue {
             request_id: None,
             agent_id: None,
             window: None,
+            tty: None,
             ended: false,
             activity: false,
             folder: None,

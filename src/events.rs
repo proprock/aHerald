@@ -119,6 +119,10 @@ pub struct Event {
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,
+    /// Terminal device of the hook's session (macOS), the evidence that a tab is the session's.
+    /// Untrusted: only compared with the selected tab's device, never opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<String>,
     /// The whole session ended (`SessionEnd`): evidence only, never shown or sounded.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ended: bool,
@@ -183,6 +187,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             window: None,
+            tty: None,
             ended: false,
             activity: false,
             folder: None,
@@ -206,6 +211,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             window: None,
+            tty: None,
             ended: false,
             activity: false,
             folder: None,
@@ -227,6 +233,11 @@ impl Event {
         if self.window == Some(0) {
             return Err("invalid event window".into());
         }
+        if let Some(tty) = &self.tty
+            && !is_terminal_device(tty)
+        {
+            return Err("invalid event terminal".into());
+        }
         for id in [
             &self.session_id,
             &self.turn_id,
@@ -242,6 +253,18 @@ impl Event {
         }
         Ok(())
     }
+}
+
+/// `/dev/` followed by a plain device name: no traversal, control characters or long names.
+pub fn is_terminal_device(path: &str) -> bool {
+    path.strip_prefix("/dev/").is_some_and(|name| {
+        !name.is_empty()
+            && name.len() <= 32
+            && !name.split('/').any(|part| part.is_empty() || part == "..")
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.'))
+    })
 }
 
 pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
@@ -278,6 +301,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         request_id: None,
         agent_id: hook.agent_id,
         window: None,
+        tty: None,
         ended,
         activity,
         folder: hook_folder(hook.cwd),
@@ -332,6 +356,30 @@ pub fn hook_error_code(error: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_terminal_device_must_be_a_short_dev_path_without_control_characters() {
+        let mut event = Event::demo("turn_complete").unwrap();
+        assert_eq!(event.tty, None);
+        assert!(!serde_json::to_string(&event).unwrap().contains("tty"));
+        for good in ["/dev/ttys003", "/dev/pts/12"] {
+            event.tty = Some(good.into());
+            assert!(event.validate().is_ok(), "{good}");
+            let json = serde_json::to_string(&event).unwrap();
+            assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);
+        }
+        for bad in [
+            "",
+            "ttys003",
+            "/tmp/ttys003",
+            "/dev/ttys003\n",
+            "/dev/../etc/passwd",
+            &format!("/dev/{}", "t".repeat(64)),
+        ] {
+            event.tty = Some(bad.into());
+            assert!(event.validate().is_err(), "{bad:?}");
+        }
+    }
     #[test]
     fn normalize_ignores_sensitive_and_unknown_fields() {
         let event = parse_hook(br#"{"hook_event_name":"PermissionRequest","session_id":"s","turn_id":"t","tool_input":{"command":"SECRET"},"future":true}"#).unwrap().unwrap();

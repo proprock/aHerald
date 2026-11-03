@@ -15,6 +15,10 @@ logging = "warn"
 # Duplicate-event window in milliseconds: 0..60000; default 1500.
 # Also controls repeat-sound suppression when sounds.suppress_repeats is true.
 deduplicate_ms = 1500
+# macOS only; default false. Lets the suppress_when_focused options tell the tabs of Terminal.app
+# and iTerm2 apart by asking the terminal for its selected tab, which makes macOS request
+# Automation access for aHerald. Without it (or in other terminals) cards are always delivered.
+detect_terminal_tab = false
 
 [resident]
 # Reserved setting: only false is supported. No startup entry is installed.
