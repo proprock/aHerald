@@ -29,7 +29,7 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let mut test_after_apply = false;
     if args.first().map(String::as_str) == Some("--restart-child") {
         let pid = args
@@ -39,7 +39,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             .map_err(|_| "invalid restart parent")?;
         aherald::restart::wait_for_parent(pid)?;
         args.drain(..2);
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         if args.first().is_some_and(|a| a == "--test-after-apply") {
             test_after_apply = true;
             args.remove(0);
@@ -53,14 +53,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let path = std::path::Path::new(&args[3]);
         let config = aherald::config::Config::load(path, true)
             .inspect_err(|_| log_code(path, Record::InvalidConfiguration))?;
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         let result = aherald::resident::run_after_apply(
             aherald::local::Scope::current(&args[1])?,
             config,
             path,
             test_after_apply,
         );
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         let result =
             aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path);
         return result.inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
@@ -257,9 +257,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         );
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {

@@ -13,12 +13,13 @@ pub enum Command {
     ContextWarnings,
     IdleWarnings,
     Config,
+    ApplyTest,
     Apply,
     Exit,
 }
 
 impl Command {
-    pub const ALL: [Command; 11] = [
+    pub const ALL: [Command; 12] = [
         Command::CodexSummary,
         Command::ClaudeSummary,
         Command::About,
@@ -28,6 +29,7 @@ impl Command {
         Command::ContextWarnings,
         Command::IdleWarnings,
         Command::Config,
+        Command::ApplyTest,
         Command::Apply,
         Command::Exit,
     ];
@@ -83,6 +85,7 @@ pub fn items(
         ),
         (Command::IdleWarnings, "Idle warnings".to_owned(), idle),
         (Command::Config, "Edit configuration".to_owned(), false),
+        (Command::ApplyTest, "Apply + Test".to_owned(), false),
         (Command::Apply, "Apply".to_owned(), false),
         (Command::Exit, "Exit".to_owned(), false),
     ];
@@ -122,7 +125,7 @@ mod tests {
             Some("Codex usage (unavailable)"),
             Some("Claude remain: 5h 80%"),
         );
-        assert_eq!(list.len(), 11);
+        assert_eq!(list.len(), 12);
         assert!(!item(&list, Command::Sound).checked);
         assert!(item(&list, Command::Visual).checked);
         assert!(item(&list, Command::Pause).checked);
@@ -146,6 +149,7 @@ mod tests {
         assert_eq!(item(&list, Command::Visual).label, "Pop-up");
         assert_eq!(item(&list, Command::Pause).label, "Pause notifications");
         assert_eq!(item(&list, Command::Config).label, "Edit configuration");
+        assert_eq!(item(&list, Command::ApplyTest).label, "Apply + Test");
         assert_eq!(item(&list, Command::Apply).label, "Apply");
         assert_eq!(
             item(&list, Command::About).label,
@@ -157,7 +161,7 @@ mod tests {
     #[test]
     fn usage_lines_appear_only_for_enabled_agents_claude_first() {
         let none = items(true, true, false, false, false, None, None);
-        assert_eq!(none.len(), 9);
+        assert_eq!(none.len(), 10);
         let claude = items(true, true, false, false, false, None, Some("Claude"));
         assert!(!commands(&claude).contains(&Command::CodexSummary));
         let both = items(
@@ -212,6 +216,7 @@ mod tests {
                     Command::ContextWarnings,
                     Command::IdleWarnings,
                     Command::Config,
+                    Command::ApplyTest,
                     Command::Apply,
                     Command::Exit
                 ]

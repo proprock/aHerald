@@ -136,6 +136,27 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
 }
 
 pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
+    run_after_apply(scope, config, path, false)
+}
+
+/// `test` is Apply + Test: the replacement resident shows each configured card once.
+pub fn run_after_apply(
+    scope: Scope,
+    mut config: Config,
+    path: &Path,
+    test: bool,
+) -> Result<(), String> {
+    if test
+        && !config.agents.contains_key("demo")
+        && let Some(assets) = config.agents.get("codex").cloned()
+    {
+        config.agents.insert("demo".into(), assets);
+    }
+    // Nothing to preview when every event is disabled; the resident still starts.
+    let preview = test
+        .then(|| crate::demo::Demo::new(&config, 3).ok())
+        .flatten()
+        .map(crate::demo::Demo::single_pass);
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
@@ -208,7 +229,7 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
         let _ = listener.join();
         return Err(error);
     }
-    let result = present(config, shared, stop.clone(), start, waker, path, None);
+    let result = present(config, shared, stop.clone(), start, waker, path, preview);
     crate::notice::clear();
     stop.store(true, Ordering::Release);
     stop_event.signal();
@@ -451,7 +472,7 @@ impl Ui {
                         }
                     });
                 }
-                Command::Apply => {
+                Command::Apply | Command::ApplyTest => {
                     // A replacement that cannot load its configuration would exit silently
                     // and leave no resident: validate first and keep this one running.
                     if let Err(error) = Config::load(&self.config_path, true) {
@@ -464,7 +485,8 @@ impl Ui {
                         continue;
                     }
                     let (stop, waker) = (self.stop.clone(), self.waker.clone());
-                    std::thread::spawn(move || match crate::restart::launch() {
+                    let test = command == Command::ApplyTest;
+                    std::thread::spawn(move || match crate::restart::launch_with_test(test) {
                         Ok(()) => {
                             stop.store(true, Ordering::Release);
                             waker.wake();
@@ -725,6 +747,9 @@ impl Ui {
             let paused = state.paused;
             if let Some(demo) = &mut self.demo {
                 demo.tick(now, paused, &mut state.queue);
+                if demo.is_finished() {
+                    self.demo = None;
+                }
             }
             crate::resident_request::tick(&mut *state, &self.config, now);
             state.queue.tick(now, paused);
