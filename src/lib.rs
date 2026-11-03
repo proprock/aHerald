@@ -3,6 +3,7 @@
 pub mod activation;
 pub mod agent;
 pub mod app_server;
+pub mod bridge_setup;
 pub mod card;
 pub mod card_paint;
 pub mod card_surface;

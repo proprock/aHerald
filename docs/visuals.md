@@ -20,8 +20,8 @@ pet = 'characters/my-pet/pet.json'
 ```
 
 Default `visual = 'auto'` switches all inherited events to the selected pet.
-`[agents.codex].pet` takes priority over the shared manifest. Stored event
-`animation` paths do not interfere. Shared/agent `pet_animations` maps select
+`[pets].codex` takes priority over `[pets].default`. Stored event
+`animation` paths do not interfere. Shared and per-harness `[pet_animations]` tables select
 the track for each event; see [pet tracks](pets.md).
 
 ## Hybrid

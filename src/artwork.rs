@@ -89,11 +89,7 @@ fn reject(which: &'static str, path: &Path) {
 }
 
 fn pet_path<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
-    config
-        .agents
-        .get(event.source.agent_key())
-        .and_then(|agent| agent.pet.as_deref())
-        .or(config.notifications.pet.as_deref())
+    config.pets.path(event.source.agent_key())
 }
 
 fn pet(config: &Config, event: &Event) -> Option<Animation> {

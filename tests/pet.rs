@@ -28,14 +28,14 @@ fn visual_sources_cover_defaults_full_pet_and_both_hybrid_directions() {
         let event = Event::demo(kind).unwrap();
         assert_eq!(resolve("", &event).frames[0].dimensions(), (64, 64));
         assert_eq!(
-            resolve("[notifications]\npet='pet.json'", &event).frames[0].dimensions(),
+            resolve("[pets]\ndefault='pet.json'", &event).frames[0].dimensions(),
             (192, 208)
         );
     }
     let event = Event::demo("error").unwrap();
     assert_eq!(
         resolve(
-            "[notifications]\npet='pet.json'\n[events.error]\nanimation='missing'",
+            "[pets]\ndefault='pet.json'\n[events.error]\nanimation='missing'",
             &event
         )
         .frames[0]
@@ -45,7 +45,7 @@ fn visual_sources_cover_defaults_full_pet_and_both_hybrid_directions() {
     );
     assert_eq!(
         resolve(
-            "[notifications]\npet='pet.json'\n[events.error]\nvisual='builtin'",
+            "[pets]\ndefault='pet.json'\n[events.error]\nvisual='builtin'",
             &event
         )
         .frames[0]
@@ -54,7 +54,7 @@ fn visual_sources_cover_defaults_full_pet_and_both_hybrid_directions() {
     );
     assert_eq!(
         resolve(
-            "[notifications]\nvisual='builtin'\npet='pet.json'\n[events.error]\nvisual='pet'",
+            "[notifications]\nvisual='builtin'\n[pets]\ndefault='pet.json'\n[events.error]\nvisual='pet'",
             &event
         )
         .frames[0]
@@ -62,11 +62,16 @@ fn visual_sources_cover_defaults_full_pet_and_both_hybrid_directions() {
         (192, 208)
     );
     assert_eq!(
-        resolve("[notifications]\nvisual='builtin'\npet='pet.json'", &event).frames[0].dimensions(),
+        resolve(
+            "[notifications]\nvisual='builtin'\n[pets]\ndefault='pet.json'",
+            &event
+        )
+        .frames[0]
+            .dimensions(),
         (64, 64)
     );
     let custom = format!(
-        "[notifications]\npet='pet.json'\n[events.error]\nvisual='custom'\nanimation='{}'",
+        "[pets]\ndefault='pet.json'\n[events.error]\nvisual='custom'\nanimation='{}'",
         builtin.join("turn_complete").display()
     );
     let selected = resolve(&custom, &event);
@@ -84,7 +89,7 @@ fn unavailable_artwork_recovers_to_builtin_then_text() {
     let builtin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
     let event = Event::demo("error").unwrap();
     for text in [
-        "[notifications]\npet='missing.json'",
+        "[pets]\ndefault='missing.json'",
         "[events.error]\nvisual='pet'",
         "[events.error]\nvisual='custom'\nanimation='missing'",
     ] {
@@ -209,10 +214,11 @@ fn configured_pet_states_override_defaults_and_stay_agent_scoped() {
     use aherald::events::{Event, Source};
     let fixture = Fixture::new();
     let config = Config::parse(
-        "[notifications]\npet='pet.json'\n[notifications.pet_animations]\nturn_complete='failed'\n[agents.codex]\npet='pet.json'\n[agents.codex.pet_animations]\nturn_complete='waiting'",
+        "[pets]\ndefault='pet.json'\ncodex='pet.json'\n[pet_animations]\nturn_complete='failed'\n[pet_animations.codex]\nturn_complete='waiting'",
         &fixture.0,
     ).unwrap();
     let mut event = Event::demo("turn_complete").unwrap();
+    event.source = Source::External("pi".into());
     let shared = pet::for_event(&config, &event).unwrap().unwrap();
     assert_eq!(shared.frames.len(), 8);
     assert_eq!(shared.frames[0].get_pixel(0, 0).0, [5, 0, 80, 255]);
@@ -234,9 +240,7 @@ fn all_standard_pet_states_can_be_selected_by_event() {
         ("running", 7, 6, 220),
     ] {
         let config = Config::parse(
-            &format!(
-                "[notifications]\npet='pet.json'\n[notifications.pet_animations]\nerror='{state}'"
-            ),
+            &format!("[pets]\ndefault='pet.json'\n[pet_animations]\nerror='{state}'"),
             &fixture.0,
         )
         .unwrap();
@@ -251,12 +255,12 @@ fn all_standard_pet_states_can_be_selected_by_event() {
 #[test]
 fn pet_config_is_optional_and_resolves_relative_to_config() {
     let dir = PathBuf::from(r"C:\settings");
-    let config = Config::parse("[notifications]\npet='characters/becky/pet.json'", &dir).unwrap();
+    let config = Config::parse("[pets]\ndefault='characters/becky/pet.json'", &dir).unwrap();
     assert_eq!(
-        config.notifications.pet,
+        config.pets.default,
         Some(dir.join("characters/becky/pet.json"))
     );
-    assert!(Config::default().notifications.pet.is_none());
+    assert!(Config::default().pets.default.is_none());
 }
 #[test]
 fn webp_tracks_select_event_rows_and_skip_unused_cells() {
@@ -357,7 +361,7 @@ fn custom_requires_explicit_selection_and_missing_pet_reaches_text_without_built
             .unwrap()
             .is_none()
     );
-    config.notifications.pet = Some(fixture.0.join("pet.json"));
+    config.pets.default = Some(fixture.0.join("pet.json"));
     assert_eq!(
         pet::for_notification(&config, Kind::Error)
             .unwrap()
@@ -367,7 +371,7 @@ fn custom_requires_explicit_selection_and_missing_pet_reaches_text_without_built
             .0[0],
         5
     );
-    config.notifications.pet = Some(fixture.0.join("missing.json"));
+    config.pets.default = Some(fixture.0.join("missing.json"));
     assert!(
         pet::for_notification(&config, Kind::Error)
             .unwrap()
@@ -428,7 +432,7 @@ fn native_pet_window_keeps_source_and_signal_with_or_without_artwork() {
             fs::write(fixture.0.join("sheet.webp"), b"broken").unwrap();
         }
         let config = fixture.0.join("config.toml");
-        fs::write(&config,"[notifications]\npet='pet.json'\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false\n[events.permission_required]\nduration_sec=0").unwrap();
+        fs::write(&config,"[pets]\ndefault='pet.json'\n[notifications]\nfade_in_ms=0\nfade_out_ms=0\n[sounds]\nenabled=false\n[events.permission_required]\nduration_sec=0").unwrap();
         let mut child = Owned(
             deliver(
                 &PathBuf::from(env!("CARGO_BIN_EXE_aherald")),
@@ -489,20 +493,31 @@ fn agent_pet_settings_resolve_relative_paths_and_select_only_the_event_source() 
     use aherald::events::{Event, Source};
     let fixture = Fixture::new();
     let config = Config::parse(
-        "[agents.codex]\npet='pet.json'\n[agents.claude]\npet='missing.json'",
+        "[pets]\ncodex='pet.json'\nclaude='missing.json'\nopencode='pet.json'",
         &fixture.0,
     )
     .unwrap();
     let mut event = Event::demo("error").unwrap();
     event.source = Source::CodexHook;
     assert!(pet::for_event(&config, &event).unwrap().is_some());
+    // Demo cards borrow the codex pet unless `demo` is set.
     event.source = Source::Demo;
+    assert!(pet::for_event(&config, &event).unwrap().is_some());
+    // An external harness has its own entry and no other harness's pet.
+    event.source = Source::External("opencode".into());
+    assert!(pet::for_event(&config, &event).unwrap().is_some());
+    event.source = Source::External("pi".into());
     assert!(pet::for_event(&config, &event).unwrap().is_none());
     let mut config = config;
-    config.notifications.pet = Some(fixture.0.join("missing.json"));
+    config.pets.default = Some(fixture.0.join("missing.json"));
+    event.source = Source::External("pi".into());
+    assert!(pet::for_event(&config, &event).unwrap().is_none());
     event.source = Source::CodexHook;
     assert!(pet::for_event(&config, &event).unwrap().is_some());
-    config.agents.get_mut("codex").unwrap().pet = Some(fixture.0.join("missing.json"));
+    config
+        .pets
+        .by_harness
+        .insert("codex".into(), fixture.0.join("missing.json"));
     assert!(pet::for_event(&config, &event).unwrap().is_none());
     config.events[Kind::Error].animation =
         Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/error"));

@@ -502,3 +502,116 @@ fn time_spent_idle_never_counts_against_a_new_cards_display_time() {
     q.tick(25_010, false);
     assert!(q.items().is_empty());
 }
+
+fn external(harness: &str, kind: Kind, session: &str) -> Event {
+    let mut e = event(kind, session);
+    e.source = Source::External(harness.into());
+    e
+}
+
+#[test]
+fn the_same_session_id_in_two_harnesses_stays_two_independent_waits() {
+    let mut q = Queue::new(8, 1000);
+    assert!(
+        q.push(external("opencode", Kind::PermissionRequired, "s1"), 0, 0)
+            .is_queued()
+    );
+    assert!(
+        q.push(external("pi", Kind::PermissionRequired, "s1"), 1, 0)
+            .is_queued()
+    );
+    assert_eq!(q.items().len(), 2);
+    // A Claude session with the same id is a third wait, not a repeat of either.
+    let mut claude = event(Kind::PermissionRequired, "s1");
+    claude.source = Source::ClaudeHook;
+    assert!(q.push(claude, 2, 0).is_queued());
+    assert_eq!(q.items().len(), 3);
+
+    // The end of one harness's turn resolves only that harness's wait.
+    q.observe_terminal(&external("opencode", Kind::TurnComplete, "s1"));
+    let left: Vec<&str> = q
+        .items()
+        .iter()
+        .map(|i| i.event.source.agent_key())
+        .collect();
+    assert_eq!(left, ["pi", "claude"]);
+}
+
+#[test]
+fn an_external_session_has_one_pending_card_and_activity_or_end_resolves_it() {
+    let mut q = Queue::new(8, 1000);
+    assert!(
+        q.push(external("opencode", Kind::PermissionRequired, "s1"), 0, 0)
+            .is_queued()
+    );
+    // The harness carries no request id: a repeat is the same prompt, not a second card.
+    assert!(
+        !q.push(
+            external("opencode", Kind::PermissionRequired, "s1"),
+            5000,
+            0
+        )
+        .is_queued()
+    );
+    assert_eq!(q.items().len(), 1);
+
+    // Other sessions of the same harness are untouched.
+    assert!(
+        q.push(external("opencode", Kind::InputRequired, "s2"), 5001, 0)
+            .is_queued()
+    );
+    let mut ended = external("opencode", Kind::TurnComplete, "s1");
+    ended.ended = true;
+    q.observe_terminal(&ended);
+    let left: Vec<&str> = q
+        .items()
+        .iter()
+        .filter_map(|i| i.event.session_id.as_deref())
+        .collect();
+    assert_eq!(left, ["s2"]);
+}
+
+#[test]
+fn an_interrupted_or_failed_external_turn_resolves_its_wait() {
+    for kind in [Kind::Interrupted, Kind::Error] {
+        let mut q = Queue::new(8, 1000);
+        q.push(external("pi", Kind::InputRequired, "s1"), 0, 0);
+        q.observe_terminal(&external("pi", kind, "s1"));
+        assert!(q.items().is_empty(), "{kind:?}");
+    }
+}
+
+#[test]
+fn activity_from_an_external_harness_resolves_its_sessions_waits_only() {
+    let mut q = Queue::new(8, 1000);
+    q.push(external("opencode", Kind::PermissionRequired, "s1"), 0, 0);
+    q.push(external("opencode", Kind::PermissionRequired, "s2"), 1, 0);
+    q.push(external("pi", Kind::InputRequired, "s1"), 2, 0);
+    let mut resumed = external("opencode", Kind::TurnComplete, "s1");
+    resumed.activity = true;
+    assert_eq!(q.observe_activity(&resumed), 1);
+    let left: Vec<(&str, &str)> = q
+        .items()
+        .iter()
+        .map(|i| {
+            (
+                i.event.source.agent_key(),
+                i.event.session_id.as_deref().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(left, [("opencode", "s2"), ("pi", "s1")]);
+}
+
+#[test]
+fn claude_activity_keeps_its_pending_wait_as_before() {
+    let mut q = Queue::new(8, 1000);
+    let mut wait = event(Kind::PermissionRequired, "s1");
+    wait.source = Source::ClaudeHook;
+    q.push(wait, 0, 0);
+    let mut resumed = event(Kind::TurnComplete, "s1");
+    resumed.source = Source::ClaudeHook;
+    resumed.activity = true;
+    assert_eq!(q.observe_activity(&resumed), 0);
+    assert_eq!(q.items().len(), 1);
+}

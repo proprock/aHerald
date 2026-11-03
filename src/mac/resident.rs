@@ -123,14 +123,8 @@ impl Waker {
     }
 }
 
-pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
+pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
     let demo = crate::demo::Demo::new(&config, pause_sec)?;
-    // Demo cards remain clearly labelled while using the supported agent's artwork.
-    if !config.agents.contains_key("demo")
-        && let Some(assets) = config.agents.get("codex").cloned()
-    {
-        config.agents.insert("demo".into(), assets);
-    }
     let shared = new_shared(&config);
     let stop = Arc::new(AtomicBool::new(false));
     present(
@@ -151,16 +145,10 @@ pub fn run(scope: Scope, config: Config, path: &Path) -> Result<(), String> {
 /// `test` is Apply + Test: the replacement resident shows each configured card once.
 pub fn run_after_apply(
     scope: Scope,
-    mut config: Config,
+    config: Config,
     path: &Path,
     test: bool,
 ) -> Result<(), String> {
-    if test
-        && !config.agents.contains_key("demo")
-        && let Some(assets) = config.agents.get("codex").cloned()
-    {
-        config.agents.insert("demo".into(), assets);
-    }
     let preview = if test {
         Preview::Test(crate::demo::Carousel::new(&config))
     } else {

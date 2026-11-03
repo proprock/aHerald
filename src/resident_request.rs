@@ -230,6 +230,7 @@ fn respond_with_focus(
             state.warnings().observe(&event, settings, now);
             state.queue().clear_session_warnings(&event);
             if event.activity {
+                state.queue().observe_activity(&event);
                 return (
                     Response::Accepted,
                     Effects {
@@ -618,6 +619,68 @@ mod tests {
             }
         );
         assert_eq!(s.queue.items().len(), 1);
+    }
+
+    fn external(harness: &str, kind: &str, session: &str) -> Event {
+        crate::events::external_event(
+            harness,
+            Event::demo(kind).unwrap().kind,
+            false,
+            false,
+            format!(r#"{{"session_id":"{session}"}}"#).as_bytes(),
+        )
+    }
+
+    #[test]
+    fn external_harness_events_queue_per_harness_and_resolve_by_session() {
+        let settings = Config::default();
+        let mut s = state(8);
+        for harness in ["opencode", "pi"] {
+            let (response, effects) = send(
+                &mut s,
+                &settings,
+                external(harness, "permission_required", "s1"),
+            );
+            assert!(matches!(response, Response::Accepted), "{harness}");
+            assert!(effects.wake);
+        }
+        assert_eq!(
+            s.queue.items().len(),
+            2,
+            "the same session id in two harnesses"
+        );
+
+        // Resumed activity of one harness resolves only its own wait and still wakes the loop.
+        let mut resumed = external("opencode", "turn_complete", "s1");
+        resumed.activity = true;
+        let (response, effects) = send(&mut s, &settings, resumed);
+        assert!(matches!(response, Response::Accepted));
+        assert!(effects.wake);
+        let left: Vec<&str> = s
+            .queue
+            .items()
+            .iter()
+            .map(|i| i.event.source.agent_key())
+            .collect();
+        assert_eq!(left, ["pi"]);
+
+        // The end of that turn resolves the other wait; a card of the turn itself is shown.
+        send(&mut s, &settings, external("pi", "turn_complete", "s1"));
+        let kinds: Vec<_> = s.queue.items().iter().map(|i| i.event.kind).collect();
+        assert_eq!(kinds, [crate::events::Kind::TurnComplete]);
+    }
+
+    #[test]
+    fn an_external_event_with_a_reserved_or_invalid_harness_is_rejected() {
+        let mut s = state(8);
+        for key in ["claude", "Bad Key", ""] {
+            let mut event = external("opencode", "turn_complete", "s1");
+            event.source = crate::events::Source::External(key.into());
+            let (response, effects) = send(&mut s, &Config::default(), event);
+            assert!(matches!(response, Response::Rejected), "{key:?}");
+            assert!(!effects.wake);
+        }
+        assert!(s.queue.items().is_empty());
     }
 
     #[test]

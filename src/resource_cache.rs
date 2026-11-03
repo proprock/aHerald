@@ -4,7 +4,8 @@ use crate::{
     perf::{self, Counter, Gauge},
 };
 use std::{collections::VecDeque, sync::Arc};
-type Key = (&'static str, &'static str);
+/// Source key and event name; the source key of an external harness is not a constant.
+type Key = (String, String);
 struct Entry {
     key: Key,
     value: Option<Arc<PreparedAnimation>>,
@@ -30,10 +31,13 @@ impl AssetCache {
     }
     pub fn get_or_load(
         &mut self,
-        key: Key,
+        key: (&str, &str),
         load: impl FnOnce() -> Option<PreparedAnimation>,
     ) -> Option<Arc<PreparedAnimation>> {
-        if let Some(index) = self.entries.iter().position(|e| e.key == key)
+        if let Some(index) = self
+            .entries
+            .iter()
+            .position(|e| e.key.0 == key.0 && e.key.1 == key.1)
             && let Some(entry) = self.entries.remove(index)
         {
             let value = entry.value.clone();
@@ -63,7 +67,7 @@ impl AssetCache {
             self.bytes += bytes;
             perf::gauge(Gauge::AssetCacheBytes, self.bytes as u64);
             self.entries.push_back(Entry {
-                key,
+                key: (key.0.to_owned(), key.1.to_owned()),
                 value: value.clone(),
                 bytes,
             });

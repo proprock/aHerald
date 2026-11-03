@@ -199,3 +199,11 @@ harmless escalated output command with invocation-local hooks. It records only
 known field presence and run summaries, never raw payloads or command arguments.
 It does not assert a verdict or a pending human prompt. See
 [the investigation and remaining acceptance](../../docs/codex-approval-observation.md).
+
+## Harness event probes (AH-201)
+
+`tests/live/harness_probes/run.sh pi|opencode` runs one real turn of Pi or OpenCode in a
+private `HOME` and prints the events its extension saw (see `docs/harness-compatibility.md`).
+Pi needs Node >= 22.19 and uses a local fake OpenAI endpoint: no account, no network, no
+billing. OpenCode sends one trivial prompt to its free hosted model: network access, no
+account. Both need the harness installed.

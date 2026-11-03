@@ -47,12 +47,11 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     assert!(c.notifications.activate_agent_on_click);
     assert_eq!(c.events[Kind::PermissionRequired].duration_ms, 0);
     assert_eq!(c.events[Kind::TurnComplete].duration_ms, 3000);
-    let text =
-        "[notifications]\npet='pets/my pet.json'\n[events.error]\nsound='sounds/my sound.wav'";
+    let text = "[pets]\ndefault='pets/my pet.json'\n[events.error]\nsound='sounds/my sound.wav'";
     std::fs::write(&path, text).unwrap();
     let c = Config::load(&path, false).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
-    assert_eq!(c.notifications.pet, Some(r.0.join("pets/my pet.json")));
+    assert_eq!(c.pets.default, Some(r.0.join("pets/my pet.json")));
     assert_eq!(
         c.events[Kind::Error].sound,
         Some(r.0.join("sounds/my sound.wav"))

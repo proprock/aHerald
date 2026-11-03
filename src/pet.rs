@@ -160,15 +160,14 @@ pub(crate) fn selected(
     config: &Config,
     event: &crate::events::Event,
 ) -> Result<Option<Animation>, String> {
-    let agent = config.agents.get(event.source.agent_key());
-    let state = agent
-        .and_then(|a| a.pet_animations.get(event.kind.name()))
-        .or_else(|| config.notifications.pet_animations.get(event.kind.name()))
-        .copied()
+    let harness = event.source.agent_key();
+    let state = config
+        .pet_animations
+        .state(harness, event.kind.name())
         .unwrap_or_else(|| default_state(event.kind));
-    agent
-        .and_then(|a| a.pet.as_deref())
-        .or(config.notifications.pet.as_deref())
+    config
+        .pets
+        .path(harness)
         .map(|path| load_state(path, state))
         .transpose()
 }

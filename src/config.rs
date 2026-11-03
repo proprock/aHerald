@@ -18,7 +18,8 @@ pub struct Config {
     pub notifications: Notifications,
     pub sounds: Sounds,
     pub events: Events,
-    pub agents: BTreeMap<String, AgentAssets>,
+    pub pets: Pets,
+    pub pet_animations: PetAnimations,
     pub codex: Codex,
     pub claude: Claude,
 }
@@ -91,7 +92,8 @@ impl Default for Config {
             sounds: Sounds::default(),
             codex: Codex::default(),
             claude: Claude::default(),
-            agents: BTreeMap::new(),
+            pets: Pets::default(),
+            pet_animations: PetAnimations::default(),
             events: Events::default(),
         }
     }
@@ -123,11 +125,48 @@ pub enum TrayGraph {
     Codex,
 }
 
+/// `[pets]`: `default` is shared; every other key names the harness whose events use that pet.
+/// Demo cards use `demo`, then `codex`, so previews keep the supported agent's artwork.
 #[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct AgentAssets {
-    pub pet: Option<PathBuf>,
-    pub pet_animations: BTreeMap<String, PetAnimation>,
+pub struct Pets {
+    pub default: Option<PathBuf>,
+    #[serde(flatten)]
+    pub by_harness: BTreeMap<String, PathBuf>,
+}
+impl Pets {
+    pub fn path(&self, harness: &str) -> Option<&Path> {
+        let own = self.by_harness.get(harness);
+        let own = if harness == "demo" {
+            own.or_else(|| self.by_harness.get("codex"))
+        } else {
+            own
+        };
+        own.or(self.default.as_ref()).map(PathBuf::as_path)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum PetStates {
+    One(PetAnimation),
+    Harness(BTreeMap<String, PetAnimation>),
+}
+
+/// `[pet_animations]`: event kind to pet state, shared; `[pet_animations.<harness>]` overrides it.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PetAnimations(BTreeMap<String, PetStates>);
+impl PetAnimations {
+    pub fn state(&self, harness: &str, kind: &str) -> Option<PetAnimation> {
+        let of = |harness: &str| match self.0.get(harness) {
+            Some(PetStates::Harness(map)) => map.get(kind).copied(),
+            _ => None,
+        };
+        let own = of(harness).or_else(|| (harness == "demo").then(|| of("codex")).flatten());
+        own.or_else(|| match self.0.get(kind) {
+            Some(PetStates::One(state)) => Some(*state),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -256,8 +295,6 @@ pub struct Notifications {
     /// Outline of the card and its buttons; absent draws no card outline.
     pub border_color: Option<Color>,
     pub visual: Visual,
-    pub pet: Option<PathBuf>,
-    pub pet_animations: BTreeMap<String, PetAnimation>,
     pub enabled: bool,
     pub position: Position,
     pub monitor: Monitor,
@@ -284,8 +321,6 @@ impl Default for Notifications {
             click_to_dismiss: true,
             activate_agent_on_click: true,
             interpolation: Interpolation::default(),
-            pet: None,
-            pet_animations: BTreeMap::new(),
         }
     }
 }
@@ -646,9 +681,9 @@ impl Config {
                 }
             }
         }
-        for path in std::iter::once(&mut config.notifications.pet)
-            .chain(config.agents.values_mut().map(|agent| &mut agent.pet))
+        for path in std::iter::once(&mut config.pets.default)
             .flatten()
+            .chain(config.pets.by_harness.values_mut())
         {
             if path.is_relative() {
                 *path = directory.join(&*path);
@@ -761,14 +796,35 @@ impl Config {
                 ));
             }
         }
-        for (owner, mapping) in std::iter::once(("notifications", &n.pet_animations)).chain(
-            self.agents
-                .iter()
-                .map(|(agent, a)| (agent.as_str(), &a.pet_animations)),
-        ) {
+        let owner_ok = |key: &str| key == "demo" || crate::events::is_pet_owner(key);
+        if let Some(key) = self.pets.by_harness.keys().find(|key| !owner_ok(key)) {
+            return Err(format!(
+                "invalid configuration: pets.{} is not a harness name",
+                safe_key(key)
+            ));
+        }
+        for (key, states) in &self.pet_animations.0 {
+            let (owner, mapping) = match states {
+                PetStates::One(_) => {
+                    if Kind::from_name(key).is_none() {
+                        return Err(format!(
+                            "invalid configuration: pet_animations.{} is not a supported event or harness",
+                            safe_key(key)
+                        ));
+                    }
+                    continue;
+                }
+                PetStates::Harness(map) => (key.as_str(), map),
+            };
+            if !owner_ok(owner) {
+                return Err(format!(
+                    "invalid configuration: pet_animations.{} is not a harness name",
+                    safe_key(owner)
+                ));
+            }
             if let Some(name) = mapping.keys().find(|name| Kind::from_name(name).is_none()) {
                 return Err(format!(
-                    "invalid configuration: {}.pet_animations.{} is not a supported event",
+                    "invalid configuration: pet_animations.{}.{} is not a supported event",
                     safe_key(owner),
                     safe_key(name)
                 ));
