@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔔 aHerald
+# aHerald
 
 **A native desktop notification companion for AI coding agents.**
 Know the moment your agent finishes, fails, or needs you, without watching the terminal.
@@ -17,26 +17,26 @@ aHerald is a single portable native program (`aherald` / `aherald.exe`): no Elec
 runtime to install. Agents call it from their hooks; it shows a small animated card, plays a sound,
 and keeps a queue so nothing is lost while you are away.
 
-## ✨ Features
+## Features
 
-- 🤖 **Codex and Claude Code** through their hooks, plus **OpenCode, Pi, Goose and Crush** through one
+- **Codex and Claude Code** through their hooks, plus **OpenCode, Pi, Goose and Crush** through one
   generic input, `aherald --notify` ([other harnesses](docs/harnesses.md)).
-- 🔔 **Five signals:** turn complete, permission required, input required, error, interrupted. Waiting
+- **Five signals:** turn complete, permission required, input required, error, interrupted. Waiting
   cards stay until you act; dismissing a card never answers the agent.
-- 🗂️ **Resident mode:** one card with a priority queue (64 entries), `<` `>` navigation, event counter,
+- **Resident mode:** one card with a priority queue (64 entries), `<` `>` navigation, event counter,
   and a native tray (pause, sound and pop-up switches, usage, edit config).
-- 🐾 **Pets and artwork:** builtin animations, Codex `pet.json` pets per harness (`[pets]`), or your own
+- **Pets and artwork:** builtin animations, Codex `pet.json` pets per harness (`[pets]`), or your own
   frames and WAV sounds. Everything is external and replaceable; missing files fall back to text.
-- 📊 **Usage and warnings (opt-in):** Codex and Claude quota in the tray icon and a card, plus context-size
+- **Usage and warnings (opt-in):** Codex and Claude quota in the tray icon and a card, plus context-size
   and idle reminders per agent.
-- 🎯 **Click to activate:** a click can bring the originating terminal or Claude Desktop session forward;
+- **Click to activate:** a click can bring the originating terminal or Claude Desktop session forward;
   cards are suppressed while that session is focused.
-- 🖥️ **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
+- **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
-- 🔒 **Private by design:** no network listener, IPC limited to your user, payloads treated as untrusted
+- **Private by design:** no network listener, IPC limited to your user, payloads treated as untrusted
   and never logged, no tokens read except the two opt-in usage features. See [limits](#-limits).
 
-## 📦 Install
+## Install
 
 | OS | Get it |
 |---|---|
@@ -54,7 +54,7 @@ aherald --setup --harness opencode --harness pi   # bridge files for other harne
 Details: [installation and removal](docs/installation.md) · [portable guide](docs/portable.md) ·
 [macOS](docs/portable-macos.md) · [Linux](docs/portable-linux.md) · [Claude Code plugin](docs/claude-hooks.md).
 
-## 🚀 Try it
+## Try it
 
 ```sh
 aherald --demo                                   # loops through every signal
@@ -66,7 +66,7 @@ aherald --quit
 Settings live in `config.toml` beside the executable ([`aHerald.example.toml`](aHerald.example.toml) lists every
 option; see [configuration](docs/configuration.md)). Nothing is installed or started automatically.
 
-## 🧭 Support at a glance
+## Support at a glance
 
 | Harness | Mechanism | Signals |
 |---|---|---|
@@ -79,7 +79,7 @@ option; see [configuration](docs/configuration.md)). Nothing is installed or sta
 Coverage and what was verified live per version: [harness compatibility](docs/harness-compatibility.md),
 [Codex hooks](docs/codex-hooks.md).
 
-## 🧱 Limits
+## Limits
 
 - Only sessions that report through a hook, bridge or `--notify` are visible; unrelated Codex CLI or app
   sessions are not observed.
@@ -87,7 +87,7 @@ Coverage and what was verified live per version: [harness compatibility](docs/ha
 - macOS builds are ad-hoc signed, not notarized; Apple Silicon only.
 - Mixed-DPI and multi-monitor setups have limited manual verification.
 
-## 🛠️ Development
+## Development
 
 ```sh
 cargo fmt --all -- --check
@@ -100,6 +100,6 @@ Stable Rust; Windows builds use the MSVC toolchain. The [test runner guide](docs
 opt-in [live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md) and the
 [task list](TODO.md) cover the rest. Release history: [CHANGELOG](CHANGELOG.md).
 
-## 📄 License
+## License
 
 MIT, see [LICENSE](LICENSE). Sample artwork and sounds: [provenance](assets/README.md).
