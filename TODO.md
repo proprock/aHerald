@@ -235,6 +235,45 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   restart. Acceptance: `brew install --cask`, setup window, hooks, delivery and dismissal,
   upgrade and uninstall on the MacBook Pro M1. Needs a decision on the tap repository name.
 
+### macOS parity with 0.9.0-beta
+
+The warning engine (`session_warnings`), the setup backend and the tray text are shared
+already, and the macOS resident keeps the warning state. What differs is the tray controls
+and the acceptance evidence; reuse the Linux and Windows pieces rather than parallel code.
+
+- [ ] **AH-118 — Context/Idle warning switches and Apply / Apply + Test in the macOS tray.**
+  The Windows tray (`src/tray.rs`) and the Linux tray (`src/linux/tray.rs`, handlers in
+  `src/linux/resident.rs`) offer "Context warnings", "Idle warnings", "Apply" and
+  "Apply + Test"; the macOS menu (`src/mac/menu.rs`) has only "Restart". Add the same entries
+  with the same order, labels and check marks, wired to `Warnings::set_enabled` and to
+  re-reading the configuration with the preview cards, as on the other platforms.
+  Acceptance: pure menu tests for order, labels and check state; switches change what the
+  resident admits, observed through the resident (not source text); Apply keeps usage and
+  event handling running; verified by hand on the MacBook Pro M1 (cards, dismissal).
+
+- [ ] **AH-119 — macOS live warning acceptance and documentation.**
+  The macOS counterpart of AH-115. With the AH-118 switches, verify real Codex and Claude
+  Code context and idle warning cards on the M1: synthetic reports first, then installed hook
+  dispatch and the installed statusLine wrapper (the setup window can enable them), including
+  dismissal, configured sound and an idle warning suppressed while the switch is off.
+  Distinguish adapter/bridge evidence from end-to-end delivery, use isolated configuration,
+  bounded waits and owned-process cleanup, declare any account, network or billable request
+  before each run, record macOS and harness versions and commands, and update docs and the
+  verification matrix. Extends AH-104 (live checks on macOS); depends on AH-118.
+
+- [ ] **AH-120 — Suppress notifications while the user watches the originating session (macOS).**
+  Windows suppresses the card and the sound when the Claude session's classic console is
+  focused (AH-098, `src/focus.rs`); on other systems `focus::observe` reports "unknown" and
+  nothing is suppressed. Evaluate the macOS options: the frontmost application through
+  `NSWorkspace` and the terminal process aHerald already records (`src/mac/terminal.rs`) tell
+  the app, but a tabbed Terminal.app or iTerm window also needs a way to prove the active tab
+  or session (for example its tty). The project rule stays: suppress only on positive evidence
+  of both the window and the session; otherwise deliver. Agree on the design and any new
+  permission (Automation/Accessibility prompts are not acceptable by default) before
+  implementation; keep both `suppress_when_focused` options and their defaults.
+  Acceptance: pure policy tests with the macOS evidence, and live checks on the M1 in Terminal
+  and in a second terminal app, including unknown origins that must still be delivered.
+
 ### Linux parity with 0.8.0-beta
 
 The warning engine, adapter parsing, setup backend and measured warning text are
