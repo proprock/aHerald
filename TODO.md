@@ -344,6 +344,10 @@ shared development-profile and artwork performance changes need no separate port
   `percent_text`, `countdown`) and the icon's colour thresholds (`tray_usage::level_rgb`);
   `{context_window}`, `{rate_limits.five_hour}` and `{rate_limits.seven_day}` render as
   `ctx 91%`, `5h 79% / 3:29`; menu and tooltip already share `View::compact` on every OS.
+  Review 2026-11-03: every item of the brief is implemented and covered (console prompts and
+  wrapper in `tests/console_setup_linux.py`, thresholds, disable and rollback in `tests/setup.rs`,
+  deb lifecycle in `tests/linux_deb_lifecycle.sh`, all in Linux CI). What remains is the manual
+  console run on a clean Ubuntu desktop, which is the AH-103 acceptance; no code change is open.
 
 - [ ] **AH-115 — Linux live warning acceptance and documentation.**
   Extend AH-104's opt-in native live checks to cover real Codex and Claude Code
