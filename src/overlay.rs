@@ -1521,26 +1521,26 @@ mod card_tests {
             let before_memory = memory();
             let before_threads = threads();
             eprintln!("resource cycle baseline: private_commit={before_memory}");
-            // Private commit is volatile here: it climbs by 10-25 MiB while the compositor
-            // and the allocator warm up and Windows trims it back at its own pace (CI traces
-            // end between 13 and 43 MiB from baselines of 16-32 MiB). Compare two windows
-            // after that warm-up instead of the end against the start: a leak grows with
-            // every cycle, a warm-up step does not.
-            let mut window_start = 0;
+            // Private commit is a sawtooth here: it climbs by 10-40 MiB while the compositor
+            // and the allocator warm up, and Windows trims it back at its own pace (CI traces
+            // peak at 69 MiB and end between 13 and 43 MiB from baselines of 16-32 MiB), so
+            // neither the end against the start nor two single samples are stable. The low
+            // point of each window is what stays committed: compare the lowest of the samples
+            // at cycles 50-100 with the lowest at 150-200. A leak raises every sample.
+            let mut early = usize::MAX;
+            let mut late = usize::MAX;
             for cycle_index in 0..200 {
                 cycle();
-                if (cycle_index + 1) % 25 == 0 {
+                let done = cycle_index + 1;
+                if done % 25 == 0 {
                     let _ = GdiFlush();
-                    eprintln!(
-                        "resource cycle {}: private_commit={}",
-                        cycle_index + 1,
-                        memory()
-                    );
-                }
-                if cycle_index + 1 == 100 {
-                    let _ = GdiFlush();
-                    DwmFlush().ok().unwrap();
-                    window_start = memory();
+                    let now = memory() as usize;
+                    eprintln!("resource cycle {done}: private_commit={now}");
+                    match done {
+                        50..=100 => early = early.min(now),
+                        150..=200 => late = late.min(now),
+                        _ => {}
+                    }
                 }
             }
             let _ = GdiFlush();
@@ -1556,12 +1556,12 @@ mod card_tests {
             assert_eq!(threads(), before_threads);
             let after_memory = memory();
             eprintln!(
-                "resource cycle after compositor flush: private_commit={after_memory} (cycle 100: {window_start}, baseline: {before_memory})"
+                "resource cycle after compositor flush: private_commit={after_memory} (lowest at 50-100: {early}, at 150-200: {late}, baseline: {before_memory})"
             );
-            // One leaked 320x110 surface per cycle would add about 14 MiB over these 100 cycles.
+            // One leaked 320x110 surface per cycle would add about 14 MiB between the windows.
             assert!(
-                after_memory <= window_start + 8 * 1024 * 1024,
-                "100 more rendering cycles grew private commit by more than 8 MiB: cycle 100={window_start}, cycle 200={after_memory}, baseline={before_memory}"
+                late <= early + 8 * 1024 * 1024,
+                "private commit kept growing: lowest at cycles 50-100 was {early}, at 150-200 {late}, baseline {before_memory}"
             );
         }
     }
