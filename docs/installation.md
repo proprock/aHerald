@@ -137,9 +137,62 @@ Move a portable installation first, then rerun setup from the new location.
 
 ## Platform packaging plan
 
-Windows uses Inno Setup. macOS will provide an app-based setup flow and GUI
-installation, with Homebrew Cask as the package-manager path. The macOS installer
-is tracked separately in TODO.md.
+Windows uses Inno Setup. macOS uses a disk image and the app's own setup window; a
+Homebrew Cask is planned separately (AH-117 in TODO.md).
+
+## macOS disk image and setup window
+
+Download `aherald-<tag>-macos-arm64.dmg` (Apple Silicon only) and its `.sha256`, open the image
+and drag `aHerald.app` onto `Applications`. The image is ad-hoc signed and not notarized, so the
+first start needs Control-click, Open (or `xattr -dr com.apple.quarantine`; see
+`docs/portable-macos.md`). No administrator rights, Homebrew or developer tools are needed.
+
+Opening `aHerald.app` from Finder starts the **aHerald Setup** window; the same window opens
+from a terminal with `aherald --setup-window`. It runs as the user and lists, for Codex and for
+Claude Code, the hooks, usage monitoring and context and idle warnings, plus a launch option.
+
+- First setup starts with nothing selected. Later runs read the saved receipt and
+  `config.toml`, so the selection is retained; usage stays off until you choose it.
+  Claude usage `auto` tries the login token, then the last statusLine report.
+- **Preview** is a dry run and shows the files and entries that would change. **Apply** calls
+  the same backend as `--setup` / `--unsetup` with `--apply`: all files are checked first,
+  backups are kept, a failed write is rolled back, repeating it changes nothing, and choosing
+  no agent removes only the saved bindings. A failure is shown in the Details box and changes
+  nothing. Foreign hooks and other installations are left alone, and each agent's own hook
+  trust review still applies. No autostart entry is created.
+- Hooks use the fixed path `/Applications/aHerald.app/Contents/MacOS/aherald` (or wherever
+  the app was when you applied). The receipt, `config.toml`, logs and backups live in
+  `~/Library/Application Support/aHerald`; the signed bundle is never modified.
+
+**Claude status line text.** `[claude.statusline] format` in `config.toml` prints your own
+status line text when you have no status line command of your own; it works the same on
+Windows, Linux and macOS. Edit it from the menu-bar icon (**Edit configuration**), for example
+`format = "{model.display_name}{[ · {worktree.branch}]} {context_window} {rate_limits.five_hour}"`,
+then open the setup window and press Apply again: a format that goes from empty to non-empty
+makes setup install the wrapper (a command of your own is kept and wins). The full syntax is in
+`docs/configuration.md`. In an app bundle the file is
+`~/Library/Application Support/aHerald/config.toml`.
+
+**Updating.** Replace `aHerald.app` at the same path; hooks keep working. Installing does not
+stop a running resident. Restart it (`aherald --quit`, then open the app) to use the new
+version; until then an old resident can reject messages from a client with a different IPC
+version.
+
+**Removal.** Open aHerald Setup, clear both agents and press Apply, then drag the app to the
+Trash. Configuration, customized assets, logs and backups are kept. If the cleanup reports an
+error (for example a hook file that is not valid JSON), fix that file and run it again before
+trashing the app; the executable is what the saved bindings point to.
+
+**Repair.** If the app was moved, hooks still point at the old path. Open the app from its new
+location and Apply the selection again: the saved bindings of the old path are replaced, and
+other installations' bindings are untouched. If the old app is already gone, run the setup
+window or `--setup` from the new location; stale entries can also be removed by hand from
+`~/.codex/hooks.json` and `~/.claude/settings.json`.
+
+Isolated lifecycle checks (first setup, repeat, deselection, status line, malformed files,
+failed writes, upgrade, removal after environment changes) are in
+`tests/macos_app_lifecycle.sh`; the release job also runs them against the program inside the
+built image. Visual and live acceptance on the Mac is recorded in TODO.md (AH-102).
 
 ## Ubuntu system package
 

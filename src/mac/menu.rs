@@ -10,21 +10,27 @@ pub enum Command {
     Sound,
     Visual,
     Pause,
+    ContextWarnings,
+    IdleWarnings,
     Config,
-    Restart,
+    ApplyTest,
+    Apply,
     Exit,
 }
 
 impl Command {
-    pub const ALL: [Command; 9] = [
+    pub const ALL: [Command; 12] = [
         Command::CodexSummary,
         Command::ClaudeSummary,
-        Command::About,
         Command::Sound,
         Command::Visual,
         Command::Pause,
+        Command::ContextWarnings,
+        Command::IdleWarnings,
+        Command::About,
         Command::Config,
-        Command::Restart,
+        Command::ApplyTest,
+        Command::Apply,
         Command::Exit,
     ];
 
@@ -54,6 +60,8 @@ pub fn items(
     sound: bool,
     visual: bool,
     paused: bool,
+    context: bool,
+    idle: bool,
     codex: Option<&str>,
     claude: Option<&str>,
 ) -> Vec<Item> {
@@ -65,13 +73,22 @@ pub fn items(
     ]
     .into_iter()
     .filter_map(|(command, text)| text.map(|text| (command, text.to_owned(), false)));
+    let has_usage = codex.is_some() || claude.is_some();
+    // The order and the separators of the Windows tray menu (`tray.rs`).
     let rest = [
-        (Command::About, version, false),
         (Command::Sound, "Sound".to_owned(), sound),
         (Command::Visual, "Pop-up".to_owned(), visual),
         (Command::Pause, "Pause notifications".to_owned(), paused),
+        (
+            Command::ContextWarnings,
+            "Context warnings".to_owned(),
+            context,
+        ),
+        (Command::IdleWarnings, "Idle warnings".to_owned(), idle),
+        (Command::About, version, false),
         (Command::Config, "Edit configuration".to_owned(), false),
-        (Command::Restart, "Restart".to_owned(), false),
+        (Command::ApplyTest, "Apply + Test".to_owned(), false),
+        (Command::Apply, "Apply".to_owned(), false),
         (Command::Exit, "Exit".to_owned(), false),
     ];
     usage
@@ -80,7 +97,11 @@ pub fn items(
             command,
             label,
             checked,
-            separator_before: matches!(command, Command::Sound | Command::Config),
+            separator_before: match command {
+                Command::Sound => has_usage,
+                Command::ContextWarnings | Command::About => true,
+                _ => false,
+            },
         })
         .collect()
 }
@@ -102,10 +123,12 @@ mod tests {
             false,
             true,
             true,
+            true,
+            false,
             Some("Codex usage (unavailable)"),
             Some("Claude remain: 5h 80%"),
         );
-        assert_eq!(list.len(), 9);
+        assert_eq!(list.len(), 12);
         assert!(!item(&list, Command::Sound).checked);
         assert!(item(&list, Command::Visual).checked);
         assert!(item(&list, Command::Pause).checked);
@@ -119,10 +142,18 @@ mod tests {
                 .label
                 .contains("unavailable")
         );
+        assert!(item(&list, Command::ContextWarnings).checked);
+        assert!(!item(&list, Command::IdleWarnings).checked);
+        assert_eq!(
+            item(&list, Command::ContextWarnings).label,
+            "Context warnings"
+        );
+        assert_eq!(item(&list, Command::IdleWarnings).label, "Idle warnings");
         assert_eq!(item(&list, Command::Visual).label, "Pop-up");
         assert_eq!(item(&list, Command::Pause).label, "Pause notifications");
         assert_eq!(item(&list, Command::Config).label, "Edit configuration");
-        assert_eq!(item(&list, Command::Restart).label, "Restart");
+        assert_eq!(item(&list, Command::ApplyTest).label, "Apply + Test");
+        assert_eq!(item(&list, Command::Apply).label, "Apply");
         assert_eq!(
             item(&list, Command::About).label,
             format!("aHerald v{}", crate::VERSION)
@@ -132,50 +163,69 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents_claude_first() {
-        let none = items(true, true, false, None, None);
-        assert_eq!(none.len(), 7);
-        let claude = items(true, true, false, None, Some("Claude"));
+        let none = items(true, true, false, false, false, None, None);
+        assert_eq!(none.len(), 10);
+        let claude = items(true, true, false, false, false, None, Some("Claude"));
         assert!(!commands(&claude).contains(&Command::CodexSummary));
-        let both = items(true, true, false, Some("Codex"), Some("Claude"));
+        let both = items(
+            true,
+            true,
+            false,
+            false,
+            false,
+            Some("Codex"),
+            Some("Claude"),
+        );
         assert_eq!(
             commands(&both)[..3],
             [
                 Command::ClaudeSummary,
                 Command::CodexSummary,
-                Command::About
+                Command::Sound
             ]
         );
     }
 
+    /// The Windows tray's order (`tray.rs`): usage lines, the three output switches, the two
+    /// warning switches, then the version and the configuration commands.
     #[test]
-    fn separators_follow_the_version_and_pause_without_a_leading_separator() {
+    fn the_menu_has_the_windows_order_and_separators() {
         for (codex, claude) in [
             (None, None),
             (Some("c"), None),
             (None, Some("a")),
             (Some("c"), Some("a")),
         ] {
-            let list = items(true, true, false, codex, claude);
+            let list = items(true, true, false, false, false, codex, claude);
+            let has_usage = codex.is_some() || claude.is_some();
             let separated: Vec<Command> = list
                 .iter()
                 .filter(|i| i.separator_before)
                 .map(|i| i.command)
                 .collect();
-            assert_eq!(separated, [Command::Sound, Command::Config]);
+            let expected: Vec<Command> = has_usage
+                .then_some(Command::Sound)
+                .into_iter()
+                .chain([Command::ContextWarnings, Command::About])
+                .collect();
+            assert_eq!(separated, expected);
             assert!(!list[0].separator_before);
             let tail: Vec<Command> = commands(&list)
                 .into_iter()
-                .skip_while(|c| *c != Command::About)
+                .skip_while(|c| *c != Command::Sound)
                 .collect();
             assert_eq!(
                 tail,
                 [
-                    Command::About,
                     Command::Sound,
                     Command::Visual,
                     Command::Pause,
+                    Command::ContextWarnings,
+                    Command::IdleWarnings,
+                    Command::About,
                     Command::Config,
-                    Command::Restart,
+                    Command::ApplyTest,
+                    Command::Apply,
                     Command::Exit
                 ]
             );
@@ -189,6 +239,6 @@ mod tests {
         }
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-3), None);
-        assert_eq!(Command::from_tag(10), None);
+        assert_eq!(Command::from_tag(Command::ALL.len() as isize + 1), None);
     }
 }

@@ -122,3 +122,21 @@ fn perf_report_prints_the_ranked_table_from_the_log_beside_the_configuration() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn setup_window_stands_alone_and_rejects_other_options() {
+    use aherald::cli::Cli;
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    assert_eq!(
+        parse(&["--setup-window"]).unwrap().operation.as_deref(),
+        Some("setup-window")
+    );
+    for args in [
+        vec!["--setup-window", "--apply"],
+        vec!["--setup-window", "--resident"],
+        vec!["--setup-window", "--codex-usage", "true"],
+        vec!["--setup-window", "--console-setup"],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?} must be rejected");
+    }
+}

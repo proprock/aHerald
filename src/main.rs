@@ -29,7 +29,7 @@ fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
 }
 
 fn run(mut args: Vec<String>) -> Result<(), String> {
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     let mut test_after_apply = false;
     if args.first().map(String::as_str) == Some("--restart-child") {
         let pid = args
@@ -39,7 +39,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             .map_err(|_| "invalid restart parent")?;
         aherald::restart::wait_for_parent(pid)?;
         args.drain(..2);
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         if args.first().is_some_and(|a| a == "--test-after-apply") {
             test_after_apply = true;
             args.remove(0);
@@ -53,14 +53,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let path = std::path::Path::new(&args[3]);
         let config = aherald::config::Config::load(path, true)
             .inspect_err(|_| log_code(path, Record::InvalidConfiguration))?;
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         let result = aherald::resident::run_after_apply(
             aherald::local::Scope::current(&args[1])?,
             config,
             path,
             test_after_apply,
         );
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         let result =
             aherald::resident::run(aherald::local::Scope::current(&args[1])?, config, path);
         return result.inspect_err(|_| log_code(path, Record::ResidentStartupFailure));
@@ -80,6 +80,13 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         event.validate()?;
         return aherald::notification::show(&event, &config);
     }
+    #[cfg(target_os = "macos")]
+    if args.is_empty()
+        && let Ok(exe) = std::env::current_exe()
+        && aherald::setup_selection::launch_opens_setup(&args, &exe)
+    {
+        return aherald::mac::setup_window::run();
+    }
     let cli = aherald::cli::Cli::parse(args)?;
     if cli.operation.as_deref() == Some("help") {
         println!("{}", aherald::help());
@@ -91,6 +98,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     if cli.operation.as_deref() == Some("console-setup") {
         return console_setup();
+    }
+    if cli.operation.as_deref() == Some("setup-window") {
+        #[cfg(target_os = "macos")]
+        return aherald::mac::setup_window::run();
+        #[cfg(not(target_os = "macos"))]
+        return Err("--setup-window is available on macOS only".into());
     }
     if cli.operation.as_deref() == Some("setup-settings") {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
@@ -244,9 +257,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         );
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         return aherald::resident::run(scope, config, &path);
     }
     if cli.operation.as_deref() == Some("hook") {
@@ -317,54 +330,32 @@ fn console_setup() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
     let previous = aherald::setup::selected_harnesses(&exe)?;
     let settings = aherald::setup::settings_state(&exe, None)?;
-    let enabled = |key: &str| settings.lines().any(|line| line == format!("{key}=true"));
+    let defaults = aherald::setup_selection::Selection::initial(&previous, &settings);
     println!("Select harness integrations. Existing user settings and assets are preserved.");
-    let codex = choice(
-        "Configure Codex hooks?",
-        previous.contains(&aherald::agent::Agent::Codex),
-    )?;
-    let claude = choice(
-        "Configure Claude Code hooks?",
-        previous.contains(&aherald::agent::Agent::Claude),
-    )?;
+    let mut selection = defaults;
+    selection.codex = choice("Configure Codex hooks?", defaults.codex)?;
+    selection.claude = choice("Configure Claude Code hooks?", defaults.claude)?;
     println!(
         "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
     );
-    let codex_usage = choice("Enable Codex usage monitoring?", enabled("codex_usage"))?;
-    let claude_usage = choice("Enable Claude usage monitoring?", enabled("claude_usage"))?;
+    selection.codex_usage = choice("Enable Codex usage monitoring?", defaults.codex_usage)?;
+    selection.claude_usage = choice("Enable Claude usage monitoring?", defaults.claude_usage)?;
     // Warning choices apply to a selected agent only; an unselected agent keeps its settings.
     println!(
         "Session warnings are optional. A context warning needs a resident and, for Claude Code, the statusLine wrapper: an existing status line is kept and still shown, and without one Claude shows the [claude.statusline] format (empty by default). Existing thresholds are preserved."
     );
-    let warning = |selected: bool, agent: &str, key: &str| -> Result<Option<bool>, String> {
-        if !selected {
-            return Ok(None);
-        }
-        let default = enabled(&format!("{}_{key}", agent.to_ascii_lowercase()));
-        let name = if key == "context" { "context" } else { "idle" };
-        choice(&format!("Enable {agent} {name} warning?"), default).map(Some)
-    };
-    let codex_context = warning(codex, "Codex", "context")?;
-    let codex_idle = warning(codex, "Codex", "idle")?;
-    let claude_context = warning(claude, "Claude", "context")?;
-    let claude_idle = warning(claude, "Claude", "idle")?;
-    let harnesses = [
-        (codex, aherald::agent::Agent::Codex),
-        (claude, aherald::agent::Agent::Claude),
-    ]
-    .into_iter()
-    .filter_map(|(selected, agent)| selected.then_some(agent))
-    .collect::<Vec<_>>();
-    let options = aherald::setup::UsageOptions {
-        codex: Some(codex_usage),
-        claude: Some(claude_usage),
-        codex_context,
-        claude_context,
-        codex_idle,
-        claude_idle,
-        ..Default::default()
-    };
-    let remove = harnesses.is_empty();
+    if selection.codex {
+        selection.codex_context = choice("Enable Codex context warning?", defaults.codex_context)?;
+        selection.codex_idle = choice("Enable Codex idle warning?", defaults.codex_idle)?;
+    }
+    if selection.claude {
+        selection.claude_context =
+            choice("Enable Claude context warning?", defaults.claude_context)?;
+        selection.claude_idle = choice("Enable Claude idle warning?", defaults.claude_idle)?;
+    }
+    let harnesses = selection.harnesses();
+    let options = selection.options();
+    let remove = selection.remove();
     print!(
         "{}",
         aherald::setup::run_with_options(&exe, &harnesses, remove, false, &options)?

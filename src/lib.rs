@@ -21,6 +21,7 @@ pub mod https;
 pub mod https;
 pub mod session_source;
 pub mod setup;
+pub mod setup_selection;
 pub mod statusline;
 pub mod statusline_format;
 pub mod usage;

@@ -49,6 +49,7 @@ impl Cli {
                 }
                 "--setup-settings"
                 | "--console-setup"
+                | "--setup-window"
                 | "--setup"
                 | "--unsetup"
                 | "--hook"
@@ -191,18 +192,20 @@ impl Cli {
             return Err("--harness is only valid with --setup".into());
         }
         let settings_read = cli.operation.as_deref() == Some("setup-settings");
-        if cli.operation.as_deref() == Some("console-setup")
-            && (cli.mode.is_some()
-                || cli.agent.is_some()
-                || cli.config.is_some()
-                || cli.hooks_file.is_some()
-                || cli.then.is_some()
-                || cli.apply
-                || cli.usage.file.is_some()
-                || cli.usage.executable.is_some()
-                || cli.usage.has_selections())
+        if matches!(
+            cli.operation.as_deref(),
+            Some("console-setup" | "setup-window")
+        ) && (cli.mode.is_some()
+            || cli.agent.is_some()
+            || cli.config.is_some()
+            || cli.hooks_file.is_some()
+            || cli.then.is_some()
+            || cli.apply
+            || cli.usage.file.is_some()
+            || cli.usage.executable.is_some()
+            || cli.usage.has_selections())
         {
-            return Err("--console-setup does not accept other options".into());
+            return Err("--console-setup and --setup-window do not accept other options".into());
         }
         if cli.usage.executable.is_some() && !native_setup {
             return Err("--setup-executable is only valid with --setup or --unsetup".into());

@@ -136,6 +136,25 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   dismissal on the MacBook Pro M1, recording OS/harness versions and limitations;
   verify a normal user installation without Homebrew or developer tools for the
   GUI path. Document setup, repair and removal. See docs/installation.md.
+  Scope change (2026-11-03): the Homebrew Cask is split out as AH-117 (separate tap
+  repository); AH-102 delivers the DMG, the in-app setup window and the portable archive.
+  Status 2026-11-03 (branch `feature/ah-102-macos-installer`): implemented
+  `setup_selection::Selection` (shared with the Linux console setup), the AppKit setup window
+  (`--setup-window`, also opened by a bare launch of an installed bundle), `package-dmg.sh`,
+  `check-release-dmg.sh`, `tests/macos_app_lifecycle.sh` (also run against the mounted image),
+  release/CI steps and docs. Automated: fmt, Clippy and `cargo test --all-targets` pass on macOS
+  (748 passed); the lifecycle check passes and fails on a no-op executable; the DMG built and
+  verified locally. Manual on the M1 (macOS Tahoe 26.6.2, run from a copy of the debug build
+  with isolated CODEX_HOME/CLAUDE_CONFIG_DIR): window layout, scrolling details, Preview, Apply,
+  retained selection, removal and a malformed settings file passed. Still open: installing from
+  the real DMG into /Applications and the Finder double-click launch, Codex/Claude hook
+  delivery and dismissal with the installed app, a normal user without developer tools,
+  old-resident/new-client IPC compatibility check on macOS, and Remove/Repair buttons (removal
+  works by clearing both choices; repair by applying again). Not signed or notarized.
+  `[claude.statusline] format` checked on macOS (Darwin 25.6.0, debug build, commands only): the
+  same text prints with the config beside the executable and with the config under
+  Application Support in an app bundle, and through the wrapper that `--setup` installed for a
+  non-empty format. The setup window explains it; the text itself stays in config.toml.
 
 - [ ] **AH-103 — Ubuntu package and interactive console setup.**
   Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`
@@ -209,6 +228,65 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   docs/statusline-performance.md and either fixed, or the 12 ms macOS allowance
   (`THEN_SPAWN_ALLOWANCE_MS` in tests/perf_statusline.rs) is justified by the measurement
   or removed. Low priority: a status line refreshes at most every 300 ms.
+
+- [ ] **AH-117 — Homebrew Cask for aHerald (split from AH-102).**
+  Publish a Cask for the Apple Silicon app in a separate tap repository, installing the
+  released DMG or ZIP by URL and SHA-256 from the release artifacts. Do not claim signing or
+  notarization; keep the portable archive. Removal must clean owned hooks in user context
+  before the executable is removed (`zap` is not enough): define the uninstall flow, its
+  visible failure and the repair path, and document that Homebrew runs as the user while
+  hooks belong to that user. Updates must not block on a running resident; document the
+  restart. Acceptance: `brew install --cask`, setup window, hooks, delivery and dismissal,
+  upgrade and uninstall on the MacBook Pro M1. Needs a decision on the tap repository name.
+
+### macOS parity with 0.9.0-beta
+
+The warning engine (`session_warnings`), the setup backend and the tray text are shared
+already, and the macOS resident keeps the warning state. What differs is the tray controls
+and the acceptance evidence; reuse the Linux and Windows pieces rather than parallel code.
+
+- [ ] **AH-118 — Context/Idle warning switches and Apply / Apply + Test in the macOS tray.**
+  The Windows tray (`src/tray.rs`) and the Linux tray (`src/linux/tray.rs`, handlers in
+  `src/linux/resident.rs`) offer "Context warnings", "Idle warnings", "Apply" and
+  "Apply + Test"; the macOS menu (`src/mac/menu.rs`) has only "Restart". Add the same entries
+  with the same order, labels and check marks, wired to `Warnings::set_enabled` and to
+  re-reading the configuration with the preview cards, as on the other platforms.
+  Acceptance: pure menu tests for order, labels and check state; switches change what the
+  resident admits, observed through the resident (not source text); Apply keeps usage and
+  event handling running; verified by hand on the MacBook Pro M1 (cards, dismissal).
+  Status 2026-11-03 (branch `feature/ah-118-mac-tray-warnings`, stacked on AH-102): the menu
+  has the Windows order and separators (usage lines, Sound, Pop-up, Pause, Context warnings,
+  Idle warnings, About, Edit configuration, Apply + Test, Apply, Exit; Apply was Restart). The
+  switches call the shared `Warnings` gates (tested through the resident state). Apply + Test
+  restarts the resident with `--test-after-apply` and shows the shared `demo::Carousel` as on
+  Windows and Linux: arrows, wheel and body clicks, a "[Test]" heading with "Disabled in
+  config", each sample's sound once, ended by dismissal or the first real card; the click
+  decision is the pure `input::carousel_click`. Automated: fmt, Clippy and
+  `cargo test --all-targets` (753 passed). Not yet checked by hand on the M1: the menu itself,
+  the switches' effect on live cards, Apply, Apply + Test (cards, sounds, arrows, wheel, dismiss).
+
+- [ ] **AH-119 — macOS live warning acceptance and documentation.**
+  The macOS counterpart of AH-115. With the AH-118 switches, verify real Codex and Claude
+  Code context and idle warning cards on the M1: synthetic reports first, then installed hook
+  dispatch and the installed statusLine wrapper (the setup window can enable them), including
+  dismissal, configured sound and an idle warning suppressed while the switch is off.
+  Distinguish adapter/bridge evidence from end-to-end delivery, use isolated configuration,
+  bounded waits and owned-process cleanup, declare any account, network or billable request
+  before each run, record macOS and harness versions and commands, and update docs and the
+  verification matrix. Extends AH-104 (live checks on macOS); depends on AH-118.
+
+- [ ] **AH-120 — Suppress notifications while the user watches the originating session (macOS).**
+  Windows suppresses the card and the sound when the Claude session's classic console is
+  focused (AH-098, `src/focus.rs`); on other systems `focus::observe` reports "unknown" and
+  nothing is suppressed. Evaluate the macOS options: the frontmost application through
+  `NSWorkspace` and the terminal process aHerald already records (`src/mac/terminal.rs`) tell
+  the app, but a tabbed Terminal.app or iTerm window also needs a way to prove the active tab
+  or session (for example its tty). The project rule stays: suppress only on positive evidence
+  of both the window and the session; otherwise deliver. Agree on the design and any new
+  permission (Automation/Accessibility prompts are not acceptable by default) before
+  implementation; keep both `suppress_when_focused` options and their defaults.
+  Acceptance: pure policy tests with the macOS evidence, and live checks on the M1 in Terminal
+  and in a second terminal app, including unknown origins that must still be delivered.
 
 ### Linux parity with 0.8.0-beta
 

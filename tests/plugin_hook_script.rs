@@ -45,10 +45,12 @@ fn run(agent: &str, payload: &str, env: &[(&str, &Path)]) -> std::process::Outpu
     for (key, value) in env {
         command.env(key, value);
     }
+    // Only a hang guard: the first run of a freshly written script can take over 10 s on macOS
+    // while the parallel suite keeps the machine busy (see tests/setup.rs).
     support::run_bounded_with_input(
         &mut command,
         payload.as_bytes(),
-        std::time::Duration::from_secs(3),
+        std::time::Duration::from_secs(30),
     )
     .unwrap()
 }

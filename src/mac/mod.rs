@@ -7,6 +7,7 @@ pub mod input;
 pub mod menu;
 pub mod panel;
 pub mod resident;
+pub mod setup_window;
 pub mod surface;
 pub mod terminal;
 pub mod text;
