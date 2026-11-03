@@ -15,13 +15,13 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType,
-    NSButton, NSControlStateValueOff, NSControlStateValueOn, NSTextField, NSWindow,
-    NSWindowStyleMask,
+    NSButton, NSColor, NSControlStateValueOff, NSControlStateValueOn, NSFont, NSTextField,
+    NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 use std::path::PathBuf;
 
-const WIDTH: f64 = 480.0;
+const WIDTH: f64 = 520.0;
 const HEIGHT: f64 = 560.0;
 const MARGIN: f64 = 20.0;
 const ROW: f64 = 24.0;
@@ -40,16 +40,17 @@ enum Box {
     Launch,
 }
 
-const BOXES: [(Box, &str); 9] = [
-    (Box::Codex, "Codex hooks"),
-    (Box::Claude, "Claude Code hooks"),
-    (Box::CodexUsage, "Codex usage monitoring"),
-    (Box::ClaudeUsage, "Claude usage monitoring"),
-    (Box::CodexContext, "Codex context warning"),
-    (Box::CodexIdle, "Codex idle warning"),
-    (Box::ClaudeContext, "Claude context warning"),
-    (Box::ClaudeIdle, "Claude idle warning"),
-    (Box::Launch, "Launch aHerald after applying"),
+/// Title, column (0 Codex, 1 Claude Code; `None` spans both) and top of each checkbox.
+const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
+    (Box::Codex, "Hooks", Some(0), 112.0),
+    (Box::Claude, "Hooks", Some(1), 112.0),
+    (Box::CodexUsage, "Usage monitoring", Some(0), 140.0),
+    (Box::ClaudeUsage, "Usage monitoring", Some(1), 140.0),
+    (Box::CodexContext, "Context warning", Some(0), 168.0),
+    (Box::CodexIdle, "Idle warning", Some(0), 196.0),
+    (Box::ClaudeContext, "Context warning", Some(1), 168.0),
+    (Box::ClaudeIdle, "Idle warning", Some(1), 196.0),
+    (Box::Launch, "Launch aHerald after applying", None, 272.0),
 ];
 
 struct Controls {
@@ -152,7 +153,7 @@ pub fn run() -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("the setup window must run on the main thread")?;
     let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
     // A receipt from another installation is reported, not fatal: Apply replaces its bindings.
-    let (previous, note) = match selected_harnesses(&exe) {
+    let (previous, note_text) = match selected_harnesses(&exe) {
         Ok(previous) => (previous, String::new()),
         Err(message) => (Vec::<Agent>::new(), format!("\n{message}.")),
     };
@@ -181,22 +182,29 @@ pub fn run() -> Result<(), String> {
     let content = window.contentView().ok_or("the setup window has no view")?;
     let inner = WIDTH - 2.0 * MARGIN;
 
-    let label = |text: &str, top: f64, height: f64| {
+    let label = |text: &str, x: f64, top: f64, width: f64, height: f64| {
         let field = NSTextField::wrappingLabelWithString(&NSString::from_str(text), mtm);
-        field.setFrame(frame(MARGIN, top, inner, height));
+        field.setFrame(frame(x, top, width, height));
         content.addSubview(&field);
         field
     };
+    let column_width = inner / 2.0;
+    let column_x = |index: usize| MARGIN + column_width * index as f64;
     label(
         &format!(
             "Choose the agents that aHerald adds notification hooks to. Nothing changes until you press Apply; each agent still asks you to trust the hooks.\nApp: {}",
             exe.display()
         ),
         MARGIN,
+        16.0,
+        inner,
         64.0,
     );
+    for (index, name) in ["Codex", "Claude Code"].into_iter().enumerate() {
+        let heading = label(name, column_x(index), 88.0, column_width, 20.0);
+        heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+    }
 
-    // Created before the controller so it can own them; targets are set afterwards.
     let state = |on: bool| {
         if on {
             NSControlStateValueOn
@@ -215,15 +223,10 @@ pub fn run() -> Result<(), String> {
         defaults.claude_idle,
         true,
     ];
-    // Row tops: hooks, usage and warnings groups, each with a heading between.
-    let tops = [
-        100.0, 126.0, 188.0, 214.0, 276.0, 302.0, 328.0, 354.0, 392.0,
-    ];
     let boxes: Vec<Retained<NSButton>> = BOXES
         .iter()
         .zip(initial)
-        .zip(tops)
-        .map(|(((_, title), on), top)| {
+        .map(|(&(_, title, column, top), on)| {
             // SAFETY: no target and no action: the checkbox only keeps its own state.
             let button = unsafe {
                 NSButton::checkboxWithTitle_target_action(
@@ -233,28 +236,41 @@ pub fn run() -> Result<(), String> {
                     mtm,
                 )
             };
-            button.setFrame(frame(MARGIN, top, inner, ROW));
+            let (x, width) = match column {
+                Some(index) => (column_x(index), column_width),
+                None => (MARGIN, inner),
+            };
+            button.setFrame(frame(x, top, width, ROW));
             button.setState(state(on));
             content.addSubview(&button);
             button
         })
         .collect();
-    label(
-        "Usage monitoring is optional. Claude auto tries your login token, then the last statusLine report.",
-        150.0,
+    let note = label(
+        "Claude usage auto tries your login token, then the last statusLine report. Warnings apply to selected agents; existing thresholds are kept.",
+        MARGIN,
+        230.0,
+        inner,
         34.0,
     );
-    label(
-        "Session warnings apply to the selected agents. Existing thresholds are kept.",
-        240.0,
-        34.0,
-    );
-    // The note about a receipt from another installation, when there is one.
+    note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+    note.setTextColor(Some(&NSColor::secondaryLabelColor()));
+
+    let heading = label("Details", MARGIN, 350.0, inner, 18.0);
+    heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+    // A framed, selectable box so it reads as the output area; the note about a receipt
+    // from another installation, when there is one, is the first thing shown in it.
     let result = NSTextField::wrappingLabelWithString(
-        &NSString::from_str(&format!("Press Preview to see the changes.{note}")),
+        &NSString::from_str(&format!(
+            "Preview shows what Apply would change; Apply makes the changes.{note_text}"
+        )),
         mtm,
     );
-    result.setFrame(frame(MARGIN, 470.0, inner, 80.0));
+    result.setBezeled(true);
+    result.setDrawsBackground(true);
+    result.setBackgroundColor(Some(&NSColor::textBackgroundColor()));
+    result.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+    result.setFrame(frame(MARGIN, 372.0, inner, 168.0));
     content.addSubview(&result);
 
     let controller = mtm
@@ -276,7 +292,7 @@ pub fn run() -> Result<(), String> {
                 mtm,
             )
         };
-        button.setFrame(frame(x, 428.0, 100.0, 32.0));
+        button.setFrame(frame(x, 304.0, 100.0, 32.0));
         content.addSubview(&button);
     }
 
