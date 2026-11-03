@@ -75,7 +75,7 @@ fn main() -> Result<(), String> {
         event.turn_id = Some(format!("turn-{sequence}"));
         event.window = if command == "other" { None } else { window };
         event.folder = Some("AH-098 synthetic".into());
-        let observation = aherald::focus::observe(&event);
+        let observation = aherald::focus::observe(&event, &config);
         let outputs = aherald::focus::outputs(&config, observation);
         let response = pipe::request(&scope, &Request::Event { event }, Duration::from_secs(1))?;
         let record = serde_json::json!({"command":command,"focused":observation.window_focused,"session":format!("{:?}", observation.session),"window":outputs.window,"sound":outputs.sound,"accepted":matches!(response, aherald::ipc::Response::Accepted)});
