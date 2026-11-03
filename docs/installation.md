@@ -164,6 +164,15 @@ Claude Code, the hooks, usage monitoring and context and idle warnings, plus a l
   the app was when you applied). The receipt, `config.toml`, logs and backups live in
   `~/Library/Application Support/aHerald`; the signed bundle is never modified.
 
+**Claude status line text.** `[claude.statusline] format` in `config.toml` prints your own
+status line text when you have no status line command of your own; it works the same on
+Windows, Linux and macOS. Edit it from the menu-bar icon (**Edit configuration**), for example
+`format = "{model.display_name}{[ · {worktree.branch}]} {context_window} {rate_limits.five_hour}"`,
+then open the setup window and press Apply again: a format that goes from empty to non-empty
+makes setup install the wrapper (a command of your own is kept and wins). The full syntax is in
+`docs/configuration.md`. In an app bundle the file is
+`~/Library/Application Support/aHerald/config.toml`.
+
 **Updating.** Replace `aHerald.app` at the same path; hooks keep working. Installing does not
 stop a running resident. Restart it (`aherald --quit`, then open the app) to use the new
 version; until then an old resident can reject messages from a client with a different IPC

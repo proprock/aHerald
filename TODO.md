@@ -151,6 +151,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   delivery and dismissal with the installed app, a normal user without developer tools,
   old-resident/new-client IPC compatibility check on macOS, and Remove/Repair buttons (removal
   works by clearing both choices; repair by applying again). Not signed or notarized.
+  `[claude.statusline] format` checked on macOS (Darwin 25.6.0, debug build, commands only): the
+  same text prints with the config beside the executable and with the config under
+  Application Support in an app bundle, and through the wrapper that `--setup` installed for a
+  non-empty format. The setup window explains it; the text itself stays in config.toml.
 
 - [ ] **AH-103 — Ubuntu package and interactive console setup.**
   Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`

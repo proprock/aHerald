@@ -22,7 +22,7 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSSt
 use std::path::PathBuf;
 
 const WIDTH: f64 = 520.0;
-const HEIGHT: f64 = 560.0;
+const HEIGHT: f64 = 600.0;
 const MARGIN: f64 = 20.0;
 const ROW: f64 = 24.0;
 
@@ -50,7 +50,7 @@ const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
     (Box::CodexIdle, "Idle warning", Some(0), 196.0),
     (Box::ClaudeContext, "Context warning", Some(1), 168.0),
     (Box::ClaudeIdle, "Idle warning", Some(1), 196.0),
-    (Box::Launch, "Launch aHerald after applying", None, 284.0),
+    (Box::Launch, "Launch aHerald after applying", None, 330.0),
 ];
 
 struct Controls {
@@ -255,8 +255,17 @@ pub fn run() -> Result<(), String> {
     );
     note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     note.setTextColor(Some(&NSColor::secondaryLabelColor()));
+    let format_note = label(
+        "Status line text: set [claude.statusline] format in config.toml (menu: Edit configuration), for example {model.display_name} {context_window} {rate_limits.five_hour}, then Apply again. See docs/configuration.md.",
+        MARGIN,
+        278.0,
+        inner,
+        44.0,
+    );
+    format_note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+    format_note.setTextColor(Some(&NSColor::secondaryLabelColor()));
 
-    let heading = label("Details", MARGIN, 356.0, inner, 18.0);
+    let heading = label("Details", MARGIN, 402.0, inner, 18.0);
     heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     // A framed, selectable, scrolling box so it reads as the output area; the note about a
     // receipt from another installation, when there is one, is the first thing shown in it.
@@ -272,7 +281,7 @@ pub fn run() -> Result<(), String> {
         "Preview shows what Apply would change; Apply makes the changes.{note_text}"
     )));
     scroll.setBorderType(NSBorderType::BezelBorder);
-    scroll.setFrame(frame(MARGIN, 376.0, inner, 164.0));
+    scroll.setFrame(frame(MARGIN, 422.0, inner, 158.0));
     content.addSubview(&scroll);
 
     let controller = mtm
@@ -294,7 +303,7 @@ pub fn run() -> Result<(), String> {
                 mtm,
             )
         };
-        button.setFrame(frame(x, 316.0, 100.0, 32.0));
+        button.setFrame(frame(x, 362.0, 100.0, 32.0));
         content.addSubview(&button);
     }
 
