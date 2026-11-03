@@ -15,8 +15,8 @@ A missing or failing aHerald never changes what the harness does.
 |---|---|---|---|---|---|
 | OpenCode 2.x | plugin | copy `examples/harnesses/opencode-aherald.ts` to `~/.config/opencode/plugins/aherald.ts` | delete it | complete, error, interrupted, permission | live on 2.2.0 (not the TUI permission flow) |
 | Pi 1.5 | extension | copy `examples/harnesses/pi-aherald.ts` to `~/.pi/agent/extensions/aherald.ts` | delete it | complete, error, interrupted, extension prompts | live on 1.5.0 (not compaction or queued follow-ups) |
-| Crush | `hook add` lines in `crushrc` | append `examples/harnesses/crushrc` yourself | delete the lines | complete, error, interrupted, permission | documentation only |
-| Goose | plugin hooks | copy `examples/harnesses/goose-hooks.json` to `~/.agents/plugins/aherald/hooks/hooks.json` | delete the folder | complete | documentation only |
+| Crush | `hook add` lines in `crushrc` | append `examples/harnesses/crushrc` yourself | delete the lines | complete, error, interrupted, permission | live on 0.99.0: complete, error (not permission, interrupt) |
+| Goose | plugin hooks | copy `examples/harnesses/goose-hooks.json` to `~/.agents/plugins/aherald/hooks/hooks.json` | delete the folder | complete | live on 1.57.0 |
 
 Not supported: Aider (its notification command gets no event or session data) and Zero (its
 hooks cover tools and sessions only). Any other harness that can run a command can call
@@ -35,7 +35,7 @@ after another, each limited to three seconds. Details:
   sub-agent processes stay silent. Pi has no permission events; a card appears when an
   extension asks the user something.
 - **Goose:** its `Stop` hook may block a turn from ending; the command prints nothing and
-  exits 0, so it never does. Goose sends no folder with these events, so its cards show none.
+  exits 0, so it never does. Cards show the folder from `working_dir`, except at session end.
 
 Give each harness its own pet with `[pets]` (see [pets](pets.md)).
 
