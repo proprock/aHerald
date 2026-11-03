@@ -9,6 +9,18 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-03
+
+### Added
+- Homebrew cask for Apple Silicon Macs: `brew tap proprock/tap` and `brew install --cask aherald`
+  (tap `proprock/homebrew-tap`). It installs the released disk image's app, does not remove the
+  Gatekeeper quarantine (right-click, Open) and, on uninstall, removes aHerald's own hook entries
+  as your user before deleting the app. The release workflow now opens a pull request in the tap
+  for each stable release (AH-117).
+
+macOS: unchanged from 0.9.0: ad-hoc signed only, not notarized, Apple Silicon only. The cask
+install, upgrade and uninstall have not been checked on a Mac yet; see TODO.md (AH-117).
+
 ## [0.9.0] - 2026-11-03
 
 macOS: the app and the disk image are ad-hoc signed only, not signed with a Developer ID and
