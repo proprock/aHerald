@@ -12,17 +12,25 @@ aHerald maps these to its existing kinds only: `turn_complete`, `permission_requ
 |---|---|---|---|---|---|---|
 | OpenCode 2.2.0 | `session.execution.succeeded` (live) | `session.execution.failed`, after ten `session.retry.scheduled` (live) | `session.execution.interrupted`, `reason: "user"` (live) | `permission.asked` `{id, sessionID, action, resources, save, source}`, resolved by `permission.replied` `{sessionID, requestID, reply}` (live) | `session.form.*` (names only, meaning unverified) | `data.sessionID` (live) |
 | Pi 1.5.0 | `agent_settled`, `aborted: false` after an `agent_before_settle` with `outcome: "completed"` (live) | `agent_settled` after an `agent_before_settle` with `outcome: "error"`; `agent_settled` itself has no error flag (live) | `agent_settled` with `aborted: true`, no `agent_before_settle` (live, via `ctx.abort()`) | none: Pi has no permission event | `ui_prompt_start` / `ui_prompt_end` with `kind` (live, RPC mode only: `hasUI` is false in `-p` mode and no event fires) | `ctx.sessionManager.getSessionId()` (live) |
-| Crush | `TurnEnd` (documented) | `StopFailure` (documented) | `Interrupt` (documented) | `PermissionRequest`, resolved by `PermissionResult` (documented) | none | `session_id` and `cwd` on stdin |
-| Goose | `Stop` (documented) | none | none | none | none | `session_id` on stdin; `working_dir` only on tool events, so cards have no folder |
+| Crush 0.99.0 | `TurnEnd` (live) | `StopFailure` (live, provider HTTP 500) | `Interrupt` (documented) | `PermissionRequest`, resolved by `PermissionResult` (documented; not triggered in `crush run`) | none | `session_id` and `cwd` on stdin (live) |
+| Goose 1.57.0 | `Stop` (live) | none | none | none | none | `session_id` and `working_dir` on stdin (live; `SessionEnd` has no folder) |
 | Aider | unsupported: `--notifications-command` runs with no arguments, stdin or session id, and fires on the next prompt of any kind | | | | | |
 | Zero (Twigpine) | unsupported: hooks are `beforeTool`, `afterTool`, `sessionStart`, `sessionEnd`; its stream-JSON events (`final`, `permission_request`, `error`) exist only for headless `zero exec` | | | | | |
 
-Crush and Goose are documented only, from their official hook documentation read on
-2026-11-03 (Crush `docs/hooks/README.md` on `main`; Goose `hooks.md`). Both run a `sh`-style
-command with JSON on stdin and need hook configuration, not a bridge. Crush reads hooks from `crushrc` (`hook add EVENT --command ...`; the JSON `hooks` form is deprecated); its `TurnStart`, `TurnEnd` and `PermissionRequest` fire for the top-level agent
-only. Goose follows the Open Plugins layout, `~/.agents/plugins/<name>/hooks/hooks.json`; its
-`Stop` hook may block, which an empty stdout and exit 0 never do. No Crush or Goose binary was
-run, so the shipped examples are untested against the real programs.
+Crush and Goose run a `sh`-style command with JSON on stdin and need hook configuration, not a
+bridge. Both were run live on 2026-11-03 (Homebrew `charmbracelet/tap/crush` 0.99.0 and
+`block-goose-cli` 1.57.0) in a private `HOME` against the local fake OpenAI endpoint, with the
+shipped examples and a recorder in place of aherald:
+
+- Crush (`crushrc` `hook add` lines): `TurnStart`, `TurnEnd`, `StopFailure` and `SessionEnd` fired
+  with `session_id` and `cwd`. Not triggered: `PermissionRequest`/`PermissionResult` and
+  `Interrupt` (a headless `crush run` never asked), so those rows stay documented.
+  `TurnStart`, `TurnEnd` and `PermissionRequest` fire for the top-level agent only.
+- Goose (`~/.agents/plugins/aherald/hooks/hooks.json`): `UserPromptSubmit`, `Stop` and
+  `SessionEnd` fired. Unlike its documentation, `UserPromptSubmit` and `Stop` carry
+  `working_dir` here (`SessionEnd` does not). The payloads also contain the prompt and the last
+  reply; aHerald reads only `session_id` and the folder. `Stop` may block a turn from ending,
+  which an empty stdout and exit 0 never do.
 
 ## OpenCode 2.2.0
 

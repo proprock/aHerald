@@ -629,8 +629,9 @@ are deferred (AH-204, AH-205).
   Result (2026-11-03): bridge contract tests (`tests/bridges`, Node) use synthetic events and a
   recorder in place of aherald; the bridges also ran live on OpenCode 2.2.0 and Pi 1.5.0
   (`BRIDGE=1 sh tests/live/harness_probes/run.sh ...`). Not checked live: the OpenCode TUI
-  permission flow, Pi compaction and queued follow-ups, and the Crush and Goose examples
-  (documentation only). Calls are serialized, so a short headless OpenCode run can end
+  permission flow, Pi compaction and queued follow-ups, and Crush permission and interrupt hooks.
+  Crush 0.99.0 (complete, error) and Goose 1.57.0 (complete) ran live with the shipped examples.
+  Calls are serialized, so a short headless OpenCode run can end
   before its last call.
 
 - [x] **AH-204 — Bridge file setup for harnesses (command line).**
