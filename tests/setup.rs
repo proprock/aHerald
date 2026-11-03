@@ -11,9 +11,12 @@ struct Install {
 }
 impl Install {
     fn new(name: &str) -> Self {
+        // Tests run in parallel inside one process, so a name alone can repeat.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
-            "aherald setup Путь $HOME `tick & apostrophe'-{name}-{}",
-            std::process::id()
+            "aherald setup Путь $HOME `tick & apostrophe'-{name}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).unwrap();
         let exe = root.join(if cfg!(windows) {
