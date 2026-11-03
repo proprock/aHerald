@@ -26,8 +26,9 @@ Compare the archive with the `.sha256` file next to it: `shasum -a 256 -c aheral
 
 1. Extract the archive and move `aHerald.app` to `/Applications` (any folder works).
 2. The app is not signed with a Developer ID and not notarized, so Gatekeeper blocks the
-   first start of a downloaded copy. Either right-click the app and choose Open, or remove
-   the quarantine mark once:
+   first start of a downloaded copy. On macOS 15 and later a right-click, Open no longer
+   helps: try to open the app once, then choose Open Anyway in System Settings, Privacy &
+   Security. Or remove the quarantine mark once:
 
    ```bash
    xattr -dr com.apple.quarantine /Applications/aHerald.app

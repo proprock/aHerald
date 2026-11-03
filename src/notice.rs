@@ -103,3 +103,38 @@ mod tests {
         assert_eq!(file_name(Path::new("")), "");
     }
 }
+
+/// The text of the card shown when an interactive start fails on its configuration: the reason
+/// aHerald itself gave, without control characters, short enough for the card.
+pub fn startup_failure_text(error: &str) -> String {
+    let reason = error
+        .strip_prefix("invalid configuration: ")
+        .unwrap_or(error)
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(160)
+        .collect::<String>();
+    format!("Invalid configuration: {reason}")
+}
+
+#[cfg(test)]
+mod startup_text_tests {
+    use super::startup_failure_text;
+
+    #[test]
+    fn the_card_names_the_reason_once_and_stays_short_and_plain() {
+        assert_eq!(
+            startup_failure_text(
+                "invalid configuration: events.error.duration_ms is not a supported setting"
+            ),
+            "Invalid configuration: events.error.duration_ms is not a supported setting"
+        );
+        assert_eq!(
+            startup_failure_text("cannot read x"),
+            "Invalid configuration: cannot read x"
+        );
+        let long = startup_failure_text(&format!("a\u{7}\n{}", "b".repeat(500)));
+        assert!(long.chars().count() <= "Invalid configuration: ".len() + 160);
+        assert!(!long.chars().any(char::is_control));
+    }
+}

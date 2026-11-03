@@ -41,7 +41,7 @@ and keeps a queue so nothing is lost while you are away.
 | OS | Get it |
 |---|---|
 | **Windows** | Per-user setup EXE (Codex / Claude Code checkboxes) or the portable ZIP from [Releases](https://github.com/proprock/aHerald/releases/latest) |
-| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald`, or the disk image (ad-hoc signed: right-click, Open) |
+| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald`, or the disk image (ad-hoc signed: allow it once under System Settings, Privacy & Security, Open Anyway) |
 | **Linux** (x86-64, glibc) | `.deb` (`sudo apt install ./aherald-*.deb`) or the `.tar.gz` portable archive |
 
 Then connect your agent. The program writes hook entries only when you ask, with a dry run first:

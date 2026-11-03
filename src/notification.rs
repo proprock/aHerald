@@ -5,13 +5,18 @@ use crate::{config::Config, events::Event};
 pub(crate) mod overlay;
 /// A failed interactive startup has no resident sink. Show only its diagnostic card,
 /// without a display-child readiness byte or any agent/usage activity.
-#[cfg(windows)]
-pub fn configuration_notice() -> Result<(), String> {
-    let event = Event::notice("Invalid configuration; check the configuration file");
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+pub fn configuration_notice(error: &str) -> Result<(), String> {
+    let event = Event::notice(&crate::notice::startup_failure_text(error));
     let mut config = Config::default();
     config.sounds.enabled = false;
     config.events[event.kind].duration_ms = crate::resident_request::NOTICE_MS;
-    overlay::show(&event, &config)
+    #[cfg(windows)]
+    return overlay::show(&event, &config);
+    #[cfg(target_os = "linux")]
+    return crate::linux::resident::show_transient(&event, &config);
+    #[cfg(target_os = "macos")]
+    return crate::mac::resident::run_notice(event, config);
 }
 
 pub fn show(event: &Event, config: &Config) -> Result<(), String> {

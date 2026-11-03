@@ -145,8 +145,8 @@ brew tap proprock/tap
 brew install --cask aherald
 ```
 
-It installs the same disk image's app, does not remove the Gatekeeper quarantine (right-click,
-Open), and `brew uninstall --cask aherald` first runs `aherald --unsetup --apply` as your user
+It installs the same disk image's app, does not remove the Gatekeeper quarantine (allow it once
+with Open Anyway in System Settings, Privacy & Security), and `brew uninstall --cask aherald` first runs `aherald --unsetup --apply` as your user
 to remove aHerald's hook entries. See the tap's README for upgrade and repair.
 
 ## macOS disk image and setup window

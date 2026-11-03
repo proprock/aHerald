@@ -255,16 +255,20 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             log_code(&path, aherald::operational_log::Record::HookDeliveryFailed);
         }
     })?;
-    let config = aherald::config::Config::load(&path, cli.config.is_some()).inspect_err(|_| {
-        log_code(
-            &path,
-            aherald::operational_log::Record::InvalidConfiguration,
-        );
-        #[cfg(windows)]
-        if cli.operation.is_none() && aherald::notification::configuration_notice().is_err() {
-            log_code(&path, aherald::operational_log::Record::RenderFailure);
-        }
-    })?;
+    let config =
+        aherald::config::Config::load(&path, cli.config.is_some()).inspect_err(|error| {
+            log_code(
+                &path,
+                aherald::operational_log::Record::InvalidConfiguration,
+            );
+            // An interactive start has no terminal to read stderr in: say why on a card.
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+            if cli.operation.is_none()
+                && aherald::notification::configuration_notice(error).is_err()
+            {
+                log_code(&path, aherald::operational_log::Record::RenderFailure);
+            }
+        })?;
     if let Some(pause_sec) = cli.demo_pause_sec {
         return aherald::resident::run_demo(config, &path, pause_sec);
     }
