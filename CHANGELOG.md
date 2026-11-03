@@ -9,6 +9,13 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-03
+
+macOS: the app and the disk image are ad-hoc signed only, not signed with a Developer ID and
+not notarized, so Gatekeeper blocks the first start of a downloaded copy (right-click, Open).
+Apple Silicon only. The disk image, setup window and tray controls had automated checks and
+partial manual checks on one MacBook Pro (M1); see TODO.md (AH-102, AH-118, AH-120).
+
 ### Added
 - macOS: opt-in `[general] detect_terminal_tab` lets `suppress_when_focused` hide a card for
   the selected tab of Terminal.app or iTerm2 (asks macOS for Automation access; other
