@@ -241,9 +241,10 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   Decisions 2026-11-03: tap `proprock/homebrew-tap` (`brew tap proprock/tap`), shared by
   future projects; no quarantine removal (README documents right-click, Open); stable releases
   only, updated by the `update_tap` release job through a pull request using the secret
-  `TAP_TOKEN`. Status: Cask, README, `update-cask.sh` and a style-audit CI are drafted locally
-  in `~/repos/homebrew-tap`; the GitHub repository is not created yet and nothing has been
-  installed with brew.
+  `TAP_TOKEN`. Status: `proprock/homebrew-tap` exists with the Cask (0.9.0, checksum verified
+  against the released DMG), README, `update-cask.sh` and a style-audit CI (green). `TAP_TOKEN`
+  is set. Not yet checked: `brew install --cask`, upgrade and uninstall on the M1, and the first
+  `update_tap` run.
 
 ### macOS parity with 0.9.0-beta
 
