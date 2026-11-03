@@ -80,6 +80,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         event.validate()?;
         return aherald::notification::show(&event, &config);
     }
+    #[cfg(target_os = "macos")]
+    if let Ok(exe) = std::env::current_exe()
+        && aherald::setup_selection::launch_opens_setup(&args, &exe)
+    {
+        return aherald::mac::setup_window::run();
+    }
     let cli = aherald::cli::Cli::parse(args)?;
     if cli.operation.as_deref() == Some("help") {
         println!("{}", aherald::help());

@@ -60,9 +60,40 @@ impl Selection {
     }
 }
 
+/// A double-click on an installed app bundle starts the program without arguments; that
+/// opens the setup window instead of a usage error. Hooks and every command always pass
+/// arguments, and a bare executable keeps reporting the missing operation.
+pub fn launch_opens_setup(args: &[String], executable: &std::path::Path) -> bool {
+    args.is_empty() && crate::paths::bundle_resources(executable).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    const BUNDLE: &str = "/Applications/aHerald.app/Contents/MacOS/aherald";
+
+    #[test]
+    fn a_bundle_started_without_arguments_opens_the_setup_window() {
+        assert!(launch_opens_setup(&[], Path::new(BUNDLE)));
+    }
+
+    #[test]
+    fn arguments_or_a_bare_executable_keep_the_normal_behavior() {
+        assert!(!launch_opens_setup(
+            &["--hook".to_owned()],
+            Path::new(BUNDLE)
+        ));
+        assert!(!launch_opens_setup(
+            &[],
+            Path::new("/usr/local/bin/aherald")
+        ));
+        assert!(!launch_opens_setup(
+            &[],
+            Path::new("/Applications/aHerald.app/aherald")
+        ));
+    }
 
     const OFF: &str = "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\n";
 
