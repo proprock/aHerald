@@ -48,7 +48,8 @@ The first start creates `config.toml` in `~/Library/Application Support/aHerald/
 `aherald.log`. Nothing is written inside the app (that would break its signature, and
 `/Applications` may be read-only). Relative paths in the configuration resolve from that
 folder, so give your own animations and sounds as absolute paths. A running resident keeps
-the configuration it started with; restart it from the menu-bar icon after editing.
+the configuration it started with; choose **Apply** in the menu-bar icon after editing. The menu also has **Context warnings** and
+**Idle warnings** switches for the current run.
 
 Running the bare `aherald` program outside an app bundle keeps the portable behavior:
 `config.toml` and `assets/` beside the executable.

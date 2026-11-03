@@ -194,7 +194,7 @@ configuration was migrated as part of this implementation.
 
 An invalid file is reported as `invalid configuration: <table.key> <reason>` (or
 `invalid TOML syntax at line N`); the message never contains the offending value. The
-tray **Restart** command validates the file first. If it is invalid, the running
+tray **Apply** command (**Restart** on older macOS builds) validates the file first. If it is invalid, the running
 resident keeps its current configuration and shows the error on the details card.
 
 `aherald.log` (beside the configuration, 64 KiB with one backup) records fixed codes

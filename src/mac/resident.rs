@@ -43,12 +43,22 @@ const ART_WAIT_MS: u64 = 300;
 /// Frame interval while a card is on screen.
 const FRAME_MS: u64 = 16;
 
+/// What the status menu was last built from: the five switches, then the usage lines.
+type MenuKey = ((bool, bool, bool, bool, bool), String);
+
 struct Shared {
     queue: Queue,
     warnings: crate::session_warnings::Warnings,
     paused: bool,
     sounds: bool,
     visuals: bool,
+}
+
+impl Shared {
+    fn toggle_warning(&mut self, kind: crate::events::Kind) {
+        let enabled = !self.warnings.enabled(kind);
+        self.warnings.set_enabled(kind, enabled);
+    }
 }
 
 impl crate::resident_request::Controls for Shared {
@@ -250,7 +260,7 @@ struct Ui {
     usage_claude: bool,
     usage_next: u64,
     /// What the menu was last built from, so it is rebuilt only when that changes.
-    menu_key: Option<(bool, bool, bool, String)>,
+    menu_key: Option<MenuKey>,
     tooltip: String,
     stop: Arc<AtomicBool>,
     waker: Arc<Waker>,
@@ -283,11 +293,19 @@ impl Ui {
     /// Keeps the status item's icon, tooltip and menu in step with usage and the toggles.
     fn refresh_tray(&mut self) {
         let now = self.now();
-        let (sound, visual, paused) = self
+        let (sound, visual, paused, context, idle) = self
             .shared
             .lock()
-            .map(|s| (s.sounds, s.visuals, s.paused))
-            .unwrap_or((false, false, false));
+            .map(|s| {
+                (
+                    s.sounds,
+                    s.visuals,
+                    s.paused,
+                    s.warnings.enabled(crate::events::Kind::ContextWarning),
+                    s.warnings.enabled(crate::events::Kind::IdleWarning),
+                )
+            })
+            .unwrap_or((false, false, false, true, true));
         let display = self.config.codex.usage.display;
         let codex = self.codex_shown().then(|| self.usage.compact(display));
         let claude = self.claude.as_ref().map(|c| c.compact(display));
@@ -298,9 +316,7 @@ impl Ui {
             .collect();
         let tooltip = tooltip.join("\n");
         let key = (
-            sound,
-            visual,
-            paused,
+            (sound, visual, paused, context, idle),
             format!(
                 "{}\n{}",
                 codex.as_deref().unwrap_or(""),
@@ -312,6 +328,8 @@ impl Ui {
                 sound,
                 visual,
                 paused,
+                context,
+                idle,
                 codex.as_deref(),
                 claude.as_deref(),
             ));
@@ -433,7 +451,7 @@ impl Ui {
                         }
                     });
                 }
-                Command::Restart => {
+                Command::Apply => {
                     // A replacement that cannot load its configuration would exit silently
                     // and leave no resident: validate first and keep this one running.
                     if let Err(error) = Config::load(&self.config_path, true) {
@@ -441,7 +459,7 @@ impl Ui {
                             crate::operational_log::Record::InvalidConfiguration,
                         );
                         self.show_notice(format!(
-                            "aHerald\nRestart cancelled; the running configuration stays active.\n{error}"
+                            "aHerald\nApply cancelled; the running configuration stays active.\n{error}"
                         ));
                         continue;
                     }
@@ -453,6 +471,20 @@ impl Ui {
                         }
                         Err(error) => eprintln!("aHerald: {error}"),
                     });
+                }
+                Command::ContextWarnings | Command::IdleWarnings => {
+                    let kind = if command == Command::ContextWarnings {
+                        crate::events::Kind::ContextWarning
+                    } else {
+                        crate::events::Kind::IdleWarning
+                    };
+                    let now = self.now();
+                    if let Ok(mut state) = self.shared.lock() {
+                        let paused = state.paused;
+                        state.queue.tick(now, paused);
+                        state.toggle_warning(kind);
+                    }
+                    self.presenter.invalidate();
                 }
                 Command::Exit => {
                     self.stop.store(true, Ordering::Release);
@@ -1050,4 +1082,40 @@ fn present(
     stop.store(true, Ordering::Release);
     let _ = worker.join();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{agent::Agent, events::Kind};
+
+    #[test]
+    fn a_warning_switch_gates_only_its_own_warnings() {
+        let config = Config::parse(
+            "[codex.warnings]\nidle_enabled=true\ncontext_tokens=1\nidle_minutes=1",
+            Path::new("."),
+        )
+        .unwrap();
+        let shared = new_shared(&config);
+        let mut state = shared.lock().unwrap();
+        assert!(
+            state
+                .warnings
+                .context(Agent::Codex, "first", Some(2), &config)
+                .is_some()
+        );
+        state.toggle_warning(Kind::ContextWarning);
+        assert!(!state.warnings.enabled(Kind::ContextWarning));
+        assert!(state.warnings.pending().is_empty());
+        assert!(
+            state
+                .warnings
+                .context(Agent::Codex, "second", Some(2), &config)
+                .is_none(),
+            "a switched-off context warning must not be produced"
+        );
+        assert!(state.warnings.enabled(Kind::IdleWarning));
+        state.toggle_warning(Kind::ContextWarning);
+        assert!(state.warnings.enabled(Kind::ContextWarning));
+    }
 }

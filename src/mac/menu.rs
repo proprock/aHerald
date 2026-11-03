@@ -10,21 +10,25 @@ pub enum Command {
     Sound,
     Visual,
     Pause,
+    ContextWarnings,
+    IdleWarnings,
     Config,
-    Restart,
+    Apply,
     Exit,
 }
 
 impl Command {
-    pub const ALL: [Command; 9] = [
+    pub const ALL: [Command; 11] = [
         Command::CodexSummary,
         Command::ClaudeSummary,
         Command::About,
         Command::Sound,
         Command::Visual,
         Command::Pause,
+        Command::ContextWarnings,
+        Command::IdleWarnings,
         Command::Config,
-        Command::Restart,
+        Command::Apply,
         Command::Exit,
     ];
 
@@ -54,6 +58,8 @@ pub fn items(
     sound: bool,
     visual: bool,
     paused: bool,
+    context: bool,
+    idle: bool,
     codex: Option<&str>,
     claude: Option<&str>,
 ) -> Vec<Item> {
@@ -70,8 +76,14 @@ pub fn items(
         (Command::Sound, "Sound".to_owned(), sound),
         (Command::Visual, "Pop-up".to_owned(), visual),
         (Command::Pause, "Pause notifications".to_owned(), paused),
+        (
+            Command::ContextWarnings,
+            "Context warnings".to_owned(),
+            context,
+        ),
+        (Command::IdleWarnings, "Idle warnings".to_owned(), idle),
         (Command::Config, "Edit configuration".to_owned(), false),
-        (Command::Restart, "Restart".to_owned(), false),
+        (Command::Apply, "Apply".to_owned(), false),
         (Command::Exit, "Exit".to_owned(), false),
     ];
     usage
@@ -80,7 +92,10 @@ pub fn items(
             command,
             label,
             checked,
-            separator_before: matches!(command, Command::Sound | Command::Config),
+            separator_before: matches!(
+                command,
+                Command::Sound | Command::ContextWarnings | Command::Config
+            ),
         })
         .collect()
 }
@@ -102,10 +117,12 @@ mod tests {
             false,
             true,
             true,
+            true,
+            false,
             Some("Codex usage (unavailable)"),
             Some("Claude remain: 5h 80%"),
         );
-        assert_eq!(list.len(), 9);
+        assert_eq!(list.len(), 11);
         assert!(!item(&list, Command::Sound).checked);
         assert!(item(&list, Command::Visual).checked);
         assert!(item(&list, Command::Pause).checked);
@@ -119,10 +136,17 @@ mod tests {
                 .label
                 .contains("unavailable")
         );
+        assert!(item(&list, Command::ContextWarnings).checked);
+        assert!(!item(&list, Command::IdleWarnings).checked);
+        assert_eq!(
+            item(&list, Command::ContextWarnings).label,
+            "Context warnings"
+        );
+        assert_eq!(item(&list, Command::IdleWarnings).label, "Idle warnings");
         assert_eq!(item(&list, Command::Visual).label, "Pop-up");
         assert_eq!(item(&list, Command::Pause).label, "Pause notifications");
         assert_eq!(item(&list, Command::Config).label, "Edit configuration");
-        assert_eq!(item(&list, Command::Restart).label, "Restart");
+        assert_eq!(item(&list, Command::Apply).label, "Apply");
         assert_eq!(
             item(&list, Command::About).label,
             format!("aHerald v{}", crate::VERSION)
@@ -132,11 +156,19 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents_claude_first() {
-        let none = items(true, true, false, None, None);
-        assert_eq!(none.len(), 7);
-        let claude = items(true, true, false, None, Some("Claude"));
+        let none = items(true, true, false, false, false, None, None);
+        assert_eq!(none.len(), 9);
+        let claude = items(true, true, false, false, false, None, Some("Claude"));
         assert!(!commands(&claude).contains(&Command::CodexSummary));
-        let both = items(true, true, false, Some("Codex"), Some("Claude"));
+        let both = items(
+            true,
+            true,
+            false,
+            false,
+            false,
+            Some("Codex"),
+            Some("Claude"),
+        );
         assert_eq!(
             commands(&both)[..3],
             [
@@ -155,13 +187,16 @@ mod tests {
             (None, Some("a")),
             (Some("c"), Some("a")),
         ] {
-            let list = items(true, true, false, codex, claude);
+            let list = items(true, true, false, false, false, codex, claude);
             let separated: Vec<Command> = list
                 .iter()
                 .filter(|i| i.separator_before)
                 .map(|i| i.command)
                 .collect();
-            assert_eq!(separated, [Command::Sound, Command::Config]);
+            assert_eq!(
+                separated,
+                [Command::Sound, Command::ContextWarnings, Command::Config]
+            );
             assert!(!list[0].separator_before);
             let tail: Vec<Command> = commands(&list)
                 .into_iter()
@@ -174,8 +209,10 @@ mod tests {
                     Command::Sound,
                     Command::Visual,
                     Command::Pause,
+                    Command::ContextWarnings,
+                    Command::IdleWarnings,
                     Command::Config,
-                    Command::Restart,
+                    Command::Apply,
                     Command::Exit
                 ]
             );
@@ -189,6 +226,6 @@ mod tests {
         }
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-3), None);
-        assert_eq!(Command::from_tag(10), None);
+        assert_eq!(Command::from_tag(Command::ALL.len() as isize + 1), None);
     }
 }
