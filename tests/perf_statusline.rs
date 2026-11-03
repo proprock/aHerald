@@ -20,12 +20,6 @@ const ROUNDS: usize = 80;
 /// The budget is about 3.5x the largest observation, so only a structural regression, such as
 /// reading the whole configuration on the `--then` path, fails it.
 const OVERHEAD_BUDGET_MS: f64 = 6.0;
-/// Extra milliseconds allowed for the `--then` case on macOS only. A CI runner measured
-/// +8.4 and +9.6 ms over starting `sh` alone there (the same `sh -c true` started by the test
-/// costs +0.08 ms), against +1.4 ms on Linux: spawning a child from the aHerald process is
-/// slower on macOS. The cause is not investigated; the allowance keeps the check meaningful
-/// elsewhere. Without `--then` the wrapper costs +1.2 ms on macOS like on Linux.
-const THEN_SPAWN_ALLOWANCE_MS: f64 = if cfg!(target_os = "macos") { 12.0 } else { 0.0 };
 /// Ceiling for any single median, for runners where even the reference is slow.
 const ABSOLUTE_BUDGET_MS: f64 = 50.0;
 const PAYLOAD: &str = r#"{"session_id":"perf-sl","session_name":"N","model":{"display_name":"Opus"},"cost":{"total_lines_added":4},"context_window":{"used_percentage":12.5,"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#;
@@ -72,9 +66,11 @@ fn the_wrapper_costs_little_beyond_starting_the_executable() {
     std::fs::write(&config, FORMAT).unwrap();
     let config = config.to_str().unwrap();
     let exe = env!("CARGO_BIN_EXE_aherald");
-    // The `--then` command is the user's own and costs what starting `sh` costs on this
-    // machine (about 1 ms on Linux, 8 ms on a macOS runner), so `sh -c true` alone is measured
-    // too and its extra time is allowed for that case.
+    // The `--then` command is the user's own, run after the wrapper's own start by `sh -c`,
+    // so the cost of starting `sh` itself (about 1 ms on Linux, 3 ms on an M1 Mac, 8 ms on a
+    // macOS runner) is added to the budget for that case. It is the absolute median of
+    // `sh -c true` alone: measured against `--version` it would be negative when `sh` starts
+    // faster than the GUI-linked executable, and the allowance would vanish.
     let cases: [(&str, &str, Vec<&str>); 5] = [
         ("reference --version", exe, vec!["--version"]),
         ("--statusline", exe, vec!["--statusline"]),
@@ -107,14 +103,9 @@ fn the_wrapper_costs_little_beyond_starting_the_executable() {
         );
     }
     let _ = std::fs::remove_dir_all(&dir);
-    let shell_extra = (medians[4] - medians[0]).max(0.0);
+    let shell_start = medians[4];
     for (i, ((name, _, _), ms)) in cases.iter().zip(&medians).enumerate().take(4).skip(1) {
-        let allowed = OVERHEAD_BUDGET_MS
-            + if i == 3 {
-                shell_extra + THEN_SPAWN_ALLOWANCE_MS
-            } else {
-                0.0
-            };
+        let allowed = OVERHEAD_BUDGET_MS + if i == 3 { shell_start } else { 0.0 };
         assert!(
             ms - medians[0] <= allowed,
             "{name}: {ms:.2} ms is more than {allowed:.1} ms over the {:.2} ms reference",
