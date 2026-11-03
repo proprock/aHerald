@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-03
+
 ### Added
 - macOS: opt-in `[general] detect_terminal_tab` lets `suppress_when_focused` hide a card for
   the selected tab of Terminal.app or iTerm2 (asks macOS for Automation access; other
