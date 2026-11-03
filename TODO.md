@@ -568,7 +568,7 @@ are no users to migrate: IPC and configuration changes are plain replacements, a
 configuration files are edited by hand. Setup, installers and the live acceptance suite
 are deferred (AH-204, AH-205).
 
-- [ ] **AH-201 — Verify the harness event contracts (OpenCode, Pi, Goose, Crush).**
+- [x] **AH-201 — Verify the harness event contracts (OpenCode, Pi, Goose, Crush).**
   Inspect official documentation and the released source/types of the installed
   versions. Record, per harness, how an external command can learn: turn end, error,
   interruption, permission request and its resolution, input wait, session identity,
@@ -589,6 +589,9 @@ are deferred (AH-204, AH-205).
   and prompts (Pi) are live-verified, and so are sub-agents (OpenCode child sessions carry
   `parentID`; Pi children run as `--mode json` processes, `ctx.hasUI` false). Open: the TUI
   permission flow and live probes for Crush and Goose (documentation only so far).
+  Closed 2026-11-03 with those limits recorded in docs/harness-compatibility.md: the
+  Crush/Goose rows, the OpenCode TUI permission flow, Pi compaction and queued follow-ups
+  are not live-verified and must be re-checked in AH-203 before their mappings are shipped.
 
 - [ ] **AH-202 — Universal external event input and per-harness pets.**
   Depends on AH-201. `--notify <harness> --kind <existing kind> [--activity|--ended]`
