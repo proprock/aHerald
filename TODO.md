@@ -633,12 +633,21 @@ are deferred (AH-204, AH-205).
   (documentation only). Calls are serialized, so a short headless OpenCode run can end
   before its last call.
 
-- [ ] **AH-204 — Setup and installers for harness bridge files (deferred).**
-  Former AH-205 and AH-208. Install, update and remove aHerald-owned bridge files
-  through `--setup` with receipt ownership, dry run, backups and rollback; offer the new
-  harnesses in the Windows installer, macOS setup window and Linux console setup;
-  package the bridge assets. Plan after AH-203 proves the bridges.
+- [x] **AH-204 — Bridge file setup for harnesses (command line).**
+  Former AH-205 and AH-208. `aherald --setup --harness opencode|pi|goose` installs, updates and
+  removes aHerald-owned bridge files through the setup receipt (exact text recorded; dry run,
+  `*.aherald-backup`, rollback; foreign or edited files are never replaced). The bridges are
+  embedded in the executable, so nothing is packaged. Crush stays manual (its `crushrc` is the
+  user's script). Installer pages (Windows installer, macOS setup window, Linux console setup)
+  are not extended: they leave installed bridges alone; see AH-206.
+  Acceptance: process-level tests for dry run, install, repeat, foreign file, deselection,
+  edited-file removal, rollback and argument validation.
 
 - [ ] **AH-205 — Live acceptance and onboarding guide for new harnesses (deferred).**
   Former AH-209 and AH-210. Opt-in live checks with isolated harness configuration,
   and a short guide for adding the next harness (arguments, bridge, tests, docs).
+
+- [ ] **AH-206 — Offer the new harnesses in the installers (deferred).**
+  Depends on AH-204. Windows installer, macOS setup window and Linux console setup list OpenCode,
+  Pi and Goose beside Codex and Claude (default unchecked, installed ones retained) and pass the
+  selection as `UsageOptions::bridges`. The Windows part can be checked by CI only on this setup.

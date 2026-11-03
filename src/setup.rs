@@ -1,6 +1,7 @@
 //! User-context installation of fixed hook bindings. No lookup runs on the hook path.
 use crate::{
     agent::Agent,
+    bridge_setup::Bridge,
     hook_setup::{self, Action, Plan},
 };
 use serde::{Deserialize, Serialize};
@@ -21,8 +22,19 @@ struct Receipt {
     version: u32,
     executable: PathBuf,
     bindings: Vec<Binding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    bridges: Vec<BridgeBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     statusline: Option<StatusLineBinding>,
+}
+
+/// A bridge file and the exact text aHerald wrote, which is what proves the file is still ours.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BridgeBinding {
+    harness: String,
+    file: PathBuf,
+    text: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,6 +55,9 @@ pub struct UsageOptions {
     pub claude_context: Option<bool>,
     pub codex_idle: Option<bool>,
     pub claude_idle: Option<bool>,
+    /// Bridge files to install. `None` leaves installed bridges alone, so setups that do not
+    /// know about them (installer pages) never remove one; `Some` replaces the whole set.
+    pub bridges: Option<Vec<Bridge>>,
 }
 
 impl UsageOptions {
@@ -209,6 +224,7 @@ fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, Stri
             file,
             before,
             after,
+            remove: false,
         }))
     }
 }
@@ -225,6 +241,8 @@ struct Change {
     file: PathBuf,
     before: Option<String>,
     after: String,
+    /// Delete the file instead of writing `after`.
+    remove: bool,
 }
 
 /// Claude Code's exec form bypasses shells. Codex currently accepts a shell command
@@ -342,10 +360,140 @@ fn add_plan(
                 file: binding.file.clone(),
                 before,
                 after: text,
+                remove: false,
             },
         );
     }
     Ok(())
+}
+
+fn apply_change(change: &Change) -> Result<(), String> {
+    if !change.remove {
+        return hook_setup::write(&change.file, change.before.is_some(), &change.after);
+    }
+    let fail = |e: std::io::Error| format!("cannot remove {}: {e}", change.file.display());
+    let mut backup = change.file.as_os_str().to_os_string();
+    backup.push(".aherald-backup");
+    std::fs::copy(&change.file, backup).map_err(fail)?;
+    std::fs::remove_file(&change.file).map_err(fail)
+}
+
+/// Goose's plugin directory holds nothing else once its hook file is gone.
+fn remove_empty_plugin_dirs(file: &Path) {
+    if file.file_name().is_some_and(|name| name == "hooks.json") {
+        let mut dir = file.parent();
+        for _ in 0..2 {
+            let Some(current) = dir else { break };
+            // `remove_dir` refuses a directory that still holds the backup or anything else.
+            if std::fs::remove_dir(current).is_err() {
+                break;
+            }
+            dir = current.parent();
+        }
+    }
+}
+
+/// Plans the bridge files and returns the bindings the receipt should hold afterwards.
+fn bridge_plan(
+    exe: &Path,
+    previous: &[BridgeBinding],
+    remove: bool,
+    options: &UsageOptions,
+    changes: &mut Vec<Change>,
+    report: &mut String,
+) -> Result<Vec<BridgeBinding>, String> {
+    let selected: &[Bridge] = match (&options.bridges, remove) {
+        (_, true) => &[],
+        (Some(list), false) => list,
+        (None, false) => {
+            // Untouched: the recorded bridges stay as they are.
+            return Ok(previous
+                .iter()
+                .map(|b| BridgeBinding {
+                    harness: b.harness.clone(),
+                    file: b.file.clone(),
+                    text: b.text.clone(),
+                })
+                .collect());
+        }
+    };
+    let get = |key: &str| std::env::var_os(key);
+    let mut wanted = Vec::new();
+    for &bridge in selected {
+        let file = bridge.file(get)?;
+        if !file.is_absolute() {
+            return Err(format!("{} directory must be absolute", bridge.label()));
+        }
+        wanted.push((bridge, file));
+    }
+    let mut kept = Vec::new();
+    for old in previous {
+        if wanted
+            .iter()
+            .any(|(bridge, file)| bridge.key() == old.harness && *file == old.file)
+        {
+            continue;
+        }
+        let label = Bridge::from_name(&old.harness).map_or("Harness", Bridge::label);
+        report.push_str(&format!("{label} bridge: {}\n", old.file.display()));
+        match read(&old.file)? {
+            None => report.push_str("  Already gone.\n"),
+            Some(text) if text == old.text => {
+                report.push_str("  Remove the file.\n");
+                changes.push(Change {
+                    file: old.file.clone(),
+                    before: Some(text),
+                    after: String::new(),
+                    remove: true,
+                });
+            }
+            Some(_) => {
+                report.push_str("  The file was changed after aHerald wrote it; left in place.\n")
+            }
+        }
+    }
+    for (bridge, file) in wanted {
+        let text = bridge.text(exe);
+        report.push_str(&format!("{} bridge: {}\n", bridge.label(), file.display()));
+        let before = read(&file)?;
+        let owned = previous
+            .iter()
+            .find(|b| b.harness == bridge.key() && b.file == file)
+            .map(|b| b.text.as_str());
+        match before.as_deref() {
+            Some(existing) if existing == text => report.push_str("  Nothing to change.\n"),
+            Some(existing) if Some(existing) == owned => {
+                report.push_str("  Update the file.\n");
+                changes.push(Change {
+                    file: file.clone(),
+                    before,
+                    after: text.clone(),
+                    remove: false,
+                });
+            }
+            Some(_) => {
+                return Err(format!(
+                    "{} already exists and is not aHerald's; nothing was changed",
+                    file.display()
+                ));
+            }
+            None => {
+                report.push_str("  Create the file.\n");
+                changes.push(Change {
+                    file: file.clone(),
+                    before: None,
+                    after: text.clone(),
+                    remove: false,
+                });
+            }
+        }
+        kept.push(BridgeBinding {
+            harness: bridge.key().into(),
+            file,
+            text,
+        });
+    }
+    Ok(kept)
 }
 
 fn merge_change(changes: &mut Vec<Change>, change: Change) {
@@ -398,6 +546,7 @@ fn statusline_plan(
                         after: serde_json::to_string_pretty(&root)
                             .map_err(|_| "cannot encode Claude settings")?
                             + "\n",
+                        remove: false,
                     },
                 );
                 report.push_str("Claude: restore the original statusLine.\n");
@@ -462,6 +611,7 @@ fn statusline_plan(
                 after: serde_json::to_string_pretty(&root)
                     .map_err(|_| "cannot encode Claude settings")?
                     + "\n",
+                remove: false,
             },
         );
         report.push_str("Claude: configure the context statusLine wrapper.\n");
@@ -559,6 +709,7 @@ pub fn run_with_options(
             version: 1,
             executable: exe.to_path_buf(),
             bindings: Vec::new(),
+            bridges: Vec::new(),
             statusline: None,
         },
     };
@@ -573,7 +724,7 @@ pub fn run_with_options(
     }
     let mut bindings = Vec::new();
     if !remove {
-        if harnesses.is_empty() {
+        if harnesses.is_empty() && options.bridges.as_ref().is_none_or(Vec::is_empty) {
             return Err("setup requires at least one harness".into());
         }
         for &agent in harnesses {
@@ -603,6 +754,14 @@ pub fn run_with_options(
     for binding in &bindings {
         add_plan(binding, exe, Action::Install, &mut changes, &mut report)?;
     }
+    let bridges = bridge_plan(
+        exe,
+        &previous.bridges,
+        remove,
+        options,
+        &mut changes,
+        &mut report,
+    )?;
     let claude_file = bindings
         .iter()
         .find(|b| b.agent == "claude")
@@ -634,6 +793,7 @@ pub fn run_with_options(
         version: 1,
         executable: exe.to_path_buf(),
         bindings,
+        bridges,
         statusline,
     })
     .map_err(|_| "cannot encode setup receipt")?
@@ -644,6 +804,7 @@ pub fn run_with_options(
             file: receipt_file,
             before: receipt_before,
             after: receipt,
+            remove: false,
         });
     }
     if !apply {
@@ -658,12 +819,13 @@ pub fn run_with_options(
         }
     }
     for (index, change) in changes.iter().enumerate() {
-        if let Err(error) = hook_setup::write(&change.file, change.before.is_some(), &change.after)
-        {
+        if let Err(error) = apply_change(change) {
             let mut failures = Vec::new();
             for done in changes[..index].iter().rev() {
                 let result = match &done.before {
-                    Some(before) => hook_setup::write_inner(&done.file, true, before, false),
+                    Some(before) => {
+                        hook_setup::write_inner(&done.file, done.file.exists(), before, false)
+                    }
                     None => std::fs::remove_file(&done.file).map_err(|e| e.to_string()),
                 };
                 if let Err(e) = result {
@@ -678,6 +840,13 @@ pub fn run_with_options(
         }
     }
     report.push_str("Setup complete. Changed existing files were backed up as *.aherald-backup.\n");
+    for change in changes.iter().filter(|c| c.remove) {
+        remove_empty_plugin_dirs(&change.file);
+    }
+    for bridge in options.bridges.iter().flatten().filter(|_| !remove) {
+        report.push_str(bridge.restart_hint());
+        report.push('\n');
+    }
     if !remove && harnesses.contains(&Agent::Codex) {
         report.push_str("Start a new Codex session, open /hooks and trust the aHerald hooks.\n");
     }

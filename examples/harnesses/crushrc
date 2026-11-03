@@ -1,0 +1,9 @@
+# Append to ~/.config/crush/crushrc (or $XDG_CONFIG_HOME/crush/crushrc). `aherald --setup` does not
+# edit this file: a crushrc is your own shell script. Use the full path of aherald if it is not on PATH.
+hook add TurnStart --name aherald-start --command 'aherald --notify crush --kind turn_complete --activity'
+hook add TurnEnd --name aherald-end --command 'aherald --notify crush --kind turn_complete'
+hook add StopFailure --name aherald-error --command 'aherald --notify crush --kind error'
+hook add Interrupt --name aherald-interrupt --command 'aherald --notify crush --kind interrupted'
+hook add PermissionRequest --name aherald-permission --command 'aherald --notify crush --kind permission_required'
+hook add PermissionResult --name aherald-permission-done --command 'aherald --notify crush --kind turn_complete --activity'
+hook add SessionEnd --name aherald-session-end --command 'aherald --notify crush --kind turn_complete --ended'

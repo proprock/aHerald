@@ -19,8 +19,7 @@ aHerald maps these to its existing kinds only: `turn_complete`, `permission_requ
 
 Crush and Goose are documented only, from their official hook documentation read on
 2026-11-03 (Crush `docs/hooks/README.md` on `main`; Goose `hooks.md`). Both run a `sh`-style
-command with JSON on stdin and need hook configuration, not a bridge. Crush reads `hooks` from
-`crush.json`; its `TurnStart`, `TurnEnd` and `PermissionRequest` fire for the top-level agent
+command with JSON on stdin and need hook configuration, not a bridge. Crush reads hooks from `crushrc` (`hook add EVENT --command ...`; the JSON `hooks` form is deprecated); its `TurnStart`, `TurnEnd` and `PermissionRequest` fire for the top-level agent
 only. Goose follows the Open Plugins layout, `~/.agents/plugins/<name>/hooks/hooks.json`; its
 `Stop` hook may block, which an empty stdout and exit 0 never do. No Crush or Goose binary was
 run, so the shipped examples are untested against the real programs.

@@ -14,6 +14,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   other coding harnesses, with per-harness queues and pets (AH-202).
 - Bridges and hook examples for OpenCode, Pi, Crush and Goose in `examples/harnesses`; see
   `docs/harnesses.md` (AH-203).
+- `aherald --setup --harness opencode|pi|goose` installs those bridges as aHerald-owned files
+  (dry run by default, receipt, backups, rollback); `--unsetup` removes them (AH-204).
 
 ### Changed
 - Breaking: `[pets]` and `[pet_animations]` replace `notifications.pet`,

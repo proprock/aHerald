@@ -140,6 +140,14 @@ impl Cli {
                 }
                 "--harness" => {
                     let name = args.next().ok_or("--harness requires a value")?;
+                    if let Some(bridge) = crate::bridge_setup::Bridge::from_name(&name) {
+                        let bridges = cli.usage.bridges.get_or_insert_with(Vec::new);
+                        if bridges.contains(&bridge) {
+                            return Err("duplicate --harness".into());
+                        }
+                        bridges.push(bridge);
+                        continue;
+                    }
                     let agent = Agent::from_name(&name).ok_or("unknown harness")?;
                     if cli.harnesses.contains(&agent) {
                         return Err("duplicate --harness".into());
@@ -231,10 +239,14 @@ impl Cli {
             )
         );
         let native_setup = matches!(cli.operation.as_deref(), Some("setup" | "unsetup"));
-        if cli.operation.as_deref() == Some("setup") && cli.harnesses.is_empty() {
-            return Err("--setup requires at least one --harness codex|claude".into());
+        let bridges_named = cli.usage.bridges.is_some();
+        if cli.operation.as_deref() == Some("setup") && cli.harnesses.is_empty() && !bridges_named {
+            return Err(
+                "--setup requires at least one --harness codex|claude|opencode|pi|goose".into(),
+            );
         }
-        if !cli.harnesses.is_empty() && cli.operation.as_deref() != Some("setup") {
+        if (!cli.harnesses.is_empty() || bridges_named) && cli.operation.as_deref() != Some("setup")
+        {
             return Err("--harness is only valid with --setup".into());
         }
         let settings_read = cli.operation.as_deref() == Some("setup-settings");
