@@ -251,13 +251,15 @@ and the acceptance evidence; reuse the Linux and Windows pieces rather than para
   resident admits, observed through the resident (not source text); Apply keeps usage and
   event handling running; verified by hand on the MacBook Pro M1 (cards, dismissal).
   Status 2026-11-03 (branch `feature/ah-118-mac-tray-warnings`, stacked on AH-102): the menu
-  lists Context warnings, Idle warnings, Apply + Test and Apply (formerly Restart); the switches
-  call the shared `Warnings` gates (tested through the resident state) and rebuild the menu.
-  Apply + Test restarts the resident with `--test-after-apply`, which shows each enabled card
-  once through `Demo::single_pass` (new, tested in controlled time) instead of the Windows and
-  Linux carousel with navigation buttons: agreed with the maintainer as the smaller first step.
-  Automated: fmt, Clippy, `cargo test --all-targets` (752 passed). Not yet checked by hand on
-  the M1: the menu itself, the switches' effect on live cards, Apply, Apply + Test.
+  has the Windows order and separators (usage lines, Sound, Pop-up, Pause, Context warnings,
+  Idle warnings, About, Edit configuration, Apply + Test, Apply, Exit; Apply was Restart). The
+  switches call the shared `Warnings` gates (tested through the resident state). Apply + Test
+  restarts the resident with `--test-after-apply` and shows the shared `demo::Carousel` as on
+  Windows and Linux: arrows, wheel and body clicks, a "[Test]" heading with "Disabled in
+  config", each sample's sound once, ended by dismissal or the first real card; the click
+  decision is the pure `input::carousel_click`. Automated: fmt, Clippy and
+  `cargo test --all-targets` (753 passed). Not yet checked by hand on the M1: the menu itself,
+  the switches' effect on live cards, Apply, Apply + Test (cards, sounds, arrows, wheel, dismiss).
 
 - [ ] **AH-119 — macOS live warning acceptance and documentation.**
   The macOS counterpart of AH-115. With the AH-118 switches, verify real Codex and Claude
