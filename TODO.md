@@ -585,6 +585,9 @@ are deferred (AH-204, AH-205).
   notifications, unsupported cases, sources and sanitized fixtures; candidate events
   of OpenCode and Pi verified with isolated opt-in probes (documentation alone is not
   live acceptance). No transcript parsing, proxy sessions or account-token access.
+  Progress 2026-11-03: Pi and OpenCode turn end, error, interruption, permission (OpenCode)
+  and prompts (Pi) are live-verified; open: OpenCode and Pi sub-agent behavior, the TUI
+  permission flow, and live probes for Crush and Goose (documentation only so far).
 
 - [ ] **AH-202 — Universal external event input and per-harness pets.**
   Depends on AH-201. `--notify <harness> --kind <existing kind> [--activity|--ended]`
