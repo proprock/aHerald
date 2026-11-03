@@ -22,12 +22,12 @@ impl Command {
     pub const ALL: [Command; 12] = [
         Command::CodexSummary,
         Command::ClaudeSummary,
-        Command::About,
         Command::Sound,
         Command::Visual,
         Command::Pause,
         Command::ContextWarnings,
         Command::IdleWarnings,
+        Command::About,
         Command::Config,
         Command::ApplyTest,
         Command::Apply,
@@ -73,8 +73,9 @@ pub fn items(
     ]
     .into_iter()
     .filter_map(|(command, text)| text.map(|text| (command, text.to_owned(), false)));
+    let has_usage = codex.is_some() || claude.is_some();
+    // The order and the separators of the Windows tray menu (`tray.rs`).
     let rest = [
-        (Command::About, version, false),
         (Command::Sound, "Sound".to_owned(), sound),
         (Command::Visual, "Pop-up".to_owned(), visual),
         (Command::Pause, "Pause notifications".to_owned(), paused),
@@ -84,6 +85,7 @@ pub fn items(
             context,
         ),
         (Command::IdleWarnings, "Idle warnings".to_owned(), idle),
+        (Command::About, version, false),
         (Command::Config, "Edit configuration".to_owned(), false),
         (Command::ApplyTest, "Apply + Test".to_owned(), false),
         (Command::Apply, "Apply".to_owned(), false),
@@ -95,10 +97,11 @@ pub fn items(
             command,
             label,
             checked,
-            separator_before: matches!(
-                command,
-                Command::Sound | Command::ContextWarnings | Command::Config
-            ),
+            separator_before: match command {
+                Command::Sound => has_usage,
+                Command::ContextWarnings | Command::About => true,
+                _ => false,
+            },
         })
         .collect()
 }
@@ -178,13 +181,15 @@ mod tests {
             [
                 Command::ClaudeSummary,
                 Command::CodexSummary,
-                Command::About
+                Command::Sound
             ]
         );
     }
 
+    /// The Windows tray's order (`tray.rs`): usage lines, the three output switches, the two
+    /// warning switches, then the version and the configuration commands.
     #[test]
-    fn separators_follow_the_version_and_pause_without_a_leading_separator() {
+    fn the_menu_has_the_windows_order_and_separators() {
         for (codex, claude) in [
             (None, None),
             (Some("c"), None),
@@ -192,29 +197,32 @@ mod tests {
             (Some("c"), Some("a")),
         ] {
             let list = items(true, true, false, false, false, codex, claude);
+            let has_usage = codex.is_some() || claude.is_some();
             let separated: Vec<Command> = list
                 .iter()
                 .filter(|i| i.separator_before)
                 .map(|i| i.command)
                 .collect();
-            assert_eq!(
-                separated,
-                [Command::Sound, Command::ContextWarnings, Command::Config]
-            );
+            let expected: Vec<Command> = has_usage
+                .then_some(Command::Sound)
+                .into_iter()
+                .chain([Command::ContextWarnings, Command::About])
+                .collect();
+            assert_eq!(separated, expected);
             assert!(!list[0].separator_before);
             let tail: Vec<Command> = commands(&list)
                 .into_iter()
-                .skip_while(|c| *c != Command::About)
+                .skip_while(|c| *c != Command::Sound)
                 .collect();
             assert_eq!(
                 tail,
                 [
-                    Command::About,
                     Command::Sound,
                     Command::Visual,
                     Command::Pause,
                     Command::ContextWarnings,
                     Command::IdleWarnings,
+                    Command::About,
                     Command::Config,
                     Command::ApplyTest,
                     Command::Apply,
