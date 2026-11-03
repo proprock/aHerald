@@ -105,8 +105,7 @@ fn the_wrapper_costs_little_beyond_starting_the_executable() {
     let _ = std::fs::remove_dir_all(&dir);
     let shell_start = medians[4];
     for (i, ((name, _, _), ms)) in cases.iter().zip(&medians).enumerate().take(4).skip(1) {
-        let allowed = OVERHEAD_BUDGET_MS
-            + if i == 3 { shell_start } else { 0.0 };
+        let allowed = OVERHEAD_BUDGET_MS + if i == 3 { shell_start } else { 0.0 };
         assert!(
             ms - medians[0] <= allowed,
             "{name}: {ms:.2} ms is more than {allowed:.1} ms over the {:.2} ms reference",
