@@ -66,6 +66,29 @@ pub fn click(
     true
 }
 
+/// What a click does in the configuration preview (Apply + Test): the arrows move between the
+/// samples, the dismiss button leaves the preview, and the body shows the next sample. Pure,
+/// like `click`; the preview owns no queue entry, so it only names the action.
+pub fn carousel_click(
+    index: usize,
+    count: usize,
+    layout: &Layout,
+    (x, y): (i32, i32),
+) -> Option<Action> {
+    if count == 0 {
+        return None;
+    }
+    let mut controls = Card::new("", index, count, false);
+    controls.text_left = Some(layout.text_left);
+    controls
+        .hit_test(layout.width, layout.height, layout.scale, x, y)
+        .or_else(|| {
+            controls
+                .body_hit_test(layout.width, layout.height, layout.scale, x, y)
+                .then_some(Action::Next)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +196,36 @@ mod tests {
         assert!(!on_body(&q, true, &l, (-1, 10)));
         assert!(!on_body(&q, true, &l, (640, 10)));
         assert!(!on_body(&queue(0), true, &l, (300, 60)));
+    }
+
+    /// Centre of a button of a preview card (no click-to-dismiss, as in the preview).
+    fn preview_centre(index: usize, count: usize, action: Action) -> (i32, i32) {
+        let l = layout();
+        let mut card = Card::new("", index, count, false);
+        card.text_left = Some(l.text_left);
+        let (_, a) = card
+            .buttons(l.width, l.height, l.scale)
+            .into_iter()
+            .find(|(a, _)| *a == action)
+            .unwrap();
+        ((a.left + a.right) / 2, (a.top + a.bottom) / 2)
+    }
+
+    #[test]
+    fn the_preview_buttons_name_their_own_actions() {
+        let l = layout();
+        for action in [Action::Previous, Action::Next, Action::Dismiss] {
+            let at = preview_centre(2, 7, action);
+            assert_eq!(carousel_click(2, 7, &l, at), Some(action));
+        }
+    }
+
+    #[test]
+    fn the_preview_body_shows_the_next_sample_and_outside_does_nothing() {
+        let l = layout();
+        assert_eq!(carousel_click(2, 7, &l, (300, 60)), Some(Action::Next));
+        assert_eq!(carousel_click(2, 7, &l, (-1, 10)), None);
+        assert_eq!(carousel_click(2, 7, &l, (640, 10)), None);
+        assert_eq!(carousel_click(0, 0, &l, (300, 60)), None);
     }
 }

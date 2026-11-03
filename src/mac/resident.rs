@@ -79,6 +79,15 @@ impl crate::resident_request::Controls for Shared {
     }
 }
 
+/// What the resident shows on its own, besides real events.
+enum Preview {
+    None,
+    /// `--demo`: the looping configuration preview.
+    Demo(crate::demo::Demo),
+    /// Apply + Test: one card per event kind, with arrows (the Windows and Linux preview).
+    Test(crate::demo::Carousel),
+}
+
 /// Wakes the AppKit event loop from another thread.
 struct Waker(Mutex<Option<Retained<NSApplication>>>);
 
@@ -131,7 +140,7 @@ pub fn run_demo(mut config: Config, path: &Path, pause_sec: u64) -> Result<(), S
         Instant::now(),
         Arc::new(Waker(Mutex::new(None))),
         path,
-        Some(demo),
+        Preview::Demo(demo),
     )
 }
 
@@ -152,11 +161,11 @@ pub fn run_after_apply(
     {
         config.agents.insert("demo".into(), assets);
     }
-    // Nothing to preview when every event is disabled; the resident still starts.
-    let preview = test
-        .then(|| crate::demo::Demo::new(&config, 3).ok())
-        .flatten()
-        .map(crate::demo::Demo::single_pass);
+    let preview = if test {
+        Preview::Test(crate::demo::Carousel::new(&config))
+    } else {
+        Preview::None
+    };
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
@@ -274,6 +283,10 @@ struct Ui {
     presenter: crate::presenter::Presenter,
     source_labels: crate::session_source::Service,
     demo: Option<crate::demo::Demo>,
+    /// Apply + Test: the samples being browsed; ends on dismissal or on the first real card.
+    carousel: Option<crate::demo::Carousel>,
+    /// The sample whose sound has played, so a card sounds once per visit.
+    test_sound: Option<u64>,
     tray: Tray,
     usage: crate::usage_service::Service,
     claude: Option<crate::usage_service::Service>,
@@ -418,9 +431,26 @@ impl Ui {
         self.presenter.invalidate();
     }
 
-    /// Pages through a long usage card with the scroll wheel.
+    /// Silences what is playing; the next sound starts with a fresh flag.
+    fn cancel_sound(&mut self) {
+        self.audio_cancel.store(true, Ordering::Release);
+        self.audio_cancel = Arc::new(AtomicBool::new(false));
+    }
+
+    /// Pages through a long usage card, or browses the Apply + Test samples, with the wheel.
     fn handle_scrolls(&mut self) {
         let scrolls = self.panel.take_scrolls();
+        let now = self.now();
+        if let Some(cards) = &mut self.carousel {
+            // One step per wake: a trackpad's inertia must not spin through the samples.
+            let total: f64 = scrolls.iter().sum();
+            if total < 0.0 {
+                cards.navigate(1, now);
+            } else if total > 0.0 {
+                cards.navigate(-1, now);
+            }
+            return;
+        }
         if !self.usage_window {
             return;
         }
@@ -591,6 +621,26 @@ impl Ui {
         };
         let window = (frame.rect.width, frame.rect.height);
         let now = self.now();
+        if let Some(cards) = &mut self.carousel {
+            let mut dismissed = false;
+            for point in clicks {
+                let pixels = input::to_pixels(point, window, &layout);
+                match input::carousel_click(cards.index(), cards.len(), &layout, pixels) {
+                    Some(crate::card::Action::Previous) => cards.navigate(-1, now),
+                    Some(crate::card::Action::Next) => cards.navigate(1, now),
+                    Some(crate::card::Action::Dismiss) => {
+                        dismissed = true;
+                        break;
+                    }
+                    None => {}
+                }
+            }
+            if dismissed {
+                self.carousel = None;
+                self.cancel_sound();
+            }
+            return;
+        }
         let Ok(mut state) = self.shared.lock() else {
             return;
         };
@@ -628,6 +678,7 @@ impl Ui {
     /// Whether the next wake should come from the clock rather than from IPC.
     fn animating(&self) -> bool {
         self.demo.is_some()
+            || self.carousel.is_some()
             || self.art_wait.is_some()
             || self.panel.is_visible()
             || self
@@ -747,9 +798,6 @@ impl Ui {
             let paused = state.paused;
             if let Some(demo) = &mut self.demo {
                 demo.tick(now, paused, &mut state.queue);
-                if demo.is_finished() {
-                    self.demo = None;
-                }
             }
             crate::resident_request::tick(&mut *state, &self.config, now);
             state.queue.tick(now, paused);
@@ -760,6 +808,27 @@ impl Ui {
                 paused,
             )
         };
+        let (mut entry, mut index, mut count) = (entry, index, count);
+        // A real card ends the preview, as on Windows and Linux.
+        if self.carousel.is_some() && entry.is_some() {
+            self.carousel = None;
+            self.cancel_sound();
+        }
+        let mut preview_sound = None;
+        if let Some(cards) = &mut self.carousel {
+            cards.tick(now, paused);
+            let selected = cards.selected().clone();
+            if self.test_sound != Some(selected.id) && !paused {
+                preview_sound = Some(selected.clone());
+                self.test_sound = Some(selected.id);
+            }
+            entry = Some(selected);
+            index = cards.index();
+            count = cards.len();
+        }
+        if preview_sound.is_some() {
+            self.cancel_sound();
+        }
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
         if !self.usage_window {
             self.notice = None;
@@ -789,11 +858,14 @@ impl Ui {
         self.audio.retain(|job| !job.is_finished());
         // Every new event sounds once, even behind a selected persistent card.
         let room = crate::presenter::sound_slots(self.audio.len());
-        let fresh = self
-            .shared
-            .lock()
-            .map(|mut state| state.queue.take_unannounced(room))
-            .unwrap_or_default();
+        let fresh = if self.carousel.is_some() {
+            preview_sound.into_iter().collect()
+        } else {
+            self.shared
+                .lock()
+                .map(|mut state| state.queue.take_unannounced(room))
+                .unwrap_or_default()
+        };
         for fresh in fresh {
             if !fresh.outputs.sound {
                 continue;
@@ -806,7 +878,8 @@ impl Ui {
                 self.audio.push(job);
             }
         }
-        if !self.config.notifications.enabled {
+        // The preview shows its samples even when pop-ups are switched off.
+        if !self.config.notifications.enabled && self.carousel.is_none() {
             self.hide();
             return Ok(());
         }
@@ -872,13 +945,25 @@ impl Ui {
         } else if self.art_wait.is_some() {
             return Ok(());
         }
-        let heading = self.source_labels.label(&entry.event);
+        let heading = if let Some(cards) = &self.carousel {
+            crate::card::Heading::new(
+                if entry.event.source.agent().is_some() {
+                    entry.event.source.label()
+                } else {
+                    "aHerald"
+                },
+                Some("[Test]"),
+                cards.disabled().then_some("Disabled in config"),
+            )
+        } else {
+            self.source_labels.label(&entry.event)
+        };
         let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
         let controls = Card::new(
             heading,
             index,
             count,
-            self.config.notifications.click_to_dismiss,
+            self.carousel.is_none() && self.config.notifications.click_to_dismiss,
         );
         let shown = (controls.heading.clone(), index, count, age);
         let text_changed = self.shown_card != shown;
@@ -923,8 +1008,16 @@ impl Ui {
             durations: &composition.durations,
             looping: composition.looping,
             animation_ms: now.saturating_sub(self.animation_start),
-            fade_in_ms: self.config.notifications.fade_in_ms,
-            fade_out_ms: self.config.notifications.fade_out_ms,
+            fade_in_ms: if self.carousel.is_some() {
+                0
+            } else {
+                self.config.notifications.fade_in_ms
+            },
+            fade_out_ms: if self.carousel.is_some() {
+                0
+            } else {
+                self.config.notifications.fade_out_ms
+            },
         }) else {
             return Ok(());
         };
@@ -954,8 +1047,13 @@ fn present(
     start: Instant,
     waker: Arc<Waker>,
     config_path: &Path,
-    demo: Option<crate::demo::Demo>,
+    preview: Preview,
 ) -> Result<(), String> {
+    let (demo, carousel) = match preview {
+        Preview::None => (None, None),
+        Preview::Demo(demo) => (Some(demo), None),
+        Preview::Test(cards) => (None, Some(cards)),
+    };
     let mtm = MainThreadMarker::new().ok_or("the macOS overlay must run on the main thread")?;
     let app = NSApplication::sharedApplication(mtm);
     // No Dock icon and no menu bar: the resident is an accessory.
@@ -1047,6 +1145,8 @@ fn present(
                 crate::session_source::Service::codex()
             },
             demo,
+            carousel,
+            test_sound: None,
             tray: Tray::new(mtm),
             usage,
             claude,

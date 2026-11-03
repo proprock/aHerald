@@ -10,21 +10,8 @@ pub struct Demo {
     deadline: u64,
     scene: usize,
     showing: bool,
-    single_pass: bool,
-    finished: bool,
 }
 impl Demo {
-    /// Show every scene once and stop, instead of looping.
-    pub fn single_pass(mut self) -> Self {
-        self.single_pass = true;
-        self
-    }
-
-    /// Whether a single pass has shown its last scene; a looping demo never finishes.
-    pub fn is_finished(&self) -> bool {
-        self.finished
-    }
-
     pub fn new(config: &Config, pause_sec: u64) -> Result<Self, String> {
         if !(1..=86_400).contains(&pause_sec) {
             return Err("demo pause must be 1..86400 seconds".into());
@@ -73,8 +60,6 @@ impl Demo {
             deadline: 0,
             scene: 0,
             showing: false,
-            single_pass: false,
-            finished: false,
         })
     }
 
@@ -82,7 +67,7 @@ impl Demo {
     pub fn tick(&mut self, now: u64, paused: bool, queue: &mut Queue) {
         let delta = now.saturating_sub(self.last_tick);
         self.last_tick = now;
-        if paused || self.finished {
+        if paused {
             return;
         }
         self.elapsed = self.elapsed.saturating_add(delta);
@@ -99,11 +84,6 @@ impl Demo {
             }
             self.scene = (self.scene + 1) % self.scenes.len();
             self.deadline = self.elapsed.saturating_add(self.pause_ms);
-            // The scene that wraps to the first one ends a single pass.
-            if self.single_pass && self.scene == 0 {
-                self.finished = true;
-                return;
-            }
         } else {
             // Every scenario has fresh identity, even with long dedup windows.
             for (event, duration) in &self.scenes[self.scene] {
