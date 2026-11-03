@@ -558,118 +558,74 @@ Small JS/TS bridges running inside the harness's own extension runtime are appro
 aHerald remains native Rust and requires no separate JavaScript runtime. Keep each
 slice usable, follow test-first development, and start after the current milestone.
 
-- [ ] **AH-201 — Verify OpenCode and Pi integration contracts.**
-  Inspect official documentation and matching released source/types for each
-  selected target version. Record event payloads, session identity, main-session
-  versus subagent behavior, activity/completion/error semantics, extension discovery,
-  callback responses and failure behavior. Check whether permission/input waits and
-  their resolution can be observed without intercepting decisions. Distinguish
-  final idle from intermediate turn/run completion, retries and automatic continuation.
-  Acceptance: a versioned compatibility matrix identifies supported notifications,
-  unsupported cases, sources and sanitized fixtures. Verify candidate events with
-  isolated opt-in probes; documentation/schema evidence alone is not live acceptance.
-  Do not introduce transcript parsing, proxy sessions or account-token access.
+Scope reduced (2026-11-03): one universal input replaces per-harness adapters. A
+harness hook or bridge states the harness name and one of the existing event kinds as
+arguments (`aherald --notify <harness> --kind <kind> [--activity | --ended]`); only the
+session id and working directory are read from stdin. No new event kinds, no adapter
+extraction or refactor of Codex/Claude, no per-harness `enabled` switch (installing the
+hook or bridge is the opt-in), no usage/context/idle support for new harnesses. There
+are no users to migrate: IPC and configuration changes are plain replacements, and local
+configuration files are edited by hand. Setup, installers and the live acceptance suite
+are deferred (AH-204, AH-205).
 
-- [ ] **AH-202 — Establish regression contracts for existing harnesses.**
-  Depends on AH-201. Reuse existing behavioral coverage and add only missing
-  contracts needed for adapter extraction: normalization, ignored/invalid input,
-  exact hook stdout/exit behavior, prompt process completion, activity/session-end
-  handling, deduplication and unresolved waits. Cover identical session IDs from
-  different harnesses and relevant subagent separation. Keep existing usage,
-  context, statusLine and activation behavior covered.
-  Acceptance: executable tests pass against the pre-refactor implementation,
-  with baseline failures recorded separately. Tests assert outputs and state,
-  not source text or the future module layout.
+- [ ] **AH-201 — Verify the harness event contracts (OpenCode, Pi, Goose, Crush).**
+  Inspect official documentation and the released source/types of the installed
+  versions. Record, per harness, how an external command can learn: turn end, error,
+  interruption, permission request and its resolution, input wait, session identity,
+  main session versus subagents, extension/hook discovery and failure behavior (a
+  failing hook must not stop the agent). Distinguish final idle from intermediate
+  completion (retries, compaction, queued follow-ups). Target versions: OpenCode 2.2.0
+  (Homebrew `opencode`; the npm `opencode-ai` line is 1.19.x), Pi 1.5.0 (needs Node
+  >= 22.19; Node 23.7 fails in its bundled undici), Goose and Crush as documented.
+  Aider and Zero are recorded as unsupported: Aider's `--notifications-command` gets no
+  arguments, stdin or session id and fires on the next prompt of any kind; Zero's hooks
+  (`beforeTool`, `afterTool`, `sessionStart`, `sessionEnd`) have no turn-end or
+  permission event and its stream-JSON events exist only for headless `zero exec`.
+  Acceptance: `docs/harness-compatibility.md` with a versioned matrix of supported
+  notifications, unsupported cases, sources and sanitized fixtures; candidate events
+  of OpenCode and Pi verified with isolated opt-in probes (documentation alone is not
+  live acceptance). No transcript parsing, proxy sessions or account-token access.
 
-- [ ] **AH-203 — Isolate harness adapters and centralize basic registration.**
-  Depends on AH-201 and AH-202. Keep statically compiled harness identities;
-  centralize keys, labels and supported basic event capabilities. Move upstream
-  parsing, hook reply contracts and lifecycle interpretation into per-harness
-  adapters. Return normalized notifications and explicit lifecycle observations
-  from the adapter boundary; do not make every harness implement usage, context,
-  naming or activation. Keep protocol-specific logic outside shared consumers.
-  Preserve existing CLI defaults, configuration, serialized events and hook responses;
-  retain legacy activity/end encoding at compatibility boundaries where needed.
-  Acceptance: Codex/Claude regression contracts pass, and an events-only test adapter
-  exercises the common path without advanced services or new GUI-specific branches.
+- [ ] **AH-202 — Universal external event input and per-harness pets.**
+  Depends on AH-201. `--notify <harness> --kind <existing kind> [--activity|--ended]`
+  with the session id and `cwd` (card folder) read from bounded stdin; nothing else is
+  read or logged. The harness key matches `[a-z0-9_-]{1,32}`; labels come from a short
+  table (OpenCode, Pi, Goose, Crush) and default to the key. `Source::External(key)`
+  joins the queue identity, so the same session id in two harnesses stays independent;
+  waits are per session and `--activity` / `--ended` resolve them as for Claude.
+  Replace the IPC source wire format outright (no versioned migration). Replace
+  `[notifications.pet]`, `[notifications.pet_animations]` and `[agents.*]` with
+  `[pets]` (`default`, and one path per harness key, `demo` for demo cards) and
+  `[pet_animations]` (shared) / `[pet_animations.<harness>]`; `default` and `animations`
+  are not valid harness keys; update the example configuration and docs. Codex and
+  Claude behavior, their hooks and warnings stay as they are.
+  Acceptance: tests cover valid/invalid input and size limits, each kind, per-session
+  waits, activity and end resolving waits, identical session ids in different
+  harnesses, label fallback, the new pet configuration and its rejection of the old
+  keys; the existing Codex/Claude suite passes unchanged except for configuration keys.
 
-- [ ] **AH-204 — Make shared event routing independent of the harness pair.**
-  Depends on AH-203. Route enablement, lifecycle observations and session correlation
-  through the common adapter contract. Keep identity scoped by harness and session,
-  adding turn/request identity only when supplied and verified. Support explicit
-  wait resolution where available; otherwise retain documented conservative behavior.
-  Do not infer completion, request IDs or user decisions from missing information.
-  Retain shared queue, warning, presentation, artwork and audio behavior.
-  Acceptance: tests cover duplicate delivery, repeated waits, late completion,
-  resumed activity, session end and cross-harness isolation. Existing Codex/Claude
-  behavior remains intact; new event-only harnesses need no queue/rendering changes.
-  If wire semantics must change, version IPC explicitly and reject incompatible
-  clients rather than silently misinterpreting lifecycle messages.
+- [ ] **AH-203 — OpenCode and Pi bridges, Goose and Crush examples.**
+  Depends on AH-201 and AH-202. A minimal TS bridge for each of OpenCode and Pi runs
+  inside the harness runtime and calls `aherald --notify` at a fixed path, passing only
+  the permitted fields (never prompts, message bodies, tool arguments or credentials).
+  Pi uses its final-idle boundary (`agent_settled`, `aborted` -> interrupted); OpenCode
+  maps session idle/error and, if the probes confirm it, permission asked/replied.
+  Goose and Crush need no code: ship example hook configuration (Crush `TurnEnd`,
+  `PermissionRequest`/`PermissionResult`, `StopFailure`, `Interrupt`, `SessionEnd`;
+  Goose `Stop`, `UserPromptSubmit`, `SessionEnd`). Bounded delivery; a missing or
+  failing aHerald never affects the harness. Manual setup and removal documented in
+  `docs/`, with a support matrix.
+  Acceptance: the bridges run against controlled fixtures through the real handler and
+  IPC path (normalization, ignored events, lifecycle clearing, bounded completion,
+  safe failure with no resident or executable); real-version results are recorded
+  separately from synthetic ones.
 
-- [ ] **AH-205 — Extend native setup to owned bridge files.**
-  Depends on AH-201 and AH-203. Extend setup planning beyond JSON hook edits to
-  installation/update/removal of aHerald-owned extension files. Use fixed executable
-  paths and minimal bridges without extra packages or runtime discovery. Record
-  ownership and installed content in the receipt; preserve existing receipts.
-  Retain explicit apply, dry run, all-file preflight, backups, rollback and idempotence.
-  Preserve foreign extensions, other installations and user-modified owned files;
-  report conflicts with a repair path. Do not change autostart.
-  Acceptance: isolated tests cover first/repeated setup, selection changes, upgrade,
-  removal, path quoting, malformed settings, write failure, rollback and ownership
-  conflicts. Receipt compatibility and old-installation cleanup are verified.
+- [ ] **AH-204 — Setup and installers for harness bridge files (deferred).**
+  Former AH-205 and AH-208. Install, update and remove aHerald-owned bridge files
+  through `--setup` with receipt ownership, dry run, backups and rollback; offer the new
+  harnesses in the Windows installer, macOS setup window and Linux console setup;
+  package the bridge assets. Plan after AH-203 proves the bridges.
 
-- [ ] **AH-206 — Add basic OpenCode notifications.**
-  Depends on AH-201 and AH-203 through AH-205. Implement the verified OpenCode
-  bridge and Rust adapter for completion/error and any confirmed observable waits.
-  Forward only permitted identity, event and sanitized display fields; exclude
-  prompts, message bodies, tool arguments and credentials. Bound pending delivery
-  and process lifetime; failures must not affect OpenCode execution or permissions.
-  Acceptance: execute the bridge against controlled upstream fixtures and the actual
-  aHerald handler/IPC path. Verify normalization, ignored events, lifecycle clearing,
-  bounded completion and safe failure with an unavailable resident/executable.
-  Record real-version compatibility separately from synthetic integration results.
-
-- [ ] **AH-207 — Add basic Pi coding agent notifications.**
-  Depends on AH-201 and AH-203 through AH-205. Implement the verified Pi extension
-  and Rust adapter. Use the target version's final-idle boundary, accounting for
-  automatic retries, compaction, queued follow-ups and interruption. Support only
-  passively observable waits; do not wrap arbitrary third-party dialogs or introduce
-  permission gates to manufacture notification events.
-  Apply the same privacy, bounded-delivery and failure-isolation rules as AH-206.
-  Acceptance: executable extension/handler tests distinguish intermediate completion
-  from final idle and cover interruption, session changes, invalid input and delivery
-  failure. Unsupported wait coverage is explicit; no advanced telemetry is required.
-
-- [ ] **AH-208 — Expose new integrations through setup and distribution.**
-  Depends on AH-205 through AH-207. Add OpenCode/Pi to native CLI setup, the Windows
-  installer, macOS setup and Linux console setup. Derive shared selection metadata
-  from the harness registry; keep platform-specific installation mechanics native.
-  Start new integrations unchecked, preserve existing selections on upgrade, and
-  package their bridge assets in installers and portable distributions.
-  Offer only supported settings; do not add empty usage/context controls.
-  Acceptance: verify selection, deselection, upgrade and uninstall delegation,
-  fixed paths and packaged assets. Visually verify native setup changes and record
-  platform limitations separately from automated packaging results.
-
-- [ ] **AH-209 — Complete compatibility, lifecycle and delivery acceptance.**
-  Depends on AH-206 through AH-208. Add opt-in live checks using isolated harness
-  configuration and bounded owned-process cleanup. Verify real event dispatch,
-  hook/extension response and lifetime, notification delivery, dismissal, repeated
-  events and mixed Codex/Claude/OpenCode/Pi sessions on supported platforms.
-  Record OS/harness versions, commands, results and required account/network/billing
-  conditions. Keep live checks outside the ordinary suite and mandatory CI.
-  Acceptance: relevant standard Cargo/platform checks pass; native visual results
-  and installed-harness evidence are recorded separately. Unsupported event/platform
-  combinations remain explicit and do not acquire claimed support from fixture tests.
-
-- [ ] **AH-210 — Document and audit the next-harness onboarding path.**
-  Depends on AH-209. Document the adapter contract, registration, sanitized fixtures,
-  setup ownership, packaging and compatibility evidence required for another harness.
-  Supply OpenCode/Pi setup, repair and removal instructions and a support matrix.
-  Acceptance: demonstrate through a test-only events-only adapter that adding basic
-  support requires adapter/registration, setup assets, tests and documentation,
-  without changes to queue/rendering or platform resident event loops.
-  Document optional extension seams for future advanced capabilities; do not build
-  a generalized usage/tray subsystem in this milestone. Any later proposal must
-  establish a verified data source and distinguish account quota, session tokens/cost
-  and context occupancy, with separate scope and privacy agreement.
+- [ ] **AH-205 — Live acceptance and onboarding guide for new harnesses (deferred).**
+  Former AH-209 and AH-210. Opt-in live checks with isolated harness configuration,
+  and a short guide for adding the next harness (arguments, bridge, tests, docs).
