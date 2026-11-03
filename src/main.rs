@@ -92,6 +92,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     if cli.operation.as_deref() == Some("console-setup") {
         return console_setup();
     }
+    if cli.operation.as_deref() == Some("setup-window") {
+        #[cfg(target_os = "macos")]
+        return aherald::mac::setup_window::run();
+        #[cfg(not(target_os = "macos"))]
+        return Err("--setup-window is available on macOS only".into());
+    }
     if cli.operation.as_deref() == Some("setup-settings") {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
         print!(
