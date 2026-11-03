@@ -446,7 +446,7 @@ fn generated_codex_command_for_a_special_character_path_returns_the_hook_respons
         .unwrap()
         .write_all(include_bytes!("fixtures/stop.json"))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= deadline {
             let _ = child.kill();
@@ -665,8 +665,11 @@ fn spawn_fixture_until(
     }
 }
 
+/// A generous bound, as in `support::output`: it only catches a hung child. On macOS the first
+/// start of each fresh copy of the executable is assessed by the system and, with the tests
+/// running in parallel, took up to 13 s (about 1 s alone), so a shorter bound fails by chance.
 fn finish(child: std::process::Child) -> Output {
-    finish_with_timeout(child, std::time::Duration::from_secs(5))
+    finish_with_timeout(child, std::time::Duration::from_secs(30))
 }
 
 fn finish_with_timeout(child: std::process::Child, timeout: std::time::Duration) -> Output {
