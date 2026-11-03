@@ -3,7 +3,8 @@
 aHerald shows a small card when a coding agent (Codex, Claude Code) finishes a turn, needs
 permission or input, fails or is interrupted. On macOS it is `aHerald.app`: a menu-bar
 program with no Dock icon (`LSUIElement`). Nothing is installed and no administrator rights
-are needed. In the release archive this file is also `START-HERE.md`.
+are needed. In the release archive this file is also `START-HERE.md`. A disk image with a
+setup window is the easier way to install; see `docs/installation.md`.
 
 Tested on: macOS 26.6 on an Apple Silicon MacBook Pro (M1), Codex.app 26.519, Claude Code
 2.1.308 (terminal and Claude Desktop sessions). Intel Macs are not supported: the archive holds an

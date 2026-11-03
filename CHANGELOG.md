@@ -10,6 +10,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- macOS disk image with an in-app setup window: choose Codex and Claude Code, usage and
+  warnings, preview and apply through the common setup backend; opening the app from Finder
+  or `aherald --setup-window` starts it (AH-102).
 - Independent notification and sound suppression for a focused originating Claude
   session in a classic Windows console. Both options default to enabled; unknown
   origins, tabbed terminals and desktop sessions retain delivery. Live acceptance
