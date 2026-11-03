@@ -119,7 +119,7 @@ impl Item {
 type Props = HashMap<String, OwnedValue>;
 type Layout = (i32, Props, Vec<OwnedValue>);
 // Match the Windows menu, with the first separator only when usage is shown.
-const MENU_ITEMS: [i32; 15] = [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 4, 15, 14, 7];
+const MENU_ITEMS: [i32; 16] = [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7];
 
 pub struct Menu {
     pub sender: Sender<Command>,
@@ -148,7 +148,7 @@ fn properties(id: i32, state: &TrayState) -> Props {
     let name = if id == 6 { version.as_str() } else { name };
     if id == 0 {
         p.insert("children-display".into(), label("submenu"));
-    } else if id == 8 || id == 9 || id == 16 {
+    } else if id == 8 || id == 9 || id == 16 || id == 17 {
         p.insert("type".into(), label("separator"));
     } else {
         p.insert("label".into(), label(name));
@@ -417,12 +417,12 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::channel();
         let menu = Menu { sender, state };
         let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 15);
+        assert_eq!(children.len(), 16);
         assert_eq!(
             MENU_ITEMS,
-            [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 4, 15, 14, 7]
+            [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7]
         );
-        for separator in [8, 9, 16] {
+        for separator in [8, 9, 16, 17] {
             let value = properties(separator, &initial).remove("type").unwrap();
             assert_eq!(String::try_from(value).unwrap(), "separator");
         }
@@ -464,7 +464,7 @@ mod tests {
             state: empty,
         }
         .get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 12); // no usage lines and no leading separator
+        assert_eq!(children.len(), 13); // no usage lines and no leading separator
         menu.event(2, "hovered", Value::from(0i32), 0);
         assert!(receiver.try_recv().is_err());
         menu.event(2, "clicked", Value::from(0i32), 0);

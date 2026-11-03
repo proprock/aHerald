@@ -230,7 +230,7 @@ impl Menu {
             (EXIT, "Exit", false),
         ];
         for (id, label, checked) in usage.chain(items) {
-            if id == ABOUT || id == CONTEXT || (id == SOUND && has_usage) {
+            if id == ABOUT || id == CONFIG || id == CONTEXT || (id == SOUND && has_usage) {
                 // SAFETY: menu is owned; separators have no command or label.
                 unsafe { AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()) }
                     .map_err(|_| "cannot add tray menu separator")?;
@@ -285,7 +285,7 @@ mod tests {
         )
         .unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 16);
             assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             assert_ne!(GetMenuState(menu.0, 6, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
             assert_ne!(GetMenuState(menu.0, 9, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
@@ -337,7 +337,7 @@ mod tests {
     fn usage_lines_appear_only_for_enabled_agents() {
         let menu = Menu::new(true, true, false, true, true, None, Some("Claude")).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
             assert_eq!(
                 GetMenuState(menu.0, SUMMARY as u32, MF_BYCOMMAND),
                 u32::MAX,
@@ -346,7 +346,7 @@ mod tests {
         }
         let menu = Menu::new(true, true, false, true, true, Some("Codex"), None).unwrap();
         unsafe {
-            assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
+            assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
         }
         let menu = Menu::new(true, true, false, true, true, Some("Codex"), Some("Claude")).unwrap();
         unsafe {
@@ -370,20 +370,20 @@ mod tests {
                 let about_position = sound_position + 7;
                 assert_eq!(GetMenuItemID(menu.0, about_position as i32), ABOUT as u32);
                 assert_eq!(
-                    GetMenuItemID(menu.0, about_position as i32 + 1),
+                    GetMenuItemID(menu.0, about_position as i32 + 2),
                     CONFIG as u32
                 );
                 assert_eq!(GetMenuItemID(menu.0, sound_position as i32), SOUND as u32);
                 assert_eq!(
-                    GetMenuItemID(menu.0, about_position as i32 + 2),
+                    GetMenuItemID(menu.0, about_position as i32 + 3),
                     TEST_CONFIG as u32
                 );
                 assert_eq!(
-                    GetMenuItemID(menu.0, about_position as i32 + 3),
+                    GetMenuItemID(menu.0, about_position as i32 + 4),
                     RESTART as u32
                 );
                 assert_eq!(
-                    GetMenuItemID(menu.0, about_position as i32 + 4),
+                    GetMenuItemID(menu.0, about_position as i32 + 5),
                     EXIT as u32
                 );
                 let separators: Vec<_> = (0..count)
@@ -397,6 +397,7 @@ mod tests {
                 }
                 expected.push(sound_position + 3);
                 expected.push(sound_position + 6);
+                expected.push(sound_position + 8);
                 assert_eq!(separators, expected);
             }
         }
