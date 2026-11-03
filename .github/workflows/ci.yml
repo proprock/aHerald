@@ -95,6 +95,12 @@ jobs:
           dbus-run-session -- env AH113_ISOLATED=1
           cargo test --test linux_apply -- --ignored --test-threads=1
 
+      - name: Verify the isolated macOS app lifecycle
+        if: needs.changes.outputs.code == 'true' && runner.os == 'macOS'
+        run: |
+          cargo build
+          ./tests/macos_app_lifecycle.sh target/debug/aherald
+
       - name: Verify installer failure diagnostics
         if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
         shell: pwsh

@@ -88,7 +88,7 @@ jobs:
             dist/*-setup.exe.sha256
           if-no-files-found: error
 
-  # Apple Silicon only; the archive is ad-hoc signed and not notarized. The runner cannot show
+  # Apple Silicon only; the archive and the disk image are ad-hoc signed and not notarized. The runner cannot show
   # the card, so the macOS visual check stays a manual step (see RELEASE.md).
   package_macos:
     name: Package macOS arm64
@@ -119,12 +119,17 @@ jobs:
       - name: Assemble the app archive and verify a clean extraction runs
         run: ./package-macos.sh target/aarch64-apple-darwin/release/aherald "$RELEASE_TAG"
 
+      - name: Build the disk image and verify its layout, signature and isolated lifecycle
+        run: ./package-dmg.sh "$RELEASE_TAG"
+
       - uses: actions/upload-artifact@v7
         with:
           name: macos-arm64
           path: |
             dist/*.zip
             dist/*.zip.sha256
+            dist/*.dmg
+            dist/*.dmg.sha256
           if-no-files-found: error
 
   package_linux:
