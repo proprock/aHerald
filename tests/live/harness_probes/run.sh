@@ -18,6 +18,13 @@ server=
 cleanup() { [ -z "$server" ] || kill "$server" 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT INT TERM
 mkdir -p "$tmp/work"
+# BRIDGE=1 installs the shipped bridge (examples/harnesses) instead of the probe, with a
+# recorder in place of aherald: the output is the argv and stdin each call would have had.
+if [ -n "${BRIDGE:-}" ]; then
+  printf '%s\n' '#!/bin/sh' 'printf "%s %s\n" "$*" "$(cat)" >> "$PROBE_OUT"' > "$tmp/aherald"
+  chmod +x "$tmp/aherald"
+  export AHERALD_EXE="$tmp/aherald"
+fi
 harness=${1:-}
 scenario=${2:-ok}
 port=18765
@@ -25,7 +32,7 @@ fake() { python3 "$here/fake_openai.py" "$port" "$1" & server=$!; sleep 1; }
 case "$harness" in
 pi)
   mkdir -p "$tmp/agent/extensions"
-  cp "$here/pi_probe.ts" "$tmp/agent/extensions/probe.ts"
+  if [ -n "${BRIDGE:-}" ]; then cp "$here/../../../examples/harnesses/pi-aherald.ts" "$tmp/agent/extensions/probe.ts"; else cp "$here/pi_probe.ts" "$tmp/agent/extensions/probe.ts"; fi
   printf '%s' '{"providers":{"fake":{"baseUrl":"http://127.0.0.1:18765/v1","api":"openai-completions","apiKey":"unused","models":[{"id":"fake-model"}]}}}' > "$tmp/agent/models.json"
   case "$scenario" in
   ok) fake ok; mode=-p ;;
@@ -52,7 +59,7 @@ pi)
 opencode)
   h="$tmp/home"
   mkdir -p "$h/.config/opencode/plugins" "$h/.local/share" "$h/.local/state" "$h/.cache"
-  cp "$here/opencode_probe.ts" "$h/.config/opencode/plugins/probe.ts"
+  if [ -n "${BRIDGE:-}" ]; then cp "$here/../../../examples/harnesses/opencode-aherald.ts" "$h/.config/opencode/plugins/probe.ts"; else cp "$here/opencode_probe.ts" "$h/.config/opencode/plugins/probe.ts"; fi
   model=opencode/big-pickle
   if [ "$scenario" != ok ]; then
     model=fake/fake-model
@@ -76,4 +83,6 @@ opencode)
   ;;
 *) echo "usage: $0 pi|opencode [scenario]" >&2; exit 2 ;;
 esac
+# bridge calls are detached and may still be writing
+[ -z "${BRIDGE:-}" ] || sleep 2
 cat "$out"
