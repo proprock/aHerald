@@ -1521,6 +1521,12 @@ mod card_tests {
             let before_memory = memory();
             let before_threads = threads();
             eprintln!("resource cycle baseline: private_commit={before_memory}");
+            // Private commit is volatile here: it climbs by 10-25 MiB while the compositor
+            // and the allocator warm up and Windows trims it back at its own pace (CI traces
+            // end between 13 and 43 MiB from baselines of 16-32 MiB). Compare two windows
+            // after that warm-up instead of the end against the start: a leak grows with
+            // every cycle, a warm-up step does not.
+            let mut window_start = 0;
             for cycle_index in 0..200 {
                 cycle();
                 if (cycle_index + 1) % 25 == 0 {
@@ -1530,6 +1536,11 @@ mod card_tests {
                         cycle_index + 1,
                         memory()
                     );
+                }
+                if cycle_index + 1 == 100 {
+                    let _ = GdiFlush();
+                    DwmFlush().ok().unwrap();
+                    window_start = memory();
                 }
             }
             let _ = GdiFlush();
@@ -1544,10 +1555,13 @@ mod card_tests {
             assert_eq!(after, handles);
             assert_eq!(threads(), before_threads);
             let after_memory = memory();
-            eprintln!("resource cycle after compositor flush: private_commit={after_memory}");
+            eprintln!(
+                "resource cycle after compositor flush: private_commit={after_memory} (cycle 100: {window_start}, baseline: {before_memory})"
+            );
+            // One leaked 320x110 surface per cycle would add about 14 MiB over these 100 cycles.
             assert!(
-                after_memory <= before_memory + 8 * 1024 * 1024,
-                "repeated rendering grew private commit by more than 8 MiB: before={before_memory}, after={after_memory}"
+                after_memory <= window_start + 8 * 1024 * 1024,
+                "100 more rendering cycles grew private commit by more than 8 MiB: cycle 100={window_start}, cycle 200={after_memory}, baseline={before_memory}"
             );
         }
     }
