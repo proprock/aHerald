@@ -2,8 +2,6 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [master]
 
 permissions:
   contents: read
@@ -20,17 +18,10 @@ jobs:
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      # paths-filter reads pull-request changes through the GitHub API; push
-      # events need a shallow checkout for the commit range.
-      - uses: actions/checkout@v7
-        if: github.event_name != 'pull_request'
-        with:
-          fetch-depth: 2
-          persist-credentials: false
-
       - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
@@ -48,6 +39,7 @@ jobs:
     # Keep all three required check names for Markdown-only changes. GitHub
     # does not expand a matrix when its job-level condition skips the job.
     runs-on: ${{ needs.changes.outputs.code == 'true' && matrix.os || 'ubuntu-latest' }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +49,7 @@ jobs:
         if: needs.changes.outputs.code != 'true'
         run: echo 'Only Markdown changed; build and tests are not needed.'
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: needs.changes.outputs.code == 'true'
         with:
           persist-credentials: false
@@ -82,23 +74,23 @@ jobs:
 
       - name: cargo clippy
         if: needs.changes.outputs.code == 'true'
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: cargo test
         if: needs.changes.outputs.code == 'true'
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
 
       - name: Test Linux tray and warning lifecycle
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: >-
           xvfb-run -a -s '-screen 0 1280x1024x24'
           dbus-run-session -- env AH113_ISOLATED=1
-          cargo test --test linux_apply -- --ignored --test-threads=1
+          cargo test --locked --test linux_apply -- --ignored --test-threads=1
 
       - name: Verify the isolated macOS app lifecycle
         if: needs.changes.outputs.code == 'true' && runner.os == 'macOS'
         run: |
-          cargo build
+          cargo build --locked
           ./tests/macos_app_lifecycle.sh target/debug/aherald
 
       - name: Verify installer failure diagnostics
@@ -110,17 +102,28 @@ jobs:
         if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          cargo build --release --target x86_64-pc-windows-msvc
+          cargo build --locked --release --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./check-release.ps1
           ./package-release.ps1
+
+      # The installer is cached by version; the Authenticode check below still runs on every
+      # job, so a corrupt cached file fails the job and needs a new key to recover.
+      - name: Restore the Inno Setup installer cache
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/innosetup-7.1.1-x64.exe
+          key: innosetup-7.1.1-x64
 
       - name: Install the signed Inno Setup compiler
         if: needs.changes.outputs.code == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
           $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
-          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
+          if (-not (Test-Path -LiteralPath $installer)) {
+            Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
+          }
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
           if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
             throw 'Invalid Inno Setup signature'
@@ -145,8 +148,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
