@@ -29,9 +29,13 @@ fn the_status_line_of_the_wrapped_command_comes_through_unchanged() {
 
 #[test]
 fn alone_it_prints_nothing_and_succeeds_with_or_without_a_running_resident() {
-    let out = run(&[], PAYLOAD);
+    // No configuration at all (an explicit path nobody wrote), so no machine's own file counts.
+    let none = std::env::temp_dir().join(format!("aherald-sl-{}-none", std::process::id()));
+    let none = none.join("config.toml");
+    let none = none.to_str().unwrap();
+    let out = run(&["--config", none], PAYLOAD);
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
-    let garbage = run(&[], "not json at all");
+    let garbage = run(&["--config", none], "not json at all");
     assert!(garbage.status.success() && garbage.stdout.is_empty());
 }
 
@@ -75,7 +79,7 @@ fn the_users_own_command_wins_over_the_format() {
 }
 
 #[test]
-fn a_missing_or_broken_configuration_leaves_the_line_empty_and_creates_nothing() {
+fn a_missing_configuration_leaves_the_line_empty_and_a_broken_one_is_named() {
     let missing = std::env::temp_dir()
         .join(format!("aherald-sl-{}-missing", std::process::id()))
         .join("config.toml");
@@ -89,7 +93,12 @@ fn a_missing_or_broken_configuration_leaves_the_line_empty_and_creates_nothing()
     ] {
         let path = config(name, text);
         let out = run(&["--config", path.to_str().unwrap()], FORMAT_PAYLOAD);
-        assert!(out.status.success() && out.stdout.is_empty(), "{name}");
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{name}");
+        assert!(
+            text.starts_with("Invalid configuration: "),
+            "{name}: {text}"
+        );
     }
 }
 
@@ -98,4 +107,21 @@ fn an_invalid_payload_prints_nothing_even_with_a_format() {
     let path = config("payload", FORMAT);
     let out = run(&["--config", path.to_str().unwrap()], "not json");
     assert!(out.status.success() && out.stdout.is_empty());
+}
+
+#[test]
+fn an_unreadable_configuration_is_named_on_the_status_line_instead_of_hiding_the_format() {
+    let bad = config("bad", "[claude.statusline]\nformt = \"x\"\n");
+    let out = run(&["--config", bad.to_str().unwrap()], FORMAT_PAYLOAD);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.starts_with("Invalid configuration: "), "{text}");
+    // No file is just no configuration; the user's own command is never touched.
+    let missing = run(&["--config", "/no/such/config.toml"], FORMAT_PAYLOAD);
+    assert_eq!(String::from_utf8_lossy(&missing.stdout), "");
+    let then = run(
+        &["--config", bad.to_str().unwrap(), "--then", "echo mine"],
+        FORMAT_PAYLOAD,
+    );
+    assert_eq!(String::from_utf8_lossy(&then.stdout), "mine\n");
 }

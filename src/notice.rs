@@ -107,19 +107,27 @@ mod tests {
 /// The text of the card shown when an interactive start fails on its configuration: the reason
 /// aHerald itself gave, without control characters, short enough for the card.
 pub fn startup_failure_text(error: &str) -> String {
-    let reason = error
+    format!("Invalid configuration: {}", failure_reason(error))
+}
+
+/// The text of the card shown when an interactive start fails for any other reason.
+pub fn run_failure_text(error: &str) -> String {
+    format!("aHerald could not start: {}", failure_reason(error))
+}
+
+fn failure_reason(error: &str) -> String {
+    error
         .strip_prefix("invalid configuration: ")
         .unwrap_or(error)
         .chars()
         .filter(|c| !c.is_control())
         .take(160)
-        .collect::<String>();
-    format!("Invalid configuration: {reason}")
+        .collect()
 }
 
 #[cfg(test)]
 mod startup_text_tests {
-    use super::startup_failure_text;
+    use super::{run_failure_text, startup_failure_text};
 
     #[test]
     fn the_card_names_the_reason_once_and_stays_short_and_plain() {
@@ -132,6 +140,10 @@ mod startup_text_tests {
         assert_eq!(
             startup_failure_text("cannot read x"),
             "Invalid configuration: cannot read x"
+        );
+        assert_eq!(
+            run_failure_text("X11: no display"),
+            "aHerald could not start: X11: no display"
         );
         let long = startup_failure_text(&format!("a\u{7}\n{}", "b".repeat(500)));
         assert!(long.chars().count() <= "Invalid configuration: ".len() + 160);

@@ -525,7 +525,8 @@ impl Ui {
                     let path = self.config_path.clone();
                     std::thread::spawn(move || {
                         if let Err(error) = crate::shell::edit_configuration(&path) {
-                            eprintln!("aHerald: {error}");
+                            // No console to read stderr in: say it on a card.
+                            crate::notice::post(&error);
                         }
                     });
                 }
@@ -548,7 +549,7 @@ impl Ui {
                             stop.store(true, Ordering::Release);
                             waker.wake();
                         }
-                        Err(error) => eprintln!("aHerald: {error}"),
+                        Err(error) => crate::notice::post(&format!("Apply failed: {error}")),
                     });
                 }
                 Command::ContextWarnings | Command::IdleWarnings => {

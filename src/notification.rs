@@ -3,11 +3,12 @@ use crate::{config::Config, events::Event};
 #[cfg(windows)]
 #[path = "overlay.rs"]
 pub(crate) mod overlay;
-/// A failed interactive startup has no resident sink. Show only its diagnostic card,
-/// without a display-child readiness byte or any agent/usage activity.
+/// A failed interactive startup has no resident sink. Show only its diagnostic card (`text`,
+/// from `notice::startup_failure_text` or `run_failure_text`), without a display-child
+/// readiness byte or any agent/usage activity.
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-pub fn configuration_notice(error: &str) -> Result<(), String> {
-    let event = Event::notice(&crate::notice::startup_failure_text(error));
+pub fn startup_notice(text: &str) -> Result<(), String> {
+    let event = Event::notice(text);
     let mut config = Config::default();
     config.sounds.enabled = false;
     config.events[event.kind].duration_ms = crate::resident_request::NOTICE_MS;

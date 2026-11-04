@@ -348,7 +348,10 @@ fn present(
                             std::thread::spawn(move || {
                                 match crate::restart::launch_with_test(test) {
                                     Ok(()) => stop.store(true, Ordering::Release),
-                                    Err(error) => eprintln!("aHerald: {error}"),
+                                    Err(error) => {
+                                        crate::notice::post(&format!("Apply failed: {error}"));
+                                        eprintln!("aHerald: {error}");
+                                    }
                                 }
                             });
                         }
@@ -357,6 +360,7 @@ fn present(
                         let path = config_path.expect("resident configuration path").to_owned();
                         std::thread::spawn(move || {
                             if let Err(error) = crate::shell::edit_configuration(&path) {
+                                crate::notice::post(&error);
                                 eprintln!("aHerald: {error}");
                             }
                         });

@@ -264,7 +264,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             // An interactive start has no terminal to read stderr in: say why on a card.
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             if cli.operation.is_none()
-                && aherald::notification::configuration_notice(error).is_err()
+                && aherald::notification::startup_notice(&aherald::notice::startup_failure_text(
+                    error,
+                ))
+                .is_err()
             {
                 log_code(&path, aherald::operational_log::Record::RenderFailure);
             }
@@ -279,7 +282,15 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
         #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-        return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
+        return aherald::resident::run_after_apply(scope, config, &path, test_after_apply)
+            .inspect_err(|error| {
+                // No terminal to read stderr in: say why the resident could not run on a card.
+                if aherald::notification::startup_notice(&aherald::notice::run_failure_text(error))
+                    .is_err()
+                {
+                    log_code(&path, aherald::operational_log::Record::RenderFailure);
+                }
+            });
         #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         return aherald::resident::run(scope, config, &path);
     }
@@ -465,27 +476,36 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
         aherald::events::read_bounded(std::io::stdin(), std::time::Duration::from_millis(500))
             .unwrap_or_default();
     // The configuration is read only when there is no command of the user's to run, so wrapping
-    // costs nothing extra. It is never created here, and any problem leaves the line empty.
+    // costs nothing extra. It is never created here; a missing file leaves the line empty and an
+    // unreadable one is named on it.
+    let mut failure = None;
     let format = match then {
         Some(_) => None,
-        None => config
-            .map(|path| Ok(path.to_path_buf()))
-            .unwrap_or_else(aherald::config::Config::default_path)
-            .ok()
-            .and_then(|path| aherald::config::Config::load(&path, true).ok())
-            .filter(|config| !config.claude.statusline.format.is_empty())
-            .map(|config| {
-                (
+        None => {
+            let path = config
+                .map(|path| Ok(path.to_path_buf()))
+                .unwrap_or_else(aherald::config::Config::default_path)
+                .ok()
+                .filter(|path| path.exists());
+            match path.map(|path| aherald::config::Config::load(&path, true)) {
+                Some(Ok(config)) if !config.claude.statusline.format.is_empty() => Some((
                     config.claude.statusline.format.clone(),
                     aherald::statusline_format::Options {
                         display_ctx: config.claude.statusline.display_ctx,
                         display_usage: config.claude.statusline.display_usage,
                         color: config.claude.statusline.color,
                     },
-                )
-            }),
+                )),
+                // The status line is where the user is looking: say what is wrong there.
+                Some(Err(error)) => {
+                    failure = Some(aherald::notice::startup_failure_text(&error));
+                    None
+                }
+                _ => None,
+            }
+        }
     };
-    let outcome = aherald::statusline::run_with_format(
+    let mut outcome = aherald::statusline::run_with_format(
         &input,
         then,
         format
@@ -501,6 +521,9 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             }
         },
     );
+    if let (true, Some(text)) = (outcome.stdout.is_empty(), failure) {
+        outcome.stdout = format!("{text}\n").into_bytes();
+    }
     let mut stdout = std::io::stdout();
     let _ = stdout.write_all(&outcome.stdout);
     let _ = stdout.flush();

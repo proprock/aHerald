@@ -770,7 +770,8 @@ impl Ui {
                         // No timer runs while idle: wake the window so it sees the stop.
                         crate::resident::wake(window);
                     }
-                    Err(error) => eprintln!("aHerald: {error}"),
+                    // There is no console to read stderr in: say it on a card.
+                    Err(error) => crate::notice::post(&format!("Apply failed: {error}")),
                 });
             }
             SUMMARY | CLAUDE_SUMMARY => {
