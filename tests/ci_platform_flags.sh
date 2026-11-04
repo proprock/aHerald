@@ -27,6 +27,8 @@ expect "shared source selects every platform" \
   'code=true windows=true linux=true macos=true os=["windows-latest","macos-15","ubuntu-22.04"]' \
   src/lib.rs
 expect "windows-only source" 'windows=true linux=false macos=false os=["windows-latest"]' src/tray.rs
+expect "a windows-gated test selects only windows" \
+  'windows=true linux=false macos=false' tests/statusline_windows.rs
 expect "linux-only source" 'windows=false linux=true macos=false os=["ubuntu-22.04"]' src/linux/mod.rs
 expect "macos-only source" 'windows=false linux=false macos=true os=["macos-15"]' src/mac/window.rs
 expect "unix tests select linux and macos" \

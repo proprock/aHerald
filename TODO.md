@@ -693,7 +693,7 @@ are deferred (AH-204, AH-205).
 
 ## Milestone 10 — Release trust (deferred)
 
-- [ ] **AH-214 — Sign the release artifacts.** Build provenance is already attested for every
+- [ ] **AH-218 — Sign the release artifacts.** Build provenance is already attested for every
   archive, installer, disk image and package (`gh attestation verify`), and it costs nothing. What
   is left needs a certificate or an account, so it waits for a decision on cost:
   - Windows Authenticode for `aherald.exe` and the setup EXE, which removes the SmartScreen warning

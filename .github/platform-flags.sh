@@ -25,7 +25,7 @@ platforms_for() {
       echo 'windows macos' ;;
     src/audio_windows.rs | src/console_window.rs | src/detached.rs | src/https.rs | src/local.rs | src/overlay.rs | src/pipe.rs | src/process_stats.rs | src/resident.rs | src/resident_overlay.rs | src/restart.rs | src/shell.rs | src/tray.rs | src/tray_native_tests.rs)
       echo windows ;;
-    tests/app_icon.rs | tests/config_notice.rs | tests/hook_lifecycle.rs | tests/ipc_diagnostics.rs | tests/local.rs | tests/native_assets.rs | tests/native_notice.rs | tests/native_overlay.rs | tests/perf_baseline.rs | tests/process.rs | tests/process_stats.rs | tests/process_wait.rs | tests/resident.rs | tests/resident_fixture.rs | tests/resident_perf_log.rs | tests/resident_render_faults.rs | tests/runner_contract.rs | tests/tray.rs | tests/tray_about.rs | tests/tray_restart.rs | tests/usage_live.rs | tests/window_wait.rs)
+    tests/statusline_windows.rs | tests/app_icon.rs |tests/config_notice.rs | tests/hook_lifecycle.rs | tests/ipc_diagnostics.rs | tests/local.rs | tests/native_assets.rs | tests/native_notice.rs | tests/native_overlay.rs | tests/perf_baseline.rs | tests/process.rs | tests/process_stats.rs | tests/process_wait.rs | tests/resident.rs | tests/resident_fixture.rs | tests/resident_perf_log.rs | tests/resident_render_faults.rs | tests/runner_contract.rs | tests/tray.rs | tests/tray_about.rs | tests/tray_restart.rs | tests/usage_live.rs | tests/window_wait.rs)
       echo windows ;;
     *.ps1 | installer/* | build-installer.ps1 | check-release.ps1 | package-release.ps1)
       echo windows ;;
