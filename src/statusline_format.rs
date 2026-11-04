@@ -5,12 +5,12 @@
 //! group: it is dropped entirely when any field written directly inside it is empty, so
 //! separators vanish with the value they introduce (`{[ · {worktree.branch}]}`).
 //! A field named `resets_at` (Unix epoch seconds) is shown as the time left, in the same form as
-//! the usage card and tray (`3d 5h`, `4:05`, `15 min`).
+//! the usage card and tray (`3d 5:10`, `4:05`, `15 min`).
 //! A field whose name ends in `_percentage` is shown rounded with a percent sign (`24%`).
 //! Three whole objects render as ready-made segments in the form of the tray menu line
-//! (`Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19h`): `{context_window}` as `ctx 91%`,
-//! `{rate_limits.five_hour}` as `5h 79% / 3:29`, `{rate_limits.seven_day}` as `7d 96% / 4d 19h`
-//! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2h`. Their percentage follows
+//! (`Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19:00`): `{context_window}` as `ctx 91%`,
+//! `{rate_limits.five_hour}` as `5h 79% / 3:29`, `{rate_limits.seven_day}` as `7d 96% / 4d 19:00`
+//! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2:00`. Their percentage follows
 //! `[codex.usage] display` (remaining by default, as in the menu and tooltip) and, with colour on,
 //! the label, the number (by remaining capacity, like the tray icon) and the time are coloured.
 //! A field whose name ends in `_usd` is shown as dollars (`$1.23`) and one ending in
@@ -22,7 +22,7 @@
 use crate::{
     config::UsageDisplay,
     tray_usage::level_rgb,
-    usage_service::{countdown, percent_text, unix_now},
+    usage_service::{countdown, percent_text, span_text, unix_now},
 };
 use serde_json::Value;
 
@@ -206,7 +206,7 @@ fn lookup(payload: &Value, path: &[String], now: i64, options: Options) -> Strin
                 .is_some_and(|name| name.ends_with("_duration_ms")) =>
         {
             match number.as_f64().filter(|v| v.is_finite() && *v >= 0.0) {
-                Some(millis) => span_text((millis / 1000.0) as u64),
+                Some(millis) => span_text((millis / 60_000.0) as u64),
                 None => return String::new(),
             }
         }
@@ -238,16 +238,6 @@ fn lookup(payload: &Value, path: &[String], now: i64, options: Options) -> Strin
         .take(MAX_VALUE)
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect()
-}
-
-/// `45s`, `12m 30s`, `1h 12m`, `2d 3h`: two units at most.
-fn span_text(seconds: u64) -> String {
-    match seconds {
-        0..60 => format!("{seconds}s"),
-        60..3_600 => format!("{}m {}s", seconds / 60, seconds % 60),
-        3_600..86_400 => format!("{}h {}m", seconds / 3_600, seconds % 3_600 / 60),
-        _ => format!("{}d {}h", seconds / 86_400, seconds % 86_400 / 3_600),
-    }
 }
 
 /// A ready-made `label percent / time` segment for the objects that have a `used_percentage`;
@@ -430,21 +420,9 @@ mod tests {
         assert_eq!(shown("{cost.total_cost_usd}"), "$1.23");
         assert_eq!(shown("{cost.cheap_usd}"), "$0.00");
         assert_eq!(shown("[{cost.bad_usd}]"), "[]");
-        assert_eq!(shown("{cost.total_duration_ms}"), "1h 12m");
-        assert_eq!(shown("{cost.total_api_duration_ms}"), "45s");
+        assert_eq!(shown("{cost.total_duration_ms}"), "1:12");
+        assert_eq!(shown("{cost.total_api_duration_ms}"), "0 min");
         assert_eq!(shown("{cost.x_duration_ms}"), "soon");
-        for (seconds, text) in [
-            (0, "0s"),
-            (59, "59s"),
-            (60, "1m 0s"),
-            (750, "12m 30s"),
-            (3_599, "59m 59s"),
-            (3_600, "1h 0m"),
-            (86_399, "23h 59m"),
-            (90_000, "1d 1h"),
-        ] {
-            assert_eq!(span_text(seconds), text, "{seconds}");
-        }
     }
 
     #[test]
@@ -486,7 +464,7 @@ mod tests {
         let template = "{rate_limits.five_hour.used_percentage}/{rate_limits.five_hour.resets_at}";
         let at = |now| render_at(template, PAYLOAD.as_bytes(), now, Options::default());
         let reset = 1_790_000_000;
-        assert_eq!(at(reset - 3 * 86_400 - 5 * 3_600 - 59), "8%/3d 5h");
+        assert_eq!(at(reset - 3 * 86_400 - 5 * 3_600 - 59), "8%/3d 5:01");
         assert_eq!(at(reset - 4 * 3_600 - 5 * 60), "8%/4:05");
         assert_eq!(at(reset - 15 * 60), "8%/15 min");
         assert_eq!(at(reset + 100), "8%/0 min");

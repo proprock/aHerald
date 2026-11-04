@@ -10,9 +10,11 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Changed
-- The age on a card now reads `12 min ago`, `3:05 ago`, `2 d 3:05 ago` (hours and minutes, as in
-  the usage countdown) instead of whole hours and days.
-- The About card shows how long ago the binary was built (`Built 2 d 3:05 ago`), and
+- One form for every time span, in the tray and usage card, the status line and the card age:
+  `12 min`, `3:05`, `2d 3:05` (card age adds ` ago`). Was `3d 5h` for quota resets, `1h 12m` /
+  `12m 30s` for status line durations and whole hours or days for card ages. Quota resets still
+  round up, so the time left never promises more than there is; durations and ages round down.
+- The About card shows how long ago the binary was built (`Built 2d 3:05 ago`), and
   `--version` prints the build time: `aHerald 0.10.0 (built 2026-11-03 22:52 UTC)`. The time is
   stamped by `build.rs`; `SOURCE_DATE_EPOCH` overrides it for reproducible builds.
 

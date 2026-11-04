@@ -48,7 +48,7 @@ fn build_stamp(built_ms: i64) -> String {
     format!("{} {} UTC", &iso[..10], &iso[11..16])
 }
 
-/// `Built 2 d 3:05 ago`: how old this binary is, for the About card. A clock set before the
+/// `Built 2d 3:05 ago`: how old this binary is, for the About card. A clock set before the
 /// build reads as `just now`.
 pub fn build_age_text() -> String {
     let now = std::time::SystemTime::now()

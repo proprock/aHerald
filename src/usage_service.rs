@@ -278,14 +278,26 @@ pub fn countdown(reset: Option<i64>, now: i64) -> String {
     let Some(reset) = reset else {
         return "—".into();
     };
-    let seconds = reset.saturating_sub(now).max(0) as u64;
-    if seconds >= 86400 {
-        format!("{}d {}h", seconds / 86400, seconds % 86400 / 3600)
-    } else if seconds >= 3600 {
-        let minutes = seconds.div_ceil(60);
-        format!("{}:{:02}", minutes / 60, minutes % 60)
-    } else {
-        format!("{} min", seconds.div_ceil(60))
+    // Rounded up: the time left must not promise more than there is.
+    span_text(
+        reset
+            .saturating_sub(now)
+            .max(0)
+            .cast_unsigned()
+            .div_ceil(60),
+    )
+}
+/// `12 min`, `3:05`, `2d 3:05`: the one form of a time span in the tray, cards and status line.
+pub fn span_text(minutes: u64) -> String {
+    match minutes {
+        0..60 => format!("{minutes} min"),
+        60..1_440 => format!("{}:{:02}", minutes / 60, minutes % 60),
+        _ => format!(
+            "{}d {}:{:02}",
+            minutes / 1_440,
+            minutes % 1_440 / 60,
+            minutes % 60
+        ),
     }
 }
 pub fn unix_now() -> i64 {

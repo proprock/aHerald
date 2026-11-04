@@ -13,8 +13,8 @@ directory), the session name (the row stays when empty), then the event kind, la
 and set apart. The stripe on the left is 8 px wide and carries the event colour; the
 countdown stays at the top right. The bottom row holds, on the left, the Dismiss
 button (only with `click_to_dismiss = false`) followed by the event's age (`just now`,
-`2 min ago`, `3:05 ago`, `2 d 3:05 ago`; resident only; the About card shows how long ago
-the binary was built, `Built 2 d 3:05 ago`), and, on the right, `[<] 2/5 [>]`. The arrows
+`2 min ago`, `3:05 ago`, `2d 3:05 ago`; resident only; the About card shows how long ago
+the binary was built, `Built 2d 3:05 ago`), and, on the right, `[<] 2/5 [>]`. The arrows
 show only when several cards are queued and wrap around. Buttons are framed; see
 `border_color` below. Navigation keeps events queued.
 The resident and transient renderer share button geometry and hit testing.
