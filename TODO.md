@@ -541,6 +541,21 @@ shared development-profile and artwork performance changes need no separate port
   Codex still delivers and opens no console window; `Start-Process` and the tray start leave no
   console behind; `package-release.ps1` no longer needs its pipe workaround.
 
+- [ ] **AH-212 — Windows: a readable `statusLine` command.** The wrapper in
+  `~/.claude/settings.json` is a PowerShell one-liner whose script is spelled as `[char[]]` codes
+  (so neither Git Bash nor PowerShell expands it), which nobody can read or audit. Claude Code's
+  `statusLine` has no `args` or `shell` field (only `type`, `command`, `padding`,
+  `refreshInterval`, `hideVimModeIndicator`), so there is no exec form as for hooks. Its own
+  Windows recipe is `powershell -NoProfile -File C:/path/script.ps1` (forward slashes work in both
+  shells). Write the script as an aHerald-owned file beside the executable (listed in the receipt,
+  backed up and removed like the bridges of AH-204), keep `command` to one short line, and decide
+  where the user's `--then` command goes (the file, not the command line). Mind the execution
+  policy (`-ExecutionPolicy Bypass`) and that the script must copy stdin and stdout byte for byte
+  (UTF-8, ANSI colours). Acceptance, by hand on Windows 11 and Server 2019: the status line, the
+  user's wrapped command, its exit code and non-ASCII output are unchanged; `--install-statusline`
+  and `--uninstall-statusline` restore the original exactly; the old encoded command is
+  recognised and replaced.
+
 ## Milestone 6 — Claude parity (deferred)
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)
