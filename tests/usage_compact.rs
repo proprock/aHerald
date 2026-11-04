@@ -98,3 +98,12 @@ fn card_keeps_extended_account_information_and_all_pages() {
     );
     assert!(pages.join("\n").contains("Second reset"));
 }
+
+#[test]
+fn a_usage_notice_is_its_text_and_about_is_built_when_read() {
+    use aherald::usage_service::UsageNotice;
+    assert_eq!(UsageNotice::Text("x\ny".into()).text(), "x\ny");
+    let about = UsageNotice::About.text();
+    assert_eq!(about, aherald::about_card_text());
+    assert!(about.starts_with(&format!("aHerald\nVersion {}\nBuilt ", aherald::VERSION)));
+}

@@ -325,7 +325,7 @@ struct Ui {
     config_path: std::path::PathBuf,
     /// Replaces the usage card text, e.g. the about text or a refused Restart; cleared when
     /// the card closes.
-    notice: Option<String>,
+    notice: Option<crate::usage_service::UsageNotice>,
     usage_text: String,
     usage_text_next: u64,
     usage_page: usize,
@@ -424,9 +424,9 @@ impl Ui {
         }
     }
 
-    /// Opens the usage card with `text` instead of the quota details.
-    fn show_notice(&mut self, text: String) {
-        self.notice = Some(text);
+    /// Opens the usage card with `notice` instead of the quota details.
+    fn show_notice(&mut self, notice: crate::usage_service::UsageNotice) {
+        self.notice = Some(notice);
         if let Ok(mut state) = self.shared.lock() {
             state.queue.show_usage();
         }
@@ -442,10 +442,13 @@ impl Ui {
     }
 
     fn usage_card_text(&self) -> String {
-        self.notice.clone().unwrap_or_else(|| match &self.claude {
-            Some(claude) if self.usage_claude => claude.card_text(),
-            _ => self.usage.card_text(),
-        })
+        self.notice
+            .as_ref()
+            .map(crate::usage_service::UsageNotice::text)
+            .unwrap_or_else(|| match &self.claude {
+                Some(claude) if self.usage_claude => claude.card_text(),
+                _ => self.usage.card_text(),
+            })
     }
 
     /// The usage card's text, page, size or place changed: redraw it from scratch.
@@ -533,9 +536,9 @@ impl Ui {
                         crate::operational_log::log(
                             crate::operational_log::Record::InvalidConfiguration,
                         );
-                        self.show_notice(format!(
+                        self.show_notice(crate::usage_service::UsageNotice::Text(format!(
                             "aHerald\nApply cancelled; the running configuration stays active.\n{error}"
-                        ));
+                        )));
                         continue;
                     }
                     let (stop, waker) = (self.stop.clone(), self.waker.clone());
@@ -583,16 +586,17 @@ impl Ui {
                     self.reset_usage_card();
                 }
                 Command::About => {
-                    let about = crate::about_card_text();
                     // The same item closes its open card, like a usage line.
-                    if self.usage_window && self.notice.as_deref() == Some(about.as_str()) {
+                    if self.usage_window
+                        && self.notice == Some(crate::usage_service::UsageNotice::About)
+                    {
                         if let Ok(mut state) = self.shared.lock() {
                             state.queue.dismiss();
                         }
                         self.notice = None;
                         self.reset_usage_card();
                     } else {
-                        self.show_notice(about);
+                        self.show_notice(crate::usage_service::UsageNotice::About);
                     }
                 }
             }

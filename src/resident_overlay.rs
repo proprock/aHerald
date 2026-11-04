@@ -84,8 +84,9 @@ struct Ui {
     render_failed: bool,
     timer_ms: Option<u32>,
     tooltip: String,
-    /// Replaces the usage card text, e.g. a refused Restart; cleared when the card closes.
-    notice: Option<String>,
+    /// Replaces the usage card text, e.g. the About text or a refused Restart; cleared when
+    /// the card closes.
+    notice: Option<crate::usage_service::UsageNotice>,
     demo: Option<crate::demo::Demo>,
     carousel: Option<crate::demo::Carousel>,
     source_labels: crate::session_source::Service,
@@ -130,7 +131,7 @@ impl Ui {
     /// Details of the agent chosen from the menu.
     fn card_text(&self) -> String {
         if let Some(notice) = &self.notice {
-            return notice.clone();
+            return notice.text();
         }
         match &self.claude {
             Some(claude) if self.usage_claude => claude.card_text(),
@@ -747,9 +748,9 @@ impl Ui {
                 // and leave no resident: validate first and keep this one running.
                 if let Err(error) = Config::load(&self.config_path, true) {
                     self.log(crate::operational_log::Record::InvalidConfiguration);
-                    self.notice = Some(format!(
+                    self.notice = Some(crate::usage_service::UsageNotice::Text(format!(
                         "aHerald\nApply cancelled; the running configuration stays active.\n{error}"
-                    ));
+                    )));
                     if let Ok(mut state) = self.shared.lock() {
                         state.queue.show_usage();
                     }
@@ -794,16 +795,15 @@ impl Ui {
             }
             ABOUT => {
                 self.end_test();
-                let about = crate::about_card_text();
                 if let Ok(mut state) = self.shared.lock() {
                     // The same item closes its open card, like a usage line.
                     if state.queue.selected().is_some_and(|e| e.is_usage())
-                        && self.notice.as_deref() == Some(about.as_str())
+                        && self.notice == Some(crate::usage_service::UsageNotice::About)
                     {
                         state.queue.dismiss();
                         self.notice = None;
                     } else {
-                        self.notice = Some(about);
+                        self.notice = Some(crate::usage_service::UsageNotice::About);
                         state.queue.show_usage();
                     }
                 }

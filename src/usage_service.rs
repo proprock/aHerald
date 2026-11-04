@@ -248,6 +248,21 @@ impl View {
     }
 }
 /// Preserve all text while fitting a bounded notification card; arrows page through it.
+/// What the usage card shows in place of the quota details until it closes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsageNotice {
+    /// The About text, read afresh each time so its build age keeps counting.
+    About,
+    Text(String),
+}
+impl UsageNotice {
+    pub fn text(&self) -> String {
+        match self {
+            Self::About => crate::about_card_text(),
+            Self::Text(text) => text.clone(),
+        }
+    }
+}
 pub fn card_pages(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     for line in text.lines() {
