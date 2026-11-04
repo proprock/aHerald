@@ -276,6 +276,27 @@ fn without_then_the_wrapped_command_comes_from_the_setup_receipt() {
     assert_relayed(&run());
 }
 
+/// The relay script reaches `aherald.exe` through `$PSScriptRoot`, which PowerShell may spell
+/// differently from the setup run (an 8.3 short name such as `RUNNER~1`, or another case).
+#[test]
+fn the_receipt_is_found_when_the_executable_path_differs_only_in_spelling() {
+    let app = Install::new("aherald-spelling", true);
+    app.user_statusline();
+    app.run(&SETUP);
+    let respelled = PathBuf::from(app.exe.to_string_lossy().to_uppercase());
+    assert_ne!(respelled, app.exe);
+    let child = Command::new(&respelled)
+        .arg("--statusline")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let output =
+        support::capture_bounded(child, PAYLOAD.as_bytes(), Duration::from_secs(30)).unwrap();
+    assert_relayed(&output);
+}
+
 fn check_install_statusline(dir_name: &str, script: bool) {
     let app = Install::new(dir_name, true);
     let original = app.user_statusline();

@@ -247,6 +247,18 @@ pub fn run_statusline_only(
     Ok(report)
 }
 
+/// Whether two paths name the same executable. The relay script starts `aherald.exe` through
+/// `$PSScriptRoot`, which PowerShell spells in the long form and the real case, while the setup
+/// run may have recorded an 8.3 short name or another case; a plain comparison would then lose
+/// the user's own command without a word.
+fn same_executable(recorded: &Path, running: &Path) -> bool {
+    recorded == running
+        || matches!(
+            (recorded.canonicalize(), running.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
 /// The user's own `statusLine` command that setup wrapped, for `--statusline` to run when it
 /// has no `--then`. `None` when there is no receipt, no wrapped command, or the receipt
 /// belongs to another installation.
@@ -259,7 +271,7 @@ pub fn wrapped_statusline_command(exe: &Path) -> Result<Option<String>, String> 
     let receipt: Receipt = serde_json::from_str(&text).map_err(
         |_| "invalid aHerald setup receipt; the status line is shown without your own command",
     )?;
-    if receipt.version != 1 || receipt.executable != exe {
+    if receipt.version != 1 || !same_executable(&receipt.executable, exe) {
         return Ok(None);
     }
     Ok(receipt
