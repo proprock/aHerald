@@ -517,9 +517,10 @@ shared development-profile and artwork performance changes need no separate port
   per status line refresh is added by the companion (25 ms to 32 ms, release build).
   Remaining: manual checks on Server 2019 and in Windows Terminal; a live Claude Code and Codex
   hook (still `aherald.exe`, unchanged) shows no console window; the installer lifecycle with the
-  companion (`tests/installer_windows.ps1` still pipes); and `--install-statusline` /
-  `--uninstall-statusline`, which are still "not supported on Windows yet" (decide whether to
-  support them or drop them from the acceptance).
+  companion (`tests/installer_windows.ps1` still pipes).
+  `--install-statusline` / `--uninstall-statusline` now work on Windows (they share the setup
+  receipt; tests in `tests/statusline_windows.rs` cover dry run, wrap, idempotence, exact restore,
+  the spaced-path script, an earlier encoded command, and hooks left alone).
 
 ## Milestone 6 — Claude parity (deferred)
 

@@ -14,6 +14,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   with the same arguments and standard input, shows its output in PowerShell, cmd and Windows
   Terminal without `| Out-String`, and returns its exit code. Hooks still call `aherald.exe`
   directly (AH-211).
+- Windows: `--install-statusline` and `--uninstall-statusline` now work (a dry run unless
+  `--apply`), wrapping and restoring your own status line command exactly (AH-211).
 
 ### Changed
 - Windows: the Claude Code `statusLine` wrapper is now a readable command

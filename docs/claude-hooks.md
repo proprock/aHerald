@@ -28,7 +28,11 @@ both. `aherald --install-statusline` previews (dry run) and `--apply` writes a `
 `~/.claude/settings.json` that runs `aherald --statusline`. If you already have a status line, it is kept:
 the entry becomes `aherald --statusline --then '<your command>'`, your command gets the same input and
 its output is shown unchanged, and `--uninstall-statusline --apply` restores it exactly. A `*.aherald-backup`
-copy is made. Use `--hooks-file PATH` for another settings file. Windows is not supported yet.
+copy is made. Use `--hooks-file PATH` for another settings file. On Windows the entry is
+`C:/…/aherald-cli.exe --statusline` (or a `statusline.ps1` for a path with spaces; see
+[installation](installation.md)), and your own command is kept in the setup receipt
+`aherald-setup.json` instead of on the line. A later `--setup` that does not want the wrapper
+(no Claude context warning or status line format) removes it, as it does the one it installed.
 
 `aherald --statusline` reads only `session_id`, `session_name`, input-context counters
 (`context_window.current_usage.input_tokens`, `cache_creation_input_tokens`,

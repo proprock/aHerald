@@ -275,3 +275,93 @@ fn without_then_the_wrapped_command_comes_from_the_setup_receipt() {
     std::fs::write(app.receipt(), good).unwrap();
     assert_relayed(&run());
 }
+
+fn check_install_statusline(dir_name: &str, script: bool) {
+    let app = Install::new(dir_name, true);
+    let original = app.user_statusline();
+    let before = std::fs::read(app.settings_file()).unwrap();
+
+    let dry = app.run(&["--install-statusline"]);
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
+    assert_eq!(std::fs::read(app.settings_file()).unwrap(), before);
+    assert!(!app.receipt().exists());
+
+    app.run(&["--install-statusline", "--apply"]);
+    let command = app.command();
+    assert_eq!(command.starts_with("powershell "), script, "{command}");
+    assert_eq!(app.root.join("statusline.ps1").exists(), script);
+    assert_eq!(app.settings()["statusLine"]["padding"], 2);
+    assert_relayed(&run_command(&command, false));
+    let installed = std::fs::read(app.settings_file()).unwrap();
+    app.run(&["--install-statusline", "--apply"]);
+    assert_eq!(std::fs::read(app.settings_file()).unwrap(), installed);
+
+    let dry = app.run(&["--uninstall-statusline"]);
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
+    assert_eq!(std::fs::read(app.settings_file()).unwrap(), installed);
+    app.run(&["--uninstall-statusline", "--apply"]);
+    assert_eq!(app.settings(), original);
+    assert!(!app.root.join("statusline.ps1").exists());
+}
+
+#[test]
+fn install_statusline_wraps_the_users_command_and_uninstall_restores_it_exactly() {
+    check_install_statusline("aherald-install-plain", false);
+}
+
+#[test]
+fn install_statusline_in_a_path_with_spaces_writes_and_removes_the_script() {
+    check_install_statusline("aherald install spaced", true);
+}
+
+#[test]
+fn install_statusline_without_a_user_command_adds_and_removes_the_entry() {
+    let app = Install::new("aherald-install-bare", true);
+    app.run(&["--install-statusline", "--apply"]);
+    let command = app.command();
+    assert!(
+        command.ends_with("/aherald-cli.exe --statusline"),
+        "{command}"
+    );
+    // Nothing of the user's to run: the plain line prints nothing for a payload that is no JSON.
+    let output = run_command(&command, false);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stdout.is_empty());
+    app.run(&["--uninstall-statusline", "--apply"]);
+    assert!(app.settings().get("statusLine").is_none());
+}
+
+#[test]
+fn install_statusline_replaces_the_previous_encoded_command_and_keeps_the_original() {
+    let app = Install::new("aherald-install-upgrade", true);
+    let original = app.user_statusline();
+    app.run(&SETUP);
+    let old = "powershell.exe -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create((-join [char[]](36,115)))); # aherald --statusline\"";
+    let mut settings = app.settings();
+    settings["statusLine"]["command"] = old.into();
+    std::fs::write(app.settings_file(), settings.to_string()).unwrap();
+    let mut receipt: Value =
+        serde_json::from_slice(&std::fs::read(app.receipt()).unwrap()).unwrap();
+    receipt["statusline"]["installed"]["command"] = old.into();
+    std::fs::write(app.receipt(), receipt.to_string()).unwrap();
+
+    app.run(&["--install-statusline", "--apply"]);
+    assert!(app.command().ends_with("/aherald-cli.exe --statusline"));
+    assert_relayed(&run_command(&app.command(), false));
+    app.run(&["--uninstall-statusline", "--apply"]);
+    assert_eq!(app.settings()["statusLine"], original["statusLine"]);
+}
+
+#[test]
+fn install_statusline_leaves_the_hooks_of_an_earlier_setup_alone() {
+    let app = Install::new("aherald-install-hooks", true);
+    app.user_statusline();
+    app.run(&["--setup", "--harness", "claude", "--apply"]);
+    let hooks = app.settings()["hooks"].clone();
+    assert!(hooks.is_object());
+    app.run(&["--install-statusline", "--apply"]);
+    assert_eq!(app.settings()["hooks"], hooks);
+    app.run(&["--uninstall-statusline", "--apply"]);
+    assert_eq!(app.settings()["hooks"], hooks);
+    assert_eq!(app.settings()["statusLine"]["command"], WRAPPED);
+}
