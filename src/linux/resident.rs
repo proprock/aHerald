@@ -904,6 +904,7 @@ mod tests {
                 );
                 Request::StatusLine {
                     report: crate::statusline::parse(input.as_bytes()).unwrap(),
+                    raw: None,
                 }
             };
             let request = crate::ipc::decode(&crate::ipc::encode(&request).unwrap()).unwrap();

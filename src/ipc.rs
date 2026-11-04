@@ -1,6 +1,8 @@
 //! Bounded, versioned local wire frames. No command or arbitrary payload execution.
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-pub const MAX_FRAME: usize = 4096;
+/// Large enough for the raw answers `--raw-output` carries (at most `usage_service::RAW_LIMIT`
+/// bytes of text, which JSON escaping can make several times longer).
+pub const MAX_FRAME: usize = 256 * 1024;
 // Activity-only events must not become completion cards in an older resident that
 // ignores the new activity field. Mismatched hook/resident builds fail closed.
 const VERSION: u16 = 2;
@@ -41,13 +43,28 @@ pub enum Request {
     },
     Status,
     Quit,
-    /// Session name and quota from Claude Code's statusLine (see `statusline`).
+    /// Session name and quota from Claude Code's statusLine (see `statusline`), with the payload
+    /// itself for `--raw-output statusline`.
     StatusLine {
         report: crate::statusline::Report,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        raw: Option<String>,
+    },
+    /// The last unparsed answer of a source, for `aherald --raw-output`.
+    RawOutput {
+        source: RawSource,
     },
     CodexContext {
         report: crate::codex_context::Report,
     },
+}
+/// What `--raw-output` can return.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawSource {
+    CodexUsage,
+    ClaudeUsage,
+    ClaudeStatusLine,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
@@ -62,6 +79,14 @@ pub enum Response {
     },
     Bye,
     Rejected,
+    /// `found` is false when there is nothing to show; `note` then says why. Otherwise it
+    /// describes where `body` came from (`HTTP 200`), and `age_secs` is how old it is.
+    RawOutput {
+        found: bool,
+        note: String,
+        age_secs: u64,
+        body: String,
+    },
 }
 #[cfg(windows)]
 #[path = "pipe.rs"]

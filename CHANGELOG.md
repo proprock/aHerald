@@ -14,6 +14,12 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   the `config.toml` it describes. The Windows installer removes the old copy on upgrade.
 
 ### Added
+- `aherald --raw-output usage --harness codex|claude` and `aherald --raw-output statusline`
+  print the last unparsed answer of a usage source, or the last payload Claude Code sent to the
+  statusLine wrapper, from the running resident's memory (only the latest one each; never
+  written to disk or the log). The source, status and age go to stderr. The IPC frame limit
+  grows from 4 KiB to 256 KiB to carry them; the wrapper now sends its payload (up to 32 KiB)
+  with each report.
 - Claude usage for accounts without 5-hour and 7-day windows (enterprise): the plan reads
   `enterprise`, the menu and tooltip line shows the spend (`Claude enterprise: spend 0.74 /
   100.00 USD (1%)`) and the card shows the spend and extra-usage lines with the provider's

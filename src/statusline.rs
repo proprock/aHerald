@@ -138,6 +138,8 @@ const QUOTA_MAX_AGE_SECS: i64 = 60 * 60;
 pub struct Store {
     names: std::collections::VecDeque<(String, String)>,
     quota: Option<(Quota, i64)>,
+    /// The latest payload as Claude Code sent it, with its Unix time, for `--raw-output`.
+    raw: Option<(String, i64)>,
 }
 
 impl Store {
@@ -153,6 +155,15 @@ impl Store {
         if let Some(quota) = report.quota {
             self.quota = Some((quota, now));
         }
+    }
+
+    /// Keeps the payload of the latest report; only that one, and only in memory.
+    pub fn record_raw(&mut self, raw: String, now: i64) {
+        self.raw = Some((raw, now));
+    }
+
+    pub fn raw(&self) -> Option<(&str, i64)> {
+        self.raw.as_ref().map(|(raw, at)| (raw.as_str(), *at))
     }
 
     pub fn name(&self, session_id: &str) -> Option<&str> {

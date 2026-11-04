@@ -113,6 +113,14 @@ because aHerald never refreshes or writes tokens. This endpoint and its response
 and unverified against a live session; other tools (for example rate-tray) use the same source.
 An alternative without tokens is the statusLine `rate_limits` field (tracked in AH-038).
 
+To see what the endpoint really answered, for example when the card says "Claude usage response
+not recognised", run `aherald --raw-output usage --harness claude`: it prints the last response
+body (any status) the running resident received, unparsed; nothing is written to disk or the log.
+`aherald --raw-output statusline` does the same for the payload Claude Code last sent to the
+statusLine wrapper, which is how to see whether it carries `rate_limits` (it does not for
+accounts billed by usage). On Windows pipe the output: `aherald.exe --raw-output usage --harness
+claude | Out-String`.
+
 Request safety: redirects are never followed (WinHTTP redirect policy "never"), so the
 token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected
 (refused)". Proxy settings come from the system (WinHTTP automatic proxy: Windows proxy

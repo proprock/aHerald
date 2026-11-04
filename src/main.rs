@@ -12,6 +12,47 @@ fn main() {
     }
 }
 
+/// `--raw-output`: prints the last unparsed answer of a source exactly as the resident kept it.
+/// The text goes to stdout, where it came from and how old it is to stderr.
+fn raw_output(
+    scope: &aherald::local::Scope,
+    source: aherald::ipc::RawSource,
+) -> Result<(), String> {
+    use aherald::ipc::{Request, Response};
+    use std::io::Write;
+    let response = aherald::ipc::pipe::request(
+        scope,
+        &Request::RawOutput { source },
+        std::time::Duration::from_millis(1000),
+    )
+    .map_err(|_| {
+        "no running aHerald of this version answered (not running, or started before an upgrade)"
+    })?;
+    match response {
+        Response::RawOutput {
+            found: true,
+            note,
+            age_secs,
+            body,
+        } => {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(body.as_bytes());
+            if !body.ends_with('\n') {
+                let _ = out.write_all(b"\n");
+            }
+            let _ = out.flush();
+            eprintln!(
+                "aHerald: {note}, received {}, {} bytes",
+                aherald::card::age_text(age_secs.saturating_mul(1000)),
+                body.len()
+            );
+            Ok(())
+        }
+        Response::RawOutput { note, .. } => Err(note),
+        _ => Err("the running aHerald does not support --raw-output (restart it)".into()),
+    }
+}
+
 /// Fixed operational code beside the configuration; the configuration itself may be
 /// unreadable, so its log level cannot be consulted.
 fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
@@ -193,8 +234,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         print!("{}", aherald::perf_report::report(&directory)?);
         return Ok(());
     }
-    if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
+    if matches!(
+        cli.operation.as_deref(),
+        Some("status" | "quit" | "raw-output")
+    ) {
         let scope = aherald::local::Scope::current("resident")?;
+        if let Some(source) = cli.raw_source {
+            return raw_output(&scope, source);
+        }
         let request = if cli.operation.as_deref() == Some("quit") {
             aherald::ipc::Request::Quit
         } else {
@@ -505,6 +552,9 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             }
         }
     };
+    // The payload itself goes along for `aherald --raw-output statusline`; the resident keeps
+    // the latest one in memory only.
+    let raw = aherald::usage_service::bounded_raw(&input);
     let mut outcome = aherald::statusline::run_with_format(
         &input,
         then,
@@ -515,7 +565,10 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             if let Ok(scope) = aherald::local::Scope::current("resident") {
                 let _ = aherald::ipc::pipe::request_if_running(
                     &scope,
-                    &aherald::ipc::Request::StatusLine { report },
+                    &aherald::ipc::Request::StatusLine {
+                        report,
+                        raw: Some(raw),
+                    },
                     std::time::Duration::from_millis(150),
                 );
             }

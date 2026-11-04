@@ -94,7 +94,7 @@ fn main() -> Result<(), String> {
             }
             return match pipe::request(
                 &scope,
-                &Request::StatusLine { report },
+                &Request::StatusLine { report, raw: None },
                 Duration::from_millis(500),
             ) {
                 Ok(Response::Accepted) => Ok(()),

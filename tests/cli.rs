@@ -2,6 +2,49 @@ mod support;
 use std::process::Command;
 
 #[test]
+fn raw_output_names_a_source_and_for_usage_exactly_one_harness() {
+    use aherald::{cli::Cli, ipc::RawSource};
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    let source = |args: &[&str]| parse(args).unwrap().raw_source;
+    assert_eq!(
+        source(&["--raw-output", "usage", "--harness", "claude"]),
+        Some(RawSource::ClaudeUsage)
+    );
+    assert_eq!(
+        source(&["--harness", "codex", "--raw-output", "usage"]),
+        Some(RawSource::CodexUsage)
+    );
+    assert_eq!(
+        source(&["--raw-output", "statusline"]),
+        Some(RawSource::ClaudeStatusLine)
+    );
+    assert_eq!(
+        source(&["--raw-output", "statusline", "--harness", "claude"]),
+        Some(RawSource::ClaudeStatusLine)
+    );
+    for bad in [
+        vec!["--raw-output"],
+        vec!["--raw-output", "events"],
+        vec!["--raw-output", "usage"],
+        vec!["--raw-output", "usage", "--harness", "opencode"],
+        vec![
+            "--raw-output",
+            "usage",
+            "--harness",
+            "codex",
+            "--harness",
+            "claude",
+        ],
+        vec!["--raw-output", "statusline", "--harness", "codex"],
+        vec!["--raw-output", "usage", "--harness", "claude", "--apply"],
+        vec!["--raw-output", "usage", "--harness", "claude", "--status"],
+        vec!["--status", "--harness", "claude"],
+    ] {
+        assert!(parse(&bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
 fn demo_accepts_default_and_custom_pause_and_rejects_conflicts() {
     use aherald::cli::Cli;
     let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));

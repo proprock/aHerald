@@ -323,6 +323,45 @@ pub fn span_text(minutes: u64) -> String {
         ),
     }
 }
+/// Longest raw answer kept or carried, in bytes of text.
+pub const RAW_LIMIT: usize = 32 * 1024;
+
+/// `body` as text, cut at `RAW_LIMIT` with a marker, so a raw answer always fits one IPC frame.
+pub fn bounded_raw(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    if text.len() <= RAW_LIMIT {
+        return text.into_owned();
+    }
+    let mut end = RAW_LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n…truncated", &text[..end])
+}
+
+/// The last unparsed answer of each usage source (Codex, Claude): kept in memory only, one each,
+/// so `aherald --raw-output usage` can show what a source really said. Never logged.
+static RAW: std::sync::Mutex<[Option<(String, i64, String)>; 2]> =
+    std::sync::Mutex::new([None, None]);
+
+fn raw_slot(agent: Agent) -> usize {
+    match agent {
+        Agent::Codex => 0,
+        Agent::Claude => 1,
+    }
+}
+
+/// Remembers `body`, an answer of `agent`'s usage source described by `note` (`HTTP 200`).
+pub fn keep_raw(agent: Agent, note: &str, body: &[u8]) {
+    let kept = (note.to_owned(), unix_now(), bounded_raw(body));
+    RAW.lock().unwrap_or_else(|e| e.into_inner())[raw_slot(agent)] = Some(kept);
+}
+
+/// The remembered answer of `agent`: its note, its Unix time and the text.
+pub fn last_raw(agent: Agent) -> Option<(String, i64, String)> {
+    RAW.lock().unwrap_or_else(|e| e.into_inner())[raw_slot(agent)].clone()
+}
+
 pub fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -475,7 +514,9 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> CodexSource<T, F> {
 impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T, F> {
     fn read(&mut self, now: Duration) -> Result<Snapshot, Error> {
         let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
-        Snapshot::parse(self.connection.read(now)?).map_err(Error::Service)
+        let value = self.connection.read(now)?;
+        keep_raw(Agent::Codex, "app-server", value.to_string().as_bytes());
+        Snapshot::parse(value).map_err(Error::Service)
     }
     fn is_live(&self) -> bool {
         self.connection.client.is_some()

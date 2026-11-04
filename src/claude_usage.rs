@@ -396,6 +396,12 @@ pub fn fetch_with(
     ));
     let response = get(HOST, PATH, &headers.0, crate::app_server::REQUEST_TIMEOUT)
         .map_err(|_| Error::Service("Claude usage request failed"))?;
+    // Whatever came back, including an error page: `--raw-output usage` shows it.
+    crate::usage_service::keep_raw(
+        crate::agent::Agent::Claude,
+        &format!("HTTP {}", response.status),
+        &response.body,
+    );
     if let Some(error) = status_error(response.status, response.retry_after) {
         return Err(error);
     }

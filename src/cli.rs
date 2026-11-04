@@ -30,11 +30,14 @@ pub struct Cli {
     pub activity: bool,
     /// `--notify` evidence only: the whole session ended.
     pub ended: bool,
+    /// What `--raw-output` asks the resident for.
+    pub raw_source: Option<crate::ipc::RawSource>,
 }
 
 impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut cli = Self::default();
+        let mut raw_kind = None;
         let mut args = args.into_iter().peekable();
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -137,6 +140,15 @@ impl Cli {
                     }
                     let name = args.next().ok_or("--install-hooks requires an agent")?;
                     cli.hooks_agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
+                }
+                "--raw-output" => {
+                    if cli.operation.replace("raw-output".into()).is_some() {
+                        return Err("conflicting explicit operations".into());
+                    }
+                    raw_kind = Some(
+                        args.next()
+                            .ok_or("--raw-output requires usage or statusline")?,
+                    );
                 }
                 "--harness" => {
                     let name = args.next().ok_or("--harness requires a value")?;
@@ -245,9 +257,36 @@ impl Cli {
                 "--setup requires at least one --harness codex|claude|opencode|pi|goose".into(),
             );
         }
-        if (!cli.harnesses.is_empty() || bridges_named) && cli.operation.as_deref() != Some("setup")
+        let raw = cli.operation.as_deref() == Some("raw-output");
+        if (bridges_named && cli.operation.as_deref() != Some("setup"))
+            || (!cli.harnesses.is_empty()
+                && !matches!(cli.operation.as_deref(), Some("setup" | "raw-output")))
         {
-            return Err("--harness is only valid with --setup".into());
+            return Err("--harness is only valid with --setup or --raw-output".into());
+        }
+        if raw
+            && (cli.mode.is_some()
+                || cli.agent.is_some()
+                || cli.hooks_file.is_some()
+                || cli.then.is_some()
+                || cli.apply)
+        {
+            return Err("--raw-output only accepts --harness".into());
+        }
+        if let Some(kind) = raw_kind {
+            use crate::ipc::RawSource;
+            cli.raw_source = Some(match (kind.as_str(), cli.harnesses.as_slice()) {
+                ("usage", [Agent::Codex]) => RawSource::CodexUsage,
+                ("usage", [Agent::Claude]) => RawSource::ClaudeUsage,
+                ("usage", _) => {
+                    return Err("--raw-output usage requires one --harness codex|claude".into());
+                }
+                ("statusline", [] | [Agent::Claude]) => RawSource::ClaudeStatusLine,
+                ("statusline", _) => {
+                    return Err("--raw-output statusline is for --harness claude only".into());
+                }
+                _ => return Err("--raw-output expects usage or statusline".into()),
+            });
         }
         let settings_read = cli.operation.as_deref() == Some("setup-settings");
         if matches!(

@@ -67,7 +67,9 @@ aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-
 | `--demo [SECONDS]` | Loop through all events to preview your configuration. |
 | `--resident` / `--transient` | Override the configured mode. `--resident` alone runs the service. |
 | `--status` / `--quit` | Report on or stop the running resident of the current user. They never start one. |
-| `--version` | Print `aHerald <version>`. |
+| `--raw-output usage --harness codex\|claude` | Print the last answer the running resident got from that harness's usage source, unparsed, to stdout (what it is, where from and its age go to stderr). Needs `[claude.usage]` or `[codex.usage]` enabled. For Claude it is the usage endpoint's response, whatever its status. |
+| `--raw-output statusline` | Print the last payload Claude Code sent to the statusLine wrapper (Claude only; needs the wrapper, see `docs/claude-hooks.md`). It holds paths and costs, so it is shown only on request. |
+| `--version` | Print `aHerald <version>` and when it was built. |
 | `--perf-report` | Rank timings that a resident with `logging = "debug"` wrote to `aherald.log`. |
 | `--config PATH` | Use another configuration file; relative paths inside it resolve from its folder. |
 
