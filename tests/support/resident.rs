@@ -47,29 +47,38 @@ impl ResidentFixture {
         if self.child.is_some() {
             return Err("fixture already owns a process".into());
         }
+        let stderr = std::fs::File::create(self.root.join("resident-stderr.txt"))
+            .map_err(|e| format!("cannot create fixture stderr file: {e}"))?;
         let mut child = OwnedChild(
             command
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(stderr)
                 .spawn()
                 .map_err(|e| format!("cannot start fixture resident: {e}"))?,
         );
         let pid = child.0.id();
-        let mut exited = false;
+        let mut exit_status = None;
         wait_until(
             timeout,
             Duration::from_millis(10),
             "fixture resident startup",
             || {
-                exited = child.0.try_wait().is_ok_and(|status| status.is_some());
-                exited
+                exit_status = child.0.try_wait().ok().flatten();
+                exit_status.is_some()
                     || matches!(pipe::request(&self.scope, &Request::Status, Duration::from_millis(50)),
                 Ok(Response::Status { pid: actual, .. }) if actual == pid)
             },
         )?;
-        if exited {
-            return Err("fixture resident exited during startup".into());
+        if let Some(status) = exit_status {
+            // Keep the child's own diagnostic, bounded, so a startup failure explains itself.
+            let stderr =
+                std::fs::read_to_string(self.root.join("resident-stderr.txt")).unwrap_or_default();
+            let stderr: String = stderr.chars().take(2000).collect();
+            return Err(format!(
+                "fixture resident exited during startup ({status}): {}",
+                stderr.trim()
+            ));
         }
         self.child = Some(child);
         Ok(pid)
