@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-04
+
 ### Changed
 - One form for every time span, in the tray and usage card, the status line and the card age:
   `12 min`, `3:05`, `2d 3:05` (card age adds ` ago`). Was `3d 5h` for quota resets, `1h 12m` /
@@ -17,6 +19,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 - Status line: `{context_window}` now says what it counts (`ctx 9% used`, `ctx 91% remain`).
   `[claude.statusline] display_ctx` (default `used`) and `display_usage` (default `remain`)
   choose it for the context and for the quotas; they replace the borrowed `[codex.usage] display`.
+  With the defaults the context now reads as used (it followed the Codex setting, remaining, before):
+  set `display_ctx = "remain"` for the old meaning.
 - The About card shows how long ago the binary was built (`Built 2d 3:05 ago`), and
   `--version` prints the build time: `aHerald 0.10.0 (built 2026-11-03 22:52 UTC)`. The time is
   stamped by `build.rs`; `SOURCE_DATE_EPOCH` overrides it for reproducible builds.
