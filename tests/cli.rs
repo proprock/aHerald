@@ -42,10 +42,10 @@ fn version_prints_the_crate_version_and_needs_no_configuration() {
         "does-not-exist.toml",
     ]));
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        format!("aHerald {}\n", env!("CARGO_PKG_VERSION"))
-    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    let prefix = format!("aHerald {} (built 20", env!("CARGO_PKG_VERSION"));
+    assert!(text.starts_with(&prefix), "{text}");
+    assert!(text.ends_with(" UTC)\n"), "{text}");
 }
 
 #[test]

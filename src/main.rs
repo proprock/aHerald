@@ -478,7 +478,8 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
                 (
                     config.claude.statusline.format.clone(),
                     aherald::statusline_format::Options {
-                        display: config.codex.usage.display,
+                        display_ctx: config.claude.statusline.display_ctx,
+                        display_usage: config.claude.statusline.display_usage,
                         color: config.claude.statusline.color,
                     },
                 )

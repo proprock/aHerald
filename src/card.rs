@@ -192,12 +192,9 @@ impl Card {
 }
 /// How long ago an event arrived, coarse enough that the card redraws once a minute at most.
 pub fn age_text(elapsed_ms: u64) -> String {
-    const MINUTE: u64 = 60_000;
-    match elapsed_ms {
-        0..MINUTE => "just now".into(),
-        ms if ms < 60 * MINUTE => format!("{} min ago", ms / MINUTE),
-        ms if ms < 24 * 60 * MINUTE => format!("{} h ago", ms / (60 * MINUTE)),
-        ms => format!("{} d ago", ms / (24 * 60 * MINUTE)),
+    match elapsed_ms / 60_000 {
+        0 => "just now".into(),
+        minutes => format!("{} ago", crate::usage_service::span_text(minutes)),
     }
 }
 pub fn remaining_seconds(duration_ms: u64, elapsed_ms: u64) -> Option<u64> {

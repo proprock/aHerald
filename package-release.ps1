@@ -53,7 +53,7 @@ try {
     }
     # A GUI-subsystem program: PowerShell waits for it and collects stdout only through a pipe.
     $reported = & (Join-Path $app 'aherald.exe') --version | Out-String
-    if ($reported.Trim() -ne "aHerald $version") { throw "Extracted aherald.exe reported '$reported'" }
+    if ($reported.Trim() -notmatch "^aHerald $([regex]::Escape($version)) \(built 20[0-9-]+ [0-9:]+ UTC\)$") { throw "Extracted aherald.exe reported '$reported'" }
     $identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     [pscustomobject]@{
         Archive = $zip

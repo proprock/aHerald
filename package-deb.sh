@@ -62,5 +62,8 @@ dpkg-deb --info "dist/$name" >/dev/null
 dpkg-deb --extract "dist/$name" "$stage/extracted"
 test -x "$stage/extracted/usr/lib/aherald/aherald"
 test -f "$stage/extracted/usr/lib/aherald/assets/turn_complete/animation.toml"
-test "$("$stage/extracted/usr/lib/aherald/aherald" --version)" = "aHerald $version"
+case "$("$stage/extracted/usr/lib/aherald/aherald" --version)" in
+  "aHerald $version (built 20"*" UTC)") ;;
+  *) echo "The packaged program reports another version" >&2; exit 1 ;;
+esac
 echo "Built and verified dist/$name"

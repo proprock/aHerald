@@ -25,6 +25,9 @@ plist=$app/Contents/Info.plist
 [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$version" ] ||
   fail "bundle version differs"
 codesign --verify --strict "$app" || fail "signature does not verify"
-[ "$("$exe" --version)" = "aHerald $version" ] || fail "program reports another version"
+case "$("$exe" --version)" in
+  "aHerald $version (built 20"*" UTC)") ;;
+  *) fail "program reports another version" ;;
+esac
 tests/macos_app_lifecycle.sh "$exe" >/dev/null || fail "app lifecycle failed on the mounted program"
 echo "OK: $image"

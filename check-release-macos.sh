@@ -32,7 +32,10 @@ if otool -L "$exe" | tail -n +2 | awk '{print $1}' | grep -Ev '^(/usr/lib/|/Syst
   fail "links a library outside the system"
 fi
 
-[ "$("$exe" --version)" = "aHerald $version" ] || fail "extracted program reports another version"
+case "$("$exe" --version)" in
+  "aHerald $version (built 20"*" UTC)") ;;
+  *) fail "extracted program reports another version" ;;
+esac
 # A fresh home must not make the program touch the signed bundle.
 home=$check/home
 mkdir "$home"

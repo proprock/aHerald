@@ -438,12 +438,18 @@ pub struct ClaudeStatusLine {
     pub format: String,
     /// Colour the ready-made segments (`{context_window}`, `{rate_limits.five_hour}`, ...).
     pub color: bool,
+    /// Whether `{context_window}` shows the context used or what remains of it.
+    pub display_ctx: UsageDisplay,
+    /// Whether the quota segments (`{rate_limits.*}`) show what is used or what remains.
+    pub display_usage: UsageDisplay,
 }
 impl Default for ClaudeStatusLine {
     fn default() -> Self {
         Self {
             format: String::new(),
             color: true,
+            display_ctx: UsageDisplay::Used,
+            display_usage: UsageDisplay::Remain,
         }
     }
 }

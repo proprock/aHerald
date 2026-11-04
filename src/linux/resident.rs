@@ -67,31 +67,14 @@ fn shared(config: &Config) -> Arc<Mutex<Shared>> {
     }))
 }
 
-/// About is an application card, not an error or an agent event.
-fn about_event() -> Event {
-    let mut event = Event::notice(&format!("Version {}", crate::VERSION));
-    event.kind = crate::events::Kind::TurnComplete;
-    event
-}
-
-fn is_about(event: &Event) -> bool {
-    let about = about_event();
-    event.source == about.source && event.kind == about.kind && event.message == about.message
-}
-
-fn about_heading(event: &Event) -> crate::card::Heading {
-    let mut heading = crate::card::Heading::notice(event.message.as_deref().unwrap_or_default());
-    heading.title = crate::NAME.into();
-    heading
-}
-
-fn toggle_about(queue: &mut Queue, now: u64) -> crate::queue::Outcome {
-    let about = about_event();
-    if queue.selected().is_some_and(|entry| is_about(&entry.event)) {
+/// About is the usage card's text in its reserved slot; the same item closes it.
+fn toggle_about(queue: &mut Queue, open: &mut bool) {
+    if *open && queue.selected().is_some_and(|entry| entry.is_usage()) {
         queue.dismiss();
-        crate::queue::Outcome::Resolved
+        *open = false;
     } else {
-        queue.push(about, now, 0)
+        queue.show_usage();
+        *open = true;
     }
 }
 
@@ -281,6 +264,7 @@ fn present(
         crate::session_source::Service::codex()
     };
     let mut usage_claude = false;
+    let mut about_open = false;
     let mut usage_page = 0usize;
     let mut usage_drawn = None;
     let mut usage_update = 0u64;
@@ -323,11 +307,13 @@ fn present(
                         let selected_claude = command == Command::ClaudeUsage;
                         let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
                         if guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                            && !about_open
                             && usage_claude == selected_claude
                         {
                             guard.queue.dismiss();
                         } else {
                             guard.queue.show_usage();
+                            about_open = false;
                             usage_claude = selected_claude;
                             usage_page = 0;
                             if selected_claude {
@@ -343,12 +329,9 @@ fn present(
                     }
                     Command::About => {
                         let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        if !toggle_about(&mut guard.queue, now).is_accepted() {
-                            crate::operational_log::log(
-                                crate::operational_log::Record::QueueRejected,
-                            );
-                        }
+                        toggle_about(&mut guard.queue, &mut about_open);
+                        usage_page = 0;
+                        usage_drawn = None;
                         presenter.invalidate();
                     }
                     Command::Apply | Command::ApplyTest => {
@@ -572,9 +555,9 @@ fn present(
         if transient && entry.is_none() {
             break;
         }
-        if let Some(entry) = entry.filter(|entry| {
-            !paused && (carousel.is_some() || visuals || is_about(&entry.event) || entry.is_usage())
-        }) {
+        if let Some(entry) =
+            entry.filter(|entry| !paused && (carousel.is_some() || visuals || entry.is_usage()))
+        {
             let monitors = window.monitors()?;
             monitor_watch.check(config.notifications.monitor, monitors.len());
             let pointer = window.pointer()?;
@@ -587,12 +570,16 @@ fn present(
             .ok_or("X11: no monitor")?;
             let scale = config.notifications.scale * monitor.scale;
             if entry.is_usage() {
-                let text = if usage_claude {
-                    claude.as_ref().map(|service| service.card_text())
+                let text = if about_open {
+                    crate::about_card_text()
                 } else {
-                    usage.as_ref().map(|service| service.card_text())
-                }
-                .unwrap_or_else(|| "Usage unavailable".into());
+                    if usage_claude {
+                        claude.as_ref().map(|service| service.card_text())
+                    } else {
+                        usage.as_ref().map(|service| service.card_text())
+                    }
+                    .unwrap_or_else(|| "Usage unavailable".into())
+                };
                 let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
                 let pages = crate::usage_service::card_pages(body);
                 usage_page = usage_page.min(pages.len() - 1);
@@ -697,8 +684,6 @@ fn present(
                     Some("[Test]"),
                     cards.disabled().then_some("Disabled in config"),
                 )
-            } else if is_about(&entry.event) {
-                about_heading(&entry.event)
             } else {
                 labels.label(&entry.event)
             };
@@ -982,30 +967,19 @@ mod tests {
     }
 
     #[test]
-    fn about_is_persistent_green_and_dismissible() {
+    fn about_takes_the_usage_slot_and_the_same_item_closes_it() {
         let mut queue = Queue::new(8, 0);
-        assert_eq!(toggle_about(&mut queue, 0), crate::queue::Outcome::Queued);
-        let entry = queue.selected().unwrap();
-        assert_eq!(entry.duration, 0);
-        assert_eq!(entry.event.kind, crate::events::Kind::TurnComplete);
-        let heading = about_heading(&entry.event);
-        assert_eq!(heading.title, "aHerald");
-        assert_eq!(heading.name.as_deref(), entry.event.message.as_deref());
-        assert_eq!(
-            Config::default().event_color(entry.event.kind).0,
-            [65, 210, 140]
-        );
-        assert_eq!(
-            entry.event.message.as_deref(),
-            Some(format!("Version {}", crate::VERSION).as_str())
-        );
-        queue.tick(0, false);
+        let mut open = false;
+        toggle_about(&mut queue, &mut open);
+        assert!(open && queue.selected().is_some_and(|entry| entry.is_usage()));
         queue.tick(120_000, false);
-        assert!(queue.selected().is_some());
-        assert_eq!(
-            toggle_about(&mut queue, 120_000),
-            crate::queue::Outcome::Resolved
-        );
-        assert!(queue.selected().is_none());
+        assert!(queue.selected().is_some(), "About is persistent");
+        toggle_about(&mut queue, &mut open);
+        assert!(!open && queue.selected().is_none());
+        // Closed by a click: the next About opens the card again.
+        toggle_about(&mut queue, &mut open);
+        queue.dismiss();
+        toggle_about(&mut queue, &mut open);
+        assert!(open && queue.selected().is_some_and(|entry| entry.is_usage()));
     }
 }

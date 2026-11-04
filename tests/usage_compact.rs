@@ -17,11 +17,11 @@ fn compact_modes_and_countdowns() {
     assert_eq!(Config::default().codex.usage.display, UsageDisplay::Remain);
     assert_eq!(
         view().compact(1000, UsageDisplay::Remain),
-        "Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11h"
+        "Codex remain: 5h 25% / 2:35, 7d 10% / 6d 11:00"
     );
     assert_eq!(
         view().compact(1000, UsageDisplay::Used),
-        "Codex used: 5h 75% / 2:35, 7d 90% / 6d 11h"
+        "Codex used: 5h 75% / 2:35, 7d 90% / 6d 11:00"
     );
     assert!(
         Config::parse(
@@ -38,16 +38,16 @@ fn countdown_boundaries_and_persistent_values() {
         (1, "1 min"),
         (59, "1 min"),
         (60, "1 min"),
-        (3599, "60 min"),
+        (3599, "1:00"),
         (3600, "1:00"),
-        (86399, "24:00"),
-        (86400, "1d 0h"),
-        (86401, "1d 0h"),
-        (89999, "1d 0h"),
-        (90000, "1d 1h"),
-        (172799, "1d 23h"),
-        (172800, "2d 0h"),
-        (558000, "6d 11h"),
+        (86399, "1d 0:00"),
+        (86400, "1d 0:00"),
+        (86401, "1d 0:01"),
+        (89999, "1d 1:00"),
+        (90000, "1d 1:00"),
+        (172799, "2d 0:00"),
+        (172800, "2d 0:00"),
+        (558000, "6d 11:00"),
     ] {
         assert_eq!(
             aherald::usage_service::countdown(Some(1000 + seconds), 1000),
@@ -97,4 +97,13 @@ fn card_keeps_extended_account_information_and_all_pages() {
             .all(|p| p.lines().count() <= 12 && p.lines().all(|l| l.chars().count() <= 72))
     );
     assert!(pages.join("\n").contains("Second reset"));
+}
+
+#[test]
+fn a_usage_notice_is_its_text_and_about_is_built_when_read() {
+    use aherald::usage_service::UsageNotice;
+    assert_eq!(UsageNotice::Text("x\ny".into()).text(), "x\ny");
+    let about = UsageNotice::About.text();
+    assert_eq!(about, aherald::about_card_text());
+    assert!(about.starts_with(&format!("aHerald\nVersion {}\nBuilt ", aherald::VERSION)));
 }
