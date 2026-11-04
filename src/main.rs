@@ -170,34 +170,59 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.operation.as_deref() == Some("statusline") {
-        return statusline(cli.then.as_deref(), cli.config.as_deref());
+        // The Windows wrapper's command line carries no `--then`: the user's own command is in
+        // the setup receipt (AH-211). A missing receipt means there is none; an unreadable one
+        // must not fail the status line, so say so on stderr and print the plain line.
+        #[cfg(windows)]
+        let from_receipt = match cli.then {
+            Some(_) => None,
+            None => std::env::current_exe()
+                .map_err(|_| "cannot locate aHerald executable".to_owned())
+                .and_then(|exe| aherald::setup::wrapped_statusline_command(&exe))
+                .unwrap_or_else(|error| {
+                    eprintln!("aHerald: {error}");
+                    None
+                }),
+        };
+        #[cfg(not(windows))]
+        let from_receipt: Option<String> = None;
+        return statusline(
+            cli.then.as_deref().or(from_receipt.as_deref()),
+            cli.config.as_deref(),
+        );
     }
     if let Some(action) = match cli.operation.as_deref() {
         Some("install-statusline") => Some(aherald::hook_setup::Action::Install),
         Some("uninstall-statusline") => Some(aherald::hook_setup::Action::Uninstall),
         _ => None,
     } {
-        if cfg!(windows) {
-            return Err("--install-statusline is not supported on Windows yet".into());
-        }
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
-        let file = match cli.hooks_file.clone() {
-            Some(file) => file,
-            None => aherald::hook_setup::default_file(
-                aherald::agent::Agent::Claude,
-                &aherald::paths::home_dir_with(|name| std::env::var_os(name))
-                    .ok_or("cannot locate the home directory; use --hooks-file")?,
-            ),
-        };
-        print!(
-            "{}",
+        // Windows keeps the wrapper in the setup receipt, as `--setup` does (AH-211).
+        #[cfg(windows)]
+        let report = aherald::setup::run_statusline_only(
+            &exe,
+            cli.hooks_file.as_deref(),
+            action == aherald::hook_setup::Action::Uninstall,
+            cli.apply,
+        )?;
+        #[cfg(not(windows))]
+        let report = {
+            let file = match cli.hooks_file.clone() {
+                Some(file) => file,
+                None => aherald::hook_setup::default_file(
+                    aherald::agent::Agent::Claude,
+                    &aherald::paths::home_dir_with(|name| std::env::var_os(name))
+                        .ok_or("cannot locate the home directory; use --hooks-file")?,
+                ),
+            };
             aherald::hook_setup::run_statusline(
                 action,
                 &file,
                 &aherald::hook_setup::statusline_command(&exe),
                 cli.apply,
             )?
-        );
+        };
+        print!("{report}");
         return Ok(());
     }
     if let Some(action) = match cli.operation.as_deref() {

@@ -13,6 +13,10 @@ path = "src/lib.rs"
 name = "aherald"
 path = "src/main.rs"
 
+[[bin]]
+name = "aherald-cli"
+path = "src/bin/aherald-cli.rs"
+
 [[example]]
 name = "generate_assets"
 path = "generate_assets.rs"
