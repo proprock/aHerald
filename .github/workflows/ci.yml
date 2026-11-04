@@ -183,8 +183,9 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      # Timing budgets are noisy on a shared runner, so a pull request skips them; the nightly
-      # run keeps them. A renamed test only runs early again, never drops out of the nightly run.
+      # Timing budgets and the native memory-growth check (AH-219) are noisy on a shared
+      # runner, so a pull request skips them; the nightly run keeps them. A renamed test only
+      # runs early again, never drops out of the nightly run.
       - name: cargo test
         if: ${{ !inputs.full }}
         run: >-
@@ -192,8 +193,9 @@ jobs:
           --skip warmed_artwork_preparation_stays_inside_budget
           --skip hot_paths_stay_inside_their_baseline_budgets
           --skip the_wrapper_costs_little_beyond_starting_the_executable
+          --skip repeated_card_rendering_and_dpi_resize_release_native_resources
 
-      - name: cargo test (including the timing budgets)
+      - name: cargo test (including the noisy checks)
         if: ${{ inputs.full }}
         run: cargo test --locked --all-targets
 

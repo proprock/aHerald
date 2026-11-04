@@ -78,6 +78,18 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   or document why the timeout is environmental. Acceptance: the full run passes on Windows 11,
   with the commands and results recorded.
 
+- [ ] **AH-219 — Flaky native memory-growth test on the Windows runner.**
+  `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
+  (src/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
+  (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
+  the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
+  it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
+  leak still shows within a day. Release still runs it. Work left: reproduce on Windows 11,
+  decide whether the growth is a real leak (GDI/heap) or allocator and runner noise, and make
+  the test deterministic (for example, count GDI and USER handles instead of private commit, or
+  widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
+  hosted runner, and the `--skip` is removed from ci.yml.
+
 - [ ] **AH-102 — Native macOS installer and setup UI.**
   Uses the common native setup backend from AH-097. Deliver GUI app installation
   and Homebrew Cask packaging for Apple Silicon, preserving the portable archive.
