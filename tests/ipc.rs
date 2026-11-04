@@ -13,6 +13,14 @@ fn frames_round_trip_and_reject_invalid_length_version_and_json() {
         assert!(ipc::decode::<serde_json::Value>(&bad).is_err());
     }
     assert!(ipc::encode(&"x".repeat(ipc::MAX_FRAME)).is_err());
+    // The longest raw answer fits even when JSON escapes every character as \u00XX.
+    let worst = ipc::Response::RawOutput {
+        found: true,
+        note: "HTTP 200".into(),
+        age_secs: 0,
+        body: "\u{1}".repeat(aherald::usage_service::RAW_LIMIT),
+    };
+    assert!(ipc::encode(&worst).is_ok());
     let mut trailing = frame;
     trailing.push(0);
     assert!(ipc::decode::<serde_json::Value>(&trailing).is_err());

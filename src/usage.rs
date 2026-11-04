@@ -45,6 +45,12 @@ pub struct Allowance {
     pub limit: Option<String>,
     /// Short alphabetic code such as `USD`; anything else is dropped before it gets here.
     pub currency: Option<String>,
+    /// How much of the limit is used, in percent (0..=100), as the provider reports it.
+    pub percent: Option<f64>,
+    /// The provider's own word for the state, such as `normal`; short and plain or dropped.
+    pub severity: Option<String>,
+    /// Whether the limit has been reached.
+    pub reached: Option<bool>,
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

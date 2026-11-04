@@ -13,7 +13,7 @@ root=$(echo "$check"/aherald-*)
 app=$root/aHerald.app
 exe=$app/Contents/MacOS/aherald
 
-for required in aHerald.example.toml LICENSE README.md START-HERE.md MANIFEST.txt \
+for required in config.example.toml LICENSE README.md START-HERE.md MANIFEST.txt \
   examples/aherald-codex-hook.sh examples/aherald-claude-hook.sh docs/configuration.md \
   aHerald.app/Contents/Info.plist aHerald.app/Contents/Resources/assets/turn_complete; do
   [ -e "$root/$required" ] || fail "archive lacks $required"

@@ -425,6 +425,8 @@ pub enum ClaudeUsageSource {
 #[serde(default, deny_unknown_fields)]
 pub struct Claude {
     pub hooks_enabled: bool,
+    /// Skip the "turn complete" card and sound while Claude Code still has background work.
+    pub suppress_while_busy: bool,
     pub usage: ClaudeUsage,
     #[serde(deserialize_with = "deserialize_session_warnings::<_, 55>")]
     pub warnings: SessionWarnings,
@@ -457,6 +459,7 @@ impl Default for Claude {
     fn default() -> Self {
         Self {
             hooks_enabled: true,
+            suppress_while_busy: true,
             usage: ClaudeUsage::default(),
             warnings: SessionWarnings::with_idle(55),
             statusline: ClaudeStatusLine::default(),

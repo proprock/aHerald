@@ -75,6 +75,14 @@ impl View {
         let Some(bucket) = self.bucket() else {
             return format!("{} {display_name}: {status}", self.label());
         };
+        let suffix = if status == "current" {
+            String::new()
+        } else {
+            format!(" ({status})")
+        };
+        if let Some(line) = spend_only_line(self.label(), bucket) {
+            return format!("{line}{suffix}");
+        }
         let value = |window: Option<&crate::usage::Window>| {
             window_text(
                 window.and_then(|w| match display {
@@ -84,11 +92,6 @@ impl View {
                 window.and_then(|w| w.resets_at),
                 unix,
             )
-        };
-        let suffix = if status == "current" {
-            String::new()
-        } else {
-            format!(" ({status})")
         };
         format!(
             "{} {display_name}: 5h {}, 7d {}{suffix}",
@@ -108,7 +111,12 @@ impl View {
             None => format!("{} usage\n", self.label()),
         };
         if let Some(bucket) = self.bucket() {
-            for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
+            let windows = if has_no_windows(bucket) {
+                Vec::new()
+            } else {
+                vec![("5h", &bucket.primary), ("Week", &bucket.secondary)]
+            };
+            for (label, window) in windows {
                 let percent = window
                     .as_ref()
                     .and_then(|w| w.used_percent)
@@ -315,6 +323,45 @@ pub fn span_text(minutes: u64) -> String {
         ),
     }
 }
+/// Longest raw answer kept or carried, in bytes of text.
+pub const RAW_LIMIT: usize = 32 * 1024;
+
+/// `body` as text, cut at `RAW_LIMIT` with a marker, so a raw answer always fits one IPC frame.
+pub fn bounded_raw(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    if text.len() <= RAW_LIMIT {
+        return text.into_owned();
+    }
+    let mut end = RAW_LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n…truncated", &text[..end])
+}
+
+/// The last unparsed answer of each usage source (Codex, Claude): kept in memory only, one each,
+/// so `aherald --raw-output usage` can show what a source really said. Never logged.
+static RAW: std::sync::Mutex<[Option<(String, i64, String)>; 2]> =
+    std::sync::Mutex::new([None, None]);
+
+fn raw_slot(agent: Agent) -> usize {
+    match agent {
+        Agent::Codex => 0,
+        Agent::Claude => 1,
+    }
+}
+
+/// Remembers `body`, an answer of `agent`'s usage source described by `note` (`HTTP 200`).
+pub fn keep_raw(agent: Agent, note: &str, body: &[u8]) {
+    let kept = (note.to_owned(), unix_now(), bounded_raw(body));
+    RAW.lock().unwrap_or_else(|e| e.into_inner())[raw_slot(agent)] = Some(kept);
+}
+
+/// The remembered answer of `agent`: its note, its Unix time and the text.
+pub fn last_raw(agent: Agent) -> Option<(String, i64, String)> {
+    RAW.lock().unwrap_or_else(|e| e.into_inner())[raw_slot(agent)].clone()
+}
+
 pub fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -330,13 +377,58 @@ fn clean(value: &str) -> String {
         .take(120)
         .collect()
 }
-/// `Extra usage: enabled, limit: 12.34/50.00 USD` (the figures are used/limit).
+/// A bucket with neither the 5-hour nor the weekly window but a spend or extra-usage figure:
+/// an account billed by usage (enterprise).
+fn has_no_windows(bucket: &crate::usage::Bucket) -> bool {
+    bucket.primary.is_none()
+        && bucket.secondary.is_none()
+        && (bucket.spend.is_some() || bucket.extra_usage.is_some())
+}
+/// `Claude enterprise: spend 0.74 / 100.00 USD (0.74%)`: the usage line for such an account.
+fn spend_only_line(label: &str, bucket: &crate::usage::Bucket) -> Option<String> {
+    if !has_no_windows(bucket) {
+        return None;
+    }
+    let (name, allowance) = match (&bucket.spend, &bucket.extra_usage) {
+        (Some(spend), _) => ("spend", spend),
+        (None, Some(extra)) => ("extra", extra),
+        (None, None) => return None,
+    };
+    let amount = |value: &Option<String>| clean(value.as_deref().unwrap_or("—"));
+    let plan = bucket
+        .plan_type
+        .as_deref()
+        .map_or("enterprise".into(), clean);
+    Some(format!(
+        "{label} {plan}: {name} {} / {}{}{}",
+        amount(&allowance.used),
+        amount(&allowance.limit),
+        allowance
+            .currency
+            .as_deref()
+            .map(|c| format!(" {}", clean(c)))
+            .unwrap_or_default(),
+        allowance
+            .percent
+            .map(|p| format!(" ({}%)", percent_figure(p)))
+            .unwrap_or_default()
+    ))
+}
+/// `1`, `0.74`, `12.5`: at most two decimals, none when whole.
+fn percent_figure(percent: f64) -> String {
+    format!("{percent:.2}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+/// `Extra usage: enabled, limit: 12.34/50.00 USD` (the figures are used/limit), then the
+/// provider's percentage, state and limit-reached flag when it reports them.
 fn allowance_line(name: &str, allowance: &crate::usage::Allowance) -> String {
     let amount = |value: &Option<String>| clean(value.as_deref().unwrap_or("—"));
     // Extra usage reads "limit: used/limit"; spend reads "used/limit" without the label.
     let label = if name == "Extra usage" { "limit: " } else { "" };
-    format!(
-        "{name}: {}, {label}{}/{}{}\n",
+    let mut line = format!(
+        "{name}: {}, {label}{}/{}{}",
         if allowance.enabled == Some(true) {
             "enabled"
         } else {
@@ -349,7 +441,18 @@ fn allowance_line(name: &str, allowance: &crate::usage::Allowance) -> String {
             .as_deref()
             .map(|c| format!(" {}", clean(c)))
             .unwrap_or_default()
-    )
+    );
+    if let Some(percent) = allowance.percent {
+        line.push_str(&format!(", {}% used", percent_figure(percent)));
+    }
+    if let Some(severity) = &allowance.severity {
+        line.push_str(&format!(", {}", clean(severity)));
+    }
+    if allowance.reached == Some(true) {
+        line.push_str(", limit reached");
+    }
+    line.push('\n');
+    line
 }
 fn flag(value: Option<bool>) -> &'static str {
     match value {
@@ -411,7 +514,9 @@ impl<T: Transport, F: FnMut() -> Result<T, Error>> CodexSource<T, F> {
 impl<T: Transport, F: FnMut() -> Result<T, Error>> UsageSource for CodexSource<T, F> {
     fn read(&mut self, now: Duration) -> Result<Snapshot, Error> {
         let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
-        Snapshot::parse(self.connection.read(now)?).map_err(Error::Service)
+        let value = self.connection.read(now)?;
+        keep_raw(Agent::Codex, "app-server", value.to_string().as_bytes());
+        Snapshot::parse(value).map_err(Error::Service)
     }
     fn is_live(&self) -> bool {
         self.connection.client.is_some()

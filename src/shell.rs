@@ -21,25 +21,21 @@ pub fn open(target: &std::ffi::OsStr) -> Result<(), isize> {
     .0 as isize;
     if code > 32 { Ok(()) } else { Err(code) }
 }
+/// Opens the configuration in the associated program, or in Notepad when the shell cannot
+/// (no program for `.toml`, a handler that is gone, or any other refusal).
 pub fn edit_configuration(path: &Path) -> Result<(), String> {
-    match open(path.as_os_str()) {
-        Ok(()) => Ok(()),
-        Err(31 | 27) => {
-            use std::os::windows::process::CommandExt;
-            let editor = std::env::var_os("SystemRoot")
-                .map(std::path::PathBuf::from)
-                .ok_or("SystemRoot unavailable for Notepad")?
-                .join("System32/notepad.exe");
-            std::process::Command::new(editor)
-                .arg(path)
-                .creation_flags(0x08000000)
-                .spawn()
-                .map(|_| ())
-                .map_err(|e| format!("cannot open configuration {}: {e}", path.display()))
-        }
-        Err(code) => Err(format!(
-            "cannot open configuration {} (shell error {code})",
-            path.display()
-        )),
+    use std::os::windows::process::CommandExt;
+    if open(path.as_os_str()).is_ok() {
+        return Ok(());
     }
+    let editor = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .ok_or("Cannot open the configuration: SystemRoot is not set")?
+        .join("System32/notepad.exe");
+    std::process::Command::new(editor)
+        .arg(path)
+        .creation_flags(0x08000000)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Cannot open the configuration in Notepad: {e}"))
 }

@@ -207,6 +207,11 @@ transient_names = false
 # Accept Claude Code hooks delivered with --hook --agent claude; default true.
 # This switch does not install hooks. See examples/claude-settings.json for manual setup.
 hooks_enabled = true
+# While Claude Code still has background work (a shell, subagent or workflow task, or a one-shot
+# scheduled wakeup) the turn is not really finished, so its "turn complete" card and sound are
+# skipped; the next Stop with nothing left running shows the card. Monitors and recurring
+# wakeups (/loop) do not count. Default true.
+suppress_while_busy = true
 
 [claude.warnings]
 # Setup and the installer switch these on and off and keep the thresholds. Both warnings are off

@@ -160,6 +160,7 @@ fn claude_sections_default_safely_and_validate() {
     let dir = PathBuf::from(".");
     let defaults = Config::parse("", &dir).unwrap();
     assert!(defaults.claude.hooks_enabled);
+    assert!(defaults.claude.suppress_while_busy);
     assert!(!defaults.claude.usage.enabled, "token use is opt-in");
     assert_eq!(defaults.claude.usage.refresh_interval_sec, 300);
     assert!(
@@ -606,7 +607,7 @@ fn session_warning_defaults_are_per_agent_and_invalid_values_are_private() {
     for config in [
         Config::default(),
         Config::parse("", &PathBuf::from(".")).unwrap(),
-        Config::parse(include_str!("../aHerald.example.toml"), &PathBuf::from(".")).unwrap(),
+        Config::parse(include_str!("../config.example.toml"), &PathBuf::from(".")).unwrap(),
         Config::parse(
             "[claude.warnings]\ncontext_tokens=100\n[codex.warnings]",
             &PathBuf::from("."),

@@ -12,6 +12,47 @@ fn main() {
     }
 }
 
+/// `--raw-output`: prints the last unparsed answer of a source exactly as the resident kept it.
+/// The text goes to stdout, where it came from and how old it is to stderr.
+fn raw_output(
+    scope: &aherald::local::Scope,
+    source: aherald::ipc::RawSource,
+) -> Result<(), String> {
+    use aherald::ipc::{Request, Response};
+    use std::io::Write;
+    let response = aherald::ipc::pipe::request(
+        scope,
+        &Request::RawOutput { source },
+        std::time::Duration::from_millis(1000),
+    )
+    .map_err(|_| {
+        "no running aHerald of this version answered (not running, or started before an upgrade)"
+    })?;
+    match response {
+        Response::RawOutput {
+            found: true,
+            note,
+            age_secs,
+            body,
+        } => {
+            let mut out = std::io::stdout();
+            let _ = out.write_all(body.as_bytes());
+            if !body.ends_with('\n') {
+                let _ = out.write_all(b"\n");
+            }
+            let _ = out.flush();
+            eprintln!(
+                "aHerald: {note}, received {}, {} bytes",
+                aherald::card::age_text(age_secs.saturating_mul(1000)),
+                body.len()
+            );
+            Ok(())
+        }
+        Response::RawOutput { note, .. } => Err(note),
+        _ => Err("the running aHerald does not support --raw-output (restart it)".into()),
+    }
+}
+
 /// Fixed operational code beside the configuration; the configuration itself may be
 /// unreadable, so its log level cannot be consulted.
 fn log_code(path: &std::path::Path, record: aherald::operational_log::Record) {
@@ -193,8 +234,14 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         print!("{}", aherald::perf_report::report(&directory)?);
         return Ok(());
     }
-    if matches!(cli.operation.as_deref(), Some("status" | "quit")) {
+    if matches!(
+        cli.operation.as_deref(),
+        Some("status" | "quit" | "raw-output")
+    ) {
         let scope = aherald::local::Scope::current("resident")?;
+        if let Some(source) = cli.raw_source {
+            return raw_output(&scope, source);
+        }
         let request = if cli.operation.as_deref() == Some("quit") {
             aherald::ipc::Request::Quit
         } else {
@@ -211,13 +258,17 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     // Respond to the hook contract before any fallible configuration or delivery.
     let mut hook_context = None;
+    let mut hook_busy = false;
     let hook_event = if cli.operation.as_deref() == Some("hook") {
         let event = aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
             .and_then(|bytes| {
                 if cli.hook_agent() == aherald::agent::Agent::Codex {
                     hook_context = aherald::codex_context::parse(&bytes)?;
                 }
-                cli.hook_agent().parse_hook(&bytes)
+                let event = cli.hook_agent().parse_hook(&bytes)?;
+                hook_busy = event.as_ref().is_some_and(aherald::agent::is_claude_stop)
+                    && aherald::agent::claude_has_background_work(&bytes);
+                Ok(event)
             })
             .inspect_err(|error| {
                 log_code(
@@ -264,7 +315,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             // An interactive start has no terminal to read stderr in: say why on a card.
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
             if cli.operation.is_none()
-                && aherald::notification::configuration_notice(error).is_err()
+                && aherald::notification::startup_notice(&aherald::notice::startup_failure_text(
+                    error,
+                ))
+                .is_err()
             {
                 log_code(&path, aherald::operational_log::Record::RenderFailure);
             }
@@ -279,7 +333,15 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     if cli.selected_mode(&config) == aherald::config::Mode::Resident && cli.operation.is_none() {
         #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-        return aherald::resident::run_after_apply(scope, config, &path, test_after_apply);
+        return aherald::resident::run_after_apply(scope, config, &path, test_after_apply)
+            .inspect_err(|error| {
+                // No terminal to read stderr in: say why the resident could not run on a card.
+                if aherald::notification::startup_notice(&aherald::notice::run_failure_text(error))
+                    .is_err()
+                {
+                    log_code(&path, aherald::operational_log::Record::RenderFailure);
+                }
+            });
         #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         return aherald::resident::run(scope, config, &path);
     }
@@ -301,6 +363,18 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         if let Some(mut event) = hook_event
             && cli.hook_agent().hooks_enabled(&config)
         {
+            // A Stop with background work is no finished turn: it only settles the session's
+            // waits (as activity does), with no card and no sound.
+            if hook_busy && config.claude.suppress_while_busy {
+                event.activity = true;
+                return match cli.selected_mode(&config) {
+                    aherald::config::Mode::Resident => aherald::resident::forward_if_running(
+                        &aherald::local::Scope::current("resident")?,
+                        &event,
+                    ),
+                    _ => Ok(()),
+                };
+            }
             if cli.hook_agent().records_console_window() || cfg!(target_os = "linux") {
                 event.window = aherald::console_window::current();
             }
@@ -465,27 +539,39 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
         aherald::events::read_bounded(std::io::stdin(), std::time::Duration::from_millis(500))
             .unwrap_or_default();
     // The configuration is read only when there is no command of the user's to run, so wrapping
-    // costs nothing extra. It is never created here, and any problem leaves the line empty.
+    // costs nothing extra. It is never created here; a missing file leaves the line empty and an
+    // unreadable one is named on it.
+    let mut failure = None;
     let format = match then {
         Some(_) => None,
-        None => config
-            .map(|path| Ok(path.to_path_buf()))
-            .unwrap_or_else(aherald::config::Config::default_path)
-            .ok()
-            .and_then(|path| aherald::config::Config::load(&path, true).ok())
-            .filter(|config| !config.claude.statusline.format.is_empty())
-            .map(|config| {
-                (
+        None => {
+            let path = config
+                .map(|path| Ok(path.to_path_buf()))
+                .unwrap_or_else(aherald::config::Config::default_path)
+                .ok()
+                .filter(|path| path.exists());
+            match path.map(|path| aherald::config::Config::load(&path, true)) {
+                Some(Ok(config)) if !config.claude.statusline.format.is_empty() => Some((
                     config.claude.statusline.format.clone(),
                     aherald::statusline_format::Options {
                         display_ctx: config.claude.statusline.display_ctx,
                         display_usage: config.claude.statusline.display_usage,
                         color: config.claude.statusline.color,
                     },
-                )
-            }),
+                )),
+                // The status line is where the user is looking: say what is wrong there.
+                Some(Err(error)) => {
+                    failure = Some(aherald::notice::startup_failure_text(&error));
+                    None
+                }
+                _ => None,
+            }
+        }
     };
-    let outcome = aherald::statusline::run_with_format(
+    // The payload itself goes along for `aherald --raw-output statusline`; the resident keeps
+    // the latest one in memory only.
+    let raw = aherald::usage_service::bounded_raw(&input);
+    let mut outcome = aherald::statusline::run_with_format(
         &input,
         then,
         format
@@ -495,12 +581,18 @@ fn statusline(then: Option<&str>, config: Option<&std::path::Path>) -> Result<()
             if let Ok(scope) = aherald::local::Scope::current("resident") {
                 let _ = aherald::ipc::pipe::request_if_running(
                     &scope,
-                    &aherald::ipc::Request::StatusLine { report },
+                    &aherald::ipc::Request::StatusLine {
+                        report,
+                        raw: Some(raw),
+                    },
                     std::time::Duration::from_millis(150),
                 );
             }
         },
     );
+    if let (true, Some(text)) = (outcome.stdout.is_empty(), failure) {
+        outcome.stdout = format!("{text}\n").into_bytes();
+    }
     let mut stdout = std::io::stdout();
     let _ = stdout.write_all(&outcome.stdout);
     let _ = stdout.flush();

@@ -84,6 +84,8 @@ struct Ui {
     render_failed: bool,
     timer_ms: Option<u32>,
     tooltip: String,
+    /// The tray icon update error already shown on a card, so a repeating one is shown once.
+    tray_failure: Option<String>,
     /// Replaces the usage card text, e.g. the About text or a refused Restart; cleared when
     /// the card closes.
     notice: Option<crate::usage_service::UsageNotice>,
@@ -273,9 +275,7 @@ impl Ui {
                     tray.tooltip(&tooltip);
                     self.tooltip = tooltip;
                 }
-                if let Err(error) = tray.usage(levels) {
-                    eprintln!("aHerald: {error}");
-                }
+                crate::notice::report_changed(&mut self.tray_failure, tray.usage(levels));
             }
             if self.usage_window {
                 let text = self.card_text();
@@ -739,7 +739,8 @@ impl Ui {
                 let path = self.config_path.clone();
                 std::thread::spawn(move || {
                     if let Err(error) = crate::shell::edit_configuration(&path) {
-                        eprintln!("aHerald: {error}");
+                        // There is no console to read stderr in: say it on a card.
+                        crate::notice::post(&error);
                     }
                 });
             }
@@ -769,7 +770,8 @@ impl Ui {
                         // No timer runs while idle: wake the window so it sees the stop.
                         crate::resident::wake(window);
                     }
-                    Err(error) => eprintln!("aHerald: {error}"),
+                    // There is no console to read stderr in: say it on a card.
+                    Err(error) => crate::notice::post(&format!("Apply failed: {error}")),
                 });
             }
             SUMMARY | CLAUDE_SUMMARY => {
@@ -1212,6 +1214,7 @@ pub(super) fn run_preview(
             render_failed: false,
             timer_ms: None,
             tooltip: String::new(),
+            tray_failure: None,
             notice: None,
             demo,
             carousel,

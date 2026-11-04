@@ -48,7 +48,7 @@ terminal or IDE; the token quota still works for Desktop.
 
 | Claude hook | Condition | aHerald event |
 | --- | --- | --- |
-| `Stop` | always | `turn_complete` |
+| `Stop` | always (but see `suppress_while_busy`) | `turn_complete` |
 | `StopFailure` | any `error` (for example `rate_limit`) | `error` |
 | `PermissionRequest` | always | `permission_required` |
 | `Notification` | `notification_type = permission_prompt` | `permission_required` |
@@ -87,6 +87,14 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
   not already running. Transient mode ignores it. Payload fields other than `session_id`
   (including `reason`) are not read. Add the `SessionEnd` entry from the example; Claude Code
   allows its hooks 1.5 s unless the entry sets a longer `timeout`, as the example does.
+- `[claude] suppress_while_busy = true` (default): a `Stop` whose payload still lists background
+  work, that is a task in `background_tasks` other than a `monitor` or a one-shot
+  (`recurring = false`) entry in `session_crons`, is no finished turn. It shows no card and plays
+  no sound, and only settles the session's pending waits as activity does; the next `Stop` with
+  nothing left shows the card. Only each task's `type` and each wakeup's `recurring` are read;
+  descriptions and commands are not. Older Claude Code versions send neither field, so nothing
+  is held back. A long-lived task such as `tail -f` or a dev server therefore keeps the card
+  away until it ends; set the option to `false` to be told after every turn.
 - `SubagentStop` is deliberately ignored: a subagent finishing does not end the user's turn,
   and the main `Stop` follows on its own.
 
@@ -100,11 +108,26 @@ feed the same tray tooltip, menu line and usage card as Codex; the tray icon bar
 unless Claude is the only enabled agent. The details card mirrors the Codex layout: `Claude plan: <subscriptionType from the credentials
 file>`, `5h` and `Week` lines, `Extra usage: enabled|disabled, limit: <used>/<monthly> <currency>`
 from `extra_usage` (minor units scaled by `decimal_places`) and `Spend: enabled|disabled,
-<used>/<limit> <currency>` from `spend`; missing values show `—`. Reset credits and
+<used>/<limit> <currency>` from `spend`; missing values show `—`. When the provider reports them,
+each of these two lines continues with `, <n>% used`, its own state word (`normal`) and
+`, limit reached`. An account billed by usage has no `five_hour` or `seven_day` window (the
+response has them as `null`): its plan reads `enterprise` unless the login names another, the
+card shows only the spend lines, and the menu and tooltip line is `Claude enterprise: spend 0.74 /
+100.00 USD (1%)` whatever `display` says. A response with neither a window nor a spend figure is
+refused as "Claude usage response has no quota or spend data", and one that does not parse as
+"Claude usage response not recognised". Reset credits and
 "ordinary usage allowed" have no counterpart in the endpoint and are omitted. An expired token shows "open Claude Code to refresh"
 because aHerald never refreshes or writes tokens. This endpoint and its response are undocumented
 and unverified against a live session; other tools (for example rate-tray) use the same source.
 An alternative without tokens is the statusLine `rate_limits` field (tracked in AH-038).
+
+To see what the endpoint really answered, for example when the card says "Claude usage response
+not recognised", run `aherald --raw-output usage --harness claude`: it prints the last response
+body (any status) the running resident received, unparsed; nothing is written to disk or the log.
+`aherald --raw-output statusline` does the same for the payload Claude Code last sent to the
+statusLine wrapper, which is how to see whether it carries `rate_limits` (it does not for
+accounts billed by usage). On Windows pipe the output: `aherald.exe --raw-output usage --harness
+claude | Out-String`.
 
 Request safety: redirects are never followed (WinHTTP redirect policy "never"), so the
 token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected

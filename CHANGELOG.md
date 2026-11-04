@@ -9,6 +9,39 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Changed
+- The configuration reference is now `config.example.toml` (was `aHerald.example.toml`), next to
+  the `config.toml` it describes. The Windows installer removes the old copy on upgrade.
+
+### Added
+- `[claude] suppress_while_busy` (default `true`): no "turn complete" card or sound while Claude
+  Code's `Stop` payload still lists background work (any task but a monitor, or a one-shot
+  scheduled wakeup); the next `Stop` with nothing left running shows it.
+- `aherald --raw-output usage --harness codex|claude` and `aherald --raw-output statusline`
+  print the last unparsed answer of a usage source, or the last payload Claude Code sent to the
+  statusLine wrapper, from the running resident's memory (only the latest one each; never
+  written to disk or the log). The source, status and age go to stderr. The IPC frame limit
+  grows from 4 KiB to 256 KiB to carry them; the wrapper now sends its payload (up to 32 KiB)
+  with each report.
+- Claude usage for accounts without 5-hour and 7-day windows (enterprise): the plan reads
+  `enterprise`, the menu and tooltip line shows the spend (`Claude enterprise: spend 0.74 /
+  100.00 USD (1%)`) and the card shows the spend and extra-usage lines with the provider's
+  percentage, state and limit-reached flag. A whole-number `used_credits` sent as `74.0` is read
+  too.
+
+### Fixed
+- Errors that only went to stderr, which a GUI program does not have, are now shown:
+  an interactive start that fails for any reason shows it on a card (it did for a bad
+  configuration only); Apply that cannot start its replacement and Edit configuration that
+  cannot open a file say so on a card; a tray icon that cannot be updated says so once (it
+  printed every second); with a configuration it cannot read, the status line prints
+  `Invalid configuration: …` instead of nothing.
+- Windows: Edit configuration opens Notepad whenever the shell cannot open `config.toml` (it did
+  only for two error codes) and says why on a card if that fails too; it used to print to a
+  console the program does not have.
+- A Claude usage response aHerald cannot use no longer reads "Invalid Codex protocol message":
+  it says "Claude usage response not recognised" or "…has no quota or spend data".
+
 ## [0.11.0] - 2026-11-04
 
 ### Changed

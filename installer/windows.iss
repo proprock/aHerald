@@ -52,10 +52,14 @@ Source: "{#PackageDir}\aherald.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageDir}\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageDir}\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#PackageDir}\aHerald.example.toml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PackageDir}\config.example.toml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; Renamed to config.example.toml; drop the old copy on upgrade.
+Type: files; Name: "{app}\aHerald.example.toml"
 
 [Icons]
 Name: "{group}\aHerald"; Filename: "{app}\aherald.exe"; Parameters: "--resident"

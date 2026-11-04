@@ -24,6 +24,23 @@ successful quit. The script cleans up its resident and temporary files. It is a
 bridge smoke test, not a real harness, installed hook, statusLine wrapper, card
 appearance, or sound acceptance test. Linux real-session probes remain open.
 
+## Claude Stop with background work (Linux)
+
+Offline like the smoke test above (Rust build, Xvfb, `xvfb-run`, D-Bus, Python 3; no harness,
+account or network). Unlike it, this one runs the production hook path: `aherald --hook --agent
+claude --resident` against a private resident (its own `XDG_RUNTIME_DIR`), so it covers
+`[claude] suppress_while_busy`:
+
+```sh
+cargo build --bin aherald
+xvfb-run -a dbus-run-session -- env AH115_ISOLATED=1 bash tests/live/linux_claude_busy_stop.sh
+```
+
+`Stop` payloads with a shell task or a one-shot wakeup must queue no card; a monitor with a
+recurring wakeup, empty `background_tasks`/`session_crons`, and a payload without either field
+must each queue one. It confirms the contract, not Claude Code's real payload: capture one with
+a running background task before relying on the field names.
+
 ## Linux real-session bridge probes (AH-115)
 
 These opt-in probes require Linux, a built aHerald and bridge (see above), Python

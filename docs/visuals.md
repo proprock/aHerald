@@ -61,7 +61,7 @@ Global `notifications.visual`: `auto` (default), `builtin`, `pet`.
 Per-event `visual`: `inherit` (default), `builtin`, `pet`, `custom`.
 Explicit event choices override the main style. Only `custom` uses `animation`;
 it requires a path. Unknown choices are configuration errors.
-See the complete commented [`aHerald.example.toml`](../aHerald.example.toml).
+See the complete commented [`config.example.toml`](../config.example.toml).
 
 Missing/corrupt/unsupported selected artwork, including scale/memory-limit failures,
 falls back to the event's builtin

@@ -1,6 +1,6 @@
 # Focused examples
 
-The complete configuration reference lives at [`aHerald.example.toml`](../aHerald.example.toml)
+The complete configuration reference lives at [`config.example.toml`](../config.example.toml)
 in the repository root. It documents every setting and uses built-in default values.
 These files serve separate scenarios and do not load automatically or combine together:
 

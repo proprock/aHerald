@@ -530,6 +530,7 @@ fn linux_context_adapters_reach_cards_and_the_tray_switch() {
             );
             Request::StatusLine {
                 report: aherald::statusline::parse(input.as_bytes()).unwrap(),
+                raw: None,
             }
         };
         assert!(matches!(

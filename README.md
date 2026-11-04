@@ -71,7 +71,7 @@ aherald --status                                 # PID, queue, switches
 aherald --quit
 ```
 
-Settings live in `config.toml` beside the executable ([`aHerald.example.toml`](aHerald.example.toml) lists every
+Settings live in `config.toml` beside the executable ([`config.example.toml`](config.example.toml) lists every
 option; see [configuration](docs/configuration.md)). Nothing is installed or started automatically.
 
 ## Support at a glance

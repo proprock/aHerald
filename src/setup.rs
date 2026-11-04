@@ -92,7 +92,7 @@ fn settings_text(file: &Path) -> Result<(Option<String>, crate::config::Config),
     let before = read(file)?;
     let text = before
         .as_deref()
-        .unwrap_or(include_str!("../aHerald.example.toml"));
+        .unwrap_or(include_str!("../config.example.toml"));
     if text.len() > 65_536 {
         return Err("configuration exceeds 64 KiB".into());
     }
@@ -147,7 +147,7 @@ fn usage_plan(exe: &Path, options: &UsageOptions) -> Result<Option<Change>, Stri
     let (before, config) = settings_text(&file)?;
     let text = before
         .as_deref()
-        .unwrap_or(include_str!("../aHerald.example.toml"));
+        .unwrap_or(include_str!("../config.example.toml"));
     let mut document = text
         .parse::<toml_edit::DocumentMut>()
         .map_err(|_| "cannot edit configuration TOML")?;

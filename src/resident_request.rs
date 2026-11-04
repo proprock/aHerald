@@ -129,6 +129,49 @@ pub fn notice_sink<S: Controls + Send + 'static>(
     }
 }
 
+/// The last unparsed answer of `source`, or why there is none.
+fn raw_output(source: crate::ipc::RawSource, settings: &Config) -> Response {
+    use crate::{agent::Agent, ipc::RawSource};
+    let unix = crate::usage_service::unix_now();
+    let found = |note: &str, at: i64, body: &str| Response::RawOutput {
+        found: true,
+        note: note.to_owned(),
+        age_secs: unix.saturating_sub(at).max(0) as u64,
+        body: body.to_owned(),
+    };
+    let missing = |note: &str| Response::RawOutput {
+        found: false,
+        note: note.to_owned(),
+        age_secs: 0,
+        body: String::new(),
+    };
+    let usage =
+        |agent: Agent, enabled: bool, setting: &str| match crate::usage_service::last_raw(agent) {
+            Some((note, at, body)) => found(&note, at, &body),
+            None if enabled => {
+                missing("no answer received yet; usage is refreshed every few minutes")
+            }
+            None => missing(&format!(
+                "usage is off; set {setting} enabled = true and apply"
+            )),
+        };
+    match source {
+        RawSource::CodexUsage => usage(Agent::Codex, settings.codex.usage.enabled, "[codex.usage]"),
+        RawSource::ClaudeUsage => usage(
+            Agent::Claude,
+            settings.claude.usage.enabled,
+            "[claude.usage]",
+        ),
+        RawSource::ClaudeStatusLine => crate::statusline::with_store(|store| match store.raw() {
+            Some((body, at)) => found("statusLine payload", at, body),
+            None => missing(
+                "no statusLine report yet; install the wrapper (aherald --install-statusline) \
+                 and use Claude Code",
+            ),
+        }),
+    }
+}
+
 fn dropped(why: &'static str) -> Effects {
     Effects {
         dropped: Some(why),
@@ -164,7 +207,7 @@ fn respond_with_focus(
             },
             Effects::default(),
         ),
-        Request::StatusLine { report } => {
+        Request::StatusLine { report, raw } => {
             // The wrapper already validated the payload, but the pipe is untrusted input.
             if report.session_id.is_empty()
                 || report.session_id.len() > 256
@@ -179,7 +222,11 @@ fn respond_with_focus(
                 settings,
             );
             crate::statusline::with_store(|store| {
-                store.record(report, crate::usage_service::unix_now())
+                let now = crate::usage_service::unix_now();
+                store.record(report, now);
+                if let Some(raw) = raw {
+                    store.record_raw(raw, now);
+                }
             });
             if let Some(event) = warning {
                 deliver_warning(event, state, settings, now);
@@ -193,6 +240,7 @@ fn respond_with_focus(
             }
             (Response::Accepted, Effects::default())
         }
+        Request::RawOutput { source } => (raw_output(source, settings), Effects::default()),
         Request::CodexContext { report } => {
             if !report.valid() {
                 return invalid();
@@ -443,7 +491,12 @@ mod tests {
             respond(Request::Event { event: wait }, &mut s, &settings, 0);
             if context {
                 let report = crate::statusline::parse(br#"{"session_id":"full-queue","context_window":{"current_usage":{"input_tokens":101,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}"#).unwrap();
-                respond(Request::StatusLine { report }, &mut s, &settings, 0);
+                respond(
+                    Request::StatusLine { report, raw: None },
+                    &mut s,
+                    &settings,
+                    0,
+                );
             } else {
                 let mut stop = Event::demo("turn_complete").unwrap();
                 stop.source = Source::ClaudeHook;
@@ -534,6 +587,7 @@ mod tests {
         let (reply, effects) = respond(
             Request::StatusLine {
                 report: report.clone(),
+                raw: None,
             },
             &mut s,
             &settings,
@@ -542,7 +596,12 @@ mod tests {
         assert!(matches!(reply, Response::Accepted));
         assert!(effects.wake);
         assert_eq!(s.queue.items()[0].event.kind, Kind::ContextWarning);
-        respond(Request::StatusLine { report }, &mut s, &settings, 1);
+        respond(
+            Request::StatusLine { report, raw: None },
+            &mut s,
+            &settings,
+            1,
+        );
         assert_eq!(s.queue.items().len(), 1);
         assert_eq!(
             crate::statusline::with_store(|s| s.name("context-resident-test").map(str::to_owned)),
@@ -842,6 +901,51 @@ mod tests {
     }
 
     #[test]
+    fn raw_output_returns_the_kept_answer_or_says_why_there_is_none() {
+        use crate::ipc::RawSource;
+        let ask = |source, settings: &Config| {
+            let mut state = state(8);
+            match respond(Request::RawOutput { source }, &mut state, settings, 0).0 {
+                Response::RawOutput {
+                    found, note, body, ..
+                } => (found, note, body),
+                other => panic!("{other:?}"),
+            }
+        };
+        // Usage that is switched off says how to switch it on; nothing is invented.
+        let off = Config::default();
+        assert!(!off.claude.usage.enabled);
+        let (found, note, _) = ask(RawSource::ClaudeUsage, &off);
+        assert!(
+            found || note.contains("[claude.usage] enabled = true"),
+            "{note}"
+        );
+        // A statusLine payload travels with its report and comes back untouched.
+        let mut state = state(8);
+        let report = crate::statusline::Report {
+            session_id: "respond-raw-test".into(),
+            session_name: None,
+            quota: None,
+            context_tokens: None,
+        };
+        let payload = r#"{"session_id":"respond-raw-test","cost":{"total_cost_usd":0.1}}"#;
+        respond(
+            Request::StatusLine {
+                report,
+                raw: Some(payload.into()),
+            },
+            &mut state,
+            &off,
+            0,
+        );
+        let (found, note, body) = ask(RawSource::ClaudeStatusLine, &off);
+        assert!(found && body == payload, "{note}");
+        // Whatever a usage source last said is returned as it was kept.
+        crate::usage_service::keep_raw(crate::agent::Agent::Claude, "HTTP 200", b"{}");
+        assert!(ask(RawSource::ClaudeUsage, &off).0);
+    }
+
+    #[test]
     fn a_statusline_report_is_stored_and_acknowledged_without_touching_the_queue() {
         let mut state = state(8);
         let report = crate::statusline::Report {
@@ -853,6 +957,7 @@ mod tests {
         let (response, effects) = respond(
             Request::StatusLine {
                 report: report.clone(),
+                raw: None,
             },
             &mut state,
             &Config::default(),
@@ -869,7 +974,10 @@ mod tests {
             ..report
         };
         let (response, _) = respond(
-            Request::StatusLine { report: invalid },
+            Request::StatusLine {
+                report: invalid,
+                raw: None,
+            },
             &mut state,
             &Config::default(),
             0,
