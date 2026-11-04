@@ -56,6 +56,8 @@ pub struct Route {
     pub sink: Box<dyn Sink>,
     pub kinds: Vec<Kind>,
     pub secrets: Vec<String>,
+    /// Whether messages built from an event for this sink name the folder.
+    pub include_folder: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -95,6 +97,7 @@ struct Queue {
 
 struct Channel {
     kinds: Vec<Kind>,
+    include_folder: bool,
     queue: Arc<(Mutex<Queue>, Condvar)>,
     capacity: usize,
 }
@@ -132,6 +135,7 @@ impl Dispatcher {
                 let queue = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
                 let channel = Channel {
                     kinds: route.kinds.clone(),
+                    include_folder: route.include_folder,
                     queue: queue.clone(),
                     capacity: policy.queue.max(1),
                 };
@@ -149,6 +153,17 @@ impl Dispatcher {
     /// Queues `message` for every sink that wants its kind, unless forwarding is off. Never
     /// blocks on the network.
     pub fn submit(&self, kind: Kind, message: Message) {
+        self.submit_with(kind, |_| message.clone());
+    }
+
+    /// `submit` for an accepted card: each sink gets the message its own `include_folder` allows.
+    pub fn submit_event(&self, event: &Event) {
+        self.submit_with(event.kind, |channel| {
+            Message::from_event(event, channel.include_folder)
+        });
+    }
+
+    fn submit_with(&self, kind: Kind, message: impl Fn(&Channel) -> Message) {
         if !self.enabled() {
             return;
         }
@@ -158,7 +173,7 @@ impl Dispatcher {
             if queue.messages.len() >= channel.capacity {
                 queue.messages.pop_front();
             }
-            queue.messages.push_back(message.clone());
+            queue.messages.push_back(message(channel));
             wake.notify_one();
         }
     }
@@ -262,6 +277,7 @@ mod tests {
             sink: Box::new(sink),
             kinds: kinds.to_vec(),
             secrets: Vec::new(),
+            include_folder: false,
         }
     }
 
@@ -372,6 +388,7 @@ mod tests {
             sink: Box::new(sink),
             kinds: vec![Kind::TurnComplete],
             secrets: Vec::new(),
+            include_folder: false,
         };
         let dispatcher = Dispatcher::start(vec![route], fast(2, 1), true, quiet());
         dispatcher.submit(Kind::TurnComplete, message("in flight"));
@@ -426,6 +443,7 @@ mod tests {
             sink: Box::new(Flaky(seen_tx, results)),
             kinds: vec![Kind::Error],
             secrets: Vec::new(),
+            include_folder: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -454,6 +472,7 @@ mod tests {
             sink: Box::new(sink),
             kinds: vec![Kind::Error],
             secrets: vec!["123:SECRET".into()],
+            include_folder: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -471,6 +490,23 @@ mod tests {
             posted.as_slice(),
             ["stub: request to /bot***/sendMessage failed"]
         );
+    }
+
+    #[test]
+    fn each_sink_gets_the_folder_only_if_it_asked_for_it() {
+        let (with, with_seen) = stub(0, "");
+        let (without, without_seen) = stub(0, "");
+        let routes = vec![
+            Route {
+                include_folder: true,
+                ..route(with, &[Kind::TurnComplete])
+            },
+            route(without, &[Kind::TurnComplete]),
+        ];
+        let dispatcher = Dispatcher::start(routes, fast(8, 1), true, quiet());
+        dispatcher.submit_event(&event(Kind::TurnComplete, Some("project")));
+        assert!(with_seen.recv_timeout(WAIT).unwrap().contains("project"));
+        assert!(!without_seen.recv_timeout(WAIT).unwrap().contains("project"));
     }
 
     #[test]
