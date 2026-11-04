@@ -9,6 +9,17 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- Claude usage for accounts without 5-hour and 7-day windows (enterprise): the plan reads
+  `enterprise`, the menu and tooltip line shows the spend (`Claude enterprise: spend 0.74 /
+  100.00 USD (1%)`) and the card shows the spend and extra-usage lines with the provider's
+  percentage, state and limit-reached flag. A whole-number `used_credits` sent as `74.0` is read
+  too.
+
+### Fixed
+- A Claude usage response aHerald cannot use no longer reads "Invalid Codex protocol message":
+  it says "Claude usage response not recognised" or "…has no quota or spend data".
+
 ## [0.11.0] - 2026-11-04
 
 ### Changed

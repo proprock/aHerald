@@ -100,7 +100,14 @@ feed the same tray tooltip, menu line and usage card as Codex; the tray icon bar
 unless Claude is the only enabled agent. The details card mirrors the Codex layout: `Claude plan: <subscriptionType from the credentials
 file>`, `5h` and `Week` lines, `Extra usage: enabled|disabled, limit: <used>/<monthly> <currency>`
 from `extra_usage` (minor units scaled by `decimal_places`) and `Spend: enabled|disabled,
-<used>/<limit> <currency>` from `spend`; missing values show `—`. Reset credits and
+<used>/<limit> <currency>` from `spend`; missing values show `—`. When the provider reports them,
+each of these two lines continues with `, <n>% used`, its own state word (`normal`) and
+`, limit reached`. An account billed by usage has no `five_hour` or `seven_day` window (the
+response has them as `null`): its plan reads `enterprise` unless the login names another, the
+card shows only the spend lines, and the menu and tooltip line is `Claude enterprise: spend 0.74 /
+100.00 USD (1%)` whatever `display` says. A response with neither a window nor a spend figure is
+refused as "Claude usage response has no quota or spend data", and one that does not parse as
+"Claude usage response not recognised". Reset credits and
 "ordinary usage allowed" have no counterpart in the endpoint and are omitted. An expired token shows "open Claude Code to refresh"
 because aHerald never refreshes or writes tokens. This endpoint and its response are undocumented
 and unverified against a live session; other tools (for example rate-tray) use the same source.

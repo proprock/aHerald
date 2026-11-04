@@ -33,10 +33,19 @@ pub fn parse_response(body: &[u8], plan: Option<&str>) -> Result<Snapshot, Error
         extra_usage: Option<Value>,
         spend: Option<Value>,
     }
-    let wire: Wire = serde_json::from_slice(body).map_err(|_| Error::Malformed)?;
-    if wire.five_hour.is_none() && wire.seven_day.is_none() {
-        return Err(Error::Malformed);
+    let wire: Wire = serde_json::from_slice(body)
+        .map_err(|_| Error::Service("Claude usage response not recognised"))?;
+    let extra = wire.extra_usage.as_ref().and_then(extra_usage);
+    let spend = wire.spend.as_ref().and_then(spend);
+    let quota = wire.five_hour.is_some() || wire.seven_day.is_some();
+    if !quota && extra.is_none() && spend.is_none() {
+        return Err(Error::Service(
+            "Claude usage response has no quota or spend data",
+        ));
     }
+    // An account without 5-hour and 7-day windows is billed by usage (enterprise): the spend
+    // is all there is to show.
+    let plan = plan.or((!quota).then_some("enterprise"));
     let window = |w: Option<Window>, mins: i64| {
         w.map(|w| crate::usage::Window {
             used_percent: w.utilization,
@@ -49,8 +58,8 @@ pub fn parse_response(body: &[u8], plan: Option<&str>) -> Result<Snapshot, Error
         primary: window(wire.five_hour, FIVE_HOUR_MINS),
         secondary: window(wire.seven_day, SEVEN_DAY_MINS),
         plan_type: plan.map(str::to_owned),
-        extra_usage: wire.extra_usage.as_ref().and_then(extra_usage),
-        spend: wire.spend.as_ref().and_then(spend),
+        extra_usage: extra,
+        spend,
         ..Bucket::default()
     };
     Snapshot::single("claude", bucket).map_err(Error::Service)
@@ -77,7 +86,14 @@ fn money(minor: i64, exponent: u32) -> String {
 /// A bare number is minor units; a `{amount_minor, currency, exponent}` object carries its own.
 fn amount(value: Option<&Value>, default_exponent: u32) -> Option<(String, Option<String>)> {
     let value = value?;
-    let (minor, exponent, currency) = if let Some(minor) = value.as_i64() {
+    // `74.0` is a whole number of minor units too.
+    let whole = value.as_i64().or_else(|| {
+        value
+            .as_f64()
+            .filter(|n| n.is_finite() && n.abs() < 1e15)
+            .map(|n| n.round() as i64)
+    });
+    let (minor, exponent, currency) = if let Some(minor) = whole {
         (minor, default_exponent, None)
     } else {
         (
@@ -113,6 +129,9 @@ fn extra_usage(extra: &Value) -> Option<Allowance> {
         used: amount(extra.get("used_credits"), places).map(|a| a.0),
         limit: amount(extra.get("monthly_limit"), places).map(|a| a.0),
         currency: currency_code(extra.get("currency").and_then(Value::as_str)),
+        percent: percent(extra.get("utilization")),
+        reached: extra.get("spend_limit_reached").and_then(Value::as_bool),
+        ..Allowance::default()
     })
 }
 
@@ -129,7 +148,24 @@ fn spend(spend: &Value) -> Option<Allowance> {
         currency: currency_code(currency),
         used: used.map(|a| a.0),
         limit: limit.map(|a| a.0),
+        percent: percent(spend.get("percent")),
+        severity: spend
+            .get("severity")
+            .and_then(Value::as_str)
+            .filter(|s| {
+                !s.is_empty()
+                    && s.len() <= 16
+                    && s.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            })
+            .map(str::to_owned),
+        ..Allowance::default()
     })
+}
+
+/// A percentage the provider reports, kept only when it is a number from 0 to 100.
+fn percent(value: Option<&Value>) -> Option<f64> {
+    value?.as_f64().filter(|v| (0.0..=100.0).contains(v))
 }
 
 /// Reads only the non-secret `subscriptionType` label from the credentials file contents.
@@ -516,6 +552,83 @@ mod tests {
         assert!(text.contains("Spend: disabled, 0.00/— USD\n"), "{text}");
     }
 
+    /// A real enterprise response (2026-11-04), trimmed: no windows, spend only.
+    const ENTERPRISE: &[u8] = br#"{"five_hour":null,"seven_day":null,"seven_day_opus":null,
+        "extra_usage":{"is_enabled":true,"monthly_limit":10000,"used_credits":74.0,
+            "utilization":0.74,"currency":"USD","decimal_places":2,"disabled_reason":null,
+            "user_disabled":false,"spend_limit_reached":false,"daily":null,"weekly":null},
+        "limits":[],
+        "spend":{"used":{"amount_minor":74,"currency":"USD","exponent":2},
+            "limit":{"amount_minor":10000,"currency":"USD","exponent":2},
+            "percent":1,"severity":"normal","enabled":true,"disabled_reason":null,
+            "can_purchase_credits":false},
+        "member_dashboard_available":true}"#;
+
+    fn claude_view(body: &[u8], plan: Option<&str>) -> crate::usage_service::View {
+        let mut view = crate::usage_service::View::for_agent(
+            crate::agent::Agent::Claude,
+            true,
+            Duration::from_secs(300),
+        );
+        view.snapshot = Some(parse_response(body, plan).unwrap());
+        view
+    }
+
+    #[test]
+    fn an_account_without_windows_is_enterprise_and_shows_its_spend() {
+        let bucket = parse_response(ENTERPRISE, None).unwrap().buckets["claude"].clone();
+        assert!(bucket.primary.is_none() && bucket.secondary.is_none());
+        assert_eq!(bucket.plan_type.as_deref(), Some("enterprise"));
+        let spend = bucket.spend.unwrap();
+        assert_eq!(
+            (spend.used.as_deref(), spend.limit.as_deref()),
+            (Some("0.74"), Some("100.00"))
+        );
+        assert_eq!(
+            (spend.percent, spend.severity.as_deref()),
+            (Some(1.0), Some("normal"))
+        );
+        // `used_credits` is a float here; it is whole minor units all the same.
+        let extra = bucket.extra_usage.unwrap();
+        assert_eq!(extra.used.as_deref(), Some("0.74"));
+        assert_eq!((extra.percent, extra.reached), (Some(0.74), Some(false)));
+
+        let view = claude_view(ENTERPRISE, None);
+        assert_eq!(
+            view.compact(0, crate::config::UsageDisplay::Remain),
+            "Claude enterprise: spend 0.74 / 100.00 USD (1%)"
+        );
+        let text = view.card_text(Duration::ZERO, 0);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "Claude plan: enterprise");
+        assert_eq!(
+            lines[1],
+            "Extra usage: enabled, limit: 0.74/100.00 USD, 0.74% used"
+        );
+        assert_eq!(lines[2], "Spend: enabled, 0.74/100.00 USD, 1% used, normal");
+        assert!(!text.contains("5h:") && !text.contains("Week:"), "{text}");
+    }
+
+    #[test]
+    fn the_plan_from_the_login_wins_over_the_enterprise_fallback() {
+        let view = claude_view(ENTERPRISE, Some("team"));
+        assert_eq!(
+            view.compact(0, crate::config::UsageDisplay::Remain),
+            "Claude team: spend 0.74 / 100.00 USD (1%)"
+        );
+    }
+
+    #[test]
+    fn a_response_that_cannot_be_used_says_so_without_naming_codex() {
+        let text = |body: &[u8]| parse_response(body, None).unwrap_err().to_string();
+        assert_eq!(text(b"[]"), "Claude usage response not recognised");
+        assert_eq!(text(b"nope"), "Claude usage response not recognised");
+        assert_eq!(
+            text(br#"{"five_hour":null,"seven_day":null,"extra_usage":null,"spend":null}"#),
+            "Claude usage response has no quota or spend data"
+        );
+    }
+
     #[test]
     fn subscription_type_comes_from_credentials_without_the_token() {
         let file = |plan: &str| {
@@ -531,9 +644,11 @@ mod tests {
     }
 
     #[test]
-    fn unusable_responses_are_malformed() {
+    fn unusable_responses_are_refused_with_a_claude_message() {
         for body in [&b"{"[..], b"[]", b"{}", br#"{"five_hour":"x"}"#] {
-            assert_eq!(parse_response(body, None).unwrap_err(), Error::Malformed);
+            let error = parse_response(body, None).unwrap_err();
+            assert_ne!(error, Error::Malformed, "that one says Codex");
+            assert!(error.to_string().starts_with("Claude usage"), "{error}");
         }
     }
 

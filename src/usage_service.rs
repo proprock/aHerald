@@ -75,6 +75,14 @@ impl View {
         let Some(bucket) = self.bucket() else {
             return format!("{} {display_name}: {status}", self.label());
         };
+        let suffix = if status == "current" {
+            String::new()
+        } else {
+            format!(" ({status})")
+        };
+        if let Some(line) = spend_only_line(self.label(), bucket) {
+            return format!("{line}{suffix}");
+        }
         let value = |window: Option<&crate::usage::Window>| {
             window_text(
                 window.and_then(|w| match display {
@@ -84,11 +92,6 @@ impl View {
                 window.and_then(|w| w.resets_at),
                 unix,
             )
-        };
-        let suffix = if status == "current" {
-            String::new()
-        } else {
-            format!(" ({status})")
         };
         format!(
             "{} {display_name}: 5h {}, 7d {}{suffix}",
@@ -108,7 +111,12 @@ impl View {
             None => format!("{} usage\n", self.label()),
         };
         if let Some(bucket) = self.bucket() {
-            for (label, window) in [("5h", &bucket.primary), ("Week", &bucket.secondary)] {
+            let windows = if has_no_windows(bucket) {
+                Vec::new()
+            } else {
+                vec![("5h", &bucket.primary), ("Week", &bucket.secondary)]
+            };
+            for (label, window) in windows {
                 let percent = window
                     .as_ref()
                     .and_then(|w| w.used_percent)
@@ -330,13 +338,58 @@ fn clean(value: &str) -> String {
         .take(120)
         .collect()
 }
-/// `Extra usage: enabled, limit: 12.34/50.00 USD` (the figures are used/limit).
+/// A bucket with neither the 5-hour nor the weekly window but a spend or extra-usage figure:
+/// an account billed by usage (enterprise).
+fn has_no_windows(bucket: &crate::usage::Bucket) -> bool {
+    bucket.primary.is_none()
+        && bucket.secondary.is_none()
+        && (bucket.spend.is_some() || bucket.extra_usage.is_some())
+}
+/// `Claude enterprise: spend 0.74 / 100.00 USD (0.74%)`: the usage line for such an account.
+fn spend_only_line(label: &str, bucket: &crate::usage::Bucket) -> Option<String> {
+    if !has_no_windows(bucket) {
+        return None;
+    }
+    let (name, allowance) = match (&bucket.spend, &bucket.extra_usage) {
+        (Some(spend), _) => ("spend", spend),
+        (None, Some(extra)) => ("extra", extra),
+        (None, None) => return None,
+    };
+    let amount = |value: &Option<String>| clean(value.as_deref().unwrap_or("—"));
+    let plan = bucket
+        .plan_type
+        .as_deref()
+        .map_or("enterprise".into(), clean);
+    Some(format!(
+        "{label} {plan}: {name} {} / {}{}{}",
+        amount(&allowance.used),
+        amount(&allowance.limit),
+        allowance
+            .currency
+            .as_deref()
+            .map(|c| format!(" {}", clean(c)))
+            .unwrap_or_default(),
+        allowance
+            .percent
+            .map(|p| format!(" ({}%)", percent_figure(p)))
+            .unwrap_or_default()
+    ))
+}
+/// `1`, `0.74`, `12.5`: at most two decimals, none when whole.
+fn percent_figure(percent: f64) -> String {
+    format!("{percent:.2}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+/// `Extra usage: enabled, limit: 12.34/50.00 USD` (the figures are used/limit), then the
+/// provider's percentage, state and limit-reached flag when it reports them.
 fn allowance_line(name: &str, allowance: &crate::usage::Allowance) -> String {
     let amount = |value: &Option<String>| clean(value.as_deref().unwrap_or("—"));
     // Extra usage reads "limit: used/limit"; spend reads "used/limit" without the label.
     let label = if name == "Extra usage" { "limit: " } else { "" };
-    format!(
-        "{name}: {}, {label}{}/{}{}\n",
+    let mut line = format!(
+        "{name}: {}, {label}{}/{}{}",
         if allowance.enabled == Some(true) {
             "enabled"
         } else {
@@ -349,7 +402,18 @@ fn allowance_line(name: &str, allowance: &crate::usage::Allowance) -> String {
             .as_deref()
             .map(|c| format!(" {}", clean(c)))
             .unwrap_or_default()
-    )
+    );
+    if let Some(percent) = allowance.percent {
+        line.push_str(&format!(", {}% used", percent_figure(percent)));
+    }
+    if let Some(severity) = &allowance.severity {
+        line.push_str(&format!(", {}", clean(severity)));
+    }
+    if allowance.reached == Some(true) {
+        line.push_str(", limit reached");
+    }
+    line.push('\n');
+    line
 }
 fn flag(value: Option<bool>) -> &'static str {
     match value {
