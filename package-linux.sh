@@ -27,6 +27,9 @@ cp docs/portable-linux.md "$root/START-HERE.md"
 (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
 mkdir "$stage/extracted"
 tar -xzf "$archive" -C "$stage/extracted"
-test "$("$stage/extracted/$name/aherald" --version)" = "aHerald $version"
+case "$("$stage/extracted/$name/aherald" --version)" in
+  "aHerald $version (built 20"*" UTC)") ;;
+  *) echo "The packaged program reports another version" >&2; exit 1 ;;
+esac
 [ -f "$stage/extracted/$name/assets/turn_complete/animation.png" ] || [ -d "$stage/extracted/$name/assets/turn_complete" ]
 echo "Built and verified $archive"
