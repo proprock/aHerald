@@ -4,7 +4,7 @@ Without `--config`, aHerald uses exactly `config.toml` in the directory containi
 the running `aherald.exe`. It never searches the working directory or APPDATA.
 Normal event, hook, resident and demo startup creates an absent standard file
 with the current defaults, including documented options, from
-`aHerald.example.toml`. Help/status/quit do not create configuration files.
+`config.example.toml`. Help/status/quit do not create configuration files.
 Existing standard files are never replaced, merged or upgraded automatically.
 
 The file is written completely to a private file in the same directory and
@@ -130,7 +130,7 @@ format = "{context_window} · {rate_limits.five_hour} · {rate_limits.seven_day}
   A field named `resets_at` is shown as the time left in the usage card's form: `3d 5:10`, `4:05`, `15 min`.
   Token counts (names ending in `tokens`, and `context_window_size`) are shortened to `18k`,
   `18.6M`; other numbers are inserted unchanged.
-  `aHerald.example.toml` lists every field with its availability.
+  `config.example.toml` lists every field with its availability.
 - `{{` and `}}` are literal braces. `{[ ... ]}` is an optional group, dropped whole when a field
   written directly inside it is empty, so separators disappear with their value (`worktree`,
   `workspace.repo`, `effort` and `rate_limits` are absent in many sessions).

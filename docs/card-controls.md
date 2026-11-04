@@ -48,7 +48,7 @@ The existing card opacity, transparent rounded corners, accent stripe and sprite
 colors are preserved. This applies in resident, transient and demo modes, including
 background title updates. Text remains its existing light color; choose backgrounds
 that keep it readable. Restart a running resident after editing configuration.
-See `aHerald.example.toml` and [pet state overrides](pets.md#per-event-state-overrides).
+See `config.example.toml` and [pet state overrides](pets.md#per-event-state-overrides).
 
 ## Background color verification (AH-035, 2026-10-25)
 

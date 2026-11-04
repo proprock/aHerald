@@ -13,7 +13,7 @@ In the release archive this file is also `START-HERE.md`.
 | Path | Purpose |
 | --- | --- |
 | `aherald.exe` | The program. |
-| `aHerald.example.toml` | Complete configuration reference with the built-in defaults. |
+| `config.example.toml` | Complete configuration reference with the built-in defaults. |
 | `assets/` | Default animations (`sheet.png` + `animation.toml`) and sounds (`sound.wav`), one folder per event. Keep it beside `aherald.exe`. |
 | `examples/` | Hook examples for Codex and Claude Code and demo presets. |
 | `docs/` | Detailed documentation; `docs/configuration.md` is the best next read. |
@@ -77,7 +77,7 @@ output appears only when piped, for example `.\aherald.exe --status | Out-String
 ## Configuration
 
 Edit `config.toml` (tray: **Edit configuration**). Every setting, accepted value and default
-is commented in `aHerald.example.toml`; see also [configuration](configuration.md). Unknown or
+is commented in `config.example.toml`; see also [configuration](configuration.md). Unknown or
 invalid fields are reported per field and the card still appears with defaults where possible.
 Useful settings: `[general] mode`, `[notifications] position`, `monitor`, `scale`,
 `background_color`, per-event `[events.NAME]` sections (`duration_sec`, `sound_enabled`,

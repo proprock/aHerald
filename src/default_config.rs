@@ -33,7 +33,7 @@ pub(crate) fn create(path: &Path) -> Result<(), String> {
             .write(true)
             .open(&temporary)?;
         let temporary = Temporary(temporary);
-        file.write_all(include_bytes!("../aHerald.example.toml"))?;
+        file.write_all(include_bytes!("../config.example.toml"))?;
         file.sync_all()?;
         drop(file);
         match publish(&temporary.0, path) {

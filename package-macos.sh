@@ -44,7 +44,7 @@ PLIST
 # refuses to run unsigned code. Developer ID signing and notarization are not done.
 codesign --force --sign - "$app"
 
-for file in aHerald.example.toml LICENSE README.md CHANGELOG.md; do cp "$file" "$root/"; done
+for file in config.example.toml LICENSE README.md CHANGELOG.md; do cp "$file" "$root/"; done
 cp -R docs examples "$root/"
 cp docs/portable-macos.md "$root/START-HERE.md"
 

@@ -20,7 +20,7 @@ Remove-Item -LiteralPath $root, $zip, "$zip.sha256" -Recurse -Force -ErrorAction
 New-Item -ItemType Directory -Path $root | Out-Null
 
 Copy-Item -LiteralPath $Executable -Destination $root
-foreach ($file in 'aHerald.example.toml', 'LICENSE', 'README.md', 'CHANGELOG.md') {
+foreach ($file in 'config.example.toml', 'LICENSE', 'README.md', 'CHANGELOG.md') {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $root
 }
 foreach ($dir in 'assets', 'examples', 'docs') {
@@ -47,7 +47,7 @@ Remove-Item -LiteralPath $check -Recurse -Force -ErrorAction SilentlyContinue
 try {
     Expand-Archive -LiteralPath $zip -DestinationPath $check
     $app = Join-Path $check $name
-    foreach ($required in 'aherald.exe', 'aHerald.example.toml', 'LICENSE', 'README.md', 'START-HERE.md', 'MANIFEST.txt',
+    foreach ($required in 'aherald.exe', 'config.example.toml', 'LICENSE', 'README.md', 'START-HERE.md', 'MANIFEST.txt',
         'assets/turn_complete', 'examples/hooks.windows.json', 'docs/configuration.md') {
         if (-not (Test-Path -LiteralPath (Join-Path $app $required))) { throw "Archive lacks $required" }
     }

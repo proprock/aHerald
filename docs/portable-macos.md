@@ -15,7 +15,7 @@ arm64-only build.
 | Path | Purpose |
 | --- | --- |
 | `aHerald.app` | The program. Its `Contents/Resources/assets` holds the default animations. |
-| `aHerald.example.toml` | Complete configuration reference with the built-in defaults. |
+| `config.example.toml` | Complete configuration reference with the built-in defaults. |
 | `examples/` | Hook scripts and settings for Codex and Claude Code (`*.macos.json`, `*.sh`). |
 | `docs/` | Detailed documentation; `docs/configuration.md` is the best next read. |
 | `MANIFEST.txt` | Version and SHA-256 of every file. |

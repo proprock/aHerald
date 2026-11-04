@@ -606,7 +606,7 @@ fn session_warning_defaults_are_per_agent_and_invalid_values_are_private() {
     for config in [
         Config::default(),
         Config::parse("", &PathBuf::from(".")).unwrap(),
-        Config::parse(include_str!("../aHerald.example.toml"), &PathBuf::from(".")).unwrap(),
+        Config::parse(include_str!("../config.example.toml"), &PathBuf::from(".")).unwrap(),
         Config::parse(
             "[claude.warnings]\ncontext_tokens=100\n[codex.warnings]",
             &PathBuf::from("."),

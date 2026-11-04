@@ -21,7 +21,7 @@ root=$stage/$name
 mkdir -p "$root"
 cp "$executable" "$root/aherald"
 cp -R assets docs examples "$root/"
-cp aHerald.example.toml LICENSE README.md CHANGELOG.md "$root/"
+cp config.example.toml LICENSE README.md CHANGELOG.md "$root/"
 cp docs/portable-linux.md "$root/START-HERE.md"
 (cd "$stage" && tar -czf "$OLDPWD/$archive" "$name")
 (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
