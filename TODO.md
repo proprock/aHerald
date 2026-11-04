@@ -688,3 +688,44 @@ are deferred (AH-204, AH-205).
   Depends on AH-204. Windows installer, macOS setup window and Linux console setup list OpenCode,
   Pi and Goose beside Codex and Claude (default unchecked, installed ones retained) and pass the
   selection as `UsageOptions::bridges`. The Windows part can be checked by CI only on this setup.
+
+## Milestone 9 — Notifications to external messengers (deferred)
+
+- [ ] **AH-213 — Sinks: send cards to a messenger, Telegram first.**
+  Design agreed 2026-11-04. A *sink* lives in the resident, takes only events the queue accepted
+  as new cards (`Outcome::Queued`, so deduplication, per-event `enabled`, session ends and
+  obsolete waits are already settled) and never feeds anything back.
+  - Contract: `struct Message { kind, harness, folder: Option<String>, text }` and
+    `trait Sink: Send { fn name(&self) -> &str; fn send(&mut self, &Message) -> Result<(), String>; }`.
+    No enum of kinds, no plugin loading; one method, tested with a stub.
+  - Privacy by construction: the message carries the event kind, the harness and the folder name
+    only, never prompts, `last_assistant_message`, paths or session names. The folder goes to a
+    third party, so it is off unless `include_folder = true`.
+  - Delivery: a worker thread with a bounded queue (the oldest is dropped when full), a timeout and
+    capped retries, so a hung network never delays cards, IPC or the tray. Failures are shown, not
+    hidden: the first and each different error posts a card through `notice::report_changed`; no
+    secret ever appears in an error, a log line or `--raw-output`.
+  - Per-sink filter: event kinds (a messenger usually wants `turn_complete`, `permission_required`,
+    `input_required`, `error`), independent of `suppress_when_focused`, which is about the screen
+    in front of the user. "Only when away from the computer" needs an idle detector that does not
+    exist; leave it out of the pilot.
+  - Secrets from the environment: the configuration names a variable, never holds the value
+    (`token_env = "AHERALD_TELEGRAM_TOKEN"`, `chat_id_env = …`); `token_file = "…"` (owner-only
+    file) as the second form. A literal `token = "…"` is rejected, so a pasted
+    `config.toml` cannot leak it. A missing or empty variable is a startup notice naming the
+    variable, not the value. On Windows a resident started from the Run key or the installer sees
+    the user's environment only; say so in the docs and in the notice.
+  - Telegram: `POST https://api.telegram.org/bot<token>/sendMessage` with `chat_id` and `text`
+    (JSON body, no parse mode, so nothing needs escaping). `https.rs` (WinHTTP) and the `ureq`
+    path only have GET: both need a bounded POST with a body, reusing the existing proxy/TLS
+    handling and the `Wiped` secret type for the token. This is the largest part of the work.
+  - Order of work: (1) POST in both HTTP layers, tested against the existing local test server;
+    (2) the trait, the worker and the filter with a stub sink; (3) a generic *command or webhook*
+    sink (a template with the kind and folder, run as an argument vector without a shell, or a
+    POST to a URL), which already serves ntfy, Slack and Telegram; (4) Telegram as a preset on
+    top of it, only if a preset is still wanted; (5) the settings window and `--setup` stay
+    unchanged until the keys settle.
+  Acceptance: unit tests for the filter, retry and drop-oldest, error de-duplication and secret
+  redaction; a process test with a local fake Telegram server that sees exactly the allowed
+  fields; a hung server leaves card delivery within its budget; by hand, one real bot on Windows 11
+  and Linux.
