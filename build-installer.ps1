@@ -9,7 +9,9 @@ $version = ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Cargo.toml') | W
 if (-not $Tag) { $Tag = "v$version" }
 if ($Tag -ne "v$version") { throw "Tag $Tag does not match crate version $version" }
 $package = Join-Path $PSScriptRoot "dist/aherald-$Tag-windows-x64"
-if (-not (Test-Path -LiteralPath (Join-Path $package 'aherald.exe'))) { throw 'Run package-release.ps1 first' }
+foreach ($required in 'aherald.exe', 'aherald-cli.exe') {
+    if (-not (Test-Path -LiteralPath (Join-Path $package $required))) { throw 'Run package-release.ps1 first' }
+}
 if (-not $Compiler) {
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7/ISCC.exe'),

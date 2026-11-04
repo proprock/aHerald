@@ -51,7 +51,7 @@ try {
     Assert-Test ((Install-Test 'codex,claude,contextcodex,contextclaude,idlecodex,idleclaude' 'install.log') -eq 0) 'Install failed'
     $initialConfig = Get-Content -LiteralPath (Join-Path $appDir 'config.toml') -Raw
     Assert-Test ($initialConfig.Contains('context_tokens = "250k"') -and $initialConfig.Contains('context_tokens = "400k"')) 'Initial warning thresholds were not applied'
-    $initialReport = (& (Join-Path $appDir 'aherald.exe') --setup-settings | Out-String)
+    $initialReport = ((& (Join-Path $appDir 'aherald-cli.exe') --setup-settings) -join "`n")
     foreach ($key in 'codex_context','claude_context','codex_idle','claude_idle') {
         Assert-Test ($initialReport.Contains($key + '=true')) "Initial warning not enabled: $key"
     }
@@ -64,7 +64,9 @@ try {
     Assert-Test (Test-Path -LiteralPath (Join-Path $codexDir 'hooks.json')) 'Codex was not configured'
     Assert-Test (Test-Path -LiteralPath $receipt) 'Setup receipt missing'
     $statusLine = (Get-Content -LiteralPath (Join-Path $claudeDir 'settings.json') -Raw | ConvertFrom-Json).statusLine
-    Assert-Test ($statusLine.command.Contains('aherald --statusline') -and $statusLine.padding -eq 2) 'Claude context did not wrap the original status line'
+    Assert-Test (Test-Path -LiteralPath (Join-Path $appDir 'aherald-cli.exe')) 'The console companion was not installed'
+    # AH-211: a readable command; the user's own command is kept in the receipt, not on the line.
+    Assert-Test (($statusLine.command -match 'aherald-cli\.exe --statusline$' -or $statusLine.command -match 'statusline\.ps1"$') -and $statusLine.padding -eq 2 -and -not $statusLine.command.Contains('echo original-status')) 'Claude context did not wrap the original status line'
     Assert-Test ((Get-Content -LiteralPath (Join-Path $claudeDir 'settings.json.aherald-backup') -Raw).Trim() -eq $foreign) 'Backup did not preserve the original settings'
 
     # Exercise upgrade against a real locked EXE with the old CLI boundary.
@@ -119,7 +121,7 @@ try {
     $customUsage += "[codex.warnings]`ncontext_tokens = '233k' # keep context note`nidle_minutes = 17`n[claude.warnings]`ncontext_tokens = 390000`nidle_minutes = 42`n"
     [IO.File]::WriteAllText($config, $customUsage)
     Assert-Test ((Install-Test 'claude,usagecodex,usageclaude,contextcodex,contextclaude,idlecodex,idleclaude' 'usage-enable.log') -eq 0) 'Settings selection install failed'
-    $readUsage = (& (Join-Path $appDir 'aherald.exe') --setup-settings | Out-String)
+    $readUsage = ((& (Join-Path $appDir 'aherald-cli.exe') --setup-settings) -join "`n")
     Assert-Test ($readUsage.Contains('codex_usage=true') -and $readUsage.Contains('claude_usage=true')) 'Usage checkboxes were not applied'
     foreach ($key in 'codex_context','claude_context','codex_idle','claude_idle') {
         Assert-Test ($readUsage.Contains($key + '=true')) "Warning checkbox not enabled: $key"
@@ -131,7 +133,7 @@ try {
     Assert-Test ((Invoke-InstallerProcess $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $appDir + '"'), '/GROUP="aHerald Installer Test"')) -eq 0) 'Default upgrade failed'
     Assert-Test ((Get-Content -LiteralPath $config -Raw) -eq $afterUsage) 'Default upgrade changed configured usage'
     Assert-Test ((Install-Test 'claude,usageclaude,contextclaude,idleclaude' 'usage-disable.log') -eq 0) 'Settings deselection failed'
-    $readUsage = (& (Join-Path $appDir 'aherald.exe') --setup-settings | Out-String)
+    $readUsage = ((& (Join-Path $appDir 'aherald-cli.exe') --setup-settings) -join "`n")
     Assert-Test ($readUsage.Contains('codex_usage=false') -and $readUsage.Contains('claude_usage=true')) 'Usage checkboxes did not disable only Codex'
     Assert-Test ($readUsage.Contains('codex_context=false') -and $readUsage.Contains('codex_idle=false') -and $readUsage.Contains('claude_context=true') -and $readUsage.Contains('claude_idle=true')) 'Warning checkboxes did not disable only Codex'
     $afterWarnings = Get-Content -LiteralPath $config -Raw

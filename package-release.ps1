@@ -1,5 +1,6 @@
 param(
     [string]$Executable = (Join-Path $PSScriptRoot 'target/x86_64-pc-windows-msvc/release/aherald.exe'),
+    [string]$Companion = (Join-Path (Split-Path -Parent $Executable) 'aherald-cli.exe'),
     [string]$OutDir = (Join-Path $PSScriptRoot 'dist'),
     [string]$Tag
 )
@@ -12,6 +13,7 @@ if (-not $version) { throw 'Cannot read the crate version from Cargo.toml' }
 if (-not $Tag) { $Tag = "v$version" }
 if ($Tag -ne "v$version") { throw "Tag $Tag does not match Cargo.toml version $version" }
 if (-not (Test-Path -LiteralPath $Executable)) { throw "Build the release executable first: $Executable" }
+if (-not (Test-Path -LiteralPath $Companion)) { throw "Build the console companion first: $Companion" }
 
 $name = "aherald-$Tag-windows-x64"
 $root = Join-Path $OutDir $name
@@ -20,6 +22,7 @@ Remove-Item -LiteralPath $root, $zip, "$zip.sha256" -Recurse -Force -ErrorAction
 New-Item -ItemType Directory -Path $root | Out-Null
 
 Copy-Item -LiteralPath $Executable -Destination $root
+Copy-Item -LiteralPath $Companion -Destination $root
 foreach ($file in 'config.example.toml', 'LICENSE', 'README.md', 'CHANGELOG.md') {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $root
 }
@@ -47,12 +50,15 @@ Remove-Item -LiteralPath $check -Recurse -Force -ErrorAction SilentlyContinue
 try {
     Expand-Archive -LiteralPath $zip -DestinationPath $check
     $app = Join-Path $check $name
-    foreach ($required in 'aherald.exe', 'config.example.toml', 'LICENSE', 'README.md', 'START-HERE.md', 'MANIFEST.txt',
+    foreach ($required in 'aherald.exe', 'aherald-cli.exe', 'config.example.toml', 'LICENSE', 'README.md', 'START-HERE.md', 'MANIFEST.txt',
         'assets/turn_complete', 'examples/hooks.windows.json', 'docs/configuration.md') {
         if (-not (Test-Path -LiteralPath (Join-Path $app $required))) { throw "Archive lacks $required" }
     }
-    # A GUI-subsystem program: PowerShell waits for it and collects stdout only through a pipe.
-    $reported = & (Join-Path $app 'aherald.exe') --version | Out-String
+    # aherald.exe is a GUI-subsystem program, so PowerShell would neither wait for it nor show
+    # its output. The console companion starts it and relays both, which also proves that the
+    # two files work side by side.
+    $reported = "$(& (Join-Path $app 'aherald-cli.exe') --version)"
+    if ($LASTEXITCODE -ne 0) { throw "Extracted aherald-cli.exe exited with $LASTEXITCODE" }
     if ($reported.Trim() -notmatch "^aHerald $([regex]::Escape($version)) \(built 20[0-9-]+ [0-9:]+ UTC\)$") { throw "Extracted aherald.exe reported '$reported'" }
     $identity = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     [pscustomobject]@{

@@ -43,6 +43,17 @@ struct StatusLineBinding {
     file: PathBuf,
     installed: Value,
     original: Option<Value>,
+    /// The relay script written next to the executable when the installation path allows no
+    /// bare command (AH-211); its exact text proves the file is still ours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    script: Option<OwnedFile>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnedFile {
+    file: PathBuf,
+    text: String,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -113,6 +124,161 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         config.codex.warnings.idle_threshold().is_some(),
         config.claude.warnings.idle_threshold().is_some()
     ))
+}
+
+/// Writes every planned change, or none: the snapshot is rechecked first so edits made while
+/// planning are not overwritten, and a failed write restores the earlier ones.
+fn commit_changes(changes: &[Change]) -> Result<(), String> {
+    for change in changes {
+        if read(&change.file)? != change.before {
+            return Err("configuration changed during setup; run setup again".into());
+        }
+    }
+    for (index, change) in changes.iter().enumerate() {
+        if let Err(error) = apply_change(change) {
+            let mut failures = Vec::new();
+            for done in changes[..index].iter().rev() {
+                let result = match &done.before {
+                    Some(before) => {
+                        hook_setup::write_inner(&done.file, done.file.exists(), before, false)
+                    }
+                    None => std::fs::remove_file(&done.file).map_err(|e| e.to_string()),
+                };
+                if let Err(e) = result {
+                    failures.push(format!("{}: {e}", done.file.display()));
+                }
+            }
+            return Err(if failures.is_empty() {
+                format!("{error}; earlier writes were restored")
+            } else {
+                format!("{error}; could not restore: {}", failures.join("; "))
+            });
+        }
+    }
+    Ok(())
+}
+
+/// `--install-statusline` and `--uninstall-statusline` on Windows: the status line wrapper
+/// alone, without hooks. The user's own command lives in the same setup receipt as for
+/// `--setup` (AH-211), so the receipt, not the command line, is how it is found and restored.
+/// A later `--setup` that does not want the wrapper removes it, as it does its own.
+pub fn run_statusline_only(
+    exe: &Path,
+    selected: Option<&Path>,
+    remove: bool,
+    apply: bool,
+) -> Result<String, String> {
+    if !exe.is_absolute() {
+        return Err("setup executable path must be absolute".into());
+    }
+    let receipt_file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
+    let receipt_before = read(&receipt_file)?;
+    let previous: Receipt = match receipt_before.as_deref() {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?,
+        None => Receipt {
+            version: 1,
+            executable: exe.to_path_buf(),
+            bindings: Vec::new(),
+            bridges: Vec::new(),
+            statusline: None,
+        },
+    };
+    if previous.version != 1 {
+        return Err("unsupported aHerald setup receipt version".into());
+    }
+    if previous.executable != exe {
+        return Err(
+            "another executable owns this setup receipt; run it from that installation".into(),
+        );
+    }
+    let file = match selected {
+        Some(file) => file.to_path_buf(),
+        None => file_for(Agent::Claude)?,
+    };
+    if !file.is_absolute() {
+        return Err("Claude settings path must be absolute".into());
+    }
+    let Receipt {
+        bindings,
+        bridges,
+        statusline: previous_statusline,
+        ..
+    } = previous;
+    let mut changes = Vec::new();
+    let mut report = String::new();
+    let statusline = statusline_plan(
+        exe,
+        (!remove).then_some(file.as_path()),
+        previous_statusline,
+        &mut changes,
+        &mut report,
+    )?;
+    let receipt = serde_json::to_string_pretty(&Receipt {
+        version: 1,
+        executable: exe.to_path_buf(),
+        bindings,
+        bridges,
+        statusline,
+    })
+    .map_err(|_| "cannot encode setup receipt")?
+        + "\n";
+    // No receipt is created for an uninstall that has never been installed.
+    if (!remove || receipt_before.is_some()) && receipt_before.as_deref() != Some(&receipt) {
+        changes.push(Change {
+            file: receipt_file,
+            before: receipt_before,
+            after: receipt,
+            remove: false,
+        });
+    }
+    if changes.is_empty() {
+        report.push_str("Nothing to change.\n");
+        return Ok(report);
+    }
+    if !apply {
+        report
+            .push_str("Dry run: nothing was written. Run again with --apply to write the files.\n");
+        return Ok(report);
+    }
+    commit_changes(&changes)?;
+    report.push_str("Done. Changed existing files were backed up as *.aherald-backup.\n");
+    Ok(report)
+}
+
+/// Whether two paths name the same executable. The relay script starts `aherald.exe` through
+/// `$PSScriptRoot`, which PowerShell spells in the long form and the real case, while the setup
+/// run may have recorded an 8.3 short name or another case; a plain comparison would then lose
+/// the user's own command without a word.
+fn same_executable(recorded: &Path, running: &Path) -> bool {
+    recorded == running
+        || matches!(
+            (recorded.canonicalize(), running.canonicalize()),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
+/// The user's own `statusLine` command that setup wrapped, for `--statusline` to run when it
+/// has no `--then`. `None` when there is no receipt, no wrapped command, or the receipt
+/// belongs to another installation.
+pub fn wrapped_statusline_command(exe: &Path) -> Result<Option<String>, String> {
+    let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
+    let Some(text) = read(&file)? else {
+        return Ok(None);
+    };
+    let receipt: Receipt = serde_json::from_str(&text).map_err(
+        |_| "invalid aHerald setup receipt; the status line is shown without your own command",
+    )?;
+    if receipt.version != 1 || !same_executable(&receipt.executable, exe) {
+        return Ok(None);
+    }
+    Ok(receipt
+        .statusline
+        .and_then(|binding| binding.original)
+        .filter(|original| original["type"] == "command")
+        .and_then(|original| original["command"].as_str().map(str::to_owned)))
 }
 
 /// Read the receipt without changing it, for an interactive setup's defaults.
@@ -513,6 +679,7 @@ fn statusline_plan(
 ) -> Result<Option<StatusLineBinding>, String> {
     let mut original = None;
     let mut owned = false;
+    let old_script = previous.as_ref().and_then(|old| old.script.clone());
     if let Some(old) = previous {
         if !old.file.is_absolute() {
             return Err("setup receipt contains a relative statusLine path".into());
@@ -554,6 +721,7 @@ fn statusline_plan(
         }
     }
     let Some(file) = selected_file else {
+        script_plan(None, old_script.as_ref(), changes, report)?;
         return Ok(None);
     };
     let before = read(file)?;
@@ -573,13 +741,14 @@ fn statusline_plan(
         original = current.clone().filter(|value| {
             !value["command"]
                 .as_str()
-                .is_some_and(|s| s.contains("aherald") && s.contains(" --statusline"))
+                .is_some_and(crate::statusline_launch::is_wrapper)
         });
+        let own_command = statusline_command(exe, None)?.0;
         if current.is_some()
             && original.is_none()
             && !current
                 .as_ref()
-                .is_some_and(|v| v["command"] == statusline_command(exe, None))
+                .is_some_and(|v| v["command"] == own_command)
         {
             return Err("a different aHerald statusLine is set; uninstall it first".into());
         }
@@ -596,10 +765,11 @@ fn statusline_plan(
     let mut installed = original
         .clone()
         .unwrap_or_else(|| json!({"type":"command"}));
-    let wrapped = statusline_command(exe, command);
+    let (wrapped, script) = statusline_command(exe, command)?;
     if wrapped.encode_utf16().count() > 30000 {
         return Err("Claude statusLine command exceeds the Windows command-line limit".into());
     }
+    let script = script_plan(script, old_script.as_ref(), changes, report)?;
     installed["command"] = wrapped.into();
     if current.as_ref() != Some(&installed) {
         object.insert("statusLine".into(), installed.clone());
@@ -620,11 +790,114 @@ fn statusline_plan(
         file: file.to_path_buf(),
         installed,
         original,
+        script,
     }))
 }
 
-fn statusline_command(exe: &Path, original: Option<&str>) -> String {
+/// Plans the relay script next to the executable and returns what the receipt should hold:
+/// the file is created or updated when wanted, and removed when it is no longer wanted, but
+/// only while its text is still exactly what aHerald wrote.
+fn script_plan(
+    wanted: Option<(PathBuf, String)>,
+    previous: Option<&OwnedFile>,
+    changes: &mut Vec<Change>,
+    report: &mut String,
+) -> Result<Option<OwnedFile>, String> {
+    if let Some(old) = previous
+        && wanted.as_ref().is_none_or(|(file, _)| *file != old.file)
+    {
+        match read(&old.file)? {
+            None => {}
+            Some(text) if text == old.text => {
+                report.push_str(&format!(
+                    "Claude statusLine script: remove {}\n",
+                    old.file.display()
+                ));
+                changes.push(Change {
+                    file: old.file.clone(),
+                    before: Some(text),
+                    after: String::new(),
+                    remove: true,
+                });
+            }
+            Some(_) => report.push_str(&format!(
+                "Claude statusLine script: {} was changed after aHerald wrote it; left in place.\n",
+                old.file.display()
+            )),
+        }
+    }
+    let Some((file, text)) = wanted else {
+        return Ok(None);
+    };
+    let before = read(&file)?;
+    let owned = previous
+        .filter(|old| old.file == file)
+        .map(|old| old.text.as_str());
+    let change = match before.as_deref() {
+        Some(existing) if existing == text => None,
+        Some(existing) if Some(existing) == owned => Some("update"),
+        Some(_) => {
+            return Err(format!(
+                "{} already exists and is not aHerald's; nothing was changed",
+                file.display()
+            ));
+        }
+        None => Some("create"),
+    };
+    if let Some(verb) = change {
+        report.push_str(&format!(
+            "Claude statusLine script: {verb} {}\n",
+            file.display()
+        ));
+        changes.push(Change {
+            file: file.clone(),
+            before,
+            after: text.clone(),
+            remove: false,
+        });
+    }
+    Ok(Some(OwnedFile { file, text }))
+}
+
+/// The command for Claude Code's `statusLine`, and the script it needs written, if any.
+fn statusline_command(
+    exe: &Path,
+    original: Option<&str>,
+) -> Result<(String, Option<(PathBuf, String)>), String> {
     #[cfg(windows)]
+    {
+        use crate::statusline_launch as launch;
+        // The readable forms carry no wrapped command: `aherald --statusline` reads it from
+        // the receipt, which keeps the line short and free of a second quoting layer.
+        let companion = exe.with_file_name(launch::COMPANION_NAME);
+        if companion.is_file()
+            && let Some(command) = launch::companion_command(&companion)
+        {
+            return Ok((command, None));
+        }
+        let script = exe.with_file_name(launch::SCRIPT_NAME);
+        if let Some(command) = launch::script_command(&script) {
+            return Ok((command, Some((script, launch::SCRIPT_TEXT.to_owned()))));
+        }
+        Ok((encoded_statusline_command(exe, original), None))
+    }
+    #[cfg(not(windows))]
+    {
+        let base = hook_setup::statusline_command(exe);
+        Ok((
+            match original {
+                Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
+                None => base,
+            },
+            None,
+        ))
+    }
+}
+
+/// The command of versions before AH-211, kept for the paths that neither readable form can
+/// carry (a `$`, a backtick or a double quote in the installation path).
+#[cfg(windows)]
+fn encoded_statusline_command(exe: &Path, original: Option<&str>) -> String {
     {
         // Numeric UTF-16 literals avoid expansion by either Git Bash or PowerShell.
         let literal = |text: &str| {
@@ -650,14 +923,6 @@ fn statusline_command(exe: &Path, original: Option<&str>) -> String {
             "powershell.exe -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create({})); # aherald --statusline\"",
             literal(&script)
         )
-    }
-    #[cfg(not(windows))]
-    {
-        let base = hook_setup::statusline_command(exe);
-        match original {
-            Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
-            None => base,
-        }
     }
 }
 
@@ -812,33 +1077,7 @@ pub fn run_with_options(
             .push_str("Dry run: nothing was written. Run again with --apply to write the files.\n");
         return Ok(report);
     }
-    // Recheck the snapshot before the first write; do not overwrite edits made while planning.
-    for change in &changes {
-        if read(&change.file)? != change.before {
-            return Err("configuration changed during setup; run setup again".into());
-        }
-    }
-    for (index, change) in changes.iter().enumerate() {
-        if let Err(error) = apply_change(change) {
-            let mut failures = Vec::new();
-            for done in changes[..index].iter().rev() {
-                let result = match &done.before {
-                    Some(before) => {
-                        hook_setup::write_inner(&done.file, done.file.exists(), before, false)
-                    }
-                    None => std::fs::remove_file(&done.file).map_err(|e| e.to_string()),
-                };
-                if let Err(e) = result {
-                    failures.push(format!("{}: {e}", done.file.display()));
-                }
-            }
-            return Err(if failures.is_empty() {
-                format!("{error}; earlier writes were restored")
-            } else {
-                format!("{error}; could not restore: {}", failures.join("; "))
-            });
-        }
-    }
+    commit_changes(&changes)?;
     report.push_str("Setup complete. Changed existing files were backed up as *.aherald-backup.\n");
     for change in changes.iter().filter(|c| c.remove) {
         remove_empty_plugin_dirs(&change.file);
