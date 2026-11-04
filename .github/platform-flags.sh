@@ -53,4 +53,10 @@ while IFS= read -r path; do
   done
 done
 
-printf 'code=%s\nwindows=%s\nlinux=%s\nmacos=%s\n' "$code" "$windows" "$linux" "$macos"
+os_list=''
+if [ "$windows" = true ]; then os_list="$os_list\"windows-latest\","; fi
+if [ "$macos" = true ]; then os_list="$os_list\"macos-latest\","; fi
+if [ "$linux" = true ]; then os_list="$os_list\"ubuntu-latest\","; fi
+os_list="[${os_list%,}]"
+
+printf 'code=%s\nwindows=%s\nlinux=%s\nmacos=%s\nos=%s\n' "$code" "$windows" "$linux" "$macos" "$os_list"

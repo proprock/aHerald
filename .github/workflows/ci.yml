@@ -24,6 +24,7 @@ jobs:
       windows: ${{ steps.flags.outputs.windows }}
       linux: ${{ steps.flags.outputs.linux }}
       macos: ${{ steps.flags.outputs.macos }}
+      os: ${{ steps.flags.outputs.os }}
     steps:
       # The checkout is the pull request merge commit, so diffing against the base
       # branch tip yields exactly the changes this pull request brings in.
@@ -41,21 +42,15 @@ jobs:
   quality:
     name: Build and test (${{ matrix.os }})
     needs: changes
-    # A leg whose platform is unaffected is skipped by its job-level condition. Skipped legs
-    # satisfy the "CI gate" check, which is the only check that branch protection requires.
-    if: needs.changes.outputs[matrix.platform] == 'true'
+    # The changes job lists only the platforms that the pull request affects. An empty list
+    # skips this job, and the "CI gate" check accepts that skip.
+    if: needs.changes.outputs.os != '[]'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-          - os: macos-latest
-            platform: macos
-          - os: ubuntu-latest
-            platform: linux
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
