@@ -207,6 +207,7 @@ pub fn run_after_apply(
             move |_: &Shared| waker.wake(),
         ));
     }
+    crate::forward::start(&config.forward);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let stop_event = Arc::new(pipe::StopEvent::new()?);
     let listener = {
@@ -264,6 +265,7 @@ pub fn run_after_apply(
     }
     let result = present(config, shared, stop.clone(), start, waker, path, preview);
     crate::notice::clear();
+    crate::forward::stop();
     stop.store(true, Ordering::Release);
     stop_event.signal();
     let _ = listener.join();
