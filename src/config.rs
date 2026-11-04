@@ -22,6 +22,62 @@ pub struct Config {
     pub pet_animations: PetAnimations,
     pub codex: Codex,
     pub claude: Claude,
+    pub forward: Forward,
+}
+
+/// `[forward]`: sending accepted cards to messengers; see `crate::sink`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Forward {
+    /// The initial state of the tray switch; configured sinks do nothing while it is off.
+    pub enabled: bool,
+    pub sinks: Vec<SinkConfig>,
+}
+impl Default for Forward {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sinks: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SinkType {
+    Telegram,
+}
+
+/// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration names the
+/// environment variable or the file they are read from, and an unknown `token` key is refused.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SinkConfig {
+    #[serde(rename = "type")]
+    pub kind: SinkType,
+    #[serde(default = "default_sink_kinds")]
+    pub kinds: Vec<Kind>,
+    /// The folder name goes to a third party, so it is sent only when asked for.
+    #[serde(default)]
+    pub include_folder: bool,
+    pub token_env: Option<String>,
+    pub token_file: Option<PathBuf>,
+    pub chat_id_env: Option<String>,
+}
+fn default_sink_kinds() -> Vec<Kind> {
+    vec![
+        Kind::TurnComplete,
+        Kind::PermissionRequired,
+        Kind::InputRequired,
+        Kind::Error,
+    ]
+}
+/// An environment variable name: letters, digits and underscores, so a pasted secret fails.
+fn is_variable_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Per-kind event settings; every kind always has an entry, so indexing cannot fail.
@@ -95,6 +151,7 @@ impl Default for Config {
             pets: Pets::default(),
             pet_animations: PetAnimations::default(),
             events: Events::default(),
+            forward: Forward::default(),
         }
     }
 }
@@ -690,6 +747,16 @@ impl Config {
                 }
             }
         }
+        for path in config
+            .forward
+            .sinks
+            .iter_mut()
+            .filter_map(|sink| sink.token_file.as_mut())
+        {
+            if path.is_relative() {
+                *path = directory.join(&*path);
+            }
+        }
         for path in std::iter::once(&mut config.pets.default)
             .flatten()
             .chain(config.pets.by_harness.values_mut())
@@ -742,6 +809,26 @@ impl Config {
                 return Err(format!(
                     "invalid configuration: {agent}.warnings.idle_minutes must be between 1 and 525600"
                 ));
+            }
+        }
+        for (index, sink) in self.forward.sinks.iter().enumerate() {
+            let at = format!("invalid configuration: forward.sinks[{index}]");
+            let named = [&sink.token_env, &sink.chat_id_env]
+                .into_iter()
+                .flatten()
+                .all(|name| is_variable_name(name));
+            if !named {
+                return Err(format!(
+                    "{at} token_env and chat_id_env must be environment variable names, not values"
+                ));
+            }
+            if sink.token_env.is_some() == sink.token_file.is_some() {
+                return Err(format!(
+                    "{at} needs exactly one of token_env and token_file"
+                ));
+            }
+            if sink.chat_id_env.is_none() {
+                return Err(format!("{at}.chat_id_env is missing"));
             }
         }
         let n = &self.notifications;

@@ -685,3 +685,80 @@ fn the_status_line_shows_the_context_used_and_the_quotas_remaining_unless_told_o
     assert_eq!((chosen.display_ctx, chosen.display_usage), (Remain, Used));
     assert!(Config::parse("[claude.statusline]\ndisplay_ctx = \"left\"\n", &dir).is_err());
 }
+
+const TELEGRAM: &str = "[[forward.sinks]]\ntype = \"telegram\"\ntoken_env = \"AHERALD_TELEGRAM_TOKEN\"\nchat_id_env = \"AHERALD_TELEGRAM_CHAT\"\n";
+
+#[test]
+fn forwarding_defaults_to_on_with_no_sinks() {
+    let config = Config::parse("", &PathBuf::from(".")).unwrap();
+    assert!(config.forward.enabled);
+    assert!(config.forward.sinks.is_empty());
+}
+
+#[test]
+fn a_telegram_sink_defaults_to_the_four_attention_kinds_and_no_folder() {
+    let config = Config::parse(TELEGRAM, &PathBuf::from(".")).unwrap();
+    let sink = &config.forward.sinks[0];
+    assert_eq!(
+        sink.kinds,
+        [
+            Kind::TurnComplete,
+            Kind::PermissionRequired,
+            Kind::InputRequired,
+            Kind::Error
+        ]
+    );
+    assert!(!sink.include_folder);
+    assert_eq!(sink.token_env.as_deref(), Some("AHERALD_TELEGRAM_TOKEN"));
+}
+
+#[test]
+fn the_kinds_and_the_folder_switch_are_configurable() {
+    let text = format!("{TELEGRAM}kinds = [\"error\"]\ninclude_folder = true\n");
+    let sink = &Config::parse(&text, &PathBuf::from("."))
+        .unwrap()
+        .forward
+        .sinks[0];
+    assert_eq!(sink.kinds, [Kind::Error]);
+    assert!(sink.include_folder);
+}
+
+#[rstest]
+#[case::literal_token("token = \"123456:LITERAL-SECRET\"\n")]
+#[case::token_value_in_the_variable_name("token_env = \"123456:LITERAL-SECRET\"\n")]
+#[case::both_token_forms("token_file = \"token.txt\"\n")]
+#[case::unknown_kind("kinds = [\"turn_complet\"]\n")]
+fn an_unsafe_or_ambiguous_sink_is_refused_without_echoing_the_value(#[case] extra: &str) {
+    let text = if extra.starts_with("token_env") {
+        format!(
+            "[[forward.sinks]]\ntype = \"telegram\"\n{extra}chat_id_env = \"AHERALD_TELEGRAM_CHAT\"\n"
+        )
+    } else {
+        format!("{TELEGRAM}{extra}")
+    };
+    let error = Config::parse(&text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with("invalid configuration: forward.sinks"),
+        "{error}"
+    );
+    assert!(!error.contains("LITERAL-SECRET"), "{error}");
+}
+
+#[rstest]
+#[case::no_token("[[forward.sinks]]\ntype = \"telegram\"\nchat_id_env = \"C\"\n")]
+#[case::no_chat("[[forward.sinks]]\ntype = \"telegram\"\ntoken_env = \"T\"\n")]
+#[case::unknown_type("[[forward.sinks]]\ntype = \"carrier-pigeon\"\n")]
+fn an_incomplete_sink_is_refused(#[case] text: &str) {
+    assert!(Config::parse(text, &PathBuf::from(".")).is_err());
+}
+
+#[test]
+fn a_token_file_beside_the_configuration_resolves_to_an_absolute_path() {
+    let text = "[[forward.sinks]]\ntype = \"telegram\"\ntoken_file = \"secrets/token.txt\"\nchat_id_env = \"C\"\n";
+    let dir = PathBuf::from("base");
+    let sink = &Config::parse(text, &dir).unwrap().forward.sinks[0];
+    assert_eq!(
+        sink.token_file.as_deref(),
+        Some(dir.join("secrets/token.txt").as_path())
+    );
+}

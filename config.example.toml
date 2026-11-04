@@ -347,3 +347,17 @@ enabled = false
 refresh_interval_sec = 300
 # Compact tray percentage: "remain" (default) or "used".
 display = "remain"
+
+[forward]
+# Initial state of the tray "Messenger" switch; default true. Sinks send nothing while it is off.
+enabled = true
+# Send accepted cards to a messenger. The message names the event, the harness and, only with
+# include_folder, the folder name; never a prompt, an assistant message or a path. Secrets are
+# never written here: name an environment variable (a resident started from the Run key or the
+# installer sees your user environment only) or an owner-only file. A literal `token` is refused.
+# [[forward.sinks]]
+# type = "telegram"
+# kinds = ["turn_complete", "permission_required", "input_required", "error"]
+# include_folder = false
+# token_env = "AHERALD_TELEGRAM_TOKEN"   # or: token_file = "telegram.token"
+# chat_id_env = "AHERALD_TELEGRAM_CHAT"
