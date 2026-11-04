@@ -13,25 +13,63 @@ on:
 permissions:
   contents: read
 
+# Two runs for one tag would race on the draft release; the second waits for the first.
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
-  package:
-    name: Package Windows x64
-    runs-on: windows-latest
+  # Nothing is built for a tag that is malformed, is not a tag, or is not on master. A
+  # workflow_dispatch input is free text, so the shape is checked before any other job
+  # uses the value.
+  verify_tag:
+    name: Verify the release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      prerelease: ${{ steps.verify.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Check the tag name, type and branch
+        id: verify
+        run: |
+          printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
+            || { echo "$RELEASE_TAG is not a version tag such as v1.2.3 or v1.2.3-rc.1." >&2; exit 1; }
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG" \
+            || { echo "$RELEASE_TAG is not a tag." >&2; exit 1; }
+          git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" origin/master \
+            || { echo "$RELEASE_TAG is not reachable from master." >&2; exit 1; }
+          prerelease=false
+          case "$RELEASE_TAG" in *-*) prerelease=true ;; esac
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package Windows x64
+    needs: verify_tag
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
         with:
           targets: x86_64-pc-windows-msvc
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Verify the tag matches the crate version
         shell: pwsh
@@ -42,10 +80,13 @@ jobs:
           }
 
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
+
+      - name: Test documentation examples
+        run: cargo test --locked --doc
 
       - name: Build release executable
-        run: cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
 
       - name: Check the executable is portable
         shell: pwsh
@@ -56,17 +97,7 @@ jobs:
         run: ./package-release.ps1 -Tag $env:RELEASE_TAG
 
       - name: Install the signed Inno Setup compiler
-        shell: pwsh
-        run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
-          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
-          $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
-            throw 'Invalid Inno Setup signature'
-          }
-          $compilerDir = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
-          $process = Start-Process $installer -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $compilerDir + '"'), '/TASKS=') -WindowStyle Hidden -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
+        uses: ./.github/actions/install-inno-setup
 
       - name: Build the per-user Windows installer
         shell: pwsh
@@ -78,7 +109,14 @@ jobs:
           ./build-installer.ps1 -Tag $env:RELEASE_TAG -InstallerAppId aHerald.Native.InstallerTest
           ./tests/installer_windows.ps1 -Installer "dist/aherald-$env:RELEASE_TAG-windows-x64-setup-test.exe"
 
-      - uses: actions/upload-artifact@v7
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*-setup.exe
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-x64
           path: |
@@ -92,18 +130,22 @@ jobs:
   # the card, so the macOS visual check stays a manual step (see RELEASE.md).
   package_macos:
     name: Package macOS arm64
+    needs: verify_tag
     runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/setup-rust
         with:
           targets: aarch64-apple-darwin
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Verify the tag matches the crate version
         run: |
@@ -111,10 +153,13 @@ jobs:
           test "$RELEASE_TAG" = "v$version" || { echo "Tag $RELEASE_TAG does not match Cargo.toml version $version" >&2; exit 1; }
 
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
+
+      - name: Test documentation examples
+        run: cargo test --locked --doc
 
       - name: Build release executable
-        run: cargo build --release --target aarch64-apple-darwin
+        run: cargo build --locked --release --target aarch64-apple-darwin
 
       - name: Assemble the app archive and verify a clean extraction runs
         run: ./package-macos.sh target/aarch64-apple-darwin/release/aherald "$RELEASE_TAG"
@@ -122,7 +167,14 @@ jobs:
       - name: Build the disk image and verify its layout, signature and isolated lifecycle
         run: ./package-dmg.sh "$RELEASE_TAG"
 
-      - uses: actions/upload-artifact@v7
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.dmg
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-arm64
           path: |
@@ -134,16 +186,20 @@ jobs:
 
   package_linux:
     name: Package Linux x86-64 GNU
+    needs: verify_tag
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: ./.github/actions/setup-rust
 
       - name: Install runtime libraries
         run: |
@@ -153,6 +209,7 @@ jobs:
       - name: Test and build
         run: |
           cargo test --locked --all-targets
+          cargo test --locked --doc
           cargo build --locked --release
           python3 tests/console_setup_linux.py target/release/aherald
 
@@ -165,7 +222,14 @@ jobs:
       - name: Verify isolated Debian lifecycle
         run: sh ./tests/linux_deb_lifecycle.sh "dist/aherald-$RELEASE_TAG-linux-x86_64-gnu.deb"
 
-      - uses: actions/upload-artifact@v7
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.deb
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-x86_64-gnu
           path: |
@@ -179,23 +243,45 @@ jobs:
     name: Draft GitHub Release
     needs: [package, package_macos, package_linux]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+
+      # One step per artifact: a new artifact name never reaches the release by accident.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "*-*"
+          name: windows-x64
           path: release-artifacts
-          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-arm64
+          path: release-artifacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-x86_64-gnu
+          path: release-artifacts
+
+      - name: Check that every platform delivered its files and checksums
+        run: |
+          for pattern in '*-setup.exe' '*.dmg' '*.deb' '*.tar.gz' '*.zip'; do
+            compgen -G "release-artifacts/$pattern" > /dev/null || { echo "No $pattern in the release artifacts." >&2; exit 1; }
+          done
+          for file in release-artifacts/*; do
+            case "$file" in *.sha256) continue ;; esac
+            test -f "$file.sha256" || { echo "No checksum for $file." >&2; exit 1; }
+          done
+
       - name: Extract the release notes from CHANGELOG.md
         run: |
           VERSION="${RELEASE_TAG#v}"
           awk -v version="$VERSION" '/^## \[/ { in_section = index($0, "## [" version "]") == 1; next } in_section' CHANGELOG.md > release-notes.md
           grep -q '[^[:space:]]' release-notes.md || { echo "CHANGELOG.md has no entry for $VERSION" >&2; exit 1; }
+
       - name: Create or verify the draft and attach the archives
         env:
           GH_TOKEN: ${{ github.token }}
@@ -214,6 +300,7 @@ jobs:
     name: Publish GitHub Release
     needs: draft_release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     # Add required reviewers to the `release` environment to approve each publication.
     environment: release
     permissions:
@@ -227,14 +314,17 @@ jobs:
 
   update_tap:
     name: Update the Homebrew cask
-    needs: publish
+    needs: [verify_tag, publish]
     # Pre-releases are not offered through the cask.
-    if: ${{ !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
+    if: needs.verify_tag.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      # The fine-grained TAP_TOKEN reaches only the tap repository. The checkout keeps it
+      # so that the push below is authenticated.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: proprock/homebrew-tap
           token: ${{ secrets.TAP_TOKEN }}
@@ -251,10 +341,17 @@ jobs:
           git config user.email "noreply@users.noreply.github.com"
           git checkout -b "$branch"
           git commit -am "aherald ${RELEASE_TAG#v}"
+          # The branch belongs to this job alone, so a re-run may overwrite an earlier attempt.
           git push --force origin "$branch"
-          gh pr create --base main --head "$branch" --title "aherald ${RELEASE_TAG#v}" --body "Release ${RELEASE_TAG} of proprock/aHerald."
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" = 0 ]; then
+            gh pr create --base main --head "$branch" --title "aherald ${RELEASE_TAG#v}" --body "Release ${RELEASE_TAG} of proprock/aHerald."
+          fi
           # The release is already published and approved, so the cask pull request is merged
-          # once the tap's own style check passes. The tap has no branch protection, hence the wait.
-          sleep 20
+          # once the tap's own style check passes. The tap has no branch protection, so wait
+          # until that check is reported; with no check the watch below fails and nothing merges.
+          for _ in $(seq 1 24); do
+            [ "$(gh pr view "$branch" --json statusCheckRollup --jq '.statusCheckRollup | length')" -gt 0 ] && break
+            sleep 5
+          done
           gh pr checks "$branch" --watch --fail-fast
           gh pr merge "$branch" --squash --delete-branch

@@ -1,0 +1,35 @@
+name: Set up Rust
+description: Install the pinned Rust toolchain and restore the cargo cache.
+
+inputs:
+  toolchain:
+    description: >-
+      Toolchain to install. The default is the single place that pins the compiler for CI
+      and releases; the nightly canary passes "stable" and the MSRV job passes the
+      crate's rust-version.
+    default: "1.98.1"
+  components:
+    description: Comma-separated components to add, for example "rustfmt, clippy".
+    default: ""
+  targets:
+    description: Comma-separated extra targets to install.
+    default: ""
+  cache:
+    description: Restore (and, on master, save) the cargo cache.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+
+    # Only master saves the cache: a pull request restores the default branch's cache and
+    # would otherwise fill the repository's cache quota with per-branch copies.
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      if: inputs.cache == 'true'
+      with:
+        save-if: ${{ github.ref == 'refs/heads/master' }}

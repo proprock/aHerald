@@ -1,0 +1,5 @@
+rules:
+  # The "$/path" spelling for a local action is too new to rely on; "./path" works on every
+  # runner and in actionlint.
+  self-repository:
+    disable: true
