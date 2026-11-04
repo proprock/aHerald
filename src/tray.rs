@@ -17,6 +17,7 @@ pub const TEST_CONFIG: usize = 210;
 pub const SOUND: usize = 201;
 pub const VISUAL: usize = 202;
 pub const PAUSE: usize = 203;
+pub const MESSENGER: usize = 211;
 pub const CONFIG: usize = 204;
 pub const EXIT: usize = 205;
 
@@ -201,9 +202,12 @@ impl Drop for Menu {
 }
 impl Menu {
     /// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
+    /// `messenger` is the state of the messenger switch, or `None` when no sink is configured.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         sound: bool,
         visual: bool,
+        messenger: Option<bool>,
         paused: bool,
         context: bool,
         idle: bool,
@@ -220,6 +224,7 @@ impl Menu {
         let items = [
             (SOUND, "Sound", sound),
             (VISUAL, "Pop-up", visual),
+            (MESSENGER, "Messenger", messenger.unwrap_or(false)),
             (PAUSE, "Pause notifications", paused),
             (CONTEXT, "Context warnings", context),
             (IDLE, "Idle warnings", idle),
@@ -229,6 +234,9 @@ impl Menu {
             (RESTART, "Apply", false),
             (EXIT, "Exit", false),
         ];
+        let items = items
+            .into_iter()
+            .filter(|(id, ..)| *id != MESSENGER || messenger.is_some());
         for (id, label, checked) in usage.chain(items) {
             if id == ABOUT || id == CONFIG || id == CONTEXT || (id == SOUND && has_usage) {
                 // SAFETY: menu is owned; separators have no command or label.
@@ -277,6 +285,7 @@ mod tests {
         let menu = Menu::new(
             false,
             true,
+            None,
             true,
             false,
             true,
@@ -334,8 +343,36 @@ mod tests {
     }
 
     #[test]
+    fn the_messenger_switch_sits_among_the_notification_switches_and_only_when_configured() {
+        let absent = Menu::new(true, true, None, false, true, true, None, None).unwrap();
+        unsafe {
+            assert_eq!(GetMenuItemCount(Some(absent.0)), 13);
+            assert_eq!(
+                GetMenuState(absent.0, MESSENGER as u32, MF_BYCOMMAND),
+                u32::MAX
+            );
+        }
+        for on in [false, true] {
+            let menu = Menu::new(true, true, Some(on), false, true, true, None, None).unwrap();
+            unsafe {
+                assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
+                // Sound, Pop-up, Messenger, Pause notifications, then the first separator.
+                for (position, id) in [(0, SOUND), (1, VISUAL), (2, MESSENGER), (3, PAUSE)] {
+                    assert_eq!(GetMenuItemID(menu.0, position), id as u32);
+                }
+                assert_ne!(GetMenuState(menu.0, 4, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
+                let checked = GetMenuState(menu.0, MESSENGER as u32, MF_BYCOMMAND) & MF_CHECKED.0;
+                assert_eq!(checked != 0, on);
+                let mut label = [0u16; 64];
+                let n = GetMenuStringW(menu.0, MESSENGER as u32, Some(&mut label), MF_BYCOMMAND);
+                assert_eq!(String::from_utf16_lossy(&label[..n as usize]), "Messenger");
+            }
+        }
+    }
+
+    #[test]
     fn usage_lines_appear_only_for_enabled_agents() {
-        let menu = Menu::new(true, true, false, true, true, None, Some("Claude")).unwrap();
+        let menu = Menu::new(true, true, None, false, true, true, None, Some("Claude")).unwrap();
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
             assert_eq!(
@@ -344,11 +381,21 @@ mod tests {
                 "no Codex line when Codex usage is hidden"
             );
         }
-        let menu = Menu::new(true, true, false, true, true, Some("Codex"), None).unwrap();
+        let menu = Menu::new(true, true, None, false, true, true, Some("Codex"), None).unwrap();
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
         }
-        let menu = Menu::new(true, true, false, true, true, Some("Codex"), Some("Claude")).unwrap();
+        let menu = Menu::new(
+            true,
+            true,
+            None,
+            false,
+            true,
+            true,
+            Some("Codex"),
+            Some("Claude"),
+        )
+        .unwrap();
         unsafe {
             assert_eq!(GetMenuItemID(menu.0, 0), CLAUDE_SUMMARY as u32);
             assert_eq!(GetMenuItemID(menu.0, 1), SUMMARY as u32);
@@ -363,7 +410,7 @@ mod tests {
             (None, Some("Claude"), 1),
             (Some("Codex"), Some("Claude"), 2),
         ] {
-            let menu = Menu::new(true, true, false, true, true, codex, claude).unwrap();
+            let menu = Menu::new(true, true, None, false, true, true, codex, claude).unwrap();
             unsafe {
                 let count = GetMenuItemCount(Some(menu.0)) as u32;
                 let sound_position = usage_count + u32::from(usage_count > 0);

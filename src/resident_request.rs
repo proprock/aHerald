@@ -14,6 +14,11 @@ pub trait Controls {
     fn paused(&self) -> bool;
     fn sounds(&self) -> bool;
     fn visuals(&self) -> bool;
+    /// Called for each event the queue accepted as a new card, for the messenger sinks. It must
+    /// return at once; the default hands it to the resident's sinks (`crate::forward`).
+    fn forward(&mut self, event: &crate::events::Event) {
+        crate::forward::submit(event);
+    }
 }
 
 /// Called by native loops even when the presentation queue is empty.
@@ -329,6 +334,7 @@ fn respond_with_focus(
                     .saturating_add(settings.notifications.fade_out_ms)
             };
             let outputs = crate::focus::outputs(settings, observe(&event, settings));
+            let accepted = event.clone();
             match state
                 .queue()
                 .push_with_outputs(event, now, duration, outputs)
@@ -342,13 +348,18 @@ fn respond_with_focus(
                 ),
                 Outcome::Duplicate => (Response::Accepted, dropped("duplicate")),
                 Outcome::Obsolete => (Response::Accepted, dropped("obsolete")),
-                Outcome::Queued | Outcome::Resolved => (
-                    Response::Accepted,
-                    Effects {
-                        wake: true,
-                        ..Effects::default()
-                    },
-                ),
+                outcome @ (Outcome::Queued | Outcome::Resolved) => {
+                    if outcome == Outcome::Queued {
+                        state.forward(&accepted);
+                    }
+                    (
+                        Response::Accepted,
+                        Effects {
+                            wake: true,
+                            ..Effects::default()
+                        },
+                    )
+                }
             }
         }
     }
@@ -365,8 +376,12 @@ mod tests {
         paused: bool,
         sounds: bool,
         visuals: bool,
+        forwarded: Vec<Event>,
     }
     impl Controls for State {
+        fn forward(&mut self, event: &Event) {
+            self.forwarded.push(event.clone());
+        }
         fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
             &mut self.warnings
         }
@@ -390,6 +405,7 @@ mod tests {
             paused: true,
             sounds: false,
             visuals: true,
+            forwarded: Vec::new(),
         }
     }
     fn event(kind: &str) -> Event {
@@ -397,6 +413,53 @@ mod tests {
     }
     fn send(state: &mut State, settings: &Config, event: Event) -> (Response, Effects) {
         respond(Request::Event { event }, state, settings, 7)
+    }
+
+    fn hook(kind: &str, session: &str) -> Event {
+        let mut event = event(kind);
+        event.source = Source::ClaudeHook;
+        event.session_id = Some(session.into());
+        event
+    }
+
+    #[test]
+    fn only_a_card_the_queue_accepted_is_forwarded_once() {
+        let settings = Config::default();
+        let mut s = state(8);
+        send(&mut s, &settings, hook("input_required", "a"));
+        assert_eq!(s.forwarded.len(), 1);
+        assert_eq!(s.forwarded[0].kind.name(), "input_required");
+    }
+
+    #[test]
+    fn a_disabled_kind_a_full_queue_and_an_aherald_notice_are_not_forwarded() {
+        let mut settings = Config::default();
+        settings.events[crate::events::Kind::TurnComplete].enabled = false;
+        let mut s = state(1);
+        send(&mut s, &settings, hook("turn_complete", "a"));
+        assert!(s.forwarded.is_empty(), "disabled kind");
+        send(&mut s, &settings, hook("permission_required", "a"));
+        send(&mut s, &settings, hook("permission_required", "b"));
+        assert_eq!(s.forwarded.len(), 1, "the second did not fit the queue");
+        send(&mut s, &settings, Event::notice("a problem"));
+        assert_eq!(s.forwarded.len(), 1, "an aHerald notice is not forwarded");
+    }
+
+    #[test]
+    fn activity_and_a_repeated_wait_for_the_same_request_are_not_forwarded() {
+        let settings = Config::default();
+        let mut s = state(8);
+        let mut activity = hook("turn_complete", "a");
+        activity.activity = true;
+        send(&mut s, &settings, activity);
+        assert!(s.forwarded.is_empty(), "activity is evidence, never a card");
+        let mut s = State {
+            queue: Queue::new(8, 60_000),
+            ..state(8)
+        };
+        send(&mut s, &settings, hook("permission_required", "a"));
+        send(&mut s, &settings, hook("permission_required", "a"));
+        assert_eq!(s.forwarded.len(), 1, "a duplicate is not a new card");
     }
 
     #[test]

@@ -5,10 +5,11 @@
 //! through a card or a log.
 use crate::{
     config::{Forward, SinkConfig, SinkType},
-    sink::Route,
+    events::Event,
+    sink::{Dispatcher, Policy, Route},
     telegram::Telegram,
 };
-use std::path::Path;
+use std::{path::Path, sync::Mutex};
 
 pub struct Built {
     pub routes: Vec<Route>,
@@ -81,6 +82,61 @@ fn route(
         secrets: vec![token],
         include_folder: sink.include_folder,
     })
+}
+
+/// The resident's running sinks. One process has one resident, so this is process state, like the
+/// notice sink.
+static RUNNING: Mutex<Option<Dispatcher>> = Mutex::new(None);
+
+fn running() -> std::sync::MutexGuard<'static, Option<Dispatcher>> {
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Builds the configured sinks from the real environment and starts them. A sink that cannot be
+/// built is a card; with no sink built nothing runs and the tray shows no messenger switch.
+pub fn start(forward: &Forward) {
+    let built = build(forward, |name| std::env::var(name).ok(), read_token_file);
+    for notice in &built.notices {
+        crate::notice::post(notice);
+    }
+    stop();
+    if !built.routes.is_empty() {
+        install(Dispatcher::start(
+            built.routes,
+            Policy::default(),
+            forward.enabled,
+            |text| crate::notice::post(&format!("Messenger forwarding, {text}")),
+        ));
+    }
+}
+
+fn install(dispatcher: Dispatcher) {
+    *running() = Some(dispatcher);
+}
+
+/// Stops forwarding; queued messages are abandoned.
+pub fn stop() {
+    *running() = None;
+}
+
+/// Sends an accepted card to the sinks that want it, if any run.
+pub fn submit(event: &Event) {
+    if let Some(dispatcher) = running().as_ref() {
+        dispatcher.submit_event(event);
+    }
+}
+
+/// The state of the messenger switch, or `None` when no sink runs.
+pub fn enabled() -> Option<bool> {
+    running().as_ref().map(Dispatcher::enabled)
+}
+
+/// Flips the messenger switch and returns the new state; `None` when no sink runs.
+pub fn toggle() -> Option<bool> {
+    let guard = running();
+    let dispatcher = guard.as_ref()?;
+    dispatcher.set_enabled(!dispatcher.enabled());
+    Some(dispatcher.enabled())
 }
 
 /// Reads a token file. Where permissions can be checked (Unix) a file that other users can read is
@@ -198,6 +254,24 @@ mod tests {
         );
         assert_eq!((built.routes.len(), built.notices.len()), (1, 1));
         assert!(built.notices[0].contains("sink 1"), "{:?}", built.notices);
+    }
+
+    #[test]
+    fn the_switch_exists_only_while_sinks_run_and_flips_both_ways() {
+        stop();
+        assert_eq!((enabled(), toggle()), (None, None));
+        install(Dispatcher::start(
+            Vec::new(),
+            Policy::default(),
+            true,
+            |_| {},
+        ));
+        assert_eq!(enabled(), Some(true));
+        assert_eq!(toggle(), Some(false));
+        assert_eq!(enabled(), Some(false));
+        assert_eq!(toggle(), Some(true));
+        stop();
+        assert_eq!(enabled(), None);
     }
 
     #[cfg(unix)]
