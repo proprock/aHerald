@@ -729,3 +729,16 @@ are deferred (AH-204, AH-205).
   redaction; a process test with a local fake Telegram server that sees exactly the allowed
   fields; a hung server leaves card delivery within its budget; by hand, one real bot on Windows 11
   and Linux.
+
+## Milestone 10 — Release trust (deferred)
+
+- [ ] **AH-214 — Sign the release artifacts.** Build provenance is already attested for every
+  archive, installer, disk image and package (`gh attestation verify`), and it costs nothing. What
+  is left needs a certificate or an account, so it waits for a decision on cost:
+  - Windows Authenticode for `aherald.exe` and the setup EXE, which removes the SmartScreen warning
+    (options: SignPath Foundation for open-source projects, Azure Artifact Signing, or a paid
+    code-signing certificate).
+  - macOS Developer ID signing and notarization (Apple Developer Program), which removes the
+    Gatekeeper "Open Anyway" step in the README.
+  - Acceptance: the release workflow signs with a secret held in the `release` environment, and a
+    clean Windows 11 and macOS 15 machine starts the downloaded file without a warning.

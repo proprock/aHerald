@@ -1,0 +1,36 @@
+name: Install Inno Setup
+description: Install the signed Inno Setup compiler for the current user (Windows only).
+
+inputs:
+  version:
+    description: Inno Setup release to install.
+    default: "7.1.1"
+
+runs:
+  using: composite
+  steps:
+    # The installer is cached by version; the Authenticode check below still runs on every
+    # job, so a corrupt cached file fails the job and needs a new key to recover.
+    - name: Restore the Inno Setup installer cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ runner.temp }}/innosetup-${{ inputs.version }}-x64.exe
+        key: innosetup-${{ inputs.version }}-x64
+
+    - name: Install the signed Inno Setup compiler
+      shell: pwsh
+      env:
+        INNO_VERSION: ${{ inputs.version }}
+      run: |
+        $installer = Join-Path $env:RUNNER_TEMP "innosetup-$env:INNO_VERSION-x64.exe"
+        if (-not (Test-Path -LiteralPath $installer)) {
+          $tag = 'is-' + $env:INNO_VERSION.Replace('.', '_')
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/$tag/innosetup-$env:INNO_VERSION-x64.exe" -OutFile $installer -MaximumRetryCount 5 -RetryIntervalSec 5
+        }
+        $signature = Get-AuthenticodeSignature -LiteralPath $installer
+        if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
+          throw 'Invalid Inno Setup signature'
+        }
+        $compilerDir = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
+        $process = Start-Process $installer -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $compilerDir + '"'), '/TASKS=') -WindowStyle Hidden -Wait -PassThru
+        if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }

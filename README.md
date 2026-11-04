@@ -52,6 +52,9 @@ longer works), or remove the quarantine mark yourself, which is quicker after `b
 xattr -dr com.apple.quarantine /Applications/aHerald.app
 ```
 
+Every release file carries a `.sha256` and a signed build-provenance attestation from the release
+workflow. To check a download against it: `gh attestation verify <file> --repo proprock/aHerald`.
+
 Then connect your agent. The program writes hook entries only when you ask, with a dry run first:
 
 ```sh

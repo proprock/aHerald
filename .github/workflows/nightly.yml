@@ -1,0 +1,48 @@
+name: Nightly
+
+# A pull request runs the checks that its change can affect. This run covers the rest on
+# master: every platform, the slow package and installer checks, the timing budgets, the
+# dependency audit for advisories published since, and the newest stable compiler. CI also
+# pins the compiler and the lock file, so a new advisory or a new Rust release cannot break a
+# pull request unannounced; it shows up here instead.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  full_ci:
+    name: Full CI
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+
+  # The newest stable compiler and its lints. A failure means the pinned toolchain in
+  # .github/actions/setup-rust needs a deliberate upgrade.
+  stable_canary:
+    name: Clippy on stable (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, ubuntu-22.04]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          components: clippy
+          cache: "false"
+
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets -- -D warnings

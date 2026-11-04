@@ -2,14 +2,23 @@ name: CI
 
 on:
   pull_request:
+  # The nightly workflow runs everything on master: all platforms, the slow packaging and
+  # installer checks and the timing budgets that a pull request leaves out. Its run also
+  # saves the cargo cache that pull requests restore.
+  workflow_call:
+    inputs:
+      full:
+        description: Run every check on every platform.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push supersedes an older pull request run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,28 +30,133 @@ jobs:
     timeout-minutes: 10
     outputs:
       code: ${{ steps.flags.outputs.code }}
-      windows: ${{ steps.flags.outputs.windows }}
+      deps: ${{ steps.flags.outputs.deps }}
+      workflows: ${{ steps.flags.outputs.workflows }}
       linux: ${{ steps.flags.outputs.linux }}
-      macos: ${{ steps.flags.outputs.macos }}
+      pkg_windows: ${{ steps.flags.outputs.pkg_windows }}
+      pkg_linux: ${{ steps.flags.outputs.pkg_linux }}
+      pkg_macos: ${{ steps.flags.outputs.pkg_macos }}
       os: ${{ steps.flags.outputs.os }}
     steps:
-      # The checkout is the pull request merge commit, so diffing against the base
-      # branch tip yields exactly the changes this pull request brings in.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           persist-credentials: false
 
+      - name: Check the path classifier
+        run: sh tests/ci_platform_flags.sh
+
+      # The checkout is the pull request merge commit, so diffing against the base branch
+      # tip yields exactly the changes this pull request brings in; a diff needs only the
+      # two trees, not the history. The full run does not look at the diff at all.
       - name: Classify changed paths
         id: flags
         env:
+          FULL: ${{ inputs.full }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git diff --name-only "$BASE_SHA" HEAD | sh .github/platform-flags.sh >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$FULL" = true ]; then
+            sh .github/platform-flags.sh --all < /dev/null >> "$GITHUB_OUTPUT"
+          else
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            git diff --name-only "$BASE_SHA" HEAD | sh .github/platform-flags.sh >> "$GITHUB_OUTPUT"
+          fi
+
+  # Formatting does not depend on the platform, so one runner checks it for every change.
+  fmt:
+    name: Format
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+          cache: "false"
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  # The crate must keep building on the oldest compiler that Cargo.toml promises.
+  msrv:
+    name: MSRV build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].rust_version
+          if (-not $version) { throw 'Cargo.toml has no rust-version' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - name: cargo check
+        run: cargo check --locked
+
+  # Known vulnerabilities in the dependency tree. A pull request runs it when the manifest or
+  # the lock file changes; the nightly run catches advisories published later.
+  audit:
+    name: Dependency audit
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-audit
+
+      - name: cargo audit
+        run: cargo audit
+
+  # Lints the workflow files themselves: syntax and expression errors (actionlint) and
+  # security smells such as template injection and unpinned actions (zizmor).
+  workflow_lint:
+    name: Lint workflows
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: zizmor@1.32.0
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format plain .
 
   quality:
     name: Build and test (${{ matrix.os }})
     needs: changes
-    # The changes job lists only the platforms that the pull request affects. An empty list
+    # The changes job lists only the platforms that the change affects. An empty list
     # skips this job, and the "CI gate" check accepts that skip.
     if: needs.changes.outputs.os != '[]'
     runs-on: ${{ matrix.os }}
@@ -62,20 +176,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpulse0 xvfb xauth dbus
 
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: ./.github/actions/setup-rust
         with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
+          components: clippy
 
       - name: cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
+      # Timing budgets are noisy on a shared runner, so a pull request skips them; the nightly
+      # run keeps them. A renamed test only runs early again, never drops out of the nightly run.
       - name: cargo test
+        if: ${{ !inputs.full }}
+        run: >-
+          cargo test --locked --all-targets --
+          --skip warmed_artwork_preparation_stays_inside_budget
+          --skip hot_paths_stay_inside_their_baseline_budgets
+          --skip the_wrapper_costs_little_beyond_starting_the_executable
+
+      - name: cargo test (including the timing budgets)
+        if: ${{ inputs.full }}
         run: cargo test --locked --all-targets
+
+      # --all-targets leaves out documentation tests.
+      - name: cargo test --doc
+        run: cargo test --locked --doc
 
       - name: Test Linux tray and warning lifecycle
         if: runner.os == 'Linux'
@@ -84,87 +208,54 @@ jobs:
           dbus-run-session -- env AH113_ISOLATED=1
           cargo test --locked --test linux_apply -- --ignored --test-threads=1
 
+      # The package and installer checks below run when the change can affect a package (see
+      # packaging_for in .github/platform-flags.sh) and in every nightly run.
       - name: Verify the isolated macOS app lifecycle
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.changes.outputs.pkg_macos == 'true'
         run: |
           cargo build --locked
           ./tests/macos_app_lifecycle.sh target/debug/aherald
 
       - name: Verify installer failure diagnostics
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
         shell: pwsh
         run: ./tests/installer_diagnostics.ps1
 
-      - name: Build and package Windows release candidate
+      # The release build and the portability check run on every change: they catch a
+      # release-profile break that the debug build above cannot see.
+      - name: Build the Windows release candidate
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           cargo build --locked --release --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./check-release.ps1
-          ./package-release.ps1
 
-      # The installer is cached by version; the Authenticode check below still runs on every
-      # job, so a corrupt cached file fails the job and needs a new key to recover.
-      - name: Restore the Inno Setup installer cache
-        if: runner.os == 'Windows'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ runner.temp }}/innosetup-7.1.1-x64.exe
-          key: innosetup-7.1.1-x64
+      - name: Package the Windows release candidate
+        if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
+        shell: pwsh
+        run: ./package-release.ps1
 
       - name: Install the signed Inno Setup compiler
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.1-x64.exe'
-          if (-not (Test-Path -LiteralPath $installer)) {
-            Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe' -OutFile $installer
-          }
-          $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B.V.') {
-            throw 'Invalid Inno Setup signature'
-          }
-          $compilerDir = Join-Path $env:LOCALAPPDATA 'Programs/Inno Setup 7'
-          $process = Start-Process $installer -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $compilerDir + '"'), '/TASKS=') -WindowStyle Hidden -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Inno Setup install failed: $($process.ExitCode)" }
+        if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
+        uses: ./.github/actions/install-inno-setup
 
       - name: Verify isolated Windows installer lifecycle
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
         shell: pwsh
         run: |
           ./build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
           ./tests/installer_windows.ps1 -Installer "dist/aherald-v$version-windows-x64-setup-test.exe"
 
-  # One required check for every platform leg: it passes when each leg succeeded or was skipped
-  # because its platform is unaffected. It runs even when a job failed, so the check never hangs.
-  ci-gate:
-    name: CI gate
-    needs: [changes, quality]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every needed job to pass or be skipped
-        env:
-          CHANGES: ${{ needs.changes.result }}
-          QUALITY: ${{ needs.quality.result }}
-        run: |
-          for result in "$CHANGES" "$QUALITY"; do
-            case "$result" in
-              success | skipped) ;;
-              *) echo "A required job ended with: $result"; exit 1 ;;
-            esac
-          done
-
   # Ubuntu 22.04 is pinned on purpose: the Debian package declares libc6 >= 2.35, and the
   # isolated lifecycle test needs unprivileged user namespaces, which 24.04's AppArmor
-  # restricts by default. It is not a required check.
+  # restricts by default. The quality job's Linux leg runs on the same image. It runs when the
+  # change can affect the package and in every nightly run.
   linux_package:
     name: Linux package and console setup (ubuntu-22.04)
     needs: changes
-    if: needs.changes.outputs.linux == 'true'
+    if: needs.changes.outputs.linux == 'true' && needs.changes.outputs.pkg_linux == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
@@ -172,9 +263,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: ./.github/actions/setup-rust
 
       - name: Install runtime libraries
         run: |
@@ -192,3 +281,24 @@ jobs:
           version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
           sh ./package-deb.sh target/debug/aherald "v$version"
           sh ./tests/linux_deb_lifecycle.sh "dist/aherald-v$version-linux-x86_64-gnu.deb"
+
+  # One required check for every job: it passes when each one succeeded or was skipped
+  # because it does not apply to the change. It runs even when a job failed, so the check
+  # never hangs.
+  ci-gate:
+    name: CI gate
+    needs: [changes, fmt, msrv, audit, workflow_lint, quality, linux_package]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job to pass or be skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *) echo "A required job ended with: $result"; exit 1 ;;
+            esac
+          done
