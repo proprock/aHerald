@@ -702,7 +702,11 @@ fn present(
             } else {
                 labels.label(&entry.event)
             };
-            let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
+            let age = if is_about(&entry.event) {
+                crate::build_age_text()
+            } else {
+                crate::card::age_text(now.saturating_sub(entry.arrived_ms))
+            };
             let controls = Card::new(
                 heading,
                 index,

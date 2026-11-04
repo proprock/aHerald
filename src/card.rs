@@ -192,12 +192,18 @@ impl Card {
 }
 /// How long ago an event arrived, coarse enough that the card redraws once a minute at most.
 pub fn age_text(elapsed_ms: u64) -> String {
-    const MINUTE: u64 = 60_000;
-    match elapsed_ms {
-        0..MINUTE => "just now".into(),
-        ms if ms < 60 * MINUTE => format!("{} min ago", ms / MINUTE),
-        ms if ms < 24 * 60 * MINUTE => format!("{} h ago", ms / (60 * MINUTE)),
-        ms => format!("{} d ago", ms / (24 * 60 * MINUTE)),
+    // Same shapes as the usage countdown: `12 min`, `3:32`, `2d 3h`, here with the minutes.
+    let minutes = elapsed_ms / 60_000;
+    match minutes {
+        0 => "just now".into(),
+        1..60 => format!("{minutes} min ago"),
+        60..1_440 => format!("{}:{:02} ago", minutes / 60, minutes % 60),
+        _ => format!(
+            "{} d {}:{:02} ago",
+            minutes / 1_440,
+            minutes % 1_440 / 60,
+            minutes % 60
+        ),
     }
 }
 pub fn remaining_seconds(duration_ms: u64, elapsed_ms: u64) -> Option<u64> {

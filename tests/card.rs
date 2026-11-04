@@ -144,12 +144,23 @@ fn age_text_is_coarse_so_the_card_redraws_rarely() {
     assert_eq!(age_text(59_999), "just now");
     assert_eq!(age_text(60_000), "1 min ago");
     assert_eq!(age_text(59 * 60_000 + 59_999), "59 min ago");
-    assert_eq!(age_text(60 * 60_000), "1 h ago");
-    assert_eq!(age_text(23 * 3_600_000 + 3_599_999), "23 h ago");
-    assert_eq!(age_text(24 * 3_600_000), "1 d ago");
+    assert_eq!(age_text(60 * 60_000), "1:00 ago");
+    assert_eq!(age_text(3 * 3_600_000 + 5 * 60_000 + 59_999), "3:05 ago");
+    assert_eq!(age_text(23 * 3_600_000 + 3_599_999), "23:59 ago");
+    assert_eq!(age_text(24 * 3_600_000), "1 d 0:00 ago");
+    assert_eq!(
+        age_text(2 * 86_400_000 + 3 * 3_600_000 + 5 * 60_000),
+        "2 d 3:05 ago"
+    );
+    let minutes = u64::MAX / 60_000;
     assert_eq!(
         age_text(u64::MAX),
-        format!("{} d ago", u64::MAX / 86_400_000)
+        format!(
+            "{} d {}:{:02} ago",
+            minutes / 1_440,
+            minutes % 1_440 / 60,
+            minutes % 60
+        )
     );
 }
 

@@ -9,6 +9,13 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Changed
+- The age on a card now reads `12 min ago`, `3:05 ago`, `2 d 3:05 ago` (hours and minutes, as in
+  the usage countdown) instead of whole hours and days.
+- The About card shows how long ago the binary was built (`Built 2 d 3:05 ago`), and
+  `--version` prints the build time: `aHerald 0.10.0 (built 2026-11-03 22:52 UTC)`. The time is
+  stamped by `build.rs`; `SOURCE_DATE_EPOCH` overrides it for reproducible builds.
+
 ## [0.10.0] - 2026-11-03
 
 ### Changed
