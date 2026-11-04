@@ -64,47 +64,19 @@ machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Acti
 covers automated checks only. New direct dependencies need user approval per AGENTS.md.
 AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
 
-- [ ] **AH-097 — Native setup and Windows installer (replaces the launcher split from AH-091).**
-  Provide `--setup --harness codex|claude` (repeatable) and `--unsetup`, dry-run by
-  default and explicit --apply. Call the fixed executable inside Codex's existing
-  Windows PowerShell executor without starting another PowerShell process;
-  verify real hook arguments, response, process ancestry and diagnostic timings
-  in the opt-in live group. Resolve the executable at setup time; preserve
-  unrelated settings/hooks, back up changes, preflight all files, keep a receipt
-  for exact uninstall, and make repeated setup idempotent. Supply a per-user Inno
-  Setup installer with harness checkboxes and native setup delegation, stable
-  installation paths, safe updates/removal, and portable ZIP alongside setup EXE
-  in Windows CI. After preflight, gracefully stop the resident from the selected
-  directory and wait for its exit before update/removal; abort on shutdown
-  failure and preserve residents from other directories.
-  Offer a checked launch-after-install option on successful
-  interactive setup, with no launch during silent installation or failed setup.
-  Add independent Codex/Claude usage checkboxes, off on new installations and
-  loaded from existing configuration on upgrade. Explain Claude auto (local
-  login, then statusLine); preserve its configured source, other settings,
-  comments and formatting. Include configuration changes in setup rollback.
-  Offer per-agent context/idle warning checkboxes, loaded from live configuration.
-  First context enablement supplies Codex 250k / Claude 400k only when no threshold
-  exists; idle uses Codex 25 / Claude 55 minutes. Preserve custom thresholds when
-  disabling or re-enabling warnings, with separate persisted enabled flags.
-  When Claude context is enabled for a selected Claude harness, configure its
-  statusLine wrapper transactionally, preserve the original command and options,
-  avoid nesting on repeat setup, and restore only an unchanged owned wrapper on
-  disable, deselection or uninstall.
-  Verify generated hooks, delivery and dismissal, installer GUI,
-  selection changes, upgrade/uninstall, and a clean Windows machine without
-  WSL/Bash or development runtimes. See docs/installation.md.
-  Status 2026-11-01 (branch `feature/ah-097-windows-completion`): the setup backend,
-  Windows installer and CI packaging were already implemented. Fixed setup taking
-  over other installations' hooks; a regression failed before the fix and passes
-  afterward. Setup checks: 26 passed, one optional Git Bash test ignored. The
-  isolated installer lifecycle and real-Codex launch/response/ancestry/timing probe
-  passed; formatting, Clippy, release build and packaging passed. Full Cargo tests
-  stopped at `native_assets` with a notification startup timeout, both inside and
-  outside the sandbox; cause remains unresolved. Full installer GUI/launch-option
-  and installed-harness delivery/dismissal acceptance remain open. Clean-machine
-  acceptance is explicitly deferred by the maintainer (no machine available).
-  Evidence, commands and remaining checks: docs/ah-097-windows-acceptance.md.
+- [ ] **AH-214 — Windows installer GUI and clean-machine acceptance (split from AH-097).**
+  Depends on AH-097 (closed 2026-11-04). On a clean Windows 10/11 machine without WSL,
+  Bash or development runtimes, verify the installer GUI and harness checkboxes, the
+  launch-after-install option on interactive setup only, selection changes, upgrade and
+  uninstall, and hook delivery and dismissal for installed Codex and Claude Code. Record
+  the Windows build, harness versions and limitations. Evidence so far:
+  docs/ah-097-windows-acceptance.md.
+
+- [ ] **AH-215 — Cause of the `native_assets` timeout in the full Cargo test run (split from AH-097).**
+  `cargo test --all-targets` stops at `native_assets` with a notification startup timeout,
+  both inside and outside the sandbox. Reproduce once, find the cause, and fix it test-first,
+  or document why the timeout is environmental. Acceptance: the full run passes on Windows 11,
+  with the commands and results recorded.
 
 - [ ] **AH-102 — Native macOS installer and setup UI.**
   Uses the common native setup backend from AH-097. Deliver GUI app installation
@@ -388,11 +360,6 @@ shared development-profile and artwork performance changes need no separate port
   behavior have not yet been verified.
 
 
-- [ ] **AH-095 — Evaluate native layer-shell on KDE/wlroots (split from AH-073).**
-  When a KDE or wlroots session is available, measure protocol support, placement,
-  focus, scaling and agent activation; compare the native backend with XWayland and
-  agree on scope and dependencies before implementation.
-
 ## Milestone 5 — Polish and portable release
 
 - [x] **AH-105 — Create an application icon, at least for Windows.** Design and
@@ -425,16 +392,6 @@ shared development-profile and artwork performance changes need no separate port
   reviewer routing and exposes no reviewer/verdict/human-wait signal. Selective
   suppression remains blocked on a supported observable source; preserve current
   notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
-
-- [ ] **AH-020 — Finish placement and display-change handling.** Depends on AH-012.
-  Support center, top center, bottom right, near cursor, and selected monitor.
-  Keep overlays in the work area and handle monitor removal, negative desktop
-  coordinates, DPI changes, and scaling. Acceptance: manual multi-monitor and
-  mixed-DPI checks pass without focus theft or screen-wide flashing.
-  Implementation and automated checks committed; manual multi-monitor/mixed-DPI
-  acceptance remains unverified (hardware unavailable, confirmed 2026-10-25).
-  Also carries the case split from AH-076: a card that opens on a second monitor with a
-  different DPI is drawn at that monitor's scale (cards are not draggable by design).
 
 - [x] **AH-090 — No silent decisions: a log line for every dropped input, an error card for
   the ones the user can fix.**
@@ -507,23 +464,6 @@ shared development-profile and artwork performance changes need no separate port
   (for example a rate limit) with the capture hook, then compare the fields (`error`)
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
-
-- [ ] **AH-045 — Harden the Claude quota HTTPS request.** Depends on AH-037.
-  Implemented and tested; left open only for the manual system-proxy check (steps in
-  `docs/claude-hooks.md`, "Manual checks"), which was not run: on 2026-10-27 the dev
-  machine had no proxy (`netsh winhttp` direct, `ProxyEnable=0`, no PAC), and direct
-  access works. Needs a machine with a manual or PAC proxy. Done: redirect policy
-  "never" plus 3xx mapped to "Claude usage request redirected (refused)", proven by a
-  loopback test where a 302 gets exactly one request; `AUTOMATIC_PROXY`; `Wiped`
-  buffers for the credentials file, token and headers (copies made by the parser,
-  std or WinHTTP are not covered). Original brief: WinHTTP follows redirects by default, and `WINHTTP_ACCESS_TYPE_DEFAULT_PROXY`
-  ignores system and PAC proxies. Disable redirects so the bearer token reaches only
-  `api.anthropic.com` and report 3xx as a sanitized service error; switch to
-  `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`. Clear header buffers holding the token after
-  use without adding a dependency. Acceptance: a test against a local endpoint shows
-  a 3xx response becomes an error without a follow-up request (if the client cannot
-  target one, document a manual redirect check instead); a manual check behind a
-  system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
 - [ ] **AH-211 — Windows: a console companion for command-line output and the `statusLine`
   command.** One cause, two symptoms: `aherald.exe` is a GUI-subsystem program (so a hook never

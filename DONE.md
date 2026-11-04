@@ -3,6 +3,38 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-095 — Evaluate native layer-shell on KDE/wlroots (split from AH-073).** Closed
+  2026-11-04 with the maintainer as won't work. No KDE or wlroots session is available, and the
+  evaluation is low priority: these desktops are a small share of Linux users. Ubuntu's default
+  GNOME session is unaffected; the current XWayland path stays.
+
+- [x] **AH-216 — Manual system-proxy check for the Claude quota request (split from AH-045).**
+  Closed 2026-11-04 with the maintainer as won't work. The check needs a machine behind a manual
+  or PAC system proxy, which is not available. AH-045 keeps its automated redirect and proxy tests.
+
+- [x] **AH-217 — Windows multi-monitor and mixed-DPI acceptance (split from AH-020).** Closed
+  2026-11-04 with the maintainer as won't work. The check needs real multi-monitor and mixed-DPI
+  hardware, which is not available. AH-020 keeps its automated checks.
+
+- [x] **AH-097 — Native setup and Windows installer.** Closed 2026-11-04 with the maintainer,
+  without clean-machine acceptance. Implemented: setup backend, Windows installer and CI
+  packaging. Setup checks: 26 passed, one optional Git Bash test ignored; isolated installer
+  lifecycle and real-Codex launch/response/ancestry/timing probe passed; formatting, Clippy,
+  release build and packaging passed. Not verified: installer GUI and launch-after-install
+  option, installed-harness hook delivery and dismissal, a clean Windows 10/11 machine. Full
+  Cargo tests stop at `native_assets` (notification startup timeout). Remaining: AH-214, AH-215.
+  Evidence: docs/ah-097-windows-acceptance.md.
+
+- [x] **AH-045 — Harden the Claude quota HTTPS request.** Closed 2026-11-04 with the maintainer.
+  Implemented and tested: redirects refused and 3xx mapped to a sanitized error (loopback test,
+  one request); automatic proxy; wiped credential, token and header buffers. Not verified: the
+  manual check behind a system proxy (the dev machine has none). That check was closed as won't work: AH-216.
+
+- [x] **AH-020 — Finish placement and display-change handling.** Closed 2026-11-04 with the
+  maintainer. Implementation and automated checks committed; a card on a second monitor with a
+  different DPI is drawn at that monitor's scale. Not verified: manual multi-monitor and
+  mixed-DPI acceptance (no hardware, confirmed 2026-10-25). That check was closed as won't work: AH-217.
+
 - [x] **AH-110 - Apply rstest selectively for named test cases** (2026-11-02).
   Owner approved `rstest` `=0.28.0` (MIT OR Apache-2.0, MSRV 1.85, no default
   features) as a dev-dependency only; `cargo tree -e normal` shows no runtime use.
