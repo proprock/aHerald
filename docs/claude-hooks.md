@@ -126,8 +126,8 @@ not recognised", run `aherald --raw-output usage --harness claude`: it prints th
 body (any status) the running resident received, unparsed; nothing is written to disk or the log.
 `aherald --raw-output statusline` does the same for the payload Claude Code last sent to the
 statusLine wrapper, which is how to see whether it carries `rate_limits` (it does not for
-accounts billed by usage). On Windows pipe the output: `aherald.exe --raw-output usage --harness
-claude | Out-String`.
+accounts billed by usage). On Windows use the console companion, which shows the output:
+`aherald-cli.exe --raw-output usage --harness claude`.
 
 Request safety: redirects are never followed (WinHTTP redirect policy "never"), so the
 token cannot be forwarded to another host; any 3xx shows "Claude usage request redirected

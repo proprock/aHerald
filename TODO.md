@@ -500,6 +500,26 @@ shared development-profile and artwork performance changes need no separate port
   `--install-statusline` and `--uninstall-statusline` restore the original exactly and replace the
   old encoded command; a hook from Claude Code and Codex still delivers and opens no console window;
   `package-release.ps1` no longer needs its pipe workaround.
+  Status 2026-11-04 (branch `feature/ah-211-windows-console-companion`): `aherald-cli.exe`
+  (std only) exists. Inheriting the console shows nothing for a GUI child (seen in a real
+  PowerShell and cmd), so it relays stdin, stdout and stderr through pipes and returns the exit
+  code; pipe tests compare it with `aherald.exe` (`tests/aherald_cli.rs`), and `--version` and an
+  unknown option were checked by hand in PowerShell and cmd. Decisions: (a) a bare
+  `C:/…/aherald-cli.exe --statusline` when no character in the path is special to either shell;
+  else `powershell -File "…/statusline.ps1"` with an aHerald-owned script (receipt, backup, removal);
+  the encoded command stays only for a path with `"`, `$` or a backtick. (b) The maintainer chose
+  the receipt: `--statusline` without `--then` reads the original from `aherald-setup.json`; a
+  missing receipt gives a plain line, a corrupt one a plain line and a note on stderr.
+  `tests/statusline_windows.rs` runs the generated command through PowerShell and Git Bash:
+  bytes, non-ASCII and ANSI output and exit code 7 relayed; `--unsetup` restores the original
+  exactly and removes the script; setup replaces an earlier encoded command. `package-release.ps1`,
+  `build-installer.ps1` and the installer ship the companion; the script no longer pipes. About 7 ms
+  per status line refresh is added by the companion (25 ms to 32 ms, release build).
+  Remaining: manual checks on Server 2019 and in Windows Terminal; a live Claude Code and Codex
+  hook (still `aherald.exe`, unchanged) shows no console window; the installer lifecycle with the
+  companion (`tests/installer_windows.ps1` still pipes); and `--install-statusline` /
+  `--uninstall-statusline`, which are still "not supported on Windows yet" (decide whether to
+  support them or drop them from the acceptance).
 
 ## Milestone 6 — Claude parity (deferred)
 

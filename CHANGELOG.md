@@ -9,6 +9,19 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- Windows: `aherald-cli.exe`, a console companion beside `aherald.exe`. It starts `aherald.exe`
+  with the same arguments and standard input, shows its output in PowerShell, cmd and Windows
+  Terminal without `| Out-String`, and returns its exit code. Hooks still call `aherald.exe`
+  directly (AH-211).
+
+### Changed
+- Windows: the Claude Code `statusLine` wrapper is now a readable command
+  (`C:/…/aherald-cli.exe --statusline`, or a `statusline.ps1` beside the executable for a path with
+  spaces) instead of an encoded PowerShell script, except for paths with `"`, `$` or a backtick.
+  Your own status line command is kept in the setup receipt rather than on the command line;
+  running setup again upgrades an earlier installation (AH-211).
+
 ## [0.12.0] - 2026-11-04
 
 ### Changed

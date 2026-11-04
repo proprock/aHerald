@@ -6,10 +6,11 @@
 //! relays its stdin, stdout and stderr through pipes, waits, and exits with its exit code.
 //! Hooks keep calling `aherald.exe` directly: a parent without a console must not get a window.
 use std::io::Write;
-use std::process::{Command, Stdio};
 
 #[cfg(windows)]
 fn main() {
+    use std::process::{Command, Stdio};
+
     let own = match std::env::current_exe() {
         Ok(path) => path,
         Err(error) => std::process::exit(fail(&format!("cannot locate itself: {error}"))),

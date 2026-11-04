@@ -73,8 +73,12 @@ aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-
 | `--perf-report` | Rank timings that a resident with `logging = "debug"` wrote to `aherald.log`. |
 | `--config PATH` | Use another configuration file; relative paths inside it resolve from its folder. |
 
-`aherald.exe` is a GUI-subsystem program: no console window opens, and in PowerShell its
-output appears only when piped, for example `.\aherald.exe --status | Out-String`.
+`aherald.exe` is a GUI-subsystem program: no console window opens, so in PowerShell and cmd
+it prints nothing unless piped (`.\aherald.exe --status | Out-String`). To see the output of a
+command typed by hand, use the console companion beside it: `.\aherald-cli.exe --status`. It
+starts `aherald.exe` with the same arguments and standard input, shows its output and returns its
+exit code. Hooks keep calling `aherald.exe` directly, because a hook without a console must not
+get a window.
 
 ## Configuration
 

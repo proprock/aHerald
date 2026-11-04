@@ -43,6 +43,17 @@ struct StatusLineBinding {
     file: PathBuf,
     installed: Value,
     original: Option<Value>,
+    /// The relay script written next to the executable when the installation path allows no
+    /// bare command (AH-211); its exact text proves the file is still ours.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    script: Option<OwnedFile>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnedFile {
+    file: PathBuf,
+    text: String,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -113,6 +124,28 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         config.codex.warnings.idle_threshold().is_some(),
         config.claude.warnings.idle_threshold().is_some()
     ))
+}
+
+/// The user's own `statusLine` command that setup wrapped, for `--statusline` to run when it
+/// has no `--then`. `None` when there is no receipt, no wrapped command, or the receipt
+/// belongs to another installation.
+pub fn wrapped_statusline_command(exe: &Path) -> Result<Option<String>, String> {
+    let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+        .join("aherald-setup.json");
+    let Some(text) = read(&file)? else {
+        return Ok(None);
+    };
+    let receipt: Receipt = serde_json::from_str(&text).map_err(
+        |_| "invalid aHerald setup receipt; the status line is shown without your own command",
+    )?;
+    if receipt.version != 1 || receipt.executable != exe {
+        return Ok(None);
+    }
+    Ok(receipt
+        .statusline
+        .and_then(|binding| binding.original)
+        .filter(|original| original["type"] == "command")
+        .and_then(|original| original["command"].as_str().map(str::to_owned)))
 }
 
 /// Read the receipt without changing it, for an interactive setup's defaults.
@@ -513,6 +546,7 @@ fn statusline_plan(
 ) -> Result<Option<StatusLineBinding>, String> {
     let mut original = None;
     let mut owned = false;
+    let old_script = previous.as_ref().and_then(|old| old.script.clone());
     if let Some(old) = previous {
         if !old.file.is_absolute() {
             return Err("setup receipt contains a relative statusLine path".into());
@@ -554,6 +588,7 @@ fn statusline_plan(
         }
     }
     let Some(file) = selected_file else {
+        script_plan(None, old_script.as_ref(), changes, report)?;
         return Ok(None);
     };
     let before = read(file)?;
@@ -573,13 +608,14 @@ fn statusline_plan(
         original = current.clone().filter(|value| {
             !value["command"]
                 .as_str()
-                .is_some_and(|s| s.contains("aherald") && s.contains(" --statusline"))
+                .is_some_and(crate::statusline_launch::is_wrapper)
         });
+        let own_command = statusline_command(exe, None)?.0;
         if current.is_some()
             && original.is_none()
             && !current
                 .as_ref()
-                .is_some_and(|v| v["command"] == statusline_command(exe, None))
+                .is_some_and(|v| v["command"] == own_command)
         {
             return Err("a different aHerald statusLine is set; uninstall it first".into());
         }
@@ -596,10 +632,11 @@ fn statusline_plan(
     let mut installed = original
         .clone()
         .unwrap_or_else(|| json!({"type":"command"}));
-    let wrapped = statusline_command(exe, command);
+    let (wrapped, script) = statusline_command(exe, command)?;
     if wrapped.encode_utf16().count() > 30000 {
         return Err("Claude statusLine command exceeds the Windows command-line limit".into());
     }
+    let script = script_plan(script, old_script.as_ref(), changes, report)?;
     installed["command"] = wrapped.into();
     if current.as_ref() != Some(&installed) {
         object.insert("statusLine".into(), installed.clone());
@@ -620,11 +657,114 @@ fn statusline_plan(
         file: file.to_path_buf(),
         installed,
         original,
+        script,
     }))
 }
 
-fn statusline_command(exe: &Path, original: Option<&str>) -> String {
+/// Plans the relay script next to the executable and returns what the receipt should hold:
+/// the file is created or updated when wanted, and removed when it is no longer wanted, but
+/// only while its text is still exactly what aHerald wrote.
+fn script_plan(
+    wanted: Option<(PathBuf, String)>,
+    previous: Option<&OwnedFile>,
+    changes: &mut Vec<Change>,
+    report: &mut String,
+) -> Result<Option<OwnedFile>, String> {
+    if let Some(old) = previous
+        && wanted.as_ref().is_none_or(|(file, _)| *file != old.file)
+    {
+        match read(&old.file)? {
+            None => {}
+            Some(text) if text == old.text => {
+                report.push_str(&format!(
+                    "Claude statusLine script: remove {}\n",
+                    old.file.display()
+                ));
+                changes.push(Change {
+                    file: old.file.clone(),
+                    before: Some(text),
+                    after: String::new(),
+                    remove: true,
+                });
+            }
+            Some(_) => report.push_str(&format!(
+                "Claude statusLine script: {} was changed after aHerald wrote it; left in place.\n",
+                old.file.display()
+            )),
+        }
+    }
+    let Some((file, text)) = wanted else {
+        return Ok(None);
+    };
+    let before = read(&file)?;
+    let owned = previous
+        .filter(|old| old.file == file)
+        .map(|old| old.text.as_str());
+    let change = match before.as_deref() {
+        Some(existing) if existing == text => None,
+        Some(existing) if Some(existing) == owned => Some("update"),
+        Some(_) => {
+            return Err(format!(
+                "{} already exists and is not aHerald's; nothing was changed",
+                file.display()
+            ));
+        }
+        None => Some("create"),
+    };
+    if let Some(verb) = change {
+        report.push_str(&format!(
+            "Claude statusLine script: {verb} {}\n",
+            file.display()
+        ));
+        changes.push(Change {
+            file: file.clone(),
+            before,
+            after: text.clone(),
+            remove: false,
+        });
+    }
+    Ok(Some(OwnedFile { file, text }))
+}
+
+/// The command for Claude Code's `statusLine`, and the script it needs written, if any.
+fn statusline_command(
+    exe: &Path,
+    original: Option<&str>,
+) -> Result<(String, Option<(PathBuf, String)>), String> {
     #[cfg(windows)]
+    {
+        use crate::statusline_launch as launch;
+        // The readable forms carry no wrapped command: `aherald --statusline` reads it from
+        // the receipt, which keeps the line short and free of a second quoting layer.
+        let companion = exe.with_file_name(launch::COMPANION_NAME);
+        if companion.is_file()
+            && let Some(command) = launch::companion_command(&companion)
+        {
+            return Ok((command, None));
+        }
+        let script = exe.with_file_name(launch::SCRIPT_NAME);
+        if let Some(command) = launch::script_command(&script) {
+            return Ok((command, Some((script, launch::SCRIPT_TEXT.to_owned()))));
+        }
+        Ok((encoded_statusline_command(exe, original), None))
+    }
+    #[cfg(not(windows))]
+    {
+        let base = hook_setup::statusline_command(exe);
+        Ok((
+            match original {
+                Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
+                None => base,
+            },
+            None,
+        ))
+    }
+}
+
+/// The command of versions before AH-211, kept for the paths that neither readable form can
+/// carry (a `$`, a backtick or a double quote in the installation path).
+#[cfg(windows)]
+fn encoded_statusline_command(exe: &Path, original: Option<&str>) -> String {
     {
         // Numeric UTF-16 literals avoid expansion by either Git Bash or PowerShell.
         let literal = |text: &str| {
@@ -650,14 +790,6 @@ fn statusline_command(exe: &Path, original: Option<&str>) -> String {
             "powershell.exe -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create({})); # aherald --statusline\"",
             literal(&script)
         )
-    }
-    #[cfg(not(windows))]
-    {
-        let base = hook_setup::statusline_command(exe);
-        match original {
-            Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
-            None => base,
-        }
     }
 }
 

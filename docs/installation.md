@@ -39,6 +39,17 @@ only if the installed wrapper has not been edited. Backups and rollback cover th
 change together with hooks and config.toml. This follows Claude's documented
 [statusLine command contract](https://code.claude.com/docs/en/statusline).
 
+On Windows the wrapper is a readable command that Git Bash and PowerShell read alike, because
+Claude Code runs a `statusLine` through Git Bash if it is installed and PowerShell otherwise:
+`C:/…/aherald-cli.exe --statusline`, when the installation path has no character special to
+either shell (no space, quote, `&`, `$` or backtick). A path with spaces, such as
+`C:/Program Files/…`, gets `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+"C:/…/statusline.ps1"` and an aHerald-owned `statusline.ps1` beside the executable, recorded in
+the receipt and removed with the wrapper. Your own command is not on the line: aherald reads
+it from the receipt `aherald-setup.json`, so deleting the receipt leaves a plain status line.
+A path with `"`, `$` or a backtick keeps the encoded one-line command of earlier versions.
+Running setup again replaces an earlier encoded command and keeps your original exactly.
+
 Only selected usage/warning flags and missing warning thresholds are changed. Other settings, comments and
 formatting are preserved, with a backup before changes. Configuration and hook
 changes share the setup transaction. Removal without setting options retains the

@@ -49,6 +49,7 @@ Name: idleclaude; Description: "Claude idle warning (55 minutes)"; GroupDescript
 
 [Files]
 Source: "{#PackageDir}\aherald.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PackageDir}\aherald-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#PackageDir}\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageDir}\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PackageDir}\examples\*"; DestDir: "{app}\examples"; Flags: ignoreversion recursesubdirs createallsubdirs
