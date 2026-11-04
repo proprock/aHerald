@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-04
+
 ### Changed
 - The configuration reference is now `config.example.toml` (was `aHerald.example.toml`), next to
   the `config.toml` it describes. The Windows installer removes the old copy on upgrade.
