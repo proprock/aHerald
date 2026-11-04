@@ -702,6 +702,27 @@ are deferred (AH-204, AH-205).
   redaction; a process test with a local fake Telegram server that sees exactly the allowed
   fields; a hung server leaves card delivery within its budget; by hand, one real bot on Windows 11
   and Linux.
+  Status (branch `feature/AH-213`): done and tested — POST in both HTTP layers, the sink contract,
+  worker, filter, retry, drop-oldest, error de-duplication, secret redaction, `[forward]`
+  configuration, the Telegram sink against a fake Bot API, and the Windows tray **Messenger**
+  switch (an agreed addition). Telegram was built directly rather than as a preset on a webhook
+  sink; the generic sink moved to AH-220. Left open: the by-hand check with a real bot on
+  Windows 11 and Linux, and a compile and test run on macOS and Linux (AH-219 for their menus).
+  Not run here: `cargo check` for the macOS and Linux targets (no C cross toolchain).
+
+- [ ] **AH-219 — Messenger switch in the macOS and Linux tray menus (split from AH-213).**
+  Windows has a **Messenger** item beside Sound and Pop-up (`crate::forward::enabled`/`toggle`).
+  Add the same item to `src/mac/menu.rs` (`Command`, `items`, the AppKit handler) and to the
+  StatusNotifierItem menu in `src/linux/tray.rs`; both residents already start and stop the sinks.
+  Acceptance: the pure menu tests list the item only when a sink runs, in the Windows order;
+  checked by hand on macOS and a Linux desktop.
+
+- [ ] **AH-220 — Generic webhook and command sinks (split from AH-213).**
+  A sink that POSTs a template (kind, harness, optional folder) to a URL from an environment
+  variable, and one that runs a command as an argument vector without a shell. Together they serve
+  ntfy, Slack and others without a preset each. Reuses `https::post`, `forward::build` and the
+  `Sink` contract; needs a decision on the template syntax and on URL secrets (many webhook URLs
+  are secrets). Acceptance: tests with a fake server and a recording command; no shell is involved.
 
 ## Milestone 10 — Release trust (deferred)
 

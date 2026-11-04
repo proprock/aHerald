@@ -102,6 +102,44 @@ The card shows elapsed time and that agent's limit, for example
 `Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
 warning was created; they do not advance while waiting in the notification queue.
 
+### Messenger forwarding (AH-213)
+
+A *sink* sends each card the queue accepted as new to a messenger, in addition to the card.
+Telegram is the first. Nothing is sent unless you configure a sink.
+
+```toml
+[forward]
+enabled = true            # initial state of the tray "Messenger" switch
+
+[[forward.sinks]]
+type = "telegram"
+kinds = ["turn_complete", "permission_required", "input_required", "error"]  # the default
+include_folder = false    # the default; see below
+token_env = "AHERALD_TELEGRAM_TOKEN"   # or: token_file = "telegram.token"
+chat_id_env = "AHERALD_TELEGRAM_CHAT"
+```
+
+- **What is sent:** a line such as `Claude: input required`, with the folder name in brackets only
+  when `include_folder = true`. Never a prompt, an assistant message, a path or a session name. The
+  folder name goes to a third party, which is why it is off by default.
+- **Secrets are never in `config.toml`.** `token_env` and `chat_id_env` name environment variables;
+  `token_file` names a file (relative to the configuration) holding the token. A literal `token` key,
+  or a value pasted where a variable name belongs, is refused at load without being echoed. On Unix a
+  token file that other users can read is refused. A missing or empty variable shows a card naming the
+  variable, not its value. A resident started from the Windows Run key or the installer sees only your
+  *user* environment variables, so set them with `setx` or in System Properties and restart aHerald.
+- **Filter:** `kinds` is independent of `notifications.suppress_when_focused`, which concerns the
+  screen in front of you. aHerald does not detect that you are away from the computer.
+- **Tray switch:** when a sink is configured, the tray menu has a **Messenger** item beside Sound and
+  Pop-up. It switches all sinks off and on until you exit; the next start uses `forward.enabled`.
+  (Windows only so far; AH-219 covers the macOS and Linux menus.)
+- **Delivery:** each sink has its own worker, a queue of 32 messages (the oldest is dropped when
+  full) and three tries. A slow or unreachable messenger never delays cards, the tray or hooks. A
+  failure is shown as a card once for each distinct error, never with the token.
+- **Telegram:** create a bot with @BotFather, send it a message, and read your chat id from
+  `https://api.telegram.org/bot<token>/getUpdates`. aHerald calls `sendMessage` with `chat_id` and
+  plain `text` only.
+
 ### Claude status line text
 
 `[claude.statusline] format` is the text `aherald --statusline` prints when you have no status

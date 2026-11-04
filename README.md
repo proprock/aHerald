@@ -29,6 +29,8 @@ and keeps a queue so nothing is lost while you are away.
   frames and WAV sounds. Everything is external and replaceable; missing files fall back to text.
 - **Usage and warnings (opt-in):** Codex and Claude quota in the tray icon and a card, plus context-size
   and idle reminders per agent.
+- **Messenger forwarding (opt-in):** send each card to Telegram as well, with no prompts or paths and
+  a tray switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Click to activate:** a click can bring the originating terminal or Claude Desktop session forward;
   cards are suppressed while that session is focused.
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland

@@ -10,6 +10,11 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- Opt-in messenger forwarding: `[forward]` and `[[forward.sinks]]` send each new card to Telegram
+  (kind, harness and, only if allowed, the folder name). Tokens come from an environment variable
+  or a file, never from `config.toml`; failures show as one card per distinct error. A **Messenger**
+  switch in the Windows tray menu turns it on and off. The macOS and Linux residents forward too,
+  without the menu switch yet (AH-213).
 - Windows: `aherald-cli.exe`, a console companion beside `aherald.exe`. It starts `aherald.exe`
   with the same arguments and standard input, shows its output in PowerShell, cmd and Windows
   Terminal without `| Out-String`, and returns its exit code. Hooks still call `aherald.exe`
