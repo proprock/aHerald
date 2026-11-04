@@ -739,7 +739,8 @@ impl Ui {
                 let path = self.config_path.clone();
                 std::thread::spawn(move || {
                     if let Err(error) = crate::shell::edit_configuration(&path) {
-                        eprintln!("aHerald: {error}");
+                        // There is no console to read stderr in: say it on a card.
+                        crate::notice::post(&error);
                     }
                 });
             }

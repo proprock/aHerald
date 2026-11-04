@@ -17,6 +17,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   too.
 
 ### Fixed
+- Windows: Edit configuration opens Notepad whenever the shell cannot open `config.toml` (it did
+  only for two error codes) and says why on a card if that fails too; it used to print to a
+  console the program does not have.
 - A Claude usage response aHerald cannot use no longer reads "Invalid Codex protocol message":
   it says "Claude usage response not recognised" or "…has no quota or spend data".
 
