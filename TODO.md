@@ -525,6 +525,22 @@ shared development-profile and artwork performance changes need no separate port
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
+- [ ] **AH-211 — Windows: show the output of command-line operations in the terminal.**
+  `aherald.exe` is a GUI-subsystem program (so a hook never opens a console window), and it has no
+  console of its own: `--version`, `--help`, `--status`, `--setup`, `--perf-report` and their error
+  messages print nothing in PowerShell or cmd unless the output is piped (`| Out-String`), which
+  the packaging scripts and docs already work around. Do it on Windows 11, not by reading code.
+  Approach to try: at start, when standard output and error are not already redirected (hooks and
+  pipes are, so they are untouched), call `AttachConsole(ATTACH_PARENT_PROCESS)` and point the
+  standard handles at `CONOUT$`/`CONIN$`; with no parent console (Explorer, the tray, autostart)
+  do nothing. The shell does not wait for a GUI program, so a prompt can print before the output:
+  decide whether that is acceptable or whether `--status`-like operations should wait.
+  Acceptance (checked by hand on Windows 11, Windows Server 2019 and in a CI pipe test):
+  `aherald --version` and an unknown option print in PowerShell, cmd and Windows Terminal without
+  `| Out-String`; with output piped or redirected nothing changes; a hook from Claude Code and
+  Codex still delivers and opens no console window; `Start-Process` and the tray start leave no
+  console behind; `package-release.ps1` no longer needs its pipe workaround.
+
 ## Milestone 6 — Claude parity (deferred)
 
 - [Codex hooks](https://learn.chatgpt.com/docs/hooks)

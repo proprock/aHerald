@@ -26,6 +26,21 @@ pub fn post(message: &str) {
     }
 }
 
+/// Posts the error of a refresh that runs every second as a card the first time it appears, and
+/// again only when its text changes or after a success cleared it: one card, not a stream.
+/// `last` is the caller's memory of the error it already reported.
+pub fn report_changed(last: &mut Option<String>, result: Result<(), String>) {
+    match result {
+        Ok(()) => *last = None,
+        Err(error) => {
+            if last.as_deref() != Some(error.as_str()) {
+                post(&error);
+                *last = Some(error);
+            }
+        }
+    }
+}
+
 /// The last component of `path`, which is what the card names (the folder stays out of it).
 fn file_name(path: &Path) -> String {
     path.file_name()
@@ -81,17 +96,22 @@ mod tests {
         let seen = Arc::new(StdMutex::new(Vec::new()));
         let sink = seen.clone();
         install(move |event| sink.lock().unwrap().push(event));
+        // A refresh that fails every second makes one card, and another only after a success.
+        let mut last = None;
+        for result in [Err("tray"), Err("tray"), Ok(()), Err("tray"), Err("other")] {
+            report_changed(&mut last, result.map_err(String::from));
+        }
         post("Sound over 5 s:\nalert.wav\u{7}");
         clear();
         post("after clear");
         let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 1);
+        let messages: Vec<_> = seen.iter().map(|e| e.message.as_deref().unwrap()).collect();
         assert_eq!(
-            seen[0].message.as_deref(),
-            Some("Sound over 5 s: alert.wav")
+            messages,
+            ["tray", "tray", "other", "Sound over 5 s: alert.wav"]
         );
-        assert_eq!(seen[0].source, crate::events::Source::App);
-        assert_eq!(seen[0].kind, crate::events::Kind::Error);
+        assert_eq!(seen[3].source, crate::events::Source::App);
+        assert_eq!(seen[3].kind, crate::events::Kind::Error);
     }
 
     #[test]

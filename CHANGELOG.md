@@ -24,8 +24,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 - Errors that only went to stderr, which a GUI program does not have, are now shown:
   an interactive start that fails for any reason shows it on a card (it did for a bad
   configuration only); Apply that cannot start its replacement and Edit configuration that
-  cannot open a file say so on a card; with a configuration it cannot read, the status line
-  prints `Invalid configuration: …` instead of nothing.
+  cannot open a file say so on a card; a tray icon that cannot be updated says so once (it
+  printed every second); with a configuration it cannot read, the status line prints
+  `Invalid configuration: …` instead of nothing.
 - Windows: Edit configuration opens Notepad whenever the shell cannot open `config.toml` (it did
   only for two error codes) and says why on a card if that fails too; it used to print to a
   console the program does not have.

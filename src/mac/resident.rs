@@ -320,6 +320,8 @@ struct Ui {
     /// What the menu was last built from, so it is rebuilt only when that changes.
     menu_key: Option<MenuKey>,
     tooltip: String,
+    /// The tray icon update error already shown on a card, so a repeating one is shown once.
+    tray_failure: Option<String>,
     stop: Arc<AtomicBool>,
     waker: Arc<Waker>,
     config_path: std::path::PathBuf,
@@ -405,9 +407,10 @@ impl Ui {
                 self.config.tray.graph,
                 display,
             );
-            if let Err(error) = self.tray.set_levels(levels, self.config.tray.style) {
-                eprintln!("aHerald: {error}");
-            }
+            crate::notice::report_changed(
+                &mut self.tray_failure,
+                self.tray.set_levels(levels, self.config.tray.style),
+            );
         }
     }
 
@@ -1183,6 +1186,7 @@ fn present(
             usage_next: 0,
             menu_key: None,
             tooltip: String::new(),
+            tray_failure: None,
             stop: stop.clone(),
             waker: waker.clone(),
             config_path: config_path.to_owned(),
