@@ -258,13 +258,17 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     // Respond to the hook contract before any fallible configuration or delivery.
     let mut hook_context = None;
+    let mut hook_busy = false;
     let hook_event = if cli.operation.as_deref() == Some("hook") {
         let event = aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
             .and_then(|bytes| {
                 if cli.hook_agent() == aherald::agent::Agent::Codex {
                     hook_context = aherald::codex_context::parse(&bytes)?;
                 }
-                cli.hook_agent().parse_hook(&bytes)
+                let event = cli.hook_agent().parse_hook(&bytes)?;
+                hook_busy = event.as_ref().is_some_and(aherald::agent::is_claude_stop)
+                    && aherald::agent::claude_has_background_work(&bytes);
+                Ok(event)
             })
             .inspect_err(|error| {
                 log_code(
@@ -359,6 +363,18 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         if let Some(mut event) = hook_event
             && cli.hook_agent().hooks_enabled(&config)
         {
+            // A Stop with background work is no finished turn: it only settles the session's
+            // waits (as activity does), with no card and no sound.
+            if hook_busy && config.claude.suppress_while_busy {
+                event.activity = true;
+                return match cli.selected_mode(&config) {
+                    aherald::config::Mode::Resident => aherald::resident::forward_if_running(
+                        &aherald::local::Scope::current("resident")?,
+                        &event,
+                    ),
+                    _ => Ok(()),
+                };
+            }
             if cli.hook_agent().records_console_window() || cfg!(target_os = "linux") {
                 event.window = aherald::console_window::current();
             }

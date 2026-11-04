@@ -120,3 +120,34 @@ fn agent_flag_requires_hook_operation() {
     let result = invoke(&["--agent", "claude", "--event", "turn_complete"], b"");
     assert!(!result.status.success());
 }
+
+#[test]
+fn only_a_shown_stop_can_be_held_back_for_background_work() {
+    use aherald::agent::{Agent, is_claude_stop};
+    let event = |name: &str| {
+        Agent::Claude
+            .parse_hook(format!(r#"{{"hook_event_name":"{name}","session_id":"s"}}"#).as_bytes())
+            .unwrap()
+            .unwrap()
+    };
+    assert!(is_claude_stop(&event("Stop")));
+    for name in [
+        "StopFailure",
+        "PermissionRequest",
+        "SessionEnd",
+        "PreToolUse",
+    ] {
+        assert!(!is_claude_stop(&event(name)), "{name}");
+    }
+}
+
+#[test]
+fn a_stop_with_background_work_succeeds_silently_without_a_resident() {
+    let result = invoke(
+        &["--hook", "--agent", "claude"],
+        br#"{"hook_event_name":"Stop","session_id":"s","background_tasks":[{"id":"1","type":"shell","status":"running","command":"DO_NOT_LOG"}],"session_crons":[]}"#,
+    );
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("DO_NOT_LOG"));
+}

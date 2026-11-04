@@ -48,7 +48,7 @@ terminal or IDE; the token quota still works for Desktop.
 
 | Claude hook | Condition | aHerald event |
 | --- | --- | --- |
-| `Stop` | always | `turn_complete` |
+| `Stop` | always (but see `suppress_while_busy`) | `turn_complete` |
 | `StopFailure` | any `error` (for example `rate_limit`) | `error` |
 | `PermissionRequest` | always | `permission_required` |
 | `Notification` | `notification_type = permission_prompt` | `permission_required` |
@@ -87,6 +87,14 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
   not already running. Transient mode ignores it. Payload fields other than `session_id`
   (including `reason`) are not read. Add the `SessionEnd` entry from the example; Claude Code
   allows its hooks 1.5 s unless the entry sets a longer `timeout`, as the example does.
+- `[claude] suppress_while_busy = true` (default): a `Stop` whose payload still lists background
+  work, that is a task in `background_tasks` other than a `monitor` or a one-shot
+  (`recurring = false`) entry in `session_crons`, is no finished turn. It shows no card and plays
+  no sound, and only settles the session's pending waits as activity does; the next `Stop` with
+  nothing left shows the card. Only each task's `type` and each wakeup's `recurring` are read;
+  descriptions and commands are not. Older Claude Code versions send neither field, so nothing
+  is held back. A long-lived task such as `tail -f` or a dev server therefore keeps the card
+  away until it ends; set the option to `false` to be told after every turn.
 - `SubagentStop` is deliberately ignored: a subagent finishing does not end the user's turn,
   and the main `Stop` follows on its own.
 

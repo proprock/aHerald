@@ -87,6 +87,33 @@ impl Agent {
     }
 }
 
+/// Whether `event` is Claude's `Stop` (a shown turn end, not evidence).
+pub fn is_claude_stop(event: &Event) -> bool {
+    event.source == Source::ClaudeHook
+        && event.kind == Kind::TurnComplete
+        && !event.activity
+        && !event.ended
+}
+
+/// Whether a Claude hook payload says work is still going on: a background task other than a
+/// `monitor` (which watches indefinitely), or a one-shot scheduled wakeup. Recurring wakeups
+/// (`/loop`) never end, so they do not count. Missing or unreadable fields mean not busy.
+pub fn claude_has_background_work(bytes: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Work {
+        background_tasks: Option<Vec<serde_json::Value>>,
+        session_crons: Option<Vec<serde_json::Value>>,
+    }
+    let Ok(work) = serde_json::from_slice::<Work>(bytes) else {
+        return false;
+    };
+    let task = |t: &serde_json::Value| t.get("type").and_then(|v| v.as_str()) != Some("monitor");
+    let one_shot =
+        |c: &serde_json::Value| c.get("recurring").and_then(|v| v.as_bool()) == Some(false);
+    work.background_tasks.is_some_and(|t| t.iter().any(task))
+        || work.session_crons.is_some_and(|c| c.iter().any(one_shot))
+}
+
 fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     if bytes.len() > MAX_INPUT {
         return Err("hook input exceeds 64 KiB".into());
@@ -141,4 +168,29 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     };
     event.validate()?;
     Ok(Some(event))
+}
+
+#[cfg(test)]
+mod background_work_tests {
+    use super::claude_has_background_work as busy;
+
+    #[test]
+    fn only_unfinished_non_monitor_work_and_one_shot_wakeups_count() {
+        assert!(!busy(br#"{"hook_event_name":"Stop"}"#));
+        assert!(!busy(br#"{"background_tasks":[],"session_crons":[]}"#));
+        assert!(busy(
+            br#"{"background_tasks":[{"id":"1","type":"shell","status":"running"}]}"#
+        ));
+        assert!(busy(br#"{"background_tasks":[{"type":"subagent"}]}"#));
+        assert!(busy(
+            br#"{"background_tasks":[{"type":"monitor"},{"type":"workflow"}]}"#
+        ));
+        assert!(!busy(br#"{"background_tasks":[{"type":"monitor"}]}"#));
+        assert!(busy(br#"{"session_crons":[{"recurring":false}]}"#));
+        assert!(!busy(
+            br#"{"session_crons":[{"recurring":true},{"schedule":"* * * * *"}]}"#
+        ));
+        assert!(!busy(br#"{"background_tasks":"x","session_crons":3}"#));
+        assert!(!busy(b"{"));
+    }
 }

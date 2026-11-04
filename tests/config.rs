@@ -160,6 +160,7 @@ fn claude_sections_default_safely_and_validate() {
     let dir = PathBuf::from(".");
     let defaults = Config::parse("", &dir).unwrap();
     assert!(defaults.claude.hooks_enabled);
+    assert!(defaults.claude.suppress_while_busy);
     assert!(!defaults.claude.usage.enabled, "token use is opt-in");
     assert_eq!(defaults.claude.usage.refresh_interval_sec, 300);
     assert!(

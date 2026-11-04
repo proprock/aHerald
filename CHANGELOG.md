@@ -14,6 +14,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   the `config.toml` it describes. The Windows installer removes the old copy on upgrade.
 
 ### Added
+- `[claude] suppress_while_busy` (default `true`): no "turn complete" card or sound while Claude
+  Code's `Stop` payload still lists background work (any task but a monitor, or a one-shot
+  scheduled wakeup); the next `Stop` with nothing left running shows it.
 - `aherald --raw-output usage --harness codex|claude` and `aherald --raw-output statusline`
   print the last unparsed answer of a usage source, or the last payload Claude Code sent to the
   statusLine wrapper, from the running resident's memory (only the latest one each; never
