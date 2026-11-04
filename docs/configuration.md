@@ -120,9 +120,11 @@ format = "{context_window} · {rate_limits.five_hour} · {rate_limits.seven_day}
   span in whole minutes (`1:12`, `12 min`, `2d 3:05`).
   A field whose name ends in `_percentage` is rounded and gets its sign (`24%`; write no `%`).
   Whole objects `{context_window}`, `{rate_limits.five_hour}`, `{rate_limits.seven_day}` and
-  `{rate_limits.spend_limit}` render as the tray menu line does (`ctx 91%`, `5h 79% / 3:29`,
-  `7d 96% / 4d 19:00`): the percentage follows `[codex.usage] display` (remaining by default) and,
-  with `[claude.statusline] color = true` (default), the label, number and time are coloured; the
+  `{rate_limits.spend_limit}` render as the tray menu line does (`ctx 9% used`, `5h 79% / 3:29`,
+  `7d 96% / 4d 19:00`): the context follows `[claude.statusline] display_ctx` (`used` by default;
+  it names its choice, `ctx 91% remain`) and the quotas follow `display_usage` (`remain` by
+  default, as in the menu; their time says what is left). With
+  `[claude.statusline] color = true` (default), the label, number and time or word are coloured; the
   number uses the tray icon's thresholds on remaining capacity (green above 60%, amber above 20%,
   red below). A segment with missing data is empty, so put it in `{[ ... ]}`.
   A field named `resets_at` is shown as the time left in the usage card's form: `3d 5:10`, `4:05`, `15 min`.

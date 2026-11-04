@@ -60,7 +60,7 @@ fn a_configured_format_is_printed_when_the_user_has_no_command() {
     assert!(out.status.success() && out.stderr.is_empty());
     assert_eq!(
         String::from_utf8_lossy(&out.stdout),
-        "Opus·+4·12%·ctx 88%\n"
+        "Opus·+4·12%·ctx 12% used\n"
     );
 }
 

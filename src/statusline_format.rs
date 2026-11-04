@@ -8,13 +8,15 @@
 //! the usage card and tray (`3d 5:10`, `4:05`, `15 min`).
 //! A field whose name ends in `_percentage` is shown rounded with a percent sign (`24%`).
 //! Three whole objects render as ready-made segments in the form of the tray menu line
-//! (`Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19:00`): `{context_window}` as `ctx 91%`,
+//! (`Claude remain: 5h 79% / 3:29, 7d 96% / 4d 19:00`): `{context_window}` as `ctx 9% used`,
 //! `{rate_limits.five_hour}` as `5h 79% / 3:29`, `{rate_limits.seven_day}` as `7d 96% / 4d 19:00`
-//! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2:00`. Their percentage follows
-//! `[codex.usage] display` (remaining by default, as in the menu and tooltip) and, with colour on,
-//! the label, the number (by remaining capacity, like the tray icon) and the time are coloured.
+//! and `{rate_limits.spend_limit}` as `spend 37% / 5d 2:00`. The context percentage follows
+//! `[claude.statusline] display_ctx` (`used` by default) and the quotas `display_usage`
+//! (`remain` by default, as in the menu and tooltip); the context names its choice, a quota has
+//! its time. With colour on, the label, the number (by remaining capacity, like the tray icon)
+//! and the time or word are coloured.
 //! A field whose name ends in `_usd` is shown as dollars (`$1.23`) and one ending in
-//! `_duration_ms` as a span (`1h 12m`, `12m 30s`, `45s`).
+//! `_duration_ms` as a span in whole minutes (`1:12`, `12 min`, `2d 3:05`).
 //! Token counts (fields whose name ends in `tokens`, and `context_window_size`) are shortened to
 //! `950`, `18k`, `18.6k`, `1.2M` so they fit a narrow line even when a session reaches millions.
 //! Field values come from outside, so control characters in them are replaced by spaces; the
@@ -27,12 +29,24 @@ use crate::{
 use serde_json::Value;
 
 /// How the ready-made segments are shown.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {
-    /// Whether percentages count what is used or what remains.
-    pub display: UsageDisplay,
+    /// Whether the context percentage counts what is used or what remains.
+    pub display_ctx: UsageDisplay,
+    /// Whether the quota percentages count what is used or what remains.
+    pub display_usage: UsageDisplay,
     /// Whether segments carry ANSI colours (24-bit, the tray icon's colours).
     pub color: bool,
+}
+impl Default for Options {
+    /// The configuration defaults: context used, quotas remaining, no colour.
+    fn default() -> Self {
+        Self {
+            display_ctx: UsageDisplay::Used,
+            display_usage: UsageDisplay::Remain,
+            color: false,
+        }
+    }
 }
 const LABEL_RGB: [u8; 3] = [97, 175, 239];
 const TIME_RGB: [u8; 3] = [171, 178, 191];
@@ -258,7 +272,12 @@ fn segment(value: &Value, path: &[String], now: i64, options: Options) -> String
         return String::new();
     };
     let remaining = 100.0 - used;
-    let shown = match options.display {
+    let display = if label == "ctx" {
+        options.display_ctx
+    } else {
+        options.display_usage
+    };
+    let shown = match display {
         UsageDisplay::Used => used,
         UsageDisplay::Remain => remaining,
     };
@@ -274,6 +293,17 @@ fn segment(value: &Value, path: &[String], now: i64, options: Options) -> String
         paint(label, LABEL_RGB),
         paint(&percent_text(Some(shown)), level_rgb(Some(remaining)))
     );
+    // A quota has its time to say what the number counts; the context has none, so name it.
+    if label == "ctx" {
+        out.push(' ');
+        out.push_str(&paint(
+            match display {
+                UsageDisplay::Used => "used",
+                UsageDisplay::Remain => "remain",
+            },
+            TIME_RGB,
+        ));
+    }
     let reset = value
         .get("resets_at")
         .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)));
@@ -340,19 +370,23 @@ mod tests {
     fn segments_follow_the_menu_form_and_the_display_setting() {
         let now = 1_790_000_000 - 3 * 3_600 - 29 * 60;
         let template = "{context_window} · {rate_limits.five_hour}, {rate_limits.seven_day}";
-        let remain = Options::default();
+        // Defaults: the context as used, the quotas as remaining.
+        let defaults = Options::default();
         assert_eq!(
-            segments(template, now, remain),
-            "ctx 91% · 5h 69% / 3:29, 7d 4% / 3:29"
+            segments(template, now, defaults),
+            "ctx 9% used · 5h 69% / 3:29, 7d 4% / 3:29"
         );
-        let used = Options {
-            display: UsageDisplay::Used,
-            ..remain
+        // The two settings are independent.
+        let swapped = Options {
+            display_ctx: UsageDisplay::Remain,
+            display_usage: UsageDisplay::Used,
+            ..defaults
         };
         assert_eq!(
-            segments(template, now, used),
-            "ctx 9% · 5h 31% / 3:29, 7d 96% / 3:29"
+            segments(template, now, swapped),
+            "ctx 91% remain · 5h 31% / 3:29, 7d 96% / 3:29"
         );
+        let remain = defaults;
         // Missing windows and unrelated objects are empty, so an optional group drops them.
         assert_eq!(
             segments("[{rate_limits.spend_limit}{model}]", now, remain),
@@ -381,8 +415,13 @@ mod tests {
             text,
             "\u{1b}[38;2;97;175;239m5h\u{1b}[0m \u{1b}[38;2;34;180;85m69%\u{1b}[0m / \u{1b}[38;2;171;178;191m3:29\u{1b}[0m"
         );
-        // 69% and 91% remaining are green, 4% is red; amber (21-60%) uses the icon's thresholds too.
-        assert!(segments("{context_window}", now, options).contains("\u{1b}[38;2;34;180;85m91%"));
+        // The colour follows what remains whichever number is shown: 91% remaining is green
+        // although the context reads 9% used, and the word is coloured like the time.
+        assert!(
+            segments("{context_window}", now, options).ends_with(
+                "\u{1b}[38;2;34;180;85m9%\u{1b}[0m \u{1b}[38;2;171;178;191mused\u{1b}[0m"
+            )
+        );
         let amber = r#"{"context_window":{"used_percentage":50}}"#;
         assert!(
             render_at("{context_window}", amber.as_bytes(), 0, options)

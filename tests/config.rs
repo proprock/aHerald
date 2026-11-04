@@ -669,3 +669,18 @@ fn the_status_line_format_defaults_to_empty_and_syntax_errors_name_the_setting()
     assert!(error.contains("claude.statusline.format"), "{error}");
     assert!(Config::parse("[claude.statusline]\nformt = \"x\"\n", &dir).is_err());
 }
+
+#[test]
+fn the_status_line_shows_the_context_used_and_the_quotas_remaining_unless_told_otherwise() {
+    use aherald::config::UsageDisplay::{Remain, Used};
+    let dir = PathBuf::from(".");
+    let defaults = Config::default().claude.statusline;
+    assert_eq!(
+        (defaults.display_ctx, defaults.display_usage),
+        (Used, Remain)
+    );
+    let set = "[claude.statusline]\ndisplay_ctx = \"remain\"\ndisplay_usage = \"used\"\n";
+    let chosen = Config::parse(set, &dir).unwrap().claude.statusline;
+    assert_eq!((chosen.display_ctx, chosen.display_usage), (Remain, Used));
+    assert!(Config::parse("[claude.statusline]\ndisplay_ctx = \"left\"\n", &dir).is_err());
+}
