@@ -525,36 +525,41 @@ shared development-profile and artwork performance changes need no separate port
   target one, document a manual redirect check instead); a manual check behind a
   system proxy succeeds; standard Cargo checks. Source: `audit-20261026.md` E6.
 
-- [ ] **AH-211 — Windows: show the output of command-line operations in the terminal.**
-  `aherald.exe` is a GUI-subsystem program (so a hook never opens a console window), and it has no
-  console of its own: `--version`, `--help`, `--status`, `--setup`, `--perf-report` and their error
-  messages print nothing in PowerShell or cmd unless the output is piped (`| Out-String`), which
-  the packaging scripts and docs already work around. Do it on Windows 11, not by reading code.
-  Approach to try: at start, when standard output and error are not already redirected (hooks and
-  pipes are, so they are untouched), call `AttachConsole(ATTACH_PARENT_PROCESS)` and point the
-  standard handles at `CONOUT$`/`CONIN$`; with no parent console (Explorer, the tray, autostart)
-  do nothing. The shell does not wait for a GUI program, so a prompt can print before the output:
-  decide whether that is acceptable or whether `--status`-like operations should wait.
-  Acceptance (checked by hand on Windows 11, Windows Server 2019 and in a CI pipe test):
-  `aherald --version` and an unknown option print in PowerShell, cmd and Windows Terminal without
-  `| Out-String`; with output piped or redirected nothing changes; a hook from Claude Code and
-  Codex still delivers and opens no console window; `Start-Process` and the tray start leave no
-  console behind; `package-release.ps1` no longer needs its pipe workaround.
-
-- [ ] **AH-212 — Windows: a readable `statusLine` command.** The wrapper in
-  `~/.claude/settings.json` is a PowerShell one-liner whose script is spelled as `[char[]]` codes
-  (so neither Git Bash nor PowerShell expands it), which nobody can read or audit. Claude Code's
+- [ ] **AH-211 — Windows: a console companion for command-line output and the `statusLine`
+  command.** One cause, two symptoms: `aherald.exe` is a GUI-subsystem program (so a hook never
+  opens a console window) and has no console of its own.
+  1. Command-line output. `--version`, `--help`, `--status`, `--setup`, `--perf-report`,
+  `--raw-output` and their error messages print nothing in PowerShell or cmd unless piped
+  (`| Out-String`); the packaging scripts and docs work around it.
+  2. The `statusLine` command. On Windows the command in `~/.claude/settings.json` is always (with
+  or without `--then`) a PowerShell script spelled as `[char[]]` codes, which nobody can read or
+  audit. It is that way because Claude Code runs a `statusLine` through Git Bash if installed and
+  PowerShell otherwise, and the command must survive both (they expand `$`, quotes and backslashes
+  differently); PowerShell neither waits for a GUI program nor collects its stdout unless piped; and
+  `Out-String` would re-encode UTF-8 and ANSI colours, so the script copies bytes by hand. A
   `statusLine` has no `args` or `shell` field (only `type`, `command`, `padding`,
-  `refreshInterval`, `hideVimModeIndicator`), so there is no exec form as for hooks. Its own
-  Windows recipe is `powershell -NoProfile -File C:/path/script.ps1` (forward slashes work in both
-  shells). Write the script as an aHerald-owned file beside the executable (listed in the receipt,
-  backed up and removed like the bridges of AH-204), keep `command` to one short line, and decide
-  where the user's `--then` command goes (the file, not the command line). Mind the execution
-  policy (`-ExecutionPolicy Bypass`) and that the script must copy stdin and stdout byte for byte
-  (UTF-8, ANSI colours). Acceptance, by hand on Windows 11 and Server 2019: the status line, the
-  user's wrapped command, its exit code and non-ASCII output are unchanged; `--install-statusline`
-  and `--uninstall-statusline` restore the original exactly; the old encoded command is
-  recognised and replaced.
+  `refreshInterval`, `hideVimModeIndicator`), so there is no exec form as for hooks.
+  Approach: ship `aherald-cli.exe` beside `aherald.exe`, a tiny console-subsystem program that starts
+  `aherald.exe` with the same arguments, gives it its own stdin, stdout and stderr, waits and
+  returns its exit code. It is not for hooks (a parent without a console could flash a window); it
+  is fine for the `statusLine` (Claude Code runs it in a terminal; check the IDE extension) and for
+  commands typed by hand. The `statusLine` command becomes `C:/…/aherald-cli.exe --statusline`.
+  Decide on Windows: (a) a path with spaces cannot be quoted the same way in Git Bash and in
+  PowerShell, so such an install needs the fallback below; (b) the user's wrapped command: keep
+  `--then '…'` on the command line (the same quoting problem) or read the original `statusLine`
+  from the receipt `aherald-setup.json`, which already holds it, so the line stays short.
+  Fallback: an aHerald-owned `statusline.ps1` beside the executable (listed in the receipt, backed
+  up and removed like the bridges of AH-204) with the command
+  `powershell -NoProfile -ExecutionPolicy Bypass -File C:/…/statusline.ps1`, for a path with spaces
+  or a missing companion; the script copies stdin and stdout byte for byte. Not chosen:
+  `AttachConsole` at start (the shell still does not wait for a GUI program).
+  Acceptance, by hand on Windows 11 and Server 2019 (not by reading code) and with a CI pipe test:
+  `aherald-cli --version` and an unknown option print in PowerShell, cmd and Windows Terminal
+  without `| Out-String`, with the exit code kept; with output piped nothing changes; the status
+  line, a wrapped user command, its exit code and non-ASCII output are unchanged;
+  `--install-statusline` and `--uninstall-statusline` restore the original exactly and replace the
+  old encoded command; a hook from Claude Code and Codex still delivers and opens no console window;
+  `package-release.ps1` no longer needs its pipe workaround.
 
 ## Milestone 6 — Claude parity (deferred)
 
