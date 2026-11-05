@@ -70,7 +70,7 @@ aherald --setup --harness opencode --harness pi   # bridge files for other harne
 ```
 
 Details: [installation and removal](docs/installation.md) · [portable guide](docs/portable.md) ·
-[macOS](docs/portable-macos.md) · [Linux](docs/portable-linux.md) · [Claude Code plugin](docs/claude-hooks.md).
+[macOS](docs/portable-macos.md) · [Linux](docs/portable-linux.md) · [Claude Code plugin](docs/claude-hooks.md). Agents in containers and VMs: [sandboxes](docs/sandboxes.md).
 
 ## Try it
 

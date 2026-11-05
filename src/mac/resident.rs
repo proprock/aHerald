@@ -208,6 +208,14 @@ pub fn run_after_apply(
         ));
     }
     crate::forward::start(&config.forward);
+    let remote = crate::remote::start_if_enabled(
+        &config,
+        path,
+        crate::resident_request::remote_deliver(shared.clone(), config.clone(), start, {
+            let waker = waker.clone();
+            move |_: &Shared| waker.wake()
+        }),
+    );
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let stop_event = Arc::new(pipe::StopEvent::new()?);
     let listener = {
@@ -265,6 +273,7 @@ pub fn run_after_apply(
     }
     let result = present(config, shared, stop.clone(), start, waker, path, preview);
     crate::notice::clear();
+    drop(remote);
     crate::forward::stop();
     stop.store(true, Ordering::Release);
     stop_event.signal();

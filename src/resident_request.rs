@@ -134,6 +134,33 @@ pub fn notice_sink<S: Controls + Send + 'static>(
     }
 }
 
+/// How the `[remote]` listener hands an event to this resident: the decision the local pipe
+/// makes, on the caller's thread. `wake` runs with the state locked, after the queue changed.
+pub fn remote_deliver<S: Controls + Send + 'static>(
+    state: std::sync::Arc<std::sync::Mutex<S>>,
+    settings: Config,
+    start: std::time::Instant,
+    wake: impl Fn(&S) + Send + Sync + 'static,
+) -> crate::remote::Deliver {
+    let diagnostics = std::sync::Mutex::new(Diagnostics::default());
+    std::sync::Arc::new(move |request| {
+        let Ok(mut state) = state.lock() else {
+            return Response::Rejected;
+        };
+        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let (response, effects) = respond(request, &mut *state, &settings, now);
+        if effects.wake {
+            wake(&state);
+        }
+        drop(state);
+        diagnostics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(&response, effects);
+        response
+    })
+}
+
 /// The last unparsed answer of `source`, or why there is none.
 fn raw_output(source: crate::ipc::RawSource, settings: &Config) -> Response {
     use crate::{agent::Agent, ipc::RawSource};

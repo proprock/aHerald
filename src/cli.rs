@@ -65,6 +65,7 @@ impl Cli {
                 | "--unsetup"
                 | "--hook"
                 | "--status"
+                | "--remote-info"
                 | "--quit"
                 | "--help"
                 | "--version"
@@ -239,7 +240,7 @@ impl Cli {
         }
         if matches!(
             cli.operation.as_deref(),
-            Some("status" | "quit" | "help" | "version" | "demo")
+            Some("status" | "quit" | "help" | "version" | "demo" | "remote-info")
         ) && cli.mode.is_some()
         {
             return Err("operation does not accept a mode".into());

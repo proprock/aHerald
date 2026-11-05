@@ -252,6 +252,11 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         .clone()
         .map(Ok)
         .unwrap_or_else(aherald::config::Config::default_path)?;
+    if cli.operation.as_deref() == Some("remote-info") {
+        let config = aherald::config::Config::load(&path, cli.config.is_some())?;
+        print!("{}", aherald::remote::info(&config, &path)?);
+        return Ok(());
+    }
     if cli.operation.as_deref() == Some("perf-report") {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
         let directory =

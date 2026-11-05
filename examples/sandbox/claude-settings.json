@@ -1,0 +1,60 @@
+{
+  "description": "aHerald hooks for Claude Code inside a container or VM: only turn ends and waits, so no request is made per tool call. Replace the script path, set AHERALD_ENDPOINT and AHERALD_TOKEN (aherald --remote-info on the host) and merge into ~/.claude/settings.json.",
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

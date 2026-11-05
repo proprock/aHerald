@@ -10,6 +10,23 @@ case "$agent" in
   *) cat >/dev/null; exit 0 ;;
 esac
 
+# An agent in a container or VM: post the payload to the host's [remote] listener instead of
+# running a local program (see examples/sandbox/aherald-ping.sh, which this mirrors). Only an
+# explicit AHERALD_ENDPOINT selects it, so a host install is unchanged.
+if [ -n "${AHERALD_ENDPOINT:-}" ]; then
+  if [ -n "${AHERALD_TOKEN:-}" ] && command -v curl >/dev/null 2>&1; then
+    response=$(head -c 65536 | curl --silent --fail --max-time 1 --connect-timeout 1 \
+      --request POST --header "Authorization: Bearer $AHERALD_TOKEN" --data-binary @- \
+      "${AHERALD_ENDPOINT%/}/v1/hook?agent=$agent" 2>/dev/null) || response=
+    if [ "$agent" = codex ] && [ "$response" = '{}' ]; then
+      printf '%s\n' '{}'
+    fi
+  else
+    cat >/dev/null
+  fi
+  exit 0
+fi
+
 run_hook() {
   executable=$1
   shift

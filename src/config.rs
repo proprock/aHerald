@@ -23,6 +23,36 @@ pub struct Config {
     pub codex: Codex,
     pub claude: Claude,
     pub forward: Forward,
+    pub remote: Remote,
+}
+
+/// `[remote]`: the listener that takes hook events from agents in containers and virtual
+/// machines; see `crate::remote`. Off by default. The token is never written here: it lives in
+/// a file beside this configuration (`aherald --remote-info`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Remote {
+    pub enabled: bool,
+    /// `address:port` to listen on. Loopback by default; a guest on another network needs the
+    /// host's address on that network (for example a bridge), never a host name.
+    pub bind: String,
+}
+impl Default for Remote {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "127.0.0.1:47821".into(),
+        }
+    }
+}
+impl Remote {
+    pub fn socket_addr(&self) -> Result<std::net::SocketAddr, String> {
+        self.bind
+            .parse::<std::net::SocketAddr>()
+            .ok()
+            .filter(|addr| addr.port() != 0)
+            .ok_or_else(|| "invalid configuration: remote.bind must be an IP address and a port, like 127.0.0.1:47821".into())
+    }
 }
 
 /// `[forward]`: sending accepted cards to messengers; see `crate::sink`.
@@ -217,6 +247,7 @@ impl Default for Config {
             pet_animations: PetAnimations::default(),
             events: Events::default(),
             forward: Forward::default(),
+            remote: Remote::default(),
         }
     }
 }
@@ -854,6 +885,7 @@ impl Config {
         Ok(config)
     }
     fn validate(&self) -> Result<(), String> {
+        self.remote.socket_addr()?;
         for sink in &self.forward.sinks {
             sink.validate()?;
         }

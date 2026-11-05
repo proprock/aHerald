@@ -817,3 +817,43 @@ fn a_misplaced_or_missing_command_setting_is_refused_naming_the_setting(
         "{error}"
     );
 }
+
+#[test]
+fn remote_listening_is_off_by_default_and_on_loopback() {
+    let config = Config::parse("", &PathBuf::from(".")).unwrap();
+    assert!(!config.remote.enabled);
+    assert_eq!(config.remote.bind, "127.0.0.1:47821");
+    assert_eq!(
+        config.remote.socket_addr().unwrap().to_string(),
+        "127.0.0.1:47821"
+    );
+}
+
+#[rstest]
+#[case::name("localhost:47821")]
+#[case::no_port("127.0.0.1")]
+#[case::empty("")]
+#[case::port_zero("127.0.0.1:0")]
+fn a_remote_bind_must_be_an_address_and_a_port(#[case] bind: &str) {
+    let text = format!("[remote]\nenabled = true\nbind = \"{bind}\"\n");
+    let error = Config::parse(&text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with("invalid configuration: remote.bind"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_remote_bind_may_name_any_interface() {
+    let text = "[remote]\nenabled = true\nbind = \"172.17.0.1:5000\"\n";
+    let config = Config::parse(text, &PathBuf::from(".")).unwrap();
+    assert!(config.remote.enabled);
+    assert!(!config.remote.socket_addr().unwrap().ip().is_loopback());
+}
+
+#[test]
+fn an_unknown_remote_setting_or_a_literal_token_is_refused() {
+    let error =
+        Config::parse("[remote]\ntoken = \"SECRET-VALUE\"\n", &PathBuf::from(".")).unwrap_err();
+    assert!(!error.contains("SECRET-VALUE"), "{error}");
+}
