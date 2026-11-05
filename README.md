@@ -46,7 +46,8 @@ and keeps a queue so nothing is lost while you are away.
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
 - **Private by design:** no network listener unless you turn on `[remote]`, IPC limited to your user, payloads treated as untrusted
-  and never logged, no tokens read except the two opt-in usage features. See [limits](#-limits).
+  and never logged, no tokens read except the two opt-in usage features. Everything aHerald reads or
+  sends, and how to turn it off: [privacy](docs/privacy.md). See [limits](#-limits).
 
 ## Install
 

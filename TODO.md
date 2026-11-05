@@ -61,8 +61,8 @@ Agreed scope (2026-10-27): native bindings per OS, no winit or other GUI framewo
 first; Wayland is evaluated separately and may ship with reduced features. Live
 verification runs on the user's MacBook Pro M1 (`aarch64-apple-darwin`) and an Ubuntu
 machine (GNOME defaults to Wayland, so also test an Xorg login). CI (GitHub Actions)
-covers automated checks only. New direct dependencies need user approval per AGENTS.md.
-AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README and Cargo.toml.
+covers automated checks only. New direct dependencies follow the rule in AGENTS.md
+("Boundaries and principles"): justify each one, ask the owner first only for heavy ones.
 
 - [ ] **AH-214 — Windows installer GUI and clean-machine acceptance (split from AH-097).**
   Depends on AH-097 (closed 2026-11-04). On a clean Windows 10/11 machine without WSL,
