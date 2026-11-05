@@ -1,4 +1,3 @@
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::app_server::{Client, Error, Transport};
 use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};
@@ -166,6 +165,7 @@ fn owned_stdio_process_exchanges_json_bounds_input_and_is_reaped() {
     let transport = start(
         r#"while ($line = [Console]::ReadLine()) { $v = $line | ConvertFrom-Json; if ($null -ne $v.id) { [Console]::WriteLine(('{"id":' + $v.id + ',"result":{}}')) } }"#,
     );
+    // SAFETY: OpenProcess takes plain values; the process handle it returns is closed below.
     let process = unsafe {
         OpenProcess(
             PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
@@ -178,6 +178,7 @@ fn owned_stdio_process_exchanges_json_bounds_input_and_is_reaped() {
     let mut client = Client::initialize(transport, STARTUP_BOUND).unwrap();
     assert_eq!(client.read_limits().unwrap(), json!({}));
     drop(client);
+    // SAFETY: `process` is the handle opened above; it is waited on and closed once.
     unsafe {
         assert_eq!(WaitForSingleObject(process, 1000), WAIT_OBJECT_0);
         CloseHandle(process).unwrap();

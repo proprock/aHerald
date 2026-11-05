@@ -1,5 +1,4 @@
 //! Native window observations for bounded integration checks.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use super::wait_until;
 use std::time::Duration;
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
@@ -41,6 +40,8 @@ pub fn resident_window(pid: u32) -> Option<HWND> {
         true.into()
     }
     let mut found = Found { pid, window: None };
+    // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+    // enumeration whose address is passed as `LPARAM`.
     unsafe {
         let _ = EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize));
     }

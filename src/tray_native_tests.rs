@@ -1,4 +1,3 @@
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use super::*;
 use crate::{
     config::{TrayGraph, UsageDisplay},
@@ -116,17 +115,29 @@ fn invalid_render_size_preserves_current_native_image() {
 fn manual_dynamic_tray_preview() {
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         if msg == WM_DESTROY {
+            // SAFETY: called from the window procedure of this test window, on its own thread, with
+            // no pointers.
+            // SAFETY: called from the window procedure of this test window, on its own thread, with
+            // no pointers.
             unsafe { PostQuitMessage(0) };
+            // SAFETY: forwards the arguments this window procedure received to the default
+            // procedure, as Windows requires.
             return LRESULT(0);
         }
+        // SAFETY: forwards the arguments this window procedure received to the default procedure,
+        // as Windows requires.
         unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
     }
     // SAFETY: this test owns the window, icon and all temporary GDI objects on one thread.
     unsafe {
+        // SAFETY: `self.0` is the DPI awareness context this guard saved from the same thread;
+        // restoring it takes only that value.
         use windows::Win32::UI::HiDpi::*;
         struct Dpi(DPI_AWARENESS_CONTEXT);
         impl Drop for Dpi {
             fn drop(&mut self) {
+                // SAFETY: `self.0` is the DPI awareness context this guard saved from the same
+                // thread; restoring it takes only that value.
                 unsafe {
                     SetThreadDpiAwarenessContext(self.0);
                 }
@@ -233,12 +244,16 @@ fn manual_dynamic_tray_preview() {
     }
 }
 
+// SAFETY: `self.0` is the window this test created on this thread; destroying it takes only the
+// handle.
 #[test]
 #[ignore = "requires an interactive Explorer notification area"]
 fn explorer_restore_keeps_current_dynamic_image() {
     struct Window(HWND);
     impl Drop for Window {
         fn drop(&mut self) {
+            // SAFETY: `self.0` is the window this test created on this thread; destroying it takes
+            // only the handle.
             unsafe {
                 let _ = DestroyWindow(self.0);
             }

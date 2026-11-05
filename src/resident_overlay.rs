@@ -1,5 +1,4 @@
 //! Single resident card. The GUI never waits for asset decoding or IPC.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::reentry::{Deferred, Gate};
 use crate::{
     animation::PreparedAnimation,
@@ -218,6 +217,8 @@ impl Ui {
             || self.carousel.is_some()
             || counting
             || self.art_wait.is_some()
+            // SAFETY: `hwnd` is the resident window of this GUI thread, which outlives the loop
+            // that asks.
             || unsafe { IsWindowVisible(hwnd) }.as_bool()
         {
             Some(16)
@@ -260,6 +261,8 @@ impl Ui {
     fn draw_now(&mut self, hwnd: HWND) -> Result<(), String> {
         if self.stop.load(Ordering::Acquire) {
             self.tray.take();
+            // SAFETY: `hwnd` is the resident window created on this thread; destroying it here ends
+            // the loop.
             unsafe {
                 let _ = DestroyWindow(hwnd);
             }
@@ -505,6 +508,8 @@ impl Ui {
             .chain(Some(0))
             .collect();
             // The title is informational; a failure must not stop the card.
+            // SAFETY: `title` is a NUL-terminated wide string that outlives the call, which copies
+            // it; `hwnd` is the resident window of this thread.
             unsafe {
                 let _ = SetWindowTextW(hwnd, PCWSTR(title.as_ptr()));
                 // Debug-build fault injection: a message sent while this draw runs.
@@ -556,6 +561,7 @@ impl Ui {
         );
         let surface = composition.render(frame, shown.seconds, self.scale)?;
         self.display_size = surface.present_placed(hwnd, placement, alpha)?;
+        // SAFETY: `hwnd` is the resident window of this thread.
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
@@ -630,6 +636,7 @@ impl Ui {
             .as_ref()
             .ok_or("usage surface unavailable")?
             .present_placed(hwnd, placement, 255)?;
+        // SAFETY: `hwnd` is the resident window of this thread.
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
@@ -1120,6 +1127,8 @@ pub(super) fn run_preview(
         Preview::Demo(demo) => Some(demo),
         _ => None,
     };
+    // SAFETY: takes a constant awareness context and is called before this thread creates any
+    // window.
     let scale = unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
@@ -1235,7 +1244,11 @@ pub(super) fn run_preview(
     });
     // A short-lived borrow per use: none may be alive while messages are dispatched,
     // because the window procedure borrows the Ui too.
+    // SAFETY: `window.ui` is touched only on this GUI thread, and each borrow ends before messages
+    // are dispatched, as the comment above requires.
     let ui = || unsafe { &mut *window.ui.get() };
+    // SAFETY: runs on the GUI thread that registers the class and creates the window; every pointer
+    // passed lives until its call returns, and `ui()` follows the rule above.
     let result = (|| unsafe {
         let module = GetModuleHandleW(None).map_err(|_| "cannot find module")?;
         let class = w!("aHerald.Resident");
@@ -1590,6 +1603,8 @@ mod usage_wake_tests {
             std::thread::yield_now();
         };
         // A posted tray command establishes that earlier startup wakes were processed.
+        // SAFETY: `hwnd` is the resident window found above; posting a message with plain values
+        // reads no memory of ours.
         unsafe {
             PostMessageW(
                 Some(hwnd),
@@ -1607,14 +1622,21 @@ mod usage_wake_tests {
             std::thread::yield_now();
         }
         // Force a fresh usage deadline. A wake must bypass the one-second throttle too.
+        // SAFETY: `hwnd` is the resident window found above; the GUI thread handles the message
+        // while this thread waits.
         unsafe {
             SendMessageW(hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
         }
+        // SAFETY: `hwnd` is the resident window found above.
         assert!(!unsafe { IsWindowVisible(hwnd).as_bool() });
         // This reads the tooltip applied by the GUI thread, not the worker's view or log.
+        // SAFETY: `hwnd` is the resident window found above; the GUI thread answers while this
+        // thread waits.
         assert_eq!(unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0, 0);
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
+        // SAFETY: `hwnd` is the resident window found above; the GUI thread answers while this
+        // thread waits.
         while unsafe { SendMessageW(hwnd, OBSERVED, None, None) }.0 == 0 {
             assert!(
                 Instant::now() < deadline,
@@ -1623,6 +1645,7 @@ mod usage_wake_tests {
             std::thread::yield_now();
         }
         assert!(
+            // SAFETY: `hwnd` is the resident window found above.
             !unsafe { IsWindowVisible(hwnd).as_bool() },
             "usage update must not open a card"
         );

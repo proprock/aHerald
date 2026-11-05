@@ -1,5 +1,4 @@
 //! Exact process handles, verified parentage and graceful shutdown for launcher tests.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,
@@ -12,6 +11,7 @@ use windows::Win32::{
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the handle this struct owns and closes exactly once, here.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -76,6 +76,8 @@ impl Residents {
     fn retain_children(&mut self) {
         // A launcher can fail an assertion after spawning but before publishing IPC.
         // Snapshot only descendants of retained handles, never processes found by name.
+        // SAFETY: the snapshot handle is owned by `Handle`, and `entry` is a live PROCESSENTRY32W
+        // with its size set, as the process enumeration calls require.
         unsafe {
             let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
                 return;

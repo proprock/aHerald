@@ -146,6 +146,10 @@ cargo test --locked --workspace --doc
 - Linux extras: `xvfb-run -a cargo test --locked --test remote_listener` and
   `xvfb-run -a dbus-run-session -- env AH113_ISOLATED=1 cargo test --locked --test linux_apply -- --ignored --test-threads=1`.
 - Windows extras: `cargo build --release --target x86_64-pc-windows-msvc` and `./scripts/check-release.ps1`.
+- Windows code can be linted from Linux: `rustup target add x86_64-pc-windows-msvc`, put an executable
+  `llvm-rc` stub on `PATH` (the build script only needs it to exist; clippy does not link), then
+  `cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings`. That is a
+  local lint run, not a Windows test run: report Windows as **compiled/tested in CI only** for tests.
 - Report the status per platform with exactly one of: **ran locally**, **compiled/tested in
   CI only**, **checked by hand on hardware**, **not checked**. `src/mac/` builds only on
   macOS and the Windows modules only on Windows; never describe code you could only compile

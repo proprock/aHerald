@@ -1,7 +1,6 @@
 #![cfg(windows)]
 //! Render failures must never end the resident. Faults are injected through
 //! `aherald.fault` beside the configuration, which only debug builds honor.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
@@ -19,6 +18,8 @@ fn visible_window(pid: u32) -> Option<RECT> {
         bounds: Option<RECT>,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Found` that
+        // `find_bounds` keeps alive for the whole synchronous enumeration.
         unsafe {
             let state = &mut *(p.0 as *mut Found);
             let mut pid = 0;
@@ -33,6 +34,8 @@ fn visible_window(pid: u32) -> Option<RECT> {
         }
     }
     let mut found = Found { pid, bounds: None };
+    // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+    // enumeration whose address is passed as `LPARAM`.
     unsafe {
         let _ = EnumWindows(Some(find), LPARAM(&mut found as *mut Found as isize));
     }

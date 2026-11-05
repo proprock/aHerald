@@ -1,4 +1,3 @@
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::{config::Config, events::Event};
 use std::{
     mem::size_of,
@@ -40,6 +39,8 @@ impl Drop for Surface {
 struct Font(HFONT);
 impl Drop for Font {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the font this struct created and owns; deleting it takes only the
+        // handle.
         unsafe {
             let _ = DeleteObject(self.0.into());
         }
@@ -385,6 +386,8 @@ struct State {
 struct Window(HWND);
 impl Drop for Window {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the window this struct created; IsWindow checks that it still exists
+        // before it is destroyed.
         unsafe {
             if IsWindow(Some(self.0)).as_bool() {
                 let _ = DestroyWindow(self.0);
@@ -1092,6 +1095,8 @@ mod card_tests {
             )
         });
         unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> BOOL {
+            // SAFETY: EnumWindows passes a valid `hwnd`; `param` is the address of the `HWND` the
+            // test below keeps alive for the whole enumeration, and the buffers are local.
             unsafe {
                 let mut pid = 0;
                 GetWindowThreadProcessId(hwnd, Some(&mut pid));
@@ -1109,6 +1114,8 @@ mod card_tests {
         let mut hwnd = HWND::default();
         let deadline = Instant::now() + Duration::from_secs(5);
         while hwnd.is_invalid() {
+            // SAFETY: `find` matches the callback signature and `hwnd` outlives the synchronous
+            // enumeration whose address is passed as `param`.
             unsafe {
                 let _ = EnumWindows(Some(find), LPARAM(&mut hwnd as *mut HWND as isize));
             }
@@ -1118,6 +1125,8 @@ mod card_tests {
         struct Close(HWND);
         impl Drop for Close {
             fn drop(&mut self) {
+                // SAFETY: `self.0` is the test window found above; posting WM_CLOSE to a window of
+                // this process takes only plain values.
                 unsafe {
                     let _ = PostMessageW(Some(self.0), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
@@ -1126,6 +1135,8 @@ mod card_tests {
         let close = Close(hwnd);
         let title = || {
             let mut text = [0u16; 256];
+            // SAFETY: `hwnd` is the test window found above and `text` is a live buffer whose
+            // length the call receives.
             let len = unsafe { GetWindowTextW(hwnd, &mut text) };
             String::from_utf16_lossy(&text[..len as usize])
         };
@@ -1135,9 +1146,12 @@ mod card_tests {
             assert!(Instant::now() < deadline);
             std::thread::yield_now();
         }
+        // SAFETY: GetForegroundWindow takes no arguments and reads no memory of ours.
         assert_ne!(unsafe { GetForegroundWindow() }, hwnd);
         if preview {
             // Expose only this owned fixture window to desktop capture.
+            // SAFETY: `hwnd` is the test window found above, owned by this process; the calls read
+            // and change only its own style and visibility.
             unsafe {
                 let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
                 SetWindowLongPtrW(
@@ -1165,6 +1179,8 @@ mod card_tests {
             wp: WPARAM,
             lp: LPARAM,
         ) -> LRESULT {
+            // SAFETY: forwards the arguments this window procedure received to the default
+            // procedure, as Windows requires.
             unsafe { DefWindowProcW(hwnd, message, wp, lp) }
         }
         let config = Config::parse("[notifications]\nbackground_color='#203C30'\n[events.error]\nbackground_color='#482838'\n[codex.usage]\nbackground_color='#243C58'", std::path::Path::new(".")).unwrap();

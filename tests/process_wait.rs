@@ -1,6 +1,5 @@
 //! Executed child fixtures exercise native pipes and process lifetime.
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use std::{
     io::Write,
@@ -42,6 +41,7 @@ fn exited_child_with_inherited_output_cannot_extend_the_deadline() {
         .parse()
         .unwrap();
     #[cfg(windows)]
+    // SAFETY: `handle` comes from a successful OpenProcess, is waited on and is closed once.
     unsafe {
         use windows::Win32::{Foundation::*, System::Threading::*};
         if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
@@ -106,6 +106,7 @@ fn hung_child_with_unread_stdin_is_killed_without_leaking_payloads() {
     assert!(error.contains("killed"), "{error}");
     assert!(!error.contains("PRIVATE_PAYLOAD"));
     #[cfg(windows)]
+    // SAFETY: `handle` comes from a successful OpenProcess, is polled and is closed once.
     unsafe {
         use windows::Win32::{Foundation::*, System::Threading::*};
         if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
@@ -165,6 +166,7 @@ fn detached_guard_rejects_unowned_processes_and_cleans_a_hung_child_after_panic(
     let mut owned = support::OwnedChild(child);
     guard.retain(pid).unwrap();
     // Retain a separate observation handle; only the guard now owns termination.
+    // SAFETY: OpenProcess takes plain values; the handle it returns is closed below.
     let observation = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid).unwrap() };
 
     let result = std::panic::catch_unwind(move || {
@@ -173,6 +175,7 @@ fn detached_guard_rejects_unowned_processes_and_cleans_a_hung_child_after_panic(
     });
     assert!(result.is_err());
     assert!(owned.0.try_wait().unwrap().is_some());
+    // SAFETY: `observation` is the handle opened above; it is polled and closed once.
     unsafe {
         let state = WaitForSingleObject(observation, 0);
         let _ = CloseHandle(observation);

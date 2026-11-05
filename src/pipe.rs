@@ -1,5 +1,4 @@
 //! Deadline-bound overlapped named-pipe operations. All I/O is off the GUI thread.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::{
     ipc::{self, Request, Response},
     local::{Handle, PipeServer, Scope, wide},
@@ -88,6 +87,9 @@ fn transfer(
         if Instant::now() >= deadline {
             return Err(Failure::DeadlineExceeded);
         }
+        // SAFETY: `operation` keeps the OVERLAPPED, the count and this buffer alive until the I/O
+        // completes, or is cancelled and drained, so the pending operation never refers to freed
+        // memory; `handle` is the open pipe of the caller.
         let n = operation(handle, deadline, |ov, count| unsafe {
             if write {
                 WriteFile(handle, Some(&bytes[offset..]), Some(count), Some(ov))
@@ -138,6 +140,8 @@ fn send_request(
     let name = wide(&scope.pipe_name);
     let handle = loop {
         // Identification SQOS prevents a server from impersonating the calling client.
+        // SAFETY: `name` is a NUL-terminated wide string that outlives the call; the other
+        // arguments are plain flags and no security attributes or template.
         let result = unsafe {
             CreateFileW(
                 PCWSTR(name.as_ptr()),
@@ -172,6 +176,8 @@ fn send_request(
 pub struct StopEvent(Handle);
 // SAFETY: an event handle may be signaled and waited on from any thread.
 unsafe impl Send for StopEvent {}
+// SAFETY: as for Send above; the handle is only signalled and waited on, which Windows allows from
+// any thread.
 unsafe impl Sync for StopEvent {}
 impl StopEvent {
     pub fn new() -> Result<Self, String> {
@@ -193,6 +199,8 @@ impl PipeServer {
         match operation(
             self.handle.0,
             Instant::now() + Duration::from_millis(50),
+            // SAFETY: `self.handle` is the open server pipe and `operation` keeps `ov` valid until
+            // the connect completes or is cancelled.
             |ov, _| unsafe { ConnectNamedPipe(self.handle.0, Some(ov)) },
         ) {
             Err(Failure::DeadlineExceeded) => return Ok(()),
@@ -249,6 +257,8 @@ impl PipeServer {
                     Err("invalid IPC acknowledgement".into())
                 }
             });
+        // SAFETY: `self.handle` is the open server pipe; disconnecting a pipe instance takes only
+        // the handle.
         unsafe {
             let _ = DisconnectNamedPipe(self.handle.0);
         }

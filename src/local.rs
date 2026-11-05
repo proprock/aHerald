@@ -1,5 +1,4 @@
 //! Local user/logon-scoped native resources for the resident process.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{marker::PhantomData, rc::Rc};
 use windows::{
     Win32::{
@@ -17,6 +16,7 @@ pub(crate) fn wide(value: &str) -> Vec<u16> {
 pub(crate) struct Handle(pub HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the handle this struct owns and closes exactly once, here.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -25,6 +25,8 @@ impl Drop for Handle {
 struct Local(PSECURITY_DESCRIPTOR);
 impl Drop for Local {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is memory that Windows allocated with LocalAlloc for this value (a
+        // security descriptor) and nothing else frees it.
         unsafe {
             let _ = LocalFree(Some(HLOCAL(self.0.0)));
         }
@@ -32,6 +34,8 @@ impl Drop for Local {
 }
 fn token_data(token: HANDLE, class: TOKEN_INFORMATION_CLASS) -> Result<Vec<usize>, String> {
     let mut size = 0;
+    // SAFETY: asking for the size passes no buffer (null, length 0) and a live `size` to receive
+    // the length; the call fails by design.
     unsafe {
         let _ = GetTokenInformation(token, class, None, 0, &mut size);
     }
@@ -39,6 +43,8 @@ fn token_data(token: HANDLE, class: TOKEN_INFORMATION_CLASS) -> Result<Vec<usize
         return Err("cannot size process identity".into());
     }
     let mut data = vec![0usize; (size as usize).div_ceil(std::mem::size_of::<usize>())];
+    // SAFETY: `data` holds `size` bytes, as GetTokenInformation reported, and stays alive past the
+    // call, which writes at most that many.
     unsafe {
         GetTokenInformation(
             token,
@@ -53,8 +59,14 @@ fn token_data(token: HANDLE, class: TOKEN_INFORMATION_CLASS) -> Result<Vec<usize
 }
 fn sid_text(sid: PSID) -> Result<String, String> {
     let mut text = PWSTR::null();
+    // SAFETY: `sid` is a valid SID borrowed from the token data the caller still holds, and `text`
+    // is a live out-pointer.
     unsafe { ConvertSidToStringSidW(sid, &mut text) }.map_err(|_| "cannot format identity")?;
+    // SAFETY: ConvertSidToStringSidW succeeded, so `text` points at a NUL-terminated wide string
+    // that is freed only below.
     let result = unsafe { text.to_string() }.map_err(|_| "invalid identity");
+    // SAFETY: `text` was allocated by ConvertSidToStringSidW, which requires LocalFree, and
+    // `result` already copied what it needs.
     unsafe {
         let _ = LocalFree(Some(HLOCAL(text.0.cast())));
     }
@@ -87,7 +99,11 @@ impl Scope {
         let token = Handle(token);
         let user = token_data(token.0, TokenUser)?;
         let logon = token_data(token.0, TokenLogonSid)?;
+        // SAFETY: `user` is the buffer GetTokenInformation filled with a TOKEN_USER and its SID,
+        // sized and aligned for it (a Vec<usize>), and it outlives this expression.
         let user_sid = sid_text(unsafe { (*(user.as_ptr().cast::<TOKEN_USER>())).User.Sid })?;
+        // SAFETY: `logon` is the buffer GetTokenInformation filled with a TOKEN_GROUPS (sized and
+        // aligned as above) and it outlives `groups`.
         let groups = unsafe { &*logon.as_ptr().cast::<TOKEN_GROUPS>() };
         if groups.GroupCount != 1 {
             return Err("process has no unique logon SID".into());
@@ -109,6 +125,8 @@ impl Scope {
             self.logon_sid
         ));
         let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: `sddl` is a NUL-terminated wide string that lives past the call, and `descriptor`
+        // is a live out-pointer; the result is owned by `Local`, which frees it.
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
                 PCWSTR(sddl.as_ptr()),
@@ -128,11 +146,16 @@ impl Scope {
             bInheritHandle: false.into(),
         };
         let name = wide(&self.mutex_name);
+        // SAFETY: `attributes` points at the descriptor held in `descriptor` and `name` is
+        // NUL-terminated; both live until the call returns, which copies them.
         let handle = unsafe { CreateMutexW(Some(&attributes), true, PCWSTR(name.as_ptr())) }
             .map_err(|_| "cannot acquire resident mutex")?;
+        // SAFETY: reads the last error of the calling thread immediately after CreateMutexW, with
+        // no call between them.
         let existing = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
         let handle = Handle(handle);
         if existing {
+            // SAFETY: `handle` is the mutex handle created above; a zero timeout only polls it.
             match unsafe { WaitForSingleObject(handle.0, 0) } {
                 WAIT_OBJECT_0 | WAIT_ABANDONED => {}
                 WAIT_TIMEOUT => return Ok(None),
@@ -152,6 +175,8 @@ impl Scope {
             bInheritHandle: false.into(),
         };
         let name = wide(&self.pipe_name);
+        // SAFETY: `name` is NUL-terminated and `attributes` points at the descriptor held in
+        // `descriptor`; both live until the call returns, which copies them.
         let pipe = unsafe {
             CreateNamedPipeW(
                 PCWSTR(name.as_ptr()),
@@ -178,6 +203,8 @@ pub struct Ownership {
 }
 impl Drop for Ownership {
     fn drop(&mut self) {
+        // SAFETY: `self.handle` is the mutex this value acquired and still owns; releasing it takes
+        // only the handle.
         unsafe {
             let _ = ReleaseMutex(self.handle.0);
         }

@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,
@@ -249,6 +248,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         windows: Vec<HWND>,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Found` that the caller
+        // keeps alive for the whole synchronous enumeration.
         unsafe {
             let state = &mut *(p.0 as *mut Found);
             let mut pid = 0;
@@ -265,6 +266,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
             pid,
             windows: Vec::new(),
         };
+        // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+        // enumeration whose address is passed as `LPARAM`.
         unsafe {
             let _ = EnumWindows(Some(find), LPARAM(&mut found as *mut Found as isize));
         }
@@ -280,6 +283,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     };
     fn title(h: HWND) -> String {
         let mut text = [0u16; 256];
+        // SAFETY: `h` is the window handed to `title` by the test and `text` is a live buffer whose
+        // length the call receives.
         let n = unsafe { GetWindowTextW(h, &mut text) };
         String::from_utf16_lossy(&text[..n as usize])
     }
@@ -291,6 +296,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     let deadline = Instant::now() + Duration::from_secs(3);
     let bounds = loop {
         let mut bounds = RECT::default();
+        // SAFETY: `window` is the window of the resident under test found above and `bounds` is a
+        // live RECT.
         unsafe { GetWindowRect(window, &mut bounds).unwrap() };
         if (bounds.right - bounds.left) * 2 > (bounds.bottom - bounds.top) * 5 {
             break bounds;
@@ -301,6 +308,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
     // Centre of the framed "next" arrow in the bottom row (scale 1).
     let x = bounds.right - bounds.left - 32;
     let y = bounds.bottom - bounds.top - 22;
+    // SAFETY: `window` is the window of the resident under test found above; the calls query it and
+    // post plain values.
     unsafe {
         assert_ne!(GetForegroundWindow(), window);
         PostMessageW(
@@ -317,6 +326,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         std::thread::yield_now();
     }
     assert!(title(window).contains("2/2"));
+    // SAFETY: `window` is the window of the resident under test found above; posting a message
+    // passes plain values.
     unsafe {
         PostMessageW(
             Some(window),
@@ -336,6 +347,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
         Response::Status { queued: 1, .. }
     ));
+    // SAFETY: `window` is the window of the resident under test found above; posting a message
+    // passes plain values.
     unsafe {
         PostMessageW(Some(window), WM_COMMAND, WPARAM(203), LPARAM(0)).unwrap();
     }
@@ -353,6 +366,7 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         );
     }
     support::window::wait_hidden(window, Duration::from_secs(2)).unwrap();
+    // SAFETY: `window` is the window of the resident under test found above.
     assert!(!unsafe { IsWindowVisible(window) }.as_bool());
     let mut event = Event::demo("input_required").unwrap();
     event.session_id = Some("while-paused".into());
@@ -370,15 +384,20 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
             ..
         }
     ));
+    // SAFETY: `window` is the window of the resident under test found above; posting a message
+    // passes plain values.
     unsafe {
         PostMessageW(Some(window), WM_COMMAND, WPARAM(203), LPARAM(0)).unwrap();
     }
     let deadline = Instant::now() + Duration::from_secs(2);
+    // SAFETY: `window` is the window of the resident under test found above.
     while !unsafe { IsWindowVisible(window) }.as_bool() {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
     for command in [201, 202] {
+        // SAFETY: `window` is the window of the resident under test found above; the resident's GUI
+        // thread handles the message while this thread waits.
         unsafe {
             SendMessageW(window, WM_COMMAND, Some(WPARAM(command)), Some(LPARAM(0)));
         }
@@ -393,16 +412,22 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
             ..
         }
     ));
+    // SAFETY: `window` is the window of the resident under test found above.
     assert!(!unsafe { IsWindowVisible(window) }.as_bool());
+    // SAFETY: `window` is the window of the resident under test found above; the resident's GUI
+    // thread handles the message while this thread waits.
     unsafe {
         SendMessageW(window, WM_COMMAND, Some(WPARAM(202)), Some(LPARAM(0)));
     }
     // A card reappears once its artwork is ready, at the latest after the wait limit.
     let deadline = Instant::now() + Duration::from_secs(2);
+    // SAFETY: `window` is the window of the resident under test found above.
     while !unsafe { IsWindowVisible(window) }.as_bool() {
         assert!(Instant::now() < deadline, "card did not reappear");
         std::thread::yield_now();
     }
+    // SAFETY: `window` is the window of the resident under test found above; the resident's GUI
+    // thread handles the message while this thread waits.
     unsafe {
         SendMessageW(
             window,
@@ -411,11 +436,14 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
             Some(LPARAM(0)),
         );
     }
+    // SAFETY: `window` is the window of the resident under test found above.
     assert!(unsafe { IsWindowVisible(window) }.as_bool());
     let mut found = Found {
         pid,
         windows: Vec::new(),
     };
+    // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+    // enumeration whose address is passed as `LPARAM`.
     unsafe {
         EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
     }
@@ -428,6 +456,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         pipe::request(&scope, &Request::Status, Duration::from_millis(200)).unwrap(),
         Response::Status { queued: 3, .. }
     ));
+    // SAFETY: `window` is the window of the resident under test found above; the resident's GUI
+    // thread handles the message while this thread waits.
     unsafe {
         SendMessageW(
             window,
@@ -440,6 +470,8 @@ fn resident_uses_one_window_and_switches_and_dismisses_only_selected_event() {
         title(window).contains("required"),
         "closing usage restores the selected notification"
     );
+    // SAFETY: `window` is the window of the resident under test found above; posting a message
+    // passes plain values.
     unsafe {
         PostMessageW(Some(window), WM_COMMAND, WPARAM(205), LPARAM(0)).unwrap();
     }
@@ -536,10 +568,13 @@ fn paused_resident_that_stays_visible_is_rejected_by_the_window_wait() {
         Duration::from_secs(3),
         Duration::from_millis(5),
         "first visible card",
+        // SAFETY: `window` is the window of the resident under test found above.
         || unsafe { IsWindowVisible(window) }.as_bool(),
     )
     .unwrap();
     // Pause a private resident, then simulate a renderer which incorrectly leaves it visible.
+    // SAFETY: `window` is the window of the resident under test found above; posting a message
+    // passes plain values.
     unsafe {
         PostMessageW(
             Some(window),
@@ -562,9 +597,11 @@ fn paused_resident_that_stays_visible_is_rejected_by_the_window_wait() {
     )
     .unwrap();
     support::window::wait_hidden(window, Duration::from_secs(2)).unwrap();
+    // SAFETY: `window` is the window of the resident under test found above.
     unsafe {
         let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
     }
+    // SAFETY: `window` is the window of the resident under test found above.
     assert!(unsafe { IsWindowVisible(window) }.as_bool());
     let error = support::window::wait_hidden(window, Duration::from_millis(50)).unwrap_err();
     assert!(error.contains("last visible=true"), "{error}");

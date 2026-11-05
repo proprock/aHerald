@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 
 use std::{mem::size_of, os::windows::ffi::OsStrExt};
 use windows::{
@@ -78,6 +77,8 @@ fn built_executable_supplies_application_icon_at_common_shell_sizes() {
         let mut bitmap = BITMAP::default();
         // SAFETY: live bitmap and correctly sized writable output buffer.
         assert_ne!(
+            // SAFETY: `info.hbmColor` is the live bitmap of the icon loaded above and `bitmap` is a
+            // writable BITMAP of the size passed.
             unsafe {
                 GetObjectW(
                     info.hbmColor.into(),

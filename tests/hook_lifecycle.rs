@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use std::{
     mem::size_of,
@@ -13,6 +12,7 @@ use windows::Win32::{
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the handle this struct owns and closes exactly once, here.
         unsafe {
             let _ = CloseHandle(self.0);
         }
@@ -21,6 +21,8 @@ impl Drop for Handle {
 struct OwnedProcess(Handle);
 impl Drop for OwnedProcess {
     fn drop(&mut self) {
+        // SAFETY: `self.0.0` is the process handle this struct owns; it is terminated and waited on
+        // before the handle is closed.
         unsafe {
             let _ = TerminateProcess(self.0.0, 0);
             let _ = WaitForSingleObject(self.0.0, 2000);
@@ -109,6 +111,8 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
                 }
                 found.expect("hook did not leave its detached notification child alive")
             };
+            // SAFETY: `child.0.0` is the open process handle retained above; a zero timeout only
+            // polls it.
             unsafe {
                 assert_eq!(WaitForSingleObject(child.0.0, 0), WAIT_TIMEOUT);
             }

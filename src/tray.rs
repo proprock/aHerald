@@ -1,5 +1,4 @@
 //! Native notification-area resources. Menu actions are runtime-only.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use windows::{
     Win32::{
         Foundation::*,
@@ -164,6 +163,7 @@ impl Icon {
         }
     }
     pub fn focus(&self) {
+        // SAFETY: `self.data` is the NOTIFYICONDATAW of the icon this struct added and still owns.
         unsafe {
             let _ = Shell_NotifyIconW(NIM_SETFOCUS, &self.data);
         }
@@ -188,6 +188,8 @@ impl Icon {
 }
 impl Drop for Icon {
     fn drop(&mut self) {
+        // SAFETY: `self.data` identifies the icon this struct added; deleting it reads only that
+        // data.
         unsafe {
             let _ = Shell_NotifyIconW(NIM_DELETE, &self.data);
         }
@@ -196,6 +198,8 @@ impl Drop for Icon {
 pub struct Menu(HMENU);
 impl Drop for Menu {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the popup menu this struct created and owns; no other handle to it is
+        // kept.
         unsafe {
             let _ = DestroyMenu(self.0);
         }
@@ -215,6 +219,8 @@ impl Menu {
         codex: Option<&str>,
         claude: Option<&str>,
     ) -> Result<Self, String> {
+        // SAFETY: CreatePopupMenu takes no arguments; the menu it returns is owned by `Menu`, which
+        // destroys it.
         let menu = Self(unsafe { CreatePopupMenu() }.map_err(|_| "cannot create tray menu")?);
         // Alphabetical by agent name.
         let usage = [(CLAUDE_SUMMARY, claude), (SUMMARY, codex)]
@@ -245,6 +251,8 @@ impl Menu {
                     .map_err(|_| "cannot add tray menu separator")?;
             }
             let wide: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: `menu.0` is the menu created above and `wide` is a NUL-terminated UTF-16
+            // string that lives past the call, which copies it.
             unsafe {
                 AppendMenuW(
                     menu.0,
@@ -294,6 +302,8 @@ mod tests {
             Some("Claude remain: 5h 80%"),
         )
         .unwrap();
+        // SAFETY: `menu.0` is the menu created above and lives to the end of the test; the calls
+        // only query it.
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 16);
             assert_ne!(GetMenuState(menu.0, 2, MF_BYPOSITION) & MF_SEPARATOR.0, 0);
@@ -346,6 +356,8 @@ mod tests {
     #[test]
     fn the_messenger_switch_sits_among_the_notification_switches_and_only_when_configured() {
         let absent = Menu::new(true, true, None, false, true, true, None, None).unwrap();
+        // SAFETY: `absent.0` is the menu created above and lives to the end of the test; the calls
+        // only query it.
         unsafe {
             assert_eq!(GetMenuItemCount(Some(absent.0)), 13);
             assert_eq!(
@@ -355,6 +367,8 @@ mod tests {
         }
         for on in [false, true] {
             let menu = Menu::new(true, true, Some(on), false, true, true, None, None).unwrap();
+            // SAFETY: `menu.0` is the menu created just above and lives to the end of the loop
+            // body; the calls only query it.
             unsafe {
                 assert_eq!(GetMenuItemCount(Some(menu.0)), 14);
                 // Sound, Pop-up, Messenger, Pause notifications, then the first separator.
@@ -374,6 +388,8 @@ mod tests {
     #[test]
     fn usage_lines_appear_only_for_enabled_agents() {
         let menu = Menu::new(true, true, None, false, true, true, None, Some("Claude")).unwrap();
+        // SAFETY: `menu.0` is the menu created above and lives to the end of the test; the calls
+        // only query it.
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
             assert_eq!(
@@ -383,6 +399,7 @@ mod tests {
             );
         }
         let menu = Menu::new(true, true, None, false, true, true, Some("Codex"), None).unwrap();
+        // SAFETY: `menu.0` is the menu created above; the call only queries it.
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
         }
@@ -397,6 +414,7 @@ mod tests {
             Some("Claude"),
         )
         .unwrap();
+        // SAFETY: `menu.0` is the menu created above; the calls only query it.
         unsafe {
             assert_eq!(GetMenuItemID(menu.0, 0), CLAUDE_SUMMARY as u32);
             assert_eq!(GetMenuItemID(menu.0, 1), SUMMARY as u32);
@@ -412,6 +430,8 @@ mod tests {
             (Some("Codex"), Some("Claude"), 2),
         ] {
             let menu = Menu::new(true, true, None, false, true, true, codex, claude).unwrap();
+            // SAFETY: `menu.0` is the menu created just above and lives to the end of the loop
+            // body; the calls only query it.
             unsafe {
                 let count = GetMenuItemCount(Some(menu.0)) as u32;
                 let sound_position = usage_count + u32::from(usage_count > 0);
