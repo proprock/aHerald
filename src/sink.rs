@@ -44,11 +44,43 @@ impl Message {
     }
 }
 
-/// One destination. `send` blocks until the message is delivered or fails; the error text must
-/// never contain a secret.
+/// Why a send failed. `message` must never contain a secret. `retry_after` is the delay the
+/// destination asked for (HTTP 429 or 503 with `Retry-After`), which the worker waits instead of
+/// its fixed backoff, up to `MAX_RETRY_AFTER`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendError {
+    pub message: String,
+    pub retry_after: Option<Duration>,
+}
+
+impl From<String> for SendError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            retry_after: None,
+        }
+    }
+}
+
+impl From<&str> for SendError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+/// The longest a sink waits because a server asked it to; a larger request is cut to this, so a
+/// hostile or mistaken `Retry-After` cannot park a worker for hours.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
+
+/// The pause before the next try: what the server asked for, capped, else the fixed backoff.
+pub fn retry_delay(backoff: Duration, retry_after: Option<Duration>) -> Duration {
+    retry_after.map_or(backoff, |delay| delay.min(MAX_RETRY_AFTER))
+}
+
+/// One destination. `send` blocks until the message is delivered or fails.
 pub trait Sink: Send {
     fn name(&self) -> &str;
-    fn send(&mut self, message: &Message) -> Result<(), String>;
+    fn send(&mut self, message: &Message) -> Result<(), SendError>;
 }
 
 /// A sink with the event kinds it wants and the secret values to scrub from its errors.
@@ -211,17 +243,20 @@ fn work(
             }
         };
         let mut result = Ok(());
+        let mut asked = None;
         for attempt in 0..policy.attempts.max(1) {
             if attempt > 0 {
-                std::thread::sleep(policy.backoff);
+                std::thread::sleep(retry_delay(policy.backoff, asked));
             }
             result = route.sink.send(&message);
-            if result.is_ok() {
-                break;
+            match &result {
+                Ok(()) => break,
+                Err(error) => asked = error.retry_after,
             }
         }
         let name = route.sink.name().to_owned();
-        let result = result.map_err(|error| format!("{name}: {}", redact(&error, &route.secrets)));
+        let result =
+            result.map_err(|error| format!("{name}: {}", redact(&error.message, &route.secrets)));
         crate::notice::report_changed_with(post, &mut last_error, result);
     }
 }
@@ -252,11 +287,11 @@ mod tests {
         fn name(&self) -> &str {
             "stub"
         }
-        fn send(&mut self, message: &Message) -> Result<(), String> {
+        fn send(&mut self, message: &Message) -> Result<(), SendError> {
             let _ = self.seen.send(message.text.clone());
             if self.failures > 0 {
                 self.failures -= 1;
-                return Err(self.error.clone());
+                return Err(self.error.clone().into());
             }
             Ok(())
         }
@@ -363,7 +398,7 @@ mod tests {
         fn name(&self) -> &str {
             "gated"
         }
-        fn send(&mut self, message: &Message) -> Result<(), String> {
+        fn send(&mut self, message: &Message) -> Result<(), SendError> {
             if std::mem::take(&mut self.first) {
                 let _ = self.started.send(());
                 let _ = self.release.recv_timeout(WAIT);
@@ -433,9 +468,9 @@ mod tests {
             fn name(&self) -> &str {
                 "flaky"
             }
-            fn send(&mut self, message: &Message) -> Result<(), String> {
+            fn send(&mut self, message: &Message) -> Result<(), SendError> {
                 let _ = self.0.send(message.text.clone());
-                self.1.remove(0)
+                self.1.remove(0).map_err(SendError::from)
             }
         }
         let results = vec![Err("boom".into()), Ok(()), Err("boom".into()), Ok(())];
@@ -546,5 +581,66 @@ mod tests {
         assert!(message.text.contains("project"), "{}", message.text);
         let none = Message::from_event(&event(Kind::InputRequired, None), true);
         assert_eq!(none.folder, None);
+    }
+
+    #[test]
+    fn a_server_delay_replaces_the_fixed_backoff_up_to_a_cap() {
+        let backoff = Duration::from_secs(2);
+        assert_eq!(retry_delay(backoff, None), backoff);
+        assert_eq!(
+            retry_delay(backoff, Some(Duration::from_secs(1))),
+            Duration::from_secs(1)
+        );
+        assert_eq!(retry_delay(backoff, Some(Duration::ZERO)), Duration::ZERO);
+        assert_eq!(
+            retry_delay(backoff, Some(Duration::from_secs(30))),
+            MAX_RETRY_AFTER
+        );
+        assert_eq!(
+            retry_delay(backoff, Some(Duration::from_secs(3600))),
+            MAX_RETRY_AFTER
+        );
+    }
+
+    /// Fails its first call with a server delay, then succeeds; records when each call came.
+    struct Asked(Sender<std::time::Instant>, Option<Duration>);
+    impl Sink for Asked {
+        fn name(&self) -> &str {
+            "asked"
+        }
+        fn send(&mut self, _: &Message) -> Result<(), SendError> {
+            let _ = self.0.send(std::time::Instant::now());
+            match self.1.take() {
+                Some(delay) => Err(SendError {
+                    message: "slow down".into(),
+                    retry_after: Some(delay),
+                }),
+                None => Ok(()),
+            }
+        }
+    }
+
+    #[test]
+    fn the_worker_waits_for_the_server_delay_instead_of_the_backoff() {
+        let (seen_tx, seen) = channel();
+        let route = Route {
+            sink: Box::new(Asked(seen_tx, Some(Duration::from_millis(300)))),
+            kinds: vec![Kind::Error],
+            secrets: Vec::new(),
+            include_folder: false,
+        };
+        // A backoff far longer than the test: only the server's delay can explain a quick retry.
+        let policy = Policy {
+            queue: 4,
+            attempts: 2,
+            backoff: Duration::from_secs(60),
+        };
+        let dispatcher = Dispatcher::start(vec![route], policy, true, quiet());
+        dispatcher.submit(Kind::Error, message("m"));
+        let first = seen.recv_timeout(WAIT).unwrap();
+        let second = seen.recv_timeout(WAIT).unwrap();
+        let waited = second.duration_since(first);
+        assert!(waited >= Duration::from_millis(300), "{waited:?}");
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
     }
 }

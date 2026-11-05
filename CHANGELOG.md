@@ -31,6 +31,10 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a
   test keeps it there (AH-236).
 
+### Added
+- A webhook that answers HTTP 429 or 503 with `Retry-After` is retried after that delay (at most 30
+  seconds) instead of the fixed two seconds (AH-245).
+
 ## [0.15.0] - 2026-11-05
 
 ### Added

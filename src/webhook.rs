@@ -6,7 +6,7 @@
 use crate::{
     http_common::Zero,
     https::{self, HttpError, Wiped},
-    sink::{Message, Sink},
+    sink::{Message, SendError, Sink},
     template::{Escape, render},
 };
 use std::time::Duration;
@@ -82,7 +82,7 @@ impl Sink for Webhook {
         "webhook"
     }
 
-    fn send(&mut self, message: &Message) -> Result<(), String> {
+    fn send(&mut self, message: &Message) -> Result<(), SendError> {
         let mode = Escape::for_content_type(&self.content_type);
         let body = Wiped(render(&self.body.0, message, mode));
         let target = &self.target.0;
@@ -98,9 +98,14 @@ impl Sink for Webhook {
         );
         match response {
             Ok(response) if (200..300).contains(&response.status) => Ok(()),
-            Ok(response) => Err(format!("the server answered HTTP {}", response.status)),
-            Err(HttpError::Network) => Err("cannot reach the server".to_owned()),
-            Err(HttpError::TooLarge) => Err("the server reply was too large".to_owned()),
+            // Too many requests or unavailable: the server may say when to come back.
+            Ok(response) if matches!(response.status, 429 | 503) => Err(SendError {
+                message: format!("the server answered HTTP {}", response.status),
+                retry_after: response.retry_after,
+            }),
+            Ok(response) => Err(format!("the server answered HTTP {}", response.status).into()),
+            Err(HttpError::Network) => Err("cannot reach the server".into()),
+            Err(HttpError::TooLarge) => Err("the server reply was too large".into()),
         }
     }
 }

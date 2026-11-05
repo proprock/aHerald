@@ -28,9 +28,21 @@ fn event(folder: Option<&str>) -> Event {
     event
 }
 
+const SLOW_DOWN: &str = "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
 fn dispatcher(
     config: &str,
     vars: &'static [(&'static str, &'static str)],
+) -> (Dispatcher, Arc<Mutex<Vec<String>>>) {
+    dispatcher_with_attempts(config, vars, 1)
+}
+
+/// The same with `attempts` tries per message and no fixed backoff, so a pause between tries
+/// can only come from the server.
+fn dispatcher_with_attempts(
+    config: &str,
+    vars: &'static [(&'static str, &'static str)],
+    attempts: u32,
 ) -> (Dispatcher, Arc<Mutex<Vec<String>>>) {
     let forward = Config::parse(config, &PathBuf::from(".")).unwrap().forward;
     let built = build(&forward, |name| {
@@ -45,7 +57,7 @@ fn dispatcher(
         built.routes,
         Policy {
             queue: 4,
-            attempts: 1,
+            attempts,
             backoff: Duration::ZERO,
         },
         true,
@@ -180,4 +192,47 @@ fn an_unreachable_server_is_one_error_card_without_the_secret() {
     let posted = posted.lock().unwrap();
     assert!(posted[0].contains("cannot reach"), "{posted:?}");
     assert!(!posted[0].contains("SECRET"), "{posted:?}");
+}
+
+/// When the n-th request reached the fake server (polled, so late by a few milliseconds at most).
+fn arrival(requests: &Arc<Mutex<Vec<String>>>, n: usize) -> Instant {
+    wait_for(|| (requests.lock().unwrap().len() >= n).then(Instant::now))
+}
+
+fn two_tries_config(port: u16) -> String {
+    format!(
+        "[[forward.sinks]]\ntype = \"webhook\"\nkinds = [\"input_required\"]\n\
+         url = \"http://127.0.0.1:{port}/topic\"\n"
+    )
+}
+
+#[test]
+fn a_too_many_requests_answer_with_retry_after_is_retried_after_that_delay() {
+    let (port, requests) = fake_api(vec![SLOW_DOWN, OK]);
+    let (dispatcher, posted) = dispatcher_with_attempts(&two_tries_config(port), &[], 2);
+    dispatcher.submit_event(&event(None));
+    let first = arrival(&requests, 1);
+    let second = arrival(&requests, 2);
+    let waited = second.duration_since(first);
+    assert!(
+        waited >= Duration::from_millis(900),
+        "retried after {waited:?}"
+    );
+    // The retry succeeded, so nothing is reported.
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        posted.lock().unwrap().is_empty(),
+        "{:?}",
+        posted.lock().unwrap()
+    );
+}
+
+#[test]
+fn another_failure_is_retried_at_once_when_the_server_names_no_delay() {
+    let (port, requests) = fake_api(vec![FAILED, OK]);
+    let (dispatcher, _) = dispatcher_with_attempts(&two_tries_config(port), &[], 2);
+    dispatcher.submit_event(&event(None));
+    let first = arrival(&requests, 1);
+    let second = arrival(&requests, 2);
+    assert!(second.duration_since(first) < Duration::from_millis(900));
 }

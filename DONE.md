@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
+  `expand_env`, `render` and `Escape` moved to `src/template.rs` with their seven tests unchanged (the
+  webhook and the command sink import from it; the URL-parsing tests stay in `webhook.rs`). `Sink::send` now
+  returns `SendError { message, retry_after }` (`From<String>` and `From<&str>` keep plain errors short);
+  `sink::retry_delay(backoff, retry_after)` picks the pause before a retry: the server's delay capped at
+  `MAX_RETRY_AFTER` (30 s), else the fixed 2 s backoff. The webhook sets `retry_after` for HTTP 429 and 503
+  from the `Retry-After` the HTTP layer already parsed (delay-seconds form only; both HTTP implementations
+  fill it). Tests: the delay table (none, 1 s, 0, the cap), a worker given a 60 s backoff retries after the
+  server's 300 ms, and in `tests/forward_webhook.rs` a 429 with `Retry-After: 1` is retried at least 0.9 s
+  later and one without a delay is retried at once (mutation check: ignoring `retry_after` in the webhook
+  fails the first with "retried after 421ns"; reverted). The command sink's tests read `.message` of the new
+  error type. `docs/configuration.md` describes the retry. Linux: ran locally (the forward tests need the
+  default `https-client` feature, which is on); Windows and macOS: compiled/tested in CI only.
+
 - [x] **AH-243 — One atomic file writer.**
   `src/atomic_file.rs`: `write(path, bytes, backup)` (sibling temporary file, `sync_all`, permissions of an
   existing file kept, optional `.aherald-backup` copy, atomic replace; a symlink stays a symlink, missing

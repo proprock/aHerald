@@ -485,13 +485,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
-  Move `expand_env`, `render` and `Escape` (`webhook.rs:21-133`) to `src/template.rs`; `webhook.rs` and
-  `command_sink.rs` import from it. In `sink.rs`, let `send` return an error with an optional retry delay; when
-  `Webhook` sees 429/503 with `retry_after`, wait `min(retry_after, 30 s)` instead of the fixed 2 s backoff.
-  Acceptance: `tests/forward_webhook.rs` gets a fake-HTTP case with `Retry-After: 1` that is retried after ≥1 s;
-  existing forward tests pass.
-
 - [ ] **AH-249 — `[lints]` table.**
   Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
   `rust.unsafe_op_in_unsafe_fn = "warn"` and `clippy.undocumented_unsafe_blocks = "warn"`.
