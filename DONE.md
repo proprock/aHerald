@@ -3,6 +3,25 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-254 — Docs index and engineering notes split.**
+  Create `docs/README.md` with user guides grouped (install, configure, harnesses, sandboxes, troubleshooting).
+  Move the engineering notes (`ah-0xx-*`, `milestone-*`, `*-investigation`, `wayland-spike`, `diagnostics-audit`,
+  `session-warnings-research`, `plans/`) to `docs/notes/` with `git mv` and fix links (`grep -rn "docs/ah-"`).
+  Fix README.md:174: nextest is not the test runner (the decision is in DONE.md); point to `tests/live/README.md`
+  and `docs/notes/ah-109-nextest.md` as history. Acceptance: a link check (`grep -o '](docs/[^)]*)'` resolves)
+  passes for README, docs and TODO.
+  Closed 2026-11-05 (branch `docs/agents-release-privacy`). `docs/README.md` indexes the user guides
+  (install and run, configure, harnesses, sandboxes, project; there is no troubleshooting guide yet).
+  Moved with `git mv` to `docs/notes/`: `ah-097-*`, `ah-100`, `ah-101`, `ah-107` to `ah-110`,
+  `milestone-1` to `5`, both `*-investigation`, `wayland-spike`, `diagnostics-audit`,
+  `session-warnings-research`, `release-acceptance` (a per-release acceptance record) and `plans/`.
+  Links and plain paths fixed in README, TODO, DONE, the guides, the moved notes, `tests/live/README.md`
+  and two comments in `tests/perf_baseline.rs`; CHANGELOG release notes keep their old paths.
+  README Development says tests run with plain `cargo test` and links the nextest note as history, the
+  docs index and AGENTS.md. Check: a script resolving every relative markdown link in tracked `.md` files
+  reports none broken (before and after); `cargo fmt --check` clean. The packaging scripts copy the whole
+  `docs/` folder, so the archives now carry `docs/notes/` too.
+
 - [x] **AH-241 — TODO.md / DONE.md hygiene.**
   Move every `[x]` item from TODO.md to DONE.md unchanged (AH-116, 105, 090, 201–204, 223–228). For AH-206, 213,
   219 and 220 (shipped in 0.13.0/0.14.0): move the implemented part to DONE.md and open new IDs only for the
@@ -363,7 +382,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   the cards were looked at on the M1 (red error icon, message wrapped in up to three lines). Remaining: the missing
   `monitor` notice on Windows, the Windows look of the notice card, and the rest of the audit above.
   Status 2026-11-01 (branch `feature/ah-090-completion`): audited decisions and executable
-  evidence are listed in [the diagnostic audit](docs/diagnostics-audit.md). Added portable
+  evidence are listed in [the diagnostic audit](docs/notes/diagnostics-audit.md). Added portable
   usage/name-lookup failure episodes; invalid-input, framing and full-queue episodes; bounded
   activation-mailbox diagnostics; per-agent pet, missing built-in and preparation-budget
   diagnostics. Interactive startup configuration errors show a separate eight-second notice
@@ -374,17 +393,17 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Verification completed on Windows: formatting, Clippy and full `cargo test --all-targets`
   passed, including the performance baseline and native asset checks. The asset test now
   separates Windows creation of a fresh copied executable from rendering checks; production
-  delivery budgets are unchanged. See [the startup investigation](docs/native-assets-investigation.md)
+  delivery budgets are unchanged. See [the startup investigation](docs/notes/native-assets-investigation.md)
   and the audit for observed timings and platform limits.
 
 - [x] **AH-240 — Release procedure follow-ups.**
   `RELEASE.md` is rewritten and tracked on `docs/agents-release-privacy` (four platforms, version sync in
   four files, compare links, tap, rollback including the cask). Left: link it from the README Development
-  section; mark `docs/release-acceptance.md` as the v0.1.0 record at its top; add the missing compare links for
+  section; mark `docs/notes/release-acceptance.md` as the v0.1.0 record at its top; add the missing compare links for
   past versions at the bottom of `CHANGELOG.md`. The `plugin.json` version is AH-236.
   Acceptance: README links `RELEASE.md`; `CHANGELOG.md` has a compare link for every version heading.
   Closed 2026-11-05 (branch `docs/agents-release-privacy`). README Development links `RELEASE.md`;
-  `docs/release-acceptance.md` opens with a note marking it as the v0.1.0 record; `CHANGELOG.md` has
+  `docs/notes/release-acceptance.md` opens with a note marking it as the v0.1.0 record; `CHANGELOG.md` has
   compare links for `[Unreleased]` and all 13 version headings (v0.1.0 links its tag), and its header
   mentions adding the link and points to `RELEASE.md`. Checks: every `## [X]` heading has a matching
   `[X]:` reference and every tag exists (`git rev-parse vX`); the release-notes `awk` extraction picks
@@ -424,7 +443,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   release build and packaging passed. Not verified: installer GUI and launch-after-install
   option, installed-harness hook delivery and dismissal, a clean Windows 10/11 machine. Full
   Cargo tests stop at `native_assets` (notification startup timeout). Remaining: AH-214, AH-215.
-  Evidence: docs/ah-097-windows-acceptance.md.
+  Evidence: docs/notes/ah-097-windows-acceptance.md.
 
 - [x] **AH-045 — Harden the Claude quota HTTPS request.** Closed 2026-11-04 with the maintainer.
   Implemented and tested: redirects refused and 3xx mapped to a sanitized error (loopback test,
@@ -442,7 +461,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Converted 3 matrices (hook silent-success payloads, hook event names, config
   duration pairs) to named cases with all input/expected pairs preserved; a single
   case runs alone (`-- case_4_pre_tool_use`). `cargo test --all-targets`: 705 passed,
-  0 failed; fmt, clippy and release build clean. Details: `docs/ah-110-rstest.md`.
+  0 failed; fmt, clippy and release build clean. Details: `docs/notes/ah-110-rstest.md`.
 
 - [x] **AH-109 - Evaluate nextest and retain Cargo for mandatory CI** (2026-11-02).
   Compared pinned signed Windows nextest 0.9.150 against Cargo with equal package-cold
@@ -458,7 +477,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   test/resident termination, and released native mutex/pipe/file resources.
   Format, Clippy and Windows release build passed; separate doctest command passed
   (zero current doctests). No new visual, installed-account or Unix results claimed.
-  Reproduction, resource inventory, selections and limits: docs/ah-109-nextest.md.
+  Reproduction, resource inventory, selections and limits: docs/notes/ah-109-nextest.md.
 
 - [x] **AH-107 - Make asynchronous checks and process cleanup deterministic** (2026-11-02).
   Inventoried process, timing, desktop and cleanup boundaries. Bounded hook/setup/UI
@@ -474,7 +493,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   runs with final cleanup; its forced-visible negative case passed in the full run.
   Format, Clippy, native release build and sequential Windows full tests passed:
   689 passed, 0 failed, 17 ignored. No new manual UI or Unix execution is claimed.
-  Inventory, evidence and platform/resource limits: docs/ah-107-deterministic-tests.md.
+  Inventory, evidence and platform/resource limits: docs/notes/ah-107-deterministic-tests.md.
 
 - [x] **AH-092 - Wait for the paused resident window to hide** (2026-11-02).
   Preserved the native visibility assertion and added a bounded two-second wait
@@ -496,7 +515,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Per the user's requested order, accepted this focused fixture slice before the
   remaining AH-092/AH-107 reliability work. Format, Clippy, release build and full
   sequential Windows tests passed: 615 passed, 0 failed, 17 ignored.
-  Evidence and retained specialized fixtures: docs/ah-108-test-fixtures.md.
+  Evidence and retained specialized fixtures: docs/notes/ah-108-test-fixtures.md.
 
 - [x] **AH-098 — Suppress notifications for the active originating session** (2026-11-02).
   Added independent card and sound suppression, both enabled by default, requiring
@@ -732,11 +751,11 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   context data; verify warnings in real supported agent sessions.
   Preliminary research (2026-10-30): Claude statusLine is a viable source, subject
   to an agreed AH-059 privacy allowlist extension; no permitted passive source
-  for arbitrary Codex sessions established. See [feasibility report](docs/session-warnings-research.md).
+  for arbitrary Codex sessions established. See [feasibility report](docs/notes/session-warnings-research.md).
   First slice on `feature/ah-100-101-session-warnings` provided Claude context
   thresholds; Codex context was initially deferred. The
   maintainer authorized the corresponding AH-059 input-context allowlist extension
-  on 2026-10-30. Implementation/verification evidence: [session warnings](docs/session-warnings-research.md).
+  on 2026-10-30. Implementation/verification evidence: [session warnings](docs/notes/session-warnings-research.md).
   Completed follow-up 2026-11-01 on `feature/ah-100-context-warning`: independent
   thresholds implemented for both agents. `k = 1000`; omitted means disabled;
   warn once strictly above the threshold, rearm at/below it, and retain state on
@@ -746,7 +765,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   not a generally documented stable hook; desktop/remote/subagent coverage is not
   claimed. Card appearance was not visually verified. Focused tests passed;
   full checks retain `perf_baseline` and `tray_about` failures.
-  See [current evidence and limits](docs/ah-100-context-warnings.md).
+  See [current evidence and limits](docs/notes/ah-100-context-warnings.md).
 
 - [x] **AH-101 — Per-session cache-TTL warning.** Provide independently configurable
   cache-TTL warnings for Claude and Codex, with separate enablement and thresholds
@@ -763,7 +782,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Preliminary research (2026-10-30): a per-session elapsed-time reminder is feasible
   through lifecycle hooks, with resident-owned timers. Exact last-message semantics
   and actual cache expiry are separate questions; Claude additionally documents a
-  reported cache deadline. See [feasibility report](docs/session-warnings-research.md).
+  reported cache deadline. See [feasibility report](docs/notes/session-warnings-research.md).
   Agreed 2026-10-30: start the timer at the end of the agent response, not at user
   submission. New user/tool activity cancels it; the next completion rearms it.
   Default idle thresholds: Claude 55 minutes, Codex 25 minutes (agreed 2026-10-30);
@@ -771,7 +790,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   resident-only, memory-only bounded state. This slice is an elapsed-time reminder,
   not a provider cache-expiry guarantee. Accepted on Windows 2026-10-31 with real
   Claude and Codex responses and one-minute reminders; the maintainer confirmed
-  reminder delivery as sufficient acceptance. See [Windows evidence](docs/ah-101-windows-acceptance.md).
+  reminder delivery as sufficient acceptance. See [Windows evidence](docs/notes/ah-101-windows-acceptance.md).
   Agreed 2026-11-01: Windows tray has a separate Context warnings / Idle warnings
   section. Warning text includes measured context in kilotokens and its threshold,
   or elapsed minutes/seconds and the configured idle limit. Keep the harness name
@@ -1076,7 +1095,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   DPI (user agreed, option A) and redrawn on DPI, display or monitor change; artwork too
   large for the DPI scale is prepared at the configured scale; nearest-neighbor stays
   only for fitting an oversized card and for pixel art via the interpolation setting
-  (`docs/milestone-5.md`). Automated on Windows 11 build 22621: 277 passed, 0 failed,
+  (`docs/notes/milestone-5.md`). Automated on Windows 11 build 22621: 277 passed, 0 failed,
   14 ignored (three consecutive runs); `fmt`, `clippy -D warnings` and the release
   build clean. `placement_failure_keeps_the_resident…` raced the failing draw once
   composition got fast; it now sends a wake after clearing the fault, as the resident
@@ -1101,7 +1120,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 - [x] **AH-082 — Read a real debug log and set a performance baseline (split from AH-077).**
   A debug resident under an isolated scope showed 24 animated cards; the log and
   `--perf-report` are readable and the top spans are real work (table and assessment in
-  `docs/milestone-5.md`): a frame costs ~1 ms, nothing is slow, no frame is skipped, the
+  `docs/notes/milestone-5.md`): a frame costs ~1 ms, nothing is slow, no frame is skipped, the
   artwork cache hits 20 of 24. `tests/perf_baseline.rs` now fails when a hot-path mean
   exceeds about three times the baseline, on cache misses, rebuilds or skipped frames.
   Finding: cards are composed ~3 times each (AH-083). The `warn` versus `debug` overhead
@@ -1125,7 +1144,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Seven alternating runs of the 24-card burst at `warn` and `debug`, comparing the
   resident's CPU time: medians 172 ms (warn) and 141 ms (debug), spread about 100 ms, so
   the cost is below the method's resolution and far under 2% of a 16 ms frame; no code
-  change. Figures in `docs/milestone-5.md`. The measuring test was temporary and is not
+  change. Figures in `docs/notes/milestone-5.md`. The measuring test was temporary and is not
   kept. Wall time from first event to idle was not used: it is set by the 120 ms event
   spacing and card duration, not by frame cost.
 
@@ -1303,7 +1322,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 - [x] **AH-023 — Complete release acceptance.**
   Done (2026-10-27): automated checks, hook latency, card/About/DPI visual checks and
   sound on Windows 11 build 22621, and the release workflow on tag `v0.1.0` are recorded
-  in `docs/release-acceptance.md`. Long-lived waits are covered by the live resident's
+  in `docs/notes/release-acceptance.md`. Long-lived waits are covered by the live resident's
   multi-hour runs, not a timed pending card. Windows 10 is out of scope and labelled
   untested. Not verified and labelled so: a full Explorer process restart and
   multi-monitor/mixed DPI (open as AH-020).
@@ -1328,7 +1347,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `border_color` (global, per event, usage). Automated tests cover folder extraction, the
   heading model, button geometry, navigation, age text, IPC carrying the folder and equal
   card height. Done 2026-10-27: manual visual check of both agents at 100% and 150%
-  observed by the user (see `docs/milestone-5.md`).
+  observed by the user (see `docs/notes/milestone-5.md`).
 
 - [x] **AH-086 — `--version` and a tray About card.**
   `aherald --version` prints `aHerald <version>`; the tray item "About aHerald" shows the
@@ -1343,7 +1362,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   instead of the text fallback; the card redraws when the Windows scale is changed while
   it is open, on all three scales. The two-monitor mixed-DPI case moved to AH-020 (cards
   are not draggable). Not verified: the frame count of the WALL-E sheet. Results in
-  `docs/milestone-5.md`.
+  `docs/notes/milestone-5.md`.
 
 ## Milestone 5a — macOS and Linux support
 
@@ -1376,7 +1395,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   version and event type were not captured.
 
 - [x] **AH-073 — Wayland spike.** Depends on AH-068.
-  Done 2026-10-30: [findings](docs/wayland-spike.md) record the GNOME Wayland registry,
+  Done 2026-10-30: [findings](docs/notes/wayland-spike.md) record the GNOME Wayland registry,
   XWayland window and focus checks, upstream compositor support and untested behavior.
   The user agreed to retain XWayland on GNOME and defer native KDE/wlroots work to AH-095.
 

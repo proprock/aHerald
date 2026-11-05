@@ -14,7 +14,7 @@ with stable Rust. Keep each milestone usable. Project rules: `AGENTS.md`.
   Keep real monitor DPI in resident `perf_baseline`; mean budgets are 61 ms for
   artwork and 28 ms for composition, rounded down to whole ms within 10% above
   observed maxima (55.805 and 25.83 ms). Other limits stay unchanged; higher DPI
-  is not fully calibrated. See docs/perf-baseline-investigation.md.
+  is not fully calibrated. See docs/notes/perf-baseline-investigation.md.
 
 - Default configuration: `config.toml` beside `aherald.exe`; no APPDATA lookup.
   Create a missing default with standard settings; `--config` selects an existing custom file.
@@ -72,7 +72,7 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   launch-after-install option on interactive setup only, selection changes, upgrade and
   uninstall, and hook delivery and dismissal for installed Codex and Claude Code. Record
   the Windows build, harness versions and limitations. Evidence so far:
-  docs/ah-097-windows-acceptance.md.
+  docs/notes/ah-097-windows-acceptance.md.
 
 - [ ] **AH-215 — Cause of the `native_assets` timeout in the full Cargo test run (split from AH-097).**
   `cargo test --all-targets` stops at `native_assets` with a notification startup timeout,
@@ -785,14 +785,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
   but move them to `examples/tools/` and update `[[example]]` paths.
   Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
-
-- [ ] **AH-254 — Docs index and engineering notes split.**
-  Create `docs/README.md` with user guides grouped (install, configure, harnesses, sandboxes, troubleshooting).
-  Move the engineering notes (`ah-0xx-*`, `milestone-*`, `*-investigation`, `wayland-spike`, `diagnostics-audit`,
-  `session-warnings-research`, `plans/`) to `docs/notes/` with `git mv` and fix links (`grep -rn "docs/ah-"`).
-  Fix README.md:174: nextest is not the test runner (the decision is in DONE.md); point to `tests/live/README.md`
-  and `docs/notes/ah-109-nextest.md` as history. Acceptance: a link check (`grep -o '](docs/[^)]*)'` resolves)
-  passes for README, docs and TODO.
 
 - [ ] **AH-256 — Default config parity test.**
   In `tests/config.rs`, parse `config.example.toml` and compare the whole `Config` with `Config::default()`

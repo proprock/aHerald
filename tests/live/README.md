@@ -108,7 +108,7 @@ in the printed evidence directory with `AH101_SCOPE` and the bridge's `--status`
 to observe only this probe's queue. Do not infer appearance or focus behavior from
 queue counts. Evidence retains event/session identity, timing, response and result,
 but never raw hook payloads, prompts, tool arguments or credentials. CLI output
-contains the fixed test prompt/response. Results: [Windows acceptance](../../docs/ah-101-windows-acceptance.md).
+contains the fixed test prompt/response. Results: [Windows acceptance](../../docs/notes/ah-101-windows-acceptance.md).
 
 ## Codex hook argument compatibility (Windows)
 

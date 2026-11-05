@@ -3,8 +3,8 @@
 Environment queried 2026-10-24: Windows 11 build 22621,
 `rustc 1.98.1 (48a229cea 2026-09-01)` MSVC x64;
 installed `codex-cli 0.164.0-alpha.11.1`.
-See [versioned compatibility](codex-compatibility.md) and
-[manual hook setup](codex-hooks.md). Windows 10 and stable Codex remain untested.
+See [versioned compatibility](../codex-compatibility.md) and
+[manual hook setup](../codex-hooks.md). Windows 10 and stable Codex remain untested.
 
 ## AH-014 — hook delivery
 

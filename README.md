@@ -173,9 +173,11 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Stable Rust; Windows builds use the MSVC toolchain. The [test runner guide](docs/ah-109-nextest.md), the
-opt-in [live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md) and the
-[task list](TODO.md) cover the rest. Release procedure: [RELEASE.md](RELEASE.md); release history:
+Stable Rust; Windows builds use the MSVC toolchain. Tests run with plain `cargo test` (nextest was
+measured and not adopted: [notes](docs/notes/ah-109-nextest.md)). The opt-in
+[live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md), the
+[documentation index](docs/README.md), [contributor rules](AGENTS.md) and the [task list](TODO.md) cover
+the rest. Release procedure: [RELEASE.md](RELEASE.md); release history:
 [CHANGELOG](CHANGELOG.md).
 
 ## License

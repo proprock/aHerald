@@ -19,7 +19,7 @@ Claude hook handler timings were 8.96–217.40 ms, with empty stdout. Codex hand
 timings were 0.93–34.99 ms; Stop returned `{}`, other events returned empty stdout.
 These measure the native bridge, not the entire harness shell startup.
 
-The optional [probe](../tests/live/session_idle_warning.ps1) uses the production
+The optional [probe](../../tests/live/session_idle_warning.ps1) uses the production
 adapter and IPC library through a test-only native bridge. The resident, timer and
 notification engine are the release executable. This isolates other open sessions
 without changing the production IPC namespace or user settings. Claude print mode
