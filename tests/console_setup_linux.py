@@ -86,6 +86,9 @@ def main():
         env = os.environ.copy()
         env.update(HOME=str(root), CODEX_HOME=str(root / "codex"),
                    CLAUDE_CONFIG_DIR=str(root / "claude"))
+        # The bridge files follow these two; a runner's own values would move them.
+        for name in ("XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR"):
+            env.pop(name, None)
         codex_hooks = root / "codex/hooks.json"
         claude_file = root / "claude/settings.json"
         config = root / "config.toml"
