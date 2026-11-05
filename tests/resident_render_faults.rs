@@ -1,6 +1,7 @@
 #![cfg(windows)]
 //! Render failures must never end the resident. Faults are injected through
 //! `aherald.fault` beside the configuration, which only debug builds honor.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},

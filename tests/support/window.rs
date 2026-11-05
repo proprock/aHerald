@@ -1,4 +1,5 @@
 //! Native window observations for bounded integration checks.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use super::wait_until;
 use std::time::Duration;
 use windows::Win32::{Foundation::*, UI::WindowsAndMessaging::*};

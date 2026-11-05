@@ -1,5 +1,6 @@
 //! Executed child fixtures exercise native pipes and process lifetime.
 #![cfg(windows)]
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use std::{
     io::Write,
