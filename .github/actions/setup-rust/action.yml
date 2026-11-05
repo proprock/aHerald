@@ -39,4 +39,9 @@ runs:
     # commit differ. The commit time makes the stamp, and with it the binary, reproducible (AH-252).
     - name: Fix the build time to the commit time
       shell: bash
-      run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      # The one write to GITHUB_ENV in this repository: the value is the commit time as an integer
+      # (checked below), so it cannot carry a newline or a second variable into the file.
+      run: | # zizmor: ignore[github-env]
+        epoch=$(git log -1 --format=%ct)
+        case "$epoch" in '' | *[!0-9]*) echo "::error::unexpected commit time" >&2; exit 1 ;; esac
+        echo "SOURCE_DATE_EPOCH=$epoch" >> "$GITHUB_ENV"
