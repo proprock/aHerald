@@ -22,6 +22,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 
 ### Fixed
+- A refused Apply (a configuration that cannot be loaded) says the same thing and is logged the same way
+  on Windows, macOS and Linux; Linux did not log it (see TODO.md, AH-233 for the checks still to run).
 - On macOS the idle resident keeps refreshing the tray when only Claude usage is enabled, as on Windows
   (see TODO.md, AH-232 for the check on a Mac).
 - `--install-hooks`, `--uninstall-hooks` and the statusLine commands now write to `CLAUDE_CONFIG_DIR` and

@@ -61,6 +61,38 @@ pub fn idle_poll_needed(codex_usage: bool, claude_usage: bool, has_deadline: boo
     codex_usage || claude_usage || has_deadline
 }
 
+/// Why Apply did not start a replacement resident: the configuration it would run cannot be loaded.
+#[derive(Debug)]
+pub struct ApplyError(String);
+
+impl ApplyError {
+    /// What to tell the user: the running resident stays, and why. The load error follows on a
+    /// second line; a notice card folds it into one.
+    pub fn message(&self) -> String {
+        format!(
+            "Apply cancelled; the running configuration stays active.\n{}",
+            self.0
+        )
+    }
+}
+
+impl std::fmt::Display for ApplyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Loads the configuration a replacement resident would start with. A replacement that cannot load
+/// it would exit silently and leave no resident, so Apply validates first and keeps the running one;
+/// a refusal is logged here, once, with the fixed code only (never the error text or the path). The
+/// three residents call this instead of each deciding, saying and logging it themselves (AH-233).
+pub fn apply_outcome(path: &std::path::Path) -> Result<Config, ApplyError> {
+    Config::load(path, true).map_err(|error| {
+        crate::operational_log::log(crate::operational_log::Record::InvalidConfiguration);
+        ApplyError(error)
+    })
+}
+
 /// How long an aHerald notice card stays, before its fade-out.
 pub const NOTICE_MS: u64 = 8000;
 

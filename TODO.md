@@ -473,13 +473,15 @@ P2 tasks run in the listed order; AH-266 goes last.
   `usage.on_change` / `claude.on_change` with the existing `Waker` (as Windows does at
   `src/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
 
-- [ ] **AH-233 — Same Apply diagnostics on every OS.**
-  On an invalid config, Linux posts a different message and does not log `InvalidConfiguration`
-  (`src/linux/resident.rs:354-360` vs `src/resident_overlay.rs:752-756`, `src/mac/resident.rs:557-563`). Add
-  `pub(crate) fn apply_outcome(path: &Path) -> Result<Config, ApplyError>` to `src/resident_request.rs`,
-  where `ApplyError` has `message()` and logs the record once. Call it from all three. Acceptance: a unit test
-  for valid/invalid/missing files and the exact message; Linux behaviour checked under xvfb; the macOS and
-  Windows CI compile and pass.
+- [ ] **AH-233 — Same Apply diagnostics on every OS (the xvfb check and the CI builds are left).**
+  Shipped on `chore/AH-233-shared-apply-and-templates`: `resident_request::apply_outcome(path)` and
+  `ApplyError` (`message()`, the load error in `Display`) decide, say and log (`config.invalid`, once, no
+  path or error text) a refused Apply; Windows, macOS and Linux call it; `tests/apply_outcome.rs` covers a valid,
+  a broken and a missing file, the exact message and the log count. The Linux card text changed to the shared
+  wording ("Apply cancelled; the running configuration stays active."). Left: (1) on a Linux desktop or under
+  `xvfb-run`: Apply with a broken `config.toml` shows the card, keeps the resident and logs `config.invalid`
+  (`xvfb-run` is not installed on the development machine, so this was not run); (2) the macOS and Windows CI
+  compile and pass. Then move this task to DONE.md.
 
 ### P1 — consistency, CI and the release pipeline
 
