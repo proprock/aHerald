@@ -22,12 +22,18 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 
 ### Fixed
+- A refused Apply (a configuration that cannot be loaded) says the same thing and is logged the same way
+  on Windows, macOS and Linux; Linux did not log it (see TODO.md, AH-233 for the checks still to run).
 - On macOS the idle resident keeps refreshing the tray when only Claude usage is enabled, as on Windows
   (see TODO.md, AH-232 for the check on a Mac).
 - `--install-hooks`, `--uninstall-hooks` and the statusLine commands now write to `CLAUDE_CONFIG_DIR` and
   `CODEX_HOME` when they are set, like `--setup`; they used the home directory only (AH-234).
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a
   test keeps it there (AH-236).
+
+### Added
+- A webhook that answers HTTP 429 or 503 with `Retry-After` is retried after that delay (at most 30
+  seconds) instead of the fixed two seconds (AH-245).
 
 ## [0.15.0] - 2026-11-05
 

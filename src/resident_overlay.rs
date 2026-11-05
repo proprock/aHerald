@@ -754,10 +754,10 @@ impl Ui {
             TEST_CONFIG | RESTART => {
                 // A replacement that cannot load its configuration would exit silently
                 // and leave no resident: validate first and keep this one running.
-                if let Err(error) = Config::load(&self.config_path, true) {
-                    self.log(crate::operational_log::Record::InvalidConfiguration);
+                if let Err(error) = crate::resident_request::apply_outcome(&self.config_path) {
                     self.notice = Some(crate::usage_service::UsageNotice::Text(format!(
-                        "aHerald\nApply cancelled; the running configuration stays active.\n{error}"
+                        "aHerald\n{}",
+                        error.message()
                     )));
                     if let Ok(mut state) = self.shared.lock() {
                         state.queue.show_usage();

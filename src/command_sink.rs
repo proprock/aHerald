@@ -11,8 +11,8 @@
 use crate::{
     http_common::Zero,
     https::Wiped,
-    sink::{Message, Sink},
-    webhook::{Escape, render},
+    sink::{Message, SendError, Sink},
+    template::{Escape, render},
 };
 use std::{
     io::{ErrorKind, Write},
@@ -78,7 +78,14 @@ impl Sink for CommandSink {
         "command"
     }
 
-    fn send(&mut self, message: &Message) -> Result<(), String> {
+    fn send(&mut self, message: &Message) -> Result<(), SendError> {
+        // A program has no server to ask for a delay: its failures carry a text only.
+        self.run(message).map_err(SendError::from)
+    }
+}
+
+impl CommandSink {
+    fn run(&mut self, message: &Message) -> Result<(), String> {
         let template = &self.template.0;
         let argv = Wiped(Rendered(
             template
@@ -235,11 +242,11 @@ mod tests {
     fn failures_say_how_the_command_ended_and_never_what_it_printed_or_its_arguments() {
         let mut missing = sink(&["/nonexistent/aherald-program", "TOP-SECRET"], None);
         assert_eq!(
-            missing.send(&message(None)).unwrap_err(),
+            missing.send(&message(None)).unwrap_err().message,
             "the program was not found"
         );
         let mut failing = sink(&["sh", "-c", "echo TOP-SECRET >&2; exit 7", "sh"], None);
-        let error = failing.send(&message(None)).unwrap_err();
+        let error = failing.send(&message(None)).unwrap_err().message;
         assert_eq!(error, "the command ended with exit status 7");
         assert!(!error.contains("SECRET"));
     }
@@ -249,7 +256,7 @@ mod tests {
         let mut slow =
             sink(&["sh", "-c", "sleep 30", "sh"], None).with_timeout(Duration::from_millis(300));
         let started = Instant::now();
-        let error = slow.send(&message(None)).unwrap_err();
+        let error = slow.send(&message(None)).unwrap_err().message;
         assert!(
             error.starts_with("the command did not finish within"),
             "{error}"

@@ -136,7 +136,9 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
   Pop-up (Windows, macOS and Linux). It switches all sinks off and on until you exit; the next start
   uses `forward.enabled`.
 - **Delivery:** each sink has its own worker, a queue of 32 messages (the oldest is dropped when
-  full) and three tries. A slow or unreachable messenger never delays cards, the tray or hooks. A
+  full) and three tries, two seconds apart; a webhook that answers HTTP 429 or 503 with a
+  `Retry-After` of whole seconds is retried after that delay instead (at most 30 seconds). A slow or
+  unreachable messenger never delays cards, the tray or hooks. A
   failure is shown as a card once for each distinct error, never with the token.
 
 #### Webhook sink

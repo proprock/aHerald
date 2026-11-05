@@ -351,12 +351,10 @@ fn present(
                         presenter.invalidate();
                     }
                     Command::Apply | Command::ApplyTest => {
-                        if let Err(error) =
-                            Config::load(config_path.expect("resident configuration path"), true)
-                        {
-                            crate::notice::post(&format!(
-                                "Apply cancelled; running configuration stays active. {error}"
-                            ));
+                        if let Err(error) = crate::resident_request::apply_outcome(
+                            config_path.expect("resident configuration path"),
+                        ) {
+                            crate::notice::post(&error.message());
                             eprintln!("aHerald: {error}");
                         } else {
                             let stop = stop.clone();

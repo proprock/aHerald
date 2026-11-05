@@ -29,6 +29,7 @@ pub mod sink;
 pub mod statusline;
 pub mod statusline_format;
 pub mod statusline_launch;
+pub mod template;
 pub(crate) mod time;
 pub mod usage;
 pub mod usage_service;
