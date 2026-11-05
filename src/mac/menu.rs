@@ -60,6 +60,7 @@ pub struct Item {
 /// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
 /// `messenger` is the state of the messenger switch, or `None` when no sink is configured (the
 /// item is then not listed), as on the Windows tray.
+#[allow(clippy::too_many_arguments)]
 pub fn items(
     sound: bool,
     visual: bool,
