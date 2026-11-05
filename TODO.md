@@ -783,7 +783,7 @@ guest) and a static binary `aherald-ping`. The host parses the raw hook payload 
 Out of scope: TLS, cloud sandboxes, relays, multi-user use, a daemon in the guest, Unix-socket
 bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first release.
 
-- [ ] **AH-223 — Spike: verify the assumptions behind the sandbox sender.**
+- [x] **AH-223 — Spike: verify the assumptions behind the sandbox sender.**
   Check, and write down in `docs/sandboxes.md` (or the task status): which build layouts the
   packaging scripts accept (`--workspace` use), whether the lib builds for musl, Codex's reply
   contract for an empty hook reply, and per environment (Docker Linux, Podman, Docker Sandboxes,
@@ -808,7 +808,7 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   Not done: musl build of the lib (target not installed here), per-environment reachability
   (needs the real environments), srt/nono/Codex-sandbox behaviour.
 
-- [ ] **AH-224 — Host listener for forwarded hook events.**
+- [x] **AH-224 — Host listener for forwarded hook events.**
   Depends on AH-223 (build facts only). `[remote]` config (`enabled = false`, `bind`), a
   generated token in a 0600 file in the data directory, `src/remote.rs` (std only): HTTP/1.1
   `POST /v1/hook?agent=claude|codex`, Bearer token compared in constant time, 64 KiB body limit,
@@ -834,7 +834,7 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   `Win32_Security_Cryptography` feature) were written but not compiled — the CI legs must build
   them; the real hook path under `xvfb` in CI; a guest on a real bridge (AH-223).
 
-- [ ] **AH-225 — Shell sender for guests.**
+- [x] **AH-225 — Shell sender for guests.**
   Depends on AH-224. A branch in `plugins/aherald/hooks/aherald-hook.sh` when `AHERALD_ENDPOINT`
   is set, plus a standalone `examples/sandbox/aherald-ping.sh`, and hook snippets for Claude and
   Codex that register only the five events. Always exits 0, bounded to about 1 s.
@@ -848,7 +848,7 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   that an explicit endpoint never runs the local program. Needs `curl` and `head -c` in the guest;
   the token is visible in the guest's process list while curl runs.
 
-- [ ] **AH-226 — `aherald-ping`, a static sender binary.**
+- [x] **AH-226 — `aherald-ping`, a static sender binary.**
   Depends on AH-224. Separate crate `crates/aherald-ping` in a new workspace (root package keeps
   its paths); std plus `serde_json`; a `[profile.ping]` with `panic = "abort"`. Accepts `--hook`,
   `--agent`, `--resident`, `--transient`, `--endpoint`, `--token-file`, `--self-test`; drops events
