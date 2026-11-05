@@ -41,6 +41,21 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   statusLine test is `cfg(not(windows))`; on Windows that command already used `setup::file_for`. Linux: ran
   locally; Windows and macOS: compiled/tested in CI only.
 
+- [x] **AH-248 — MSRV on every OS.**
+  The `msrv` job in `ci.yml` is a matrix over `needs.changes.outputs.os` (windows-latest, macos-15,
+  ubuntu-22.04, as the change selects them) and installs `libpulse0` on Linux; `cargo check --locked
+  --workspace` runs on the `rust-version` from `Cargo.toml`. PR #119 (run 42118227412): "MSRV build" passed
+  on all three legs and "CI gate" passed with it.
+
+- [x] **AH-251 — One skip list for noisy tests; release uses it.**
+  `.github/noisy-tests.txt` lists the four noisy tests, `.github/noisy-test-args.sh` turns the list into
+  `--skip` arguments (a missing list fails), `tests/ci_noisy_tests.sh` tests it (in the `changes` job), and the
+  `cargo test` step of `ci.yml` and the three test steps of `release.yml` read it; the nightly full run still
+  runs everything. The AH-221 note says the release skips the memory-growth check too. PR #119: the
+  Linux, macOS and Windows test steps each print `Skipping: ` with the four names and pass (Windows reports
+  one test filtered out, its native memory-growth test). Not yet seen: the release workflow's logs and a
+  nightly run; they are AH-280.
+
 - [x] **AH-246 — One source for harness labels and bridge lists.**
   `events::harness_label` takes the label from `Bridge::label` (plus Crush, which has no bridge file), so
   `HARNESS_LABELS` is gone. `Selection` maps a bridge to its field in one exhaustive `match`

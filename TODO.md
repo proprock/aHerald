@@ -490,13 +490,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   Acceptance: `tests/forward_webhook.rs` gets a fake-HTTP case with `Retry-After: 1` that is retried after ≥1 s;
   existing forward tests pass.
 
-- [ ] **AH-248 — MSRV on every OS (the CI check is left).**
-  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): the `msrv` job is a matrix over
-  `needs.changes.outputs.os` (windows-latest, macos-15, ubuntu-22.04 as the change selects them) and installs
-  `libpulse0` on Linux. Left: after the first CI run, confirm that "MSRV build" is green on all three legs
-  (a leg can fail for a real MSRV break on macOS or Linux that Windows never showed) and that "CI gate"
-  still waits for it. Then move this task to DONE.md.
-
 - [ ] **AH-249 — `[lints]` table.**
   Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
   `rust.unsafe_op_in_unsafe_fn = "warn"` and `clippy.undocumented_unsafe_blocks = "warn"`.
@@ -511,13 +504,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   sources; `multiple-versions = "warn"`). In `ci.yml`, replace `cargo audit` with a SHA-pinned
   `EmbarkStudios/cargo-deny-action` (`check advisories licenses bans sources`), run on `deps == 'true'` and in
   nightly. Acceptance: the job passes; a deliberately disallowed license in a scratch branch fails.
-
-- [ ] **AH-251 — One skip list for noisy tests; release uses it (the CI check is left).**
-  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): `.github/noisy-tests.txt` and
-  `.github/noisy-test-args.sh`, used by the `cargo test` step of `ci.yml` and the three test steps of
-  `release.yml`; the nightly full run still runs everything. Left: after the first CI run, confirm the
-  "Skipping: ..." line lists the four tests in the PR log, and that the next release candidate log shows the
-  same line on all three platforms (the Windows steps now use `shell: bash`). Then move this task to DONE.md.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.
@@ -539,6 +525,15 @@ P2 tasks run in the listed order; AH-266 goes last.
   (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
   error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
   runs in a row without these failures on a Linux runner. Not related to AH-243 or any change of that PR.
+
+- [ ] **AH-280 — Release-candidate checks left from AH-251 and AH-252.**
+  The pull request runs of AH-251 and AH-252 are verified (see DONE.md); what only a release or the nightly
+  run can show is left. On the next release candidate: the `Skipping: ...` line, with the four test names, in
+  the Windows, macOS and Linux test steps of `release.yml` (the Windows step now uses `shell: bash`), and the
+  `--version` build time of the same commit built twice (two release builds, or a rebuild of one tag) is
+  equal. On the next nightly run: the four noisy tests run and pass or fail on their own, not skipped.
+  Acceptance: the three logs, the two `--version` lines and the nightly log are recorded in DONE.md; a
+  difference opens a ticket.
 
 ### P2 — structural refactoring of the residents (in this order)
 
