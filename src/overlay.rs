@@ -1486,22 +1486,27 @@ mod card_tests {
             cycle();
             let _ = GdiFlush();
             // GdiFlush only drains this thread's GDI batch. Layered-window updates
-            // also enqueue compositor work; compare commit after that work completes.
+            // also enqueue compositor work; drain it before sampling resources.
             DwmFlush().ok().unwrap();
-            let before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+            let gdi = || GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+            let user = || GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+            let before_gdi = gdi();
+            let before_user = user();
             let mut handles = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut handles).unwrap();
-            let memory = || {
-                let mut info = APP_MEMORY_INFORMATION::default();
-                GetProcessInformation(
-                    GetCurrentProcess(),
-                    ProcessAppMemoryInfo,
-                    &mut info as *mut _ as *mut _,
-                    std::mem::size_of_val(&info) as u32,
-                )
-                .unwrap();
-                info.PrivateCommitUsage
-            };
+            // A retained surface must be visible to the detector. It owns a bitmap and DC.
+            let retained = Surface::allocate(320, 110).unwrap();
+            assert!(
+                gdi() >= before_gdi + 2,
+                "GDI counter missed a retained surface"
+            );
+            drop(retained);
+            let _ = GdiFlush();
+            assert_eq!(
+                gdi(),
+                before_gdi,
+                "control surface did not release its GDI objects"
+            );
             let threads = || {
                 use windows::Win32::System::Diagnostics::ToolHelp::*;
                 let snapshot =
@@ -1518,51 +1523,22 @@ mod card_tests {
                     Process32NextW(snapshot.0, &mut entry).unwrap();
                 }
             };
-            let before_memory = memory();
             let before_threads = threads();
-            eprintln!("resource cycle baseline: private_commit={before_memory}");
-            // Private commit is a sawtooth here: it climbs by 10-40 MiB while the compositor
-            // and the allocator warm up, and Windows trims it back at its own pace (CI traces
-            // peak at 69 MiB and end between 13 and 43 MiB from baselines of 16-32 MiB), so
-            // neither the end against the start nor two single samples are stable. The low
-            // point of each window is what stays committed: compare the lowest of the samples
-            // at cycles 50-100 with the lowest at 150-200. A leak raises every sample.
-            let mut early = usize::MAX;
-            let mut late = usize::MAX;
-            for cycle_index in 0..200 {
+            for _ in 0..200 {
                 cycle();
-                let done = cycle_index + 1;
-                if done % 25 == 0 {
-                    let _ = GdiFlush();
-                    let now = memory() as usize;
-                    eprintln!("resource cycle {done}: private_commit={now}");
-                    match done {
-                        50..=100 => early = early.min(now),
-                        150..=200 => late = late.min(now),
-                        _ => {}
-                    }
-                }
             }
             let _ = GdiFlush();
-            eprintln!(
-                "resource cycle before compositor flush: private_commit={}",
-                memory()
-            );
             DwmFlush().ok().unwrap();
-            assert_eq!(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), before);
+            assert_eq!(gdi(), before_gdi, "GDI objects leaked during card cycles");
+            assert_eq!(
+                user(),
+                before_user,
+                "USER objects leaked during card cycles"
+            );
             let mut after = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut after).unwrap();
             assert_eq!(after, handles);
             assert_eq!(threads(), before_threads);
-            let after_memory = memory();
-            eprintln!(
-                "resource cycle after compositor flush: private_commit={after_memory} (lowest at 50-100: {early}, at 150-200: {late}, baseline: {before_memory})"
-            );
-            // One leaked 320x110 surface per cycle would add about 14 MiB between the windows.
-            assert!(
-                late <= early + 8 * 1024 * 1024,
-                "private commit kept growing: lowest at cycles 50-100 was {early}, at 150-200 {late}, baseline {before_memory}"
-            );
         }
     }
     #[test]

@@ -82,13 +82,22 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
   (src/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
   (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
-  the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
-  it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
-  leak still shows within a day. Release still runs it. Work left: reproduce on Windows 11,
-  decide whether the growth is a real leak (GDI/heap) or allocator and runner noise, and make
-  the test deterministic (for example, count GDI and USER handles instead of private commit, or
-  widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
-  hosted runner, and the `--skip` is removed from ci.yml.
+  the code, and passed on the same diff and on master. Pull requests skip the test; nightly and
+  release runs include it.
+
+  Done: replaced the private-commit assertion with GDI and USER object counts; process handles
+  and threads are still checked. A retained surface is used as a positive control for GDI
+  detection. This detects native object leaks but does not detect arbitrary heap growth. On Linux,
+  `cargo fmt --all -- --check`, the nine `card_surface` unit tests, and the CI platform-flags
+  checks passed. The full `cargo test --locked --lib` run failed in audio and remote listener
+  tests; the Windows-only resource test was not run.
+
+  Still needed: run `cargo test --locked --workspace --all-targets` and
+  `cargo test --locked --workspace --doc` on the Windows computer, including repeated runs of
+  the resource test, and record the commands and results. Investigate the original private-commit
+  growth on Windows and decide whether separate heap-leak coverage is needed. Acceptance still
+  requires 20 consecutive passes on a hosted Windows runner and removing the test's `--skip`
+  from ci.yml; local Windows results alone do not establish hosted-runner stability.
 
 - [ ] **AH-102 — Native macOS installer and setup UI.**
   Uses the common native setup backend from AH-097. Deliver GUI app installation
