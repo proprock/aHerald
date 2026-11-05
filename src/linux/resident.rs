@@ -96,31 +96,35 @@ pub fn run_after_apply(
     let state = shared(&config);
     let stop = Arc::new(AtomicBool::new(false));
     let started = Instant::now();
+    // Whatever changes the state the loop reads signals this, so the loop can sleep until then.
+    let wake = Arc::new(pipe::StopEvent::new()?);
     crate::notice::install(crate::resident_request::notice_sink(
         state.clone(),
         config.clone(),
         started,
-        |_: &Shared| {},
+        {
+            let wake = wake.clone();
+            move |_: &Shared| wake.signal()
+        },
     ));
     crate::forward::start(&config.forward);
     let remote = crate::remote::start_if_enabled(
         &config,
         path,
-        crate::resident_request::remote_deliver(
-            state.clone(),
-            config.clone(),
-            started,
-            |_: &Shared| {},
-        ),
+        crate::resident_request::remote_deliver(state.clone(), config.clone(), started, {
+            let wake = wake.clone();
+            move |_: &Shared| wake.signal()
+        }),
     );
     let stop_event = Arc::new(pipe::StopEvent::new()?);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let listener = {
-        let (state, stop, stop_event, settings) = (
+        let (state, stop, stop_event, settings, wake) = (
             state.clone(),
             stop.clone(),
             stop_event.clone(),
             config.clone(),
+            wake.clone(),
         );
         let directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
         std::thread::spawn(move || {
@@ -149,6 +153,8 @@ pub fn run_after_apply(
                     if effects.quit {
                         stop.store(true, Ordering::Release);
                     }
+                    // A request may have queued a card, a warning or a stop.
+                    wake.signal();
                     diagnostics.record(&response, effects);
                     response
                 });
@@ -168,8 +174,11 @@ pub fn run_after_apply(
             window,
             config,
             state,
-            stop.clone(),
-            started,
+            Loop {
+                stop: stop.clone(),
+                start: started,
+                wake: wake.clone(),
+            },
             if test { Preview::Test } else { Preview::None },
             Some(path),
         ),
@@ -191,8 +200,7 @@ pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), Strin
         x11::Window::new()?,
         config,
         state,
-        Arc::new(AtomicBool::new(false)),
-        Instant::now(),
+        Loop::standalone()?,
         Preview::Demo(demo),
         Some(path),
     )
@@ -219,10 +227,49 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         window,
         config.clone(),
         state,
-        Arc::new(AtomicBool::new(false)),
-        Instant::now(),
+        Loop::standalone()?,
         Preview::None,
         None,
+    )
+}
+
+/// What the presentation loop shares with the threads around it.
+struct Loop {
+    /// Set to end the loop; whoever sets it also signals `wake`.
+    stop: Arc<AtomicBool>,
+    /// Zero of the loop's millisecond clock.
+    start: Instant,
+    /// Signalled when something the loop reads has changed; the loop sleeps until then.
+    wake: Arc<pipe::StopEvent>,
+}
+impl Loop {
+    /// For a loop nothing else talks to (the demo and a one-card notice).
+    fn standalone() -> Result<Self, String> {
+        Ok(Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            start: Instant::now(),
+            wake: Arc::new(pipe::StopEvent::new()?),
+        })
+    }
+}
+
+/// Ends one pass of the loop: waits for an X11 event, a signal from `wake`, or the timeout.
+fn block(
+    window: &x11::Window,
+    wake: &pipe::StopEvent,
+    stop: &AtomicBool,
+    busy: bool,
+    housekeeping: bool,
+) -> Result<(), String> {
+    // A stop already requested, or an event already read into the connection's buffer, must not
+    // wait for anything else to arrive.
+    if stop.load(Ordering::Acquire) || window.has_event()? {
+        return Ok(());
+    }
+    super::wake::wait(
+        wake,
+        window.descriptor(),
+        super::wake::timeout(busy, housekeeping),
     )
 }
 
@@ -236,11 +283,11 @@ fn present(
     window: x11::Window,
     config: Config,
     state: Arc<Mutex<Shared>>,
-    stop: Arc<AtomicBool>,
-    start: Instant,
+    run: Loop,
     preview: Preview,
     config_path: Option<&Path>,
 ) -> Result<(), String> {
+    let Loop { stop, start, wake } = run;
     let mut carousel =
         matches!(preview, Preview::Test).then(|| crate::demo::Carousel::new(&config));
     let mut demo = match preview {
@@ -250,8 +297,15 @@ fn present(
     let mut test_sound = None;
     let transient = config_path.is_none();
     let tray = config_path.map(|_| {
-        let tray =
-            super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false);
+        let tray = super::tray::Tray::start(
+            config.sounds.enabled,
+            config.notifications.enabled,
+            false,
+            {
+                let wake = wake.clone();
+                move || wake.signal()
+            },
+        );
         tray.set_messenger(crate::forward::enabled());
         tray
     });
@@ -270,6 +324,15 @@ fn present(
                 config.claude.usage.source,
             )
         });
+    // New usage numbers refresh the tray at once instead of at the next beat of the loop.
+    let usage_changed = Arc::new(AtomicBool::new(false));
+    for service in usage.iter().chain(claude.iter()) {
+        let (changed, wake) = (usage_changed.clone(), wake.clone());
+        service.on_change(move || {
+            changed.store(true, Ordering::Release);
+            wake.signal();
+        });
+    }
     let mut labels = if transient {
         crate::session_source::Service::transient_codex(config.codex.transient_names)
     } else if config.codex.usage.enabled {
@@ -298,7 +361,7 @@ fn present(
     let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
     while !stop.load(Ordering::Acquire) {
         let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        if now >= usage_update {
+        if now >= usage_update || usage_changed.swap(false, Ordering::AcqRel) {
             usage_update = now.saturating_add(1000);
             if let (Some(tray), Some(codex)) = (&tray, &usage) {
                 let display = config.codex.usage.display;
@@ -357,11 +420,14 @@ fn present(
                             crate::notice::post(&error.message());
                             eprintln!("aHerald: {error}");
                         } else {
-                            let stop = stop.clone();
+                            let (stop, wake) = (stop.clone(), wake.clone());
                             let test = command == Command::ApplyTest;
                             std::thread::spawn(move || {
                                 match crate::restart::launch_with_test(test) {
-                                    Ok(()) => stop.store(true, Ordering::Release),
+                                    Ok(()) => {
+                                        stop.store(true, Ordering::Release);
+                                        wake.signal();
+                                    }
                                     Err(error) => {
                                         crate::notice::post(&format!("Apply failed: {error}"));
                                         eprintln!("aHerald: {error}");
@@ -692,7 +758,7 @@ fn present(
                     key = None;
                     presenter.invalidate();
                 }
-                std::thread::sleep(Duration::from_millis(16));
+                block(&window, &wake, &stop, true, false)?;
                 continue;
             }
             usage_drawn = None;
@@ -831,7 +897,23 @@ fn present(
             layout = None;
             presenter.invalidate();
         }
-        std::thread::sleep(Duration::from_millis(16));
+        // A frame while something is shown or queued; otherwise until work arrives, with a slow
+        // beat only if usage polling or a session-warning deadline keeps the tray fresh.
+        let busy = displayed
+            || carousel.is_some()
+            || demo.is_some()
+            || !audio_jobs.is_empty()
+            || state
+                .lock()
+                .map_or(true, |guard| !guard.queue.items().is_empty());
+        let housekeeping = crate::resident_request::idle_poll_needed(
+            usage.is_some() && config.codex.usage.enabled,
+            claude.is_some(),
+            state
+                .lock()
+                .is_ok_and(|guard| guard.warnings.has_deadline()),
+        );
+        block(&window, &wake, &stop, busy, housekeeping)?;
     }
     audio_cancel.store(true, Ordering::Release);
     Ok(())

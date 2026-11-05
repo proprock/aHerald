@@ -447,23 +447,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P0 — defects and wrong statements
 
-- [ ] **AH-231 — Linux resident: no periodic wake-ups while idle.**
-  `src/linux/resident.rs:836` sleeps 16 ms on every pass even with nothing shown. Make the loop block
-  until there is work: an X11 event, an IPC/queue change, the next warning or usage deadline, or an animation
-  frame. Suggested approach: wait with `poll(2)` (libc is already a dependency) on the X connection fd
-  (`x11rb` `RustConnection` exposes it via `AsRawFd`) plus an `eventfd`/pipe that `Shared` writes to when
-  `Controls` changes state (mirror the macOS `Waker`, `mac/resident.rs:105-171`). The timeout is the
-  earliest warning deadline, 16 ms only while animating or displayed.
-  **Caution:** today the Linux tray picks up new usage snapshots only because of the 16 ms poll; the usage
-  services run on their own threads and the UI loop has no usage deadline. Wire `usage.on_change` and
-  `claude.on_change` (`src/usage_service.rs:821`) to the same eventfd, as Windows does at
-  `src/resident_overlay.rs:1298-1300`. Without this, blocking reproduces the macOS bug (AH-232) on Linux.
-  Acceptance: a new ignored-under-xvfb test like Windows `idle_resident_has_no_periodic_wakeups…`
-  (`src/resident.rs:538`) counts loop passes over 2 s idle (≤ 3); a test with a stub `UsageSource` shows a
-  changed snapshot reaching the tray levels within one wake-up; cards, the tray menu and warnings still work
-  (`xvfb-run … cargo test --test linux_apply -- --ignored --test-threads=1` and `--test remote_listener` pass).
-  Verifiable on Linux.
-
 - [ ] **AH-232 — macOS: Claude-only usage refreshes while idle (the Mac check and the subscription are left).**
   Shipped on `chore/AH-246-single-sources`: `resident_request::idle_poll_needed(codex_usage, claude_usage,
   has_deadline)` with a test of all eight combinations; the Windows timer and the macOS wait use it, so a
@@ -472,16 +455,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   update while idle (record the macOS version); (2) the better variant: subscribe the macOS resident to
   `usage.on_change` / `claude.on_change` with the existing `Waker` (as Windows does at
   `src/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
-
-- [ ] **AH-233 — Same Apply diagnostics on every OS (the xvfb check and the CI builds are left).**
-  Shipped on `chore/AH-233-shared-apply-and-templates`: `resident_request::apply_outcome(path)` and
-  `ApplyError` (`message()`, the load error in `Display`) decide, say and log (`config.invalid`, once, no
-  path or error text) a refused Apply; Windows, macOS and Linux call it; `tests/apply_outcome.rs` covers a valid,
-  a broken and a missing file, the exact message and the log count. The Linux card text changed to the shared
-  wording ("Apply cancelled; the running configuration stays active."). Left: (1) on a Linux desktop or under
-  `xvfb-run`: Apply with a broken `config.toml` shows the card, keeps the resident and logs `config.invalid`
-  (`xvfb-run` is not installed on the development machine, so this was not run); (2) the macOS and Windows CI
-  compile and pass. Then move this task to DONE.md.
 
 ### P1 — consistency, CI and the release pipeline
 
@@ -574,6 +547,14 @@ P2 tasks run in the listed order; AH-266 goes last.
   publishes all assets with a matching `SHA256SUMS`, and the tag points to the built commit; a second run
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
+
+- [ ] **AH-283 — Linux: a changed usage snapshot reaches the tray within one wake-up (test).**
+  Left from AH-231. `present` wires `Service::on_change` to the loop's wake signal and a flag that forces the
+  next tray refresh, but no test shows it. `present` builds the Codex and Claude services itself, so first let
+  a test inject them (a parameter or an `on_change`-capable stub `UsageSource`, as Windows does with
+  `run_with_usage`, `src/resident.rs`). Acceptance: with polling off and an idle loop, publishing a changed
+  snapshot updates the tray levels within 500 ms (xvfb or Xephyr test), and removing the `on_change` wiring
+  fails it.
 
 ### P2 — structural refactoring of the residents (in this order)
 

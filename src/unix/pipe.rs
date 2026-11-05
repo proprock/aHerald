@@ -162,10 +162,23 @@ impl StopEvent {
         // A full buffer already holds an unread wake-up, so a failed write loses nothing.
         let _ = (&self.wake).write(&[1]);
     }
+    /// The descriptor that becomes readable after `signal`, for `wait_readable`.
+    pub fn descriptor(&self) -> i32 {
+        self.sleep.as_raw_fd()
+    }
+    /// Forgets the signals so far, so the next wait blocks again. Call it after waking and before
+    /// looking at the state the signal announced: a signal sent meanwhile is then kept.
+    pub fn clear(&self) {
+        let mut buffer = [0u8; 64];
+        // The sleeping end is blocking; read only what `wait_readable` just reported as there.
+        while wait_readable(&[self.descriptor()], Some(Duration::ZERO)).is_ok_and(|ready| ready[0])
+            && (&self.sleep).read(&mut buffer).is_ok_and(|read| read > 0)
+        {}
+    }
 }
 
 /// Waits until `descriptors` become readable (`true` per entry) or the timeout passes.
-fn wait_readable(descriptors: &[i32], timeout: Option<Duration>) -> Result<Vec<bool>, String> {
+pub fn wait_readable(descriptors: &[i32], timeout: Option<Duration>) -> Result<Vec<bool>, String> {
     let mut polled: Vec<libc::pollfd> = descriptors
         .iter()
         .map(|&fd| libc::pollfd {

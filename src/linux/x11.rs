@@ -34,6 +34,8 @@ pub struct Window {
     window: u32,
     gc: u32,
     opacity: u32,
+    /// Events read from the socket while waiting for them, not yet handed to `poll`.
+    pending: std::cell::RefCell<std::collections::VecDeque<Event>>,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -233,6 +235,7 @@ impl Window {
             window,
             gc,
             opacity,
+            pending: Default::default(),
         })
     }
 
@@ -451,7 +454,30 @@ impl Window {
     }
 
     pub fn poll(&self) -> Result<Option<Event>, String> {
+        if let Some(event) = self.pending.borrow_mut().pop_front() {
+            return Ok(Some(event));
+        }
         self.connection.poll_for_event().map_err(err)
+    }
+
+    /// Whether `poll` has an event now. A reply that arrived while a request was answered may have
+    /// left events in the connection's buffer, where the socket no longer shows them as readable, so
+    /// call this before blocking on `descriptor`.
+    pub fn has_event(&self) -> Result<bool, String> {
+        if !self.pending.borrow().is_empty() {
+            return Ok(true);
+        }
+        let Some(event) = self.connection.poll_for_event().map_err(err)? else {
+            return Ok(false);
+        };
+        self.pending.borrow_mut().push_back(event);
+        Ok(true)
+    }
+
+    /// The socket to the X server, readable when more events arrive.
+    pub fn descriptor(&self) -> i32 {
+        use std::os::fd::AsRawFd;
+        self.connection.stream().as_raw_fd()
     }
 }
 
