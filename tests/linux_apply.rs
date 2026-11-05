@@ -486,6 +486,72 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
     }
 }
 
+/// How many times the kernel took the thread off the CPU because it waited. A loop that sleeps
+/// 16 ms per pass adds about 60 a second; one blocked on its descriptors adds none.
+fn voluntary_switches(pid: u32) -> u64 {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/status")).unwrap();
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("voluntary_ctxt_switches:"))
+        .and_then(|value| value.trim().parse().ok())
+        .expect("voluntary_ctxt_switches in the thread status")
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn linux_idle_resident_has_no_periodic_wakeups_and_still_shows_and_clears_a_card() {
+    // Usage polling is off in the fixture's configuration, so nothing may wake the idle loop.
+    let (conn, screen) = x11rb::connect(None).unwrap();
+    let root = conn.setup().roots[screen].root;
+    let f = Fixture::new("idle-wakeups");
+    f.valid(false);
+    let pid = f.start();
+    let mut win = 0;
+    f.wait(
+        || {
+            if let Some(w) = window(&conn, root) {
+                win = w;
+                true
+            } else {
+                false
+            }
+        },
+        "resident window",
+    );
+    // Startup settles, then two quiet seconds: a 16 ms sleep per pass would add about 120.
+    std::thread::sleep(Duration::from_millis(500));
+    let idle_switches = |seconds: u64| {
+        let before = voluntary_switches(pid);
+        std::thread::sleep(Duration::from_secs(seconds));
+        voluntary_switches(pid) - before
+    };
+    let quiet = idle_switches(2);
+    assert!(quiet <= 10, "an idle resident woke {quiet} times in 2 s");
+    // A card arrives while the loop is blocked: it must be drawn promptly.
+    let mut event = Event::demo("turn_complete").unwrap();
+    event.source = aherald::events::Source::CodexHook;
+    event.session_id = Some("idle-session".into());
+    assert!(matches!(
+        pipe::request(&f.scope, &Request::Event { event }, Duration::from_secs(1)).unwrap(),
+        Response::Accepted
+    ));
+    let sent = Instant::now();
+    f.wait(|| shown(&conn, win), "card drawn after the loop slept");
+    assert!(sent.elapsed() < Duration::from_secs(2), "card drawn late");
+    // Dismissing it hands control back to the tray-less idle state: the loop sleeps again.
+    click(&conn, root, win, 150, 70, 1);
+    f.wait(
+        || f.status().is_some_and(|(_, queued, _)| queued == 0) && !shown(&conn, win),
+        "card dismissed",
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    let after = idle_switches(2);
+    assert!(
+        after <= 10,
+        "the resident woke {after} times in 2 s after a card"
+    );
+}
+
 #[test]
 #[ignore = "requires an isolated X11 display and private D-Bus session"]
 fn linux_context_adapters_reach_cards_and_the_tray_switch() {

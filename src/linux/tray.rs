@@ -129,8 +129,11 @@ const MENU_ITEMS: [i32; 17] = [
 
 pub struct Menu {
     pub sender: Sender<Command>,
+    /// Called after each command is sent, so the resident's loop wakes to read it.
+    wake: Wake,
     state: SharedState,
 }
+type Wake = std::sync::Arc<dyn Fn() + Send + Sync>;
 fn label(value: &str) -> OwnedValue {
     OwnedValue::try_from(Value::from(value)).expect("string variant")
 }
@@ -266,6 +269,7 @@ impl Menu {
             _ => return,
         };
         let _ = self.sender.send(command);
+        (self.wake)();
     }
     fn about_to_show(&self, _id: i32) -> bool {
         true
@@ -280,7 +284,13 @@ pub struct Tray {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Tray {
-    pub fn start(sound: bool, visual: bool, paused: bool) -> Self {
+    /// `wake` runs after each menu command is queued in `commands`.
+    pub fn start(
+        sound: bool,
+        visual: bool,
+        paused: bool,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         let state = std::sync::Arc::new(std::sync::Mutex::new(TrayState {
             toggles: [sound, visual, paused, true, true],
             ..TrayState::default()
@@ -289,7 +299,7 @@ impl Tray {
         let (command_tx, commands) = std::sync::mpsc::channel();
         let (stop, stop_rx) = std::sync::mpsc::channel();
         let thread = std::thread::spawn(move || {
-            if let Err(error) = serve(command_tx, stop_rx, menu_state) {
+            if let Err(error) = serve(command_tx, std::sync::Arc::new(wake), stop_rx, menu_state) {
                 eprintln!("aHerald: tray unavailable: {error}");
             }
         });
@@ -336,6 +346,7 @@ impl Drop for Tray {
 }
 fn serve(
     sender: Sender<Command>,
+    wake: Wake,
     stop: std::sync::mpsc::Receiver<()>,
     state: SharedState,
 ) -> Result<(), String> {
@@ -352,6 +363,7 @@ fn serve(
             MENU_PATH,
             Menu {
                 sender,
+                wake,
                 state: state.clone(),
             },
         )
@@ -438,7 +450,11 @@ mod tests {
                 ..TrayState::default()
             }));
             let (sender, _receiver) = std::sync::mpsc::channel();
-            let menu = Menu { sender, state };
+            let menu = Menu {
+                sender,
+                wake: std::sync::Arc::new(|| {}),
+                state,
+            };
             let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
             children
                 .into_iter()
@@ -473,17 +489,27 @@ mod tests {
             );
         }
         let (sender, receiver) = std::sync::mpsc::channel();
+        let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = woken.clone();
         let menu = Menu {
             sender,
+            wake: Arc::new(move || {
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
             state: Arc::new(std::sync::Mutex::new(TrayState::default())),
         };
         menu.event(MESSENGER, "clicked", Value::from(0i32), 0);
         assert_eq!(receiver.try_recv().unwrap(), Command::Messenger);
+        // The resident's loop sleeps until woken, so a queued command must wake it, once.
+        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // An event that is not a command wakes nothing.
+        menu.event(2, "hovered", Value::from(0i32), 0);
+        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
     fn changing_the_messenger_switch_bumps_the_revision_once() {
-        let tray = Tray::start(true, true, false);
+        let tray = Tray::start(true, true, false, || {});
         let revision = || tray.state.lock().unwrap().revision;
         let before = revision();
         tray.set_messenger(Some(true));
@@ -504,7 +530,11 @@ mod tests {
         };
         let state = Arc::new(std::sync::Mutex::new(initial.clone()));
         let (sender, receiver) = std::sync::mpsc::channel();
-        let menu = Menu { sender, state };
+        let menu = Menu {
+            sender,
+            wake: std::sync::Arc::new(|| {}),
+            state,
+        };
         let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
         assert_eq!(children.len(), 16);
         assert_eq!(
@@ -552,6 +582,7 @@ mod tests {
         let (sender, _) = std::sync::mpsc::channel();
         let (_, (_, _, children)) = Menu {
             sender,
+            wake: Arc::new(|| {}),
             state: empty,
         }
         .get_layout(0, -1, vec![]);
@@ -620,7 +651,7 @@ mod tests {
 
     #[test]
     fn tray_state_tracks_warning_switches_without_spurious_revisions() {
-        let tray = Tray::start(true, true, false);
+        let tray = Tray::start(true, true, false, || {});
         tray.set_state(true, true, false, false, true);
         {
             let state = tray.state.lock().unwrap();
@@ -665,7 +696,7 @@ mod tests {
                 .unwrap()
         };
         let first = watcher();
-        let tray = Tray::start(true, true, false);
+        let tray = Tray::start(true, true, false, || {});
         wait_for(&count, 1);
         drop(first);
         std::thread::sleep(std::time::Duration::from_millis(1200));
