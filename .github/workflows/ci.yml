@@ -307,16 +307,23 @@ jobs:
 
       - uses: ./.github/actions/setup-rust
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
-      - name: Build the static sender
-        run: cargo build --locked --profile ping -p aherald-ping --target x86_64-unknown-linux-musl
+      # The same build and packaging steps as `package_ping` in release.yml, so a release does
+      # not meet them for the first time.
+      - name: Build both static senders
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+        run: |
+          cargo build --locked --profile ping -p aherald-ping --target x86_64-unknown-linux-musl
+          cargo build --locked --profile ping -p aherald-ping --target aarch64-unknown-linux-musl
 
-      - name: Package it and run it in a container
+      - name: Package them and run the x86_64 one in a container
         env:
           AHERALD_PING_STATIC: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/ping/aherald-ping
         run: |
           sh ./package-ping.sh x86_64
+          sh ./package-ping.sh aarch64
           cargo test --locked -p aherald-ping --test container -- --ignored
 
   # One required check for every job: it passes when each one succeeded or was skipped
