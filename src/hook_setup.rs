@@ -394,36 +394,9 @@ pub(crate) fn write_inner(
     text: &str,
     backup: bool,
 ) -> Result<(), String> {
-    let fail = |e: std::io::Error| format!("cannot write {}: {e}", file.display());
-    let target = if exists {
-        std::fs::canonicalize(file).map_err(fail)?
-    } else {
-        if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent).map_err(fail)?;
-        }
-        file.to_path_buf()
-    };
-    let name = target
-        .file_name()
-        .ok_or("the hook file has no name")?
-        .to_os_string();
-    let sibling = |suffix: String| {
-        let mut n = name.clone();
-        n.push(suffix);
-        target.with_file_name(n)
-    };
-    if exists && backup {
-        std::fs::copy(&target, sibling(".aherald-backup".into())).map_err(fail)?;
-    }
-    let temporary = sibling(format!(".aherald-{}.tmp", std::process::id()));
-    std::fs::write(&temporary, text).map_err(fail)?;
-    if exists && let Ok(meta) = std::fs::metadata(&target) {
-        let _ = std::fs::set_permissions(&temporary, meta.permissions());
-    }
-    std::fs::rename(&temporary, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&temporary);
-        fail(e)
-    })
+    // `exists` is what the caller read; a file that vanished since is simply created.
+    crate::atomic_file::write(file, text.as_bytes(), backup && exists)
+        .map_err(|e| format!("cannot write {}: {e}", file.display()))
 }
 
 #[cfg(test)]

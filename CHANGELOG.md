@@ -22,6 +22,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 
 ### Fixed
+- On macOS the idle resident keeps refreshing the tray when only Claude usage is enabled, as on Windows
+  (see TODO.md, AH-232 for the check on a Mac).
 - `--install-hooks`, `--uninstall-hooks` and the statusLine commands now write to `CLAUDE_CONFIG_DIR` and
   `CODEX_HOME` when they are set, like `--setup`; they used the home directory only (AH-234).
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a

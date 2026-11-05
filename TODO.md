@@ -483,13 +483,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-243 — One atomic file writer.**
-  Add `src/atomic_file.rs`: `write(path, bytes, backup: bool)` = sibling temp file, `sync_all`, optional
-  `.aherald-backup` copy, rename (Windows: `MoveFileExW` with `REPLACE_EXISTING|WRITE_THROUGH`). Use it in
-  `hook_setup::write_inner` (`hook_setup.rs:399-436`) and `setup::apply_change` (`setup.rs:584-586`). Keep
-  `default_config::create` as is (it is exclusive-create, a different contract) but reuse its temp-name code.
-  Acceptance: unit tests (new file, replace, backup content, temp cleaned up on error); the setup tests pass.
-
 - [ ] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
   Move `expand_env`, `render` and `Escape` (`webhook.rs:21-133`) to `src/template.rs`; `webhook.rs` and
   `command_sink.rs` import from it. In `sink.rs`, let `send` return an error with an optional retry delay; when
@@ -534,6 +527,18 @@ P2 tasks run in the listed order; AH-266 goes last.
   OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
   but move them to `examples/tools/` and update `[[example]]` paths.
   Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
+
+- [ ] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
+  Seen on 2026-11-05 on Linux, in full `cargo test --workspace --all-targets` runs and not in isolation:
+  `tests/plugin_hook_script.rs::linux_override_passes_payload_and_suppresses_a_failing_program` and
+  `::linux_portable_location_is_discovered` (the script's fake program never wrote its record file: the exec
+  of a just-written script probably failed silently, which the hook script is built to hide) once; and
+  `tests/setup.rs::a_transient_executable_write_handle_does_not_fail_fixture_launch` once. Each passed on an
+  immediate re-run (5 of 5, 25 of 25 in isolation); two other full runs were green. Likely cause: another
+  test thread forks while a test still holds the write handle of the program it is about to start
+  (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
+  error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
+  runs in a row without these failures on a Linux runner. Not related to AH-243 or any change of that PR.
 
 ### P2 — structural refactoring of the residents (in this order)
 

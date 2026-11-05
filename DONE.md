@@ -3,6 +3,22 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-243 — One atomic file writer.**
+  `src/atomic_file.rs`: `write(path, bytes, backup)` (sibling temporary file, `sync_all`, permissions of an
+  existing file kept, optional `.aherald-backup` copy, atomic replace; a symlink stays a symlink, missing
+  parents are created), `publish(temporary, path, replace)` (`rename` or an exclusive hard link on Unix;
+  `MoveFileExW` with `WRITE_THROUGH`, plus `REPLACE_EXISTING` when replacing, on Windows),
+  `temporary_sibling` and the `Temporary` guard. `hook_setup::write_inner` (hence `setup::apply_change` and the
+  rollback) uses `write`; `default_config::create` keeps its exclusive-create contract and now reuses
+  `temporary_sibling`, `Temporary` and `publish(.., false)` instead of its own copies. Unit tests: new file
+  with parents and nothing left behind, replace with backup content, a write without backup leaves the
+  earlier backup, a failed publish (a directory in the way) leaves the target and no temporary file,
+  exclusive publication never replaces an existing file, unique sibling names, and on Unix permissions and
+  symlinks. All were red against `unimplemented!()` stubs. `tests/hooks.rs`, `tests/setup.rs`,
+  `tests/setup_bridges.rs`, `tests/config.rs` and the `hook_setup` unit tests pass unchanged. Linux: ran
+  locally. The Windows branch of `publish` (one `unsafe` call, with its `SAFETY` comment, replacing the one in
+  `default_config.rs`) compiles only in the Windows CI: compiled/tested in CI only.
+
 - [x] **AH-238 — Help text lists every public flag.**
   `help()` moved from `src/lib.rs` to `src/cli.rs` (`aherald::cli::help`) as a `concat!` grouped into hooks
   and events, resident control, setup, usage and diagnostics, and configuration; every line is at most 100
