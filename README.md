@@ -37,9 +37,10 @@ and keeps a queue so nothing is lost while you are away.
   or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Agents in containers and VMs (opt-in):** an agent inside Docker, a VM or a sandbox cannot reach the
   local pipe, so aHerald can also take its turn-end and wait events over HTTP with a token
-  (`[remote]`, off by default). The guest sends with a small shell script or the static
-  `aherald-ping` binary (Linux, x86_64 and aarch64), which sends only what aHerald reads: no tool input, prompt
-  or full path. Recipes per environment: [sandboxes](docs/sandboxes.md).
+  (`[remote]`, off by default). The static `aherald-ping` binary (Linux, x86_64 and aarch64) sends only
+  what aHerald reads: no tool input, prompt or full path. The shell sender and the plugin launcher post the
+  whole hook payload over plain HTTP, including the command awaiting approval
+  ([privacy](docs/privacy.md)). Recipes per environment: [sandboxes](docs/sandboxes.md).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
   on Windows, on macOS when you opt in, and on Linux X11 for one-session terminals, cards are
   suppressed while that session is focused (see [limits](#limits)).

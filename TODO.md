@@ -1027,10 +1027,9 @@ P2 tasks run in the listed order; AH-266 goes last.
   `tests/unsupported_platform.rs` and `tests/config_portable.rs:37`.
   Acceptance: the tests pass; `aherald --help` is readable at 100 columns.
 
-- [ ] **AH-239 — README states exactly what each guest sender sends.**
-  `docs/privacy.md` (added on `docs/agents-release-privacy`) already states the difference.
-  README.md:39-41: say the same in one sentence: `aherald-ping` strips the payload to the fields aHerald reads,
-  while the shell sender and the plugin launcher post it whole over plain HTTP (docs/sandboxes.md:39,96). Add a
+- [ ] **AH-239 — The two shell guest senders stay identical.**
+  Done on `docs/agents-release-privacy` (2026-11-05): README.md and `docs/privacy.md` state that `aherald-ping`
+  strips the payload while the shell sender and the plugin launcher post it whole over plain HTTP. Left: add a
   test that `examples/sandbox/aherald-ping.sh` and the remote block of `plugins/aherald/hooks/aherald-hook.sh`
   stay identical: extract the lines between marker comments `# BEGIN remote` / `# END remote` and compare them
   in `tests/sandbox_sender.rs`. Acceptance: the test fails when one copy changes.
