@@ -244,6 +244,8 @@ On macOS, a spoken alert: `command = ["say", "{text}"]`.
 
 ### Agents in containers and virtual machines (AH-224)
 
+Per-environment recipes and the guest setup are in [sandboxes](sandboxes.md).
+
 An agent inside a container or VM cannot reach the resident's same-user pipe. With
 `[remote] enabled = true` (resident mode) aHerald also accepts the hook payload over HTTP:
 
