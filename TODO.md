@@ -277,6 +277,13 @@ and the acceptance evidence; reuse the Linux and Windows pieces rather than para
   aHerald records) and Wayland-under-XWayland limits; a terminal with tabs needs a way to prove the
   active tab (its tty). Same rule: suppress only on positive evidence of both, otherwise deliver; no
   new permission prompt. Agree on the design before implementation.
+  Status (branch `feature/AH-222-linux-focus`): implemented for X11 sessions (`src/linux/focus.rs`).
+  Window: the captured host window equals `_NET_ACTIVE_WINDOW`. Session: the owner's `comm` is a
+  one-session terminal (xterm, urxvt, rxvt, st, mlterm, aterm, eterm, alacritty) and it owns no other
+  window. Wayland sessions, tabbed terminals, tmux and errors deliver. Pure tests cover the rule; not
+  run against a live X server here (the session is Wayland, no Xvfb): acceptance on Xorg with xterm
+  and with a tabbed terminal is open. Konsole (D-Bus `currentSession`) and Kitty (remote control) could
+  later give the selected tab.
 
 - [ ] **AH-120 — Suppress notifications while the user watches the originating session (macOS).**
   Windows suppresses the card and the sound when the Claude session's classic console is

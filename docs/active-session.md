@@ -36,7 +36,9 @@ worker, dependency, desktop permission, transcript access or payload logging is 
 | Windows, Codex CLI/Desktop | Session ID alone does not identify the active client window/session; hooks may run under an app-server | Deliver; no private server started to observe another client |
 | macOS, Claude hook in Terminal.app or iTerm2, `[general] detect_terminal_tab = true` | The terminal application is in front (`NSRunningApplication.isActive`) and the selected tab's device, read with AppleScript (Automation access, asked by macOS), equals the device of the hook's session (`ps -o tty=` of the nearest ancestor that has one) | Suppression supported (AH-120) |
 | macOS, other terminals, Codex, the option off, Automation denied or slow (1.5 s) | No proof of the selected tab | Deliver |
-| Linux, both agents | Existing X11 capture can identify a host window, not its selected tab/session; no Wayland active-session adapter | Deliver |
+| Linux X11 session, Claude hook in xterm, urxvt, rxvt, st, mlterm, aterm, eterm or alacritty | The host window (captured from the hook's process ancestry) is the X server's `_NET_ACTIVE_WINDOW`, and its owner is a one-session terminal that owns no other window | Suppression supported (AH-222) |
+| Linux, tabbed terminals (GNOME Terminal, Konsole, Kitty, Tilix and others), tmux or screen, Codex, a second window of the same process | X11 cannot say which tab is selected; a multiplexer hides the terminal from the hook's ancestry | Deliver |
+| Linux, Wayland session (`XDG_SESSION_TYPE=wayland` or `WAYLAND_DISPLAY` set) | `_NET_ACTIVE_WINDOW` can name a stale XWayland window while a native window has the focus; no Wayland active-session adapter | Deliver |
 | Any source with missing/invalid window or session, subagent, demo, application notice or usage | Insufficient origin evidence or no originating agent session | Deliver according to existing output rules |
 
 Classic-console support assumes the hook belongs to the session using that console

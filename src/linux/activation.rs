@@ -21,7 +21,7 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-fn atom(connection: &RustConnection, name: &[u8]) -> Result<u32, String> {
+pub(super) fn atom(connection: &RustConnection, name: &[u8]) -> Result<u32, String> {
     connection
         .intern_atom(false, name)
         .map_err(|e| e.to_string())?
@@ -29,7 +29,12 @@ fn atom(connection: &RustConnection, name: &[u8]) -> Result<u32, String> {
         .map(|r| r.atom)
         .map_err(|e| e.to_string())
 }
-fn property(connection: &RustConnection, window: u32, name: &[u8], kind: AtomEnum) -> Option<u32> {
+pub(super) fn property(
+    connection: &RustConnection,
+    window: u32,
+    name: &[u8],
+    kind: AtomEnum,
+) -> Option<u32> {
     let atom = atom(connection, name).ok()?;
     connection
         .get_property(false, window, atom, kind, 0, 1)
@@ -62,7 +67,7 @@ fn ancestors(mut pid: u32) -> Vec<u32> {
     }
     out
 }
-fn same_user(pid: u32) -> bool {
+pub(super) fn same_user(pid: u32) -> bool {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     std::fs::metadata(format!("/proc/{pid}")).is_ok_and(|meta| meta.uid() == uid)
