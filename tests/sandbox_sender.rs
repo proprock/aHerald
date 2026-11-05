@@ -276,3 +276,22 @@ fn the_example_hook_files_register_only_turn_ends_and_waits() {
         assert_eq!(events, expected, "{file}");
     }
 }
+
+#[test]
+fn a_comma_decimal_locale_does_not_stop_the_senders() {
+    // curl rejects a fractional option value there; the scripts use whole seconds only.
+    for script in SCRIPTS {
+        let host = host();
+        let locale = Path::new("pl_PL.UTF-8");
+        let (output, _) = run(
+            script,
+            "claude",
+            STOP.as_bytes(),
+            Some(&host.endpoint),
+            Some(TOKEN),
+            &[("LC_ALL", locale)],
+        );
+        quiet(&output);
+        assert_eq!(host.seen.lock().unwrap().len(), 1, "{script}");
+    }
+}

@@ -70,7 +70,8 @@ policy comes from the vendor's documentation and was not run here.
 | Lima | `http://host.lima.internal:47821` | not run here |
 | coop (Trail of Bits), Firecracker | `http://172.16.0.1:47821`; the bridge exists only while a VM is up, so the listener retries its bind every 30 s | upstream docs |
 | coop, isolated mode | no network at all; only an `ssh -R` forward can work | not supported |
-| Anthropic `srt`, nono | depends on the sandbox's network and socket policy; allow the port | not run here |
+| Anthropic `srt` 0.0.81 (Linux) | the host must not be loopback (`localhost` and `127.0.0.1` fail), bind to a bridge or LAN address, add it to `network.allowedDomains`, and send with `aherald-ping.sh`: `curl` uses the proxy that `srt` sets. `aherald-ping` has no proxy support and cannot connect. | **verified** with `srt` 0.0.81 and curl 7.81; `srt` lists `172.16.0.0/12` in `no_proxy`, which curl 7.86 and later honour, so a newer curl may bypass the proxy and fail |
+| nono 0.81 (Linux, kernel 5.15, Landlock V1) | any reachable address, e.g. the bridge; no proxy needed | **verified**: `aherald-ping --self-test` passes; `--block-net` blocks it. Landlock V1 cannot filter TCP, so a per-port allow (`--allow-connect-port`) was not usable on this kernel (6.7+ has it) |
 
 Docker on Linux, end to end:
 

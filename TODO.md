@@ -789,6 +789,13 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   contract for an empty hook reply, and per environment (Docker Linux, Podman, Docker Sandboxes,
   Lima, coop, srt, nono) how a guest reaches the host. Unverified items stay marked as such.
   Acceptance: a table of verified, documented and unverified items with the command or URL.
+  Status 2 (Linux, one-off): verified Docker Engine (Alpine, bridge 172.17.0.1), bubblewrap (shared
+  network works, `--unshare-net` cannot connect), `srt` 0.0.81 (loopback fails; works with the curl
+  sender through its proxy for an allowed non-loopback address; `aherald-ping` has no proxy support)
+  and nono 0.81 (open network works, `--block-net` blocks; Landlock V1 here, no TCP filtering).
+  Kept as ignored tests in `crates/aherald-ping/tests/{container,sandbox_runtimes}.rs`. Found on the
+  way: curl rejects `--connect-timeout 0.5` under a comma-decimal locale, so the scripts now use
+  whole seconds. Still unverified: Podman, Docker Sandboxes, Lima, coop, Docker Desktop.
   Status (2026-11-05, local part done): verified here — CI and release use `cargo build --locked`,
   `cargo test --locked --all-targets` and `cargo test --locked --doc` with no `--workspace`, so a
   workspace would leave `aherald-ping` untested unless `-p aherald-ping` is added. A scratch
@@ -875,7 +882,7 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   link check, and a Linux CI job with a Docker container (non-required at first).
   Status: `package-ping.sh x86_64|aarch64` (static check: no INTERP, no NEEDED; names the file and its
   checksum), release job `package_ping` (rust-lld links both musl targets, no C cross toolchain;
-  attested; part of the draft's checksum check), and CI job `ping_container` (`continue-on-error`,
+  attested; part of the draft's checksum check), and CI job `ping_container` (nightly only, `continue-on-error`,
   not in the gate) running `crates/aherald-ping/tests/container.rs` (ignored by default) against a
   listener on the `docker0` bridge. Locally: both targets build and pass `package-ping.sh`; the
   container test passes with Alpine. The aarch64 binary was only built, never run (no emulator

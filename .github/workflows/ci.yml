@@ -284,12 +284,12 @@ jobs:
           sh ./package-deb.sh target/debug/aherald "v$version"
           sh ./tests/linux_deb_lifecycle.sh "dist/aherald-v$version-linux-x86_64-gnu.deb"
 
-  # The static sender in a real container (AH-228). Not part of the CI gate yet: it needs the
-  # Docker bridge of the runner, so it is watched for a while before it is required.
+  # The static sender in a real container (AH-228). An optional feature that needs the Docker
+  # bridge of the runner, so only the nightly run (full) executes it, and it is not in the gate.
   ping_container:
     name: aherald-ping in a container (ubuntu-22.04)
     needs: changes
-    if: needs.changes.outputs.linux == 'true'
+    if: inputs.full && needs.changes.outputs.linux == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     continue-on-error: true

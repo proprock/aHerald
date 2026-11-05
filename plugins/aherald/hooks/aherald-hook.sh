@@ -15,7 +15,7 @@ esac
 # explicit AHERALD_ENDPOINT selects it, so a host install is unchanged.
 if [ -n "${AHERALD_ENDPOINT:-}" ]; then
   if [ -n "${AHERALD_TOKEN:-}" ] && command -v curl >/dev/null 2>&1; then
-    response=$(head -c 65536 | curl --silent --fail --max-time 1 --connect-timeout 0.5 \
+    response=$(head -c 65536 | curl --silent --fail --max-time 1 --connect-timeout 1 \
       --request POST --header "Authorization: Bearer $AHERALD_TOKEN" --data-binary @- \
       "${AHERALD_ENDPOINT%/}/v1/hook?agent=$agent" 2>/dev/null) || response=
     if [ "$agent" = codex ] && [ "$response" = '{}' ]; then
