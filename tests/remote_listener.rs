@@ -26,11 +26,15 @@ impl Resident {
             eprintln!("skipped: no X display (run under xvfb-run)");
             return None;
         }
+        // A Unix socket path is limited to about 100 bytes and the macOS temporary directory is
+        // already around 50 of them, so this name stays short (the port is not part of it).
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let root = std::env::temp_dir().join(format!(
-            "aherald-remote-{}-{}",
+            "ahr-{}-{}",
             std::process::id(),
-            remote.unwrap_or(0)
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
+        let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("run")).unwrap();
         let mut text = String::from("[notifications]\nenabled=false\n[sounds]\nenabled=false\n");
         if let Some(port) = remote {
