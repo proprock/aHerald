@@ -707,6 +707,9 @@ impl Ui {
     fn command(&mut self, hwnd: HWND, command: usize) {
         use crate::tray::*;
         match command {
+            MESSENGER => {
+                crate::forward::toggle();
+            }
             SOUND | VISUAL | PAUSE | CONTEXT | IDLE => {
                 if let Ok(mut state) = self.shared.lock() {
                     let paused = state.paused;
@@ -874,6 +877,7 @@ unsafe fn tray_callback(w: &Window, hwnd: HWND, message: Deferred) {
             crate::tray::Menu::new(
                 ui.config.sounds.enabled,
                 ui.config.notifications.enabled,
+                crate::forward::enabled(),
                 ui.shared.lock().ok().is_some_and(|s| s.paused),
                 ui.shared
                     .lock()

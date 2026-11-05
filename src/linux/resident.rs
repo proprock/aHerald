@@ -102,6 +102,7 @@ pub fn run_after_apply(
         started,
         |_: &Shared| {},
     ));
+    crate::forward::start(&config.forward);
     let stop_event = Arc::new(pipe::StopEvent::new()?);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let listener = {
@@ -165,6 +166,7 @@ pub fn run_after_apply(
         Err(e) => Err(e),
     };
     crate::notice::clear();
+    crate::forward::stop();
     stop.store(true, Ordering::Release);
     stop_event.signal();
     let _ = listener.join();

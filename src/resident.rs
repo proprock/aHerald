@@ -145,6 +145,7 @@ fn run_with_usage_and_test(
         start,
         |state: &Shared| wake(state.window),
     ));
+    crate::forward::start(&config.forward);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let state = shared.clone();
     let shutdown = stop.clone();
@@ -217,6 +218,7 @@ fn run_with_usage_and_test(
         test,
     );
     crate::notice::clear();
+    crate::forward::stop();
     stop.store(true, Ordering::Release);
     stop_event.signal();
     let _ = listener.join();

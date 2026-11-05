@@ -17,10 +17,46 @@ pub fn get(
     get_at(true, host, 443, path, headers, timeout)
 }
 
+/// Blocking POST to `https://host/path` with `body`; `headers` as in `get`.
+pub fn post(
+    host: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    post_at(true, host, 443, path, headers, body, timeout)
+}
+
+/// `post` with an explicit scheme and port; plain HTTP exists only for loopback tests.
+pub fn post_at(
+    secure: bool,
+    host: &str,
+    port: u16,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    request_at(Some(body), secure, host, port, path, headers, timeout)
+}
+
 /// `get` with an explicit scheme and port; plain HTTP exists only so tests can use a
 /// loopback endpoint.
-#[cfg(not(feature = "https-client"))]
 pub fn get_at(
+    secure: bool,
+    host: &str,
+    port: u16,
+    path: &str,
+    headers: &str,
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    request_at(None, secure, host, port, path, headers, timeout)
+}
+
+#[cfg(not(feature = "https-client"))]
+fn request_at(
+    _body: Option<&[u8]>,
     _secure: bool,
     _host: &str,
     _port: u16,
@@ -31,10 +67,10 @@ pub fn get_at(
     Err(HttpError::Network)
 }
 
-/// `get` with an explicit scheme and port; plain HTTP exists only so tests can use a
-/// loopback endpoint.
+/// A GET when `body` is `None`, otherwise a POST of that body.
 #[cfg(feature = "https-client")]
-pub fn get_at(
+fn request_at(
+    body: Option<&[u8]>,
     secure: bool,
     host: &str,
     port: u16,
@@ -52,14 +88,31 @@ pub fn get_at(
         .build()
         .into();
     let scheme = if secure { "https" } else { "http" };
-    let mut request = agent.get(format!("{scheme}://{host}:{port}{path}"));
+    let url = format!("{scheme}://{host}:{port}{path}");
     // The lines may carry a credential, so the zeroing wrapper owns them while they are parsed.
     let headers = Wiped(headers.to_owned());
+    let mut lines = Vec::new();
     for line in headers.0.split("\r\n").filter(|line| !line.is_empty()) {
         let (name, value) = line.split_once(':').ok_or(HttpError::Network)?;
-        request = request.header(name.trim(), value.trim());
+        lines.push((name.trim(), value.trim()));
     }
-    let mut response = request.call().map_err(|_| HttpError::Network)?;
+    let sent = match body {
+        None => {
+            let mut request = agent.get(url);
+            for (name, value) in &lines {
+                request = request.header(*name, *value);
+            }
+            request.call()
+        }
+        Some(payload) => {
+            let mut request = agent.post(url);
+            for (name, value) in &lines {
+                request = request.header(*name, *value);
+            }
+            request.send(payload)
+        }
+    };
+    let mut response = sent.map_err(|_| HttpError::Network)?;
     let retry_after = response
         .headers()
         .get("retry-after")
@@ -67,20 +120,20 @@ pub fn get_at(
         .and_then(|value| value.trim().parse::<u32>().ok())
         .map(|seconds| Duration::from_secs(u64::from(seconds)));
     let status = response.status().as_u16();
-    let mut body = Vec::new();
+    let mut reply = Vec::new();
     // One byte past the limit tells an exact-size body from an oversized one.
     response
         .body_mut()
         .as_reader()
         .take(MAX_BODY as u64 + 1)
-        .read_to_end(&mut body)
+        .read_to_end(&mut reply)
         .map_err(|_| HttpError::Network)?;
-    if body.len() > MAX_BODY {
+    if reply.len() > MAX_BODY {
         return Err(HttpError::TooLarge);
     }
     Ok(Response {
         status,
-        body,
+        body: reply,
         retry_after,
     })
 }

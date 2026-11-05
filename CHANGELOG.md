@@ -10,6 +10,13 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- Opt-in messenger forwarding: `[forward]` and `[[forward.sinks]]` send each new card (kind,
+  harness and, only if allowed, the folder name) with a webhook POST, which serves Telegram, ntfy,
+  Slack and others. `${NAME}` in the `url` or `body` is replaced by an environment variable and
+  scrubbed from errors, so no secret lives in `config.toml`; `{text}`, `{kind}`, `{harness}` and
+  `{folder}` are filled at each send, escaped for JSON and form bodies. Failures show as one card
+  per distinct error. A **Messenger** switch in the Windows tray menu turns it on and off. The
+  macOS and Linux residents forward too, without the menu switch yet (AH-213).
 - Windows: `aherald-cli.exe`, a console companion beside `aherald.exe`. It starts `aherald.exe`
   with the same arguments and standard input, shows its output in PowerShell, cmd and Windows
   Terminal without `| Out-String`, and returns its exit code. Hooks still call `aherald.exe`

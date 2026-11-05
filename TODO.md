@@ -702,6 +702,30 @@ are deferred (AH-204, AH-205).
   redaction; a process test with a local fake Telegram server that sees exactly the allowed
   fields; a hung server leaves card delivery within its budget; by hand, one real bot on Windows 11
   and Linux.
+  Status (branch `feature/AH-213`): done and tested — POST in both HTTP layers, the sink contract,
+  worker, filter, retry, drop-oldest, error de-duplication, secret redaction, `[forward]`
+  configuration, the generic **webhook** sink (`${NAME}` environment secrets, `{text}` body
+  template, escaping by content type) tested against a fake server, and the Windows tray
+  **Messenger** switch (an agreed addition). Telegram is a documented webhook example, not a
+  separate sink (decided with the maintainer; `token_file` was dropped with it). Checked by hand
+  on Linux (2026-11-05, Ubuntu 22.04, real Telegram bot, `include_folder` on and off, package 0.12.0
+  resident). Left open: the by-hand check on Windows 11, and a compile and test run on macOS
+  (AH-219 for the macOS and Linux menus).
+  Not run here: `cargo check` for the macOS and Linux targets (no C cross toolchain).
+
+- [ ] **AH-219 — Messenger switch in the macOS and Linux tray menus (split from AH-213).**
+  Windows has a **Messenger** item beside Sound and Pop-up (`crate::forward::enabled`/`toggle`).
+  Add the same item to `src/mac/menu.rs` (`Command`, `items`, the AppKit handler) and to the
+  StatusNotifierItem menu in `src/linux/tray.rs`; both residents already start and stop the sinks.
+  Acceptance: the pure menu tests list the item only when a sink runs, in the Windows order;
+  checked by hand on macOS and a Linux desktop.
+
+- [ ] **AH-220 — Command sink (split from AH-213).**
+  The webhook sink is done under AH-213. What is left is a sink that runs a command as an argument
+  vector without a shell, with the same `${NAME}` and `{text}` placeholders, for services that have
+  a CLI rather than an HTTP endpoint. Reuses `forward::build` and the `Sink` contract.
+  Acceptance: a test with a recording command; no shell is involved; the message never reaches a
+  shell parser.
 
 ## Milestone 10 — Release trust (deferred)
 

@@ -102,6 +102,82 @@ The card shows elapsed time and that agent's limit, for example
 `Idle: 27m 30s (limit 25m)`. Both warning types keep the values measured when the
 warning was created; they do not advance while waiting in the notification queue.
 
+### Messenger forwarding (AH-213)
+
+A *sink* sends each card the queue accepted as new to a messenger, in addition to the card. The
+one sink type is `webhook`, an HTTP POST that serves Telegram, ntfy, Slack, Discord and anything
+else that takes a request. Nothing is sent unless you configure a sink.
+
+```toml
+[forward]
+enabled = true            # initial state of the tray "Messenger" switch
+
+[[forward.sinks]]
+type = "webhook"
+kinds = ["turn_complete", "permission_required", "input_required", "error"]  # the default
+include_folder = false    # the default; see below
+url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
+```
+
+- **What is sent:** a line such as `Claude: input required`, with the folder name in brackets only
+  when `include_folder = true`. Never a prompt, an assistant message, a path or a session name. The
+  folder name goes to a third party, which is why it is off by default.
+- **Secrets are never in `config.toml`.** Write `${NAME}` where a secret belongs; aHerald replaces
+  it with the environment variable `NAME` when it starts. A literal `token` key is refused at load
+  without being echoed. A missing or empty variable shows a card naming the variable, not its value.
+  A resident started from the Windows Run key or the installer sees only your *user* environment
+  variables, so set them with `setx` or in System Properties and restart aHerald.
+- **Filter:** `kinds` is independent of `notifications.suppress_when_focused`, which concerns the
+  screen in front of you. aHerald does not detect that you are away from the computer.
+- **Tray switch:** when a sink is configured, the tray menu has a **Messenger** item beside Sound and
+  Pop-up. It switches all sinks off and on until you exit; the next start uses `forward.enabled`.
+  (Windows only so far; AH-219 covers the macOS and Linux menus.)
+- **Delivery:** each sink has its own worker, a queue of 32 messages (the oldest is dropped when
+  full) and three tries. A slow or unreachable messenger never delays cards, the tray or hooks. A
+  failure is shown as a card once for each distinct error, never with the token.
+
+#### Webhook sink
+
+`type = "webhook"` POSTs a body template to a URL.
+
+**Telegram.** Create a bot with @BotFather and copy its token. Send the bot any message, then open
+`https://api.telegram.org/bot<token>/getUpdates` and read `message.chat.id` (a number; a group id
+is negative). Set the token in the user environment, then:
+
+```toml
+[[forward.sinks]]
+type = "webhook"
+kinds = ["permission_required", "input_required"]
+url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
+content_type = "application/json"
+body = '{"chat_id": "123456789", "text": "{text}"}'
+```
+
+**ntfy** needs no body or content type (the default is the plain message text):
+
+```toml
+[[forward.sinks]]
+type = "webhook"
+url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
+```
+
+- **`${NAME}`** (in `url` and `body`) is replaced when aHerald starts by the environment variable
+  `NAME`. Use it for every secret: the token, a secret topic, a webhook address. The value is
+  scrubbed from every error and card. A missing or empty variable shows a card naming the
+  variable. Put no secret literally in `url` or `body`: aHerald does not check for it.
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`** (in `body` only) are replaced at each send.
+  `{text}` is the message line, for example `Claude: input required`; `{folder}` is empty unless
+  `include_folder = true`. They are filled in one pass: a value that contains `{kind}` is not
+  expanded again, and other braces (JSON) stay as written.
+- **`content_type`** defaults to `text/plain; charset=utf-8` and also chooses how the values are
+  made safe, because a folder name can hold any character:
+  a JSON type (`application/json`, `…+json`) escapes them to sit inside a JSON string, so write your
+  own quotes around the placeholder (`"text": "{text}"`);
+  `application/x-www-form-urlencoded` percent-encodes them; any other type inserts them as written,
+  so do not use a JSON or form body with such a type.
+- `url` is `https://` (plain `http://` works but sends everything in the clear). A 2xx answer is a
+  success; anything else is an error card with the HTTP status.
+
 ### Claude status line text
 
 `[claude.statusline] format` is the text `aherald --statusline` prints when you have no status

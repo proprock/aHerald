@@ -1,6 +1,6 @@
 //! Behaviour of the bounded HTTPS GET on every platform, against a loopback HTTP endpoint.
 #![cfg(any(windows, feature = "https-client"))]
-use aherald::https::{HttpError, MAX_BODY, get_at};
+use aherald::https::{HttpError, MAX_BODY, get_at, post_at};
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -119,6 +119,113 @@ fn a_body_over_the_limit_is_refused() {
     let result = get_at(false, "127.0.0.1", port, "/", "", Duration::from_secs(2));
     server.join().unwrap();
     assert_eq!(result.err(), Some(HttpError::TooLarge));
+}
+
+/// Answers one request and returns everything the client sent, body included.
+fn serve_capturing(response: &'static str) -> (u16, std::thread::JoinHandle<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let thread = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let read = stream.read(&mut chunk).unwrap_or(0);
+            request.extend_from_slice(&chunk[..read]);
+            let text = String::from_utf8_lossy(&request).to_lowercase();
+            let complete = text.split_once("\r\n\r\n").is_some_and(|(head, body)| {
+                let length = head
+                    .split("content-length:")
+                    .nth(1)
+                    .and_then(|rest| rest.lines().next())
+                    .and_then(|value| value.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                body.len() >= length
+            });
+            if read == 0 || complete {
+                break;
+            }
+        }
+        stream.write_all(response.as_bytes()).unwrap();
+        request
+    });
+    (port, thread)
+}
+
+#[test]
+fn post_sends_the_method_the_headers_and_the_whole_body() {
+    let (port, server) =
+        serve_capturing("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    let response = post_at(
+        false,
+        "127.0.0.1",
+        port,
+        "/send",
+        "Content-Type: application/json\r\n",
+        br#"{"text":"done"}"#,
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    let request = String::from_utf8(server.join().unwrap()).unwrap();
+    assert_eq!(
+        (response.status, response.body.as_slice()),
+        (200, &b"ok"[..])
+    );
+    assert!(request.starts_with("POST /send HTTP/1.1\r\n"), "{request}");
+    assert!(
+        request
+            .to_lowercase()
+            .contains("content-type: application/json\r\n")
+    );
+    assert!(request.ends_with(r#"{"text":"done"}"#), "{request}");
+}
+
+#[test]
+fn post_does_not_follow_a_redirect() {
+    let (port, requests, server) = {
+        let (port, requests, server) = serve(vec![
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: /next\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .into(),
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+        ]);
+        (port, requests, server)
+    };
+    let response = post_at(
+        false,
+        "127.0.0.1",
+        port,
+        "/start",
+        "",
+        b"{}",
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    server.join().unwrap();
+    assert_eq!(response.status, 307);
+    assert_eq!(requests.load(Ordering::SeqCst), 1, "redirect was followed");
+}
+
+#[test]
+fn post_to_a_silent_server_ends_within_the_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let started = std::time::Instant::now();
+    let result = post_at(
+        false,
+        "127.0.0.1",
+        port,
+        "/",
+        "",
+        b"{}",
+        Duration::from_millis(500),
+    );
+    assert_eq!(result.err(), Some(HttpError::Network));
+    // WinHTTP applies the timeout per phase and retries, so only a loose bound holds here; the
+    // sink worker enforces the hard delivery budget itself.
+    assert!(started.elapsed() < Duration::from_secs(10));
 }
 
 #[test]

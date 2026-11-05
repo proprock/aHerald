@@ -30,6 +30,15 @@ pub fn post(message: &str) {
 /// again only when its text changes or after a success cleared it: one card, not a stream.
 /// `last` is the caller's memory of the error it already reported.
 pub fn report_changed(last: &mut Option<String>, result: Result<(), String>) {
+    report_changed_with(post, last, result);
+}
+
+/// `report_changed` with the card poster passed in, for a caller that owns its delivery.
+pub fn report_changed_with(
+    post: impl FnOnce(&str),
+    last: &mut Option<String>,
+    result: Result<(), String>,
+) {
     match result {
         Ok(()) => *last = None,
         Err(error) => {

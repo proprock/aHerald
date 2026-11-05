@@ -685,3 +685,83 @@ fn the_status_line_shows_the_context_used_and_the_quotas_remaining_unless_told_o
     assert_eq!((chosen.display_ctx, chosen.display_usage), (Remain, Used));
     assert!(Config::parse("[claude.statusline]\ndisplay_ctx = \"left\"\n", &dir).is_err());
 }
+
+#[test]
+fn forwarding_defaults_to_on_with_no_sinks() {
+    let config = Config::parse("", &PathBuf::from(".")).unwrap();
+    assert!(config.forward.enabled);
+    assert!(config.forward.sinks.is_empty());
+}
+
+#[test]
+fn the_kinds_and_the_folder_switch_are_configurable() {
+    let text = format!("{WEBHOOK}kinds = [\"error\"]\ninclude_folder = true\n");
+    let sink = &Config::parse(&text, &PathBuf::from("."))
+        .unwrap()
+        .forward
+        .sinks[0];
+    assert_eq!(sink.kinds, [Kind::Error]);
+    assert!(sink.include_folder);
+}
+
+#[rstest]
+#[case::literal_token("token = \"123456:LITERAL-SECRET\"\n")]
+#[case::unknown_kind("kinds = [\"turn_complet\"]\n")]
+fn an_unsafe_or_unknown_sink_setting_is_refused_without_echoing_the_value(#[case] extra: &str) {
+    let text = format!("{WEBHOOK}{extra}");
+    let error = Config::parse(&text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with("invalid configuration: forward.sinks"),
+        "{error}"
+    );
+    assert!(!error.contains("LITERAL-SECRET"), "{error}");
+}
+
+const WEBHOOK: &str =
+    "[[forward.sinks]]\ntype = \"webhook\"\nurl = \"https://api.example/bot${TOKEN}/send\"\n";
+
+#[test]
+fn a_webhook_sink_defaults_to_a_plain_text_body_of_the_message() {
+    let config = Config::parse(WEBHOOK, &PathBuf::from(".")).unwrap();
+    let sink = &config.forward.sinks[0];
+    assert_eq!(sink.url, "https://api.example/bot${TOKEN}/send");
+    assert_eq!(sink.body.as_deref(), None);
+    assert_eq!(sink.content_type.as_deref(), None);
+    assert_eq!(
+        sink.kinds,
+        [
+            Kind::TurnComplete,
+            Kind::PermissionRequired,
+            Kind::InputRequired,
+            Kind::Error
+        ]
+    );
+    assert!(!sink.include_folder);
+}
+
+#[test]
+fn a_webhook_sink_takes_a_body_and_a_content_type() {
+    let text = format!(
+        "{WEBHOOK}body = '{{\"text\": \"{{text}}\"}}'\ncontent_type = \"application/json\"\n"
+    );
+    let sink = &Config::parse(&text, &PathBuf::from("."))
+        .unwrap()
+        .forward
+        .sinks[0];
+    assert_eq!(sink.body.as_deref(), Some("{\"text\": \"{text}\"}"));
+    assert_eq!(sink.content_type.as_deref(), Some("application/json"));
+}
+
+#[rstest]
+#[case::no_url("[[forward.sinks]]\ntype = \"webhook\"\n")]
+#[case::unknown_type("[[forward.sinks]]\ntype = \"carrier-pigeon\"\nurl = \"https://h/\"\n")]
+#[case::removed_telegram_type(
+    "[[forward.sinks]]\ntype = \"telegram\"\ntoken_env = \"T\"\nchat_id_env = \"C\"\n"
+)]
+fn an_incomplete_or_unsupported_sink_is_refused(#[case] text: &str) {
+    let error = Config::parse(text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with("invalid configuration: forward.sinks"),
+        "{error}"
+    );
+}

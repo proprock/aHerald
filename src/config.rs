@@ -22,6 +22,67 @@ pub struct Config {
     pub pet_animations: PetAnimations,
     pub codex: Codex,
     pub claude: Claude,
+    pub forward: Forward,
+}
+
+/// `[forward]`: sending accepted cards to messengers; see `crate::sink`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Forward {
+    /// The initial state of the tray switch; configured sinks do nothing while it is off.
+    pub enabled: bool,
+    pub sinks: Vec<SinkConfig>,
+}
+impl Default for Forward {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sinks: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SinkType {
+    Webhook,
+}
+
+/// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration writes
+/// `${NAME}` in `url` or `body`, which names an environment variable, and an unknown `token` key
+/// is refused.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SinkConfig {
+    #[serde(rename = "type")]
+    pub kind: SinkType,
+    #[serde(default = "default_sink_kinds")]
+    pub kinds: Vec<Kind>,
+    /// The folder name goes to a third party, so it is sent only when asked for.
+    #[serde(default)]
+    pub include_folder: bool,
+    /// The address to POST to; `${NAME}` is replaced by an environment variable.
+    pub url: String,
+    /// The body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and `{folder}`
+    /// at each send. Default `{text}`.
+    pub body: Option<String>,
+    /// Default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
+    pub content_type: Option<String>,
+}
+fn default_sink_kinds() -> Vec<Kind> {
+    vec![
+        Kind::TurnComplete,
+        Kind::PermissionRequired,
+        Kind::InputRequired,
+        Kind::Error,
+    ]
+}
+/// An environment variable name: letters, digits and underscores.
+pub(crate) fn is_variable_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Per-kind event settings; every kind always has an entry, so indexing cannot fail.
@@ -95,6 +156,7 @@ impl Default for Config {
             pets: Pets::default(),
             pet_animations: PetAnimations::default(),
             events: Events::default(),
+            forward: Forward::default(),
         }
     }
 }

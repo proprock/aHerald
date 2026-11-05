@@ -19,7 +19,8 @@ and keeps a queue so nothing is lost while you are away.
 
 ## Features
 
-- **Codex and Claude Code** through their hooks, plus **OpenCode, Pi, Goose and Crush** through one
+- **[Codex](https://github.com/openai/codex) and [Claude Code](https://code.claude.com/docs)** through their hooks, plus **[OpenCode](https://opencode.ai), [Pi](https://pi.dev),
+  [Goose](https://github.com/aaif-goose/goose) and [Crush](https://github.com/charmbracelet/crush)** through one
   generic input, `aherald --notify` ([other harnesses](docs/harnesses.md)).
 - **Five signals:** turn complete, permission required, input required, error, interrupted. Waiting
   cards stay until you act; dismissing a card never answers the agent.
@@ -29,7 +30,12 @@ and keeps a queue so nothing is lost while you are away.
   frames and WAV sounds. Everything is external and replaceable; missing files fall back to text.
 - **Usage and warnings (opt-in):** Codex and Claude quota in the tray icon and a card, plus context-size
   and idle reminders per agent.
-- **Click to activate:** a click can bring the originating terminal or Claude Desktop session forward;
+- **Messenger forwarding (opt-in):** send each new card to [Telegram](https://telegram.org),
+  [ntfy](https://ntfy.sh), [Slack](https://slack.com), [Discord](https://discord.com) or any webhook as well, so you
+  hear about it away from the desk. Secrets come from environment variables, never from `config.toml`;
+  a message holds only the event and the harness (the folder name only if you allow it), never a prompt
+  or a path. The Windows tray has a switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
+- **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
   cards are suppressed while that session is focused.
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
@@ -41,7 +47,7 @@ and keeps a queue so nothing is lost while you are away.
 | OS | Get it |
 |---|---|
 | **Windows** | Per-user setup EXE (Codex / Claude Code checkboxes) or the portable ZIP from [Releases](https://github.com/proprock/aHerald/releases/latest) |
-| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald`, or the disk image (ad-hoc signed, see below) |
+| **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald` ([Homebrew](https://brew.sh)), or the disk image (ad-hoc signed, see below) |
 | **Linux** (x86-64, glibc) | `.deb` (`sudo apt install ./aherald-*.deb`) or the `.tar.gz` portable archive |
 
 The macOS app is ad-hoc signed, not notarized, so Gatekeeper blocks its first start. Either open it once
@@ -53,7 +59,7 @@ xattr -dr com.apple.quarantine /Applications/aHerald.app
 ```
 
 Every release file carries a `.sha256` and a signed build-provenance attestation from the release
-workflow. To check a download against it: `gh attestation verify <file> --repo proprock/aHerald`.
+workflow. To check a download against it: `gh attestation verify <file> --repo proprock/aHerald` (GitHub CLI).
 
 Then connect your agent. The program writes hook entries only when you ask, with a dry run first:
 
@@ -77,6 +83,26 @@ aherald --quit
 Settings live in `config.toml` beside the executable ([`config.example.toml`](config.example.toml) lists every
 option; see [configuration](docs/configuration.md)). Nothing is installed or started automatically.
 
+## Forward to a messenger
+
+Opt-in and silent until you configure a sink. Keep the secret in your *user* environment (for example
+`~/.config/environment.d/60-aherald.conf` on Linux, `setx` on Windows), never in `config.toml`:
+
+```toml
+[forward]
+enabled = true
+
+[[forward.sinks]]
+type = "webhook"
+include_folder = true     # optional: add the folder name, which then goes to the third party
+url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
+content_type = "application/json"
+body = '{"chat_id": "123456789", "text": "{text}"}'
+```
+
+A message reads `Claude: input required [my-project]`. The Telegram and ntfy examples, the
+placeholders and the delivery rules are in [configuration](docs/configuration.md#messenger-forwarding-ah-213).
+
 ## Support at a glance
 
 | Harness | Mechanism | Signals |
@@ -92,6 +118,8 @@ Coverage and what was verified live per version: [harness compatibility](docs/ha
 
 ## Limits
 
+- The **Messenger** tray switch exists on Windows only so far; on macOS and Linux forwarding follows
+  `forward.enabled` until you exit (AH-219).
 - Only sessions that report through a hook, bridge or `--notify` are visible; unrelated Codex CLI or app
   sessions are not observed.
 - Native Wayland is not available (XWayland is used). On GNOME the tray needs an AppIndicator extension.

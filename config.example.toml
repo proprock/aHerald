@@ -347,3 +347,20 @@ enabled = false
 refresh_interval_sec = 300
 # Compact tray percentage: "remain" (default) or "used".
 display = "remain"
+
+[forward]
+# Initial state of the tray "Messenger" switch; default true. Sinks send nothing while it is off.
+enabled = true
+# Send accepted cards to a messenger. The message names the event, the harness and, only with
+# include_folder, the folder name; never a prompt, an assistant message or a path.
+# Any HTTP service. ${NAME} is replaced at start by that environment variable: use it for every
+# secret and never write one here (a resident started from the Run key or the installer sees your
+# user environment only). {text}, {kind}, {harness}, {folder} are filled at each send.
+# See docs/configuration.md for Telegram and ntfy.
+# [[forward.sinks]]
+# type = "webhook"
+# kinds = ["turn_complete", "permission_required", "input_required", "error"]
+# include_folder = false
+# url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
+# content_type = "application/json"
+# body = '{"chat_id": "123456789", "text": "{text}"}'

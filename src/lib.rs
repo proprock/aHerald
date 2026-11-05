@@ -14,6 +14,7 @@ pub mod config;
 mod default_config;
 pub mod demo;
 pub mod focus;
+pub mod forward;
 mod http_common;
 #[cfg(windows)]
 pub mod https;
@@ -23,11 +24,13 @@ pub mod https;
 pub mod session_source;
 pub mod setup;
 pub mod setup_selection;
+pub mod sink;
 pub mod statusline;
 pub mod statusline_format;
 pub mod statusline_launch;
 pub mod usage;
 pub mod usage_service;
+pub mod webhook;
 #[cfg(unix)]
 #[path = "unix/zone.rs"]
 pub(crate) mod zone;
