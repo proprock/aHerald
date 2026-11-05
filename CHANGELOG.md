@@ -11,6 +11,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- The Linux resident no longer wakes 60 times a second while idle: the loop sleeps until an X11 event, a
+  request, a tray command or new usage numbers arrive (AH-231).
 - `aherald --help` is grouped by purpose and lists every public flag, including `--notify`, `--kind`,
   `--activity`, `--ended`, `--agent`, `--setup-window` and `--setup-executable` (AH-238).
 - Releases skip the same noisy timing and memory tests as pull requests; the nightly run keeps them
@@ -23,7 +25,7 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ### Fixed
 - A refused Apply (a configuration that cannot be loaded) says the same thing and is logged the same way
-  on Windows, macOS and Linux; Linux did not log it (see TODO.md, AH-233 for the checks still to run).
+  on Windows, macOS and Linux; Linux did not log it.
 - On macOS the idle resident keeps refreshing the tray when only Claude usage is enabled, as on Windows
   (see TODO.md, AH-232 for the check on a Mac).
 - `--install-hooks`, `--uninstall-hooks` and the statusLine commands now write to `CLAUDE_CONFIG_DIR` and

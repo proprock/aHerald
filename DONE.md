@@ -3,6 +3,38 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-231 — Linux resident: no periodic wake-ups while idle (one check is left, AH-283).**
+  The loop in `src/linux/resident.rs` no longer sleeps 16 ms per pass. `linux::wake::timeout(busy,
+  housekeeping)` gives a frame (16 ms) while something is shown, queued, animating or playing, the one-second
+  housekeeping beat while usage polling or a session-warning deadline needs it (the same
+  `resident_request::idle_poll_needed` as macOS and Windows), and otherwise no timeout. `linux::wake::wait`
+  polls the X connection (`x11::Window::descriptor`) and a `StopEvent` (`unix/pipe.rs` gained `descriptor`
+  and `clear`; `wait_readable` is public). Everything that changes what the loop reads signals it: the IPC
+  listener after each request (also a quit), the notice sink, the remote listener, each tray command
+  (`Tray::start` takes a `wake`), the Codex and Claude usage `on_change` callbacks (they also force the next
+  tray refresh), and the Apply thread after it sets the stop flag. `x11::Window::has_event` keeps events
+  that arrived with a reply, since the socket no longer shows them as readable. Tests: six unit tests of
+  timeout and wait (quiet wait lasts its timeout, a signal sent before or from another thread wakes at once,
+  1000 signals count once, readable X data wakes and is left unread), the tray test that a queued command wakes
+  the loop once and a hover does not, and the new ignored integration test
+  `linux_idle_resident_has_no_periodic_wakeups_and_still_shows_and_clears_a_card`: the resident's main
+  thread adds at most 10 voluntary context switches in 2 s idle (131 with the old 16 ms cadence, checked by
+  forcing the timeout to a frame), a card sent while the loop sleeps is drawn within 2 s, and after it is
+  dismissed the loop is idle again. Linux: fmt, clippy `-D warnings`, the full suite, `--doc`, all six
+  `linux_apply` tests and `remote_listener` ran locally on a nested X server (`Xephyr` under
+  `dbus-run-session`; `Xvfb` is not installed here). Windows and macOS: `src/unix/pipe.rs` also compiles on
+  macOS (two new `pub` methods, a now-public function), checked in CI only.
+
+- [x] **AH-233 — Same Apply diagnostics on every OS.**
+  `resident_request::apply_outcome(path)` and `ApplyError` decide, say and log (`config.invalid`, once, no path
+  or error text) a refused Apply; Windows, macOS and Linux call it; `tests/apply_outcome.rs` covers a valid, a
+  broken and a missing file, the exact message and the log count. The Linux card text changed to the shared
+  wording. Evidence: PR #121 CI green on Windows, macOS and Linux (builds and tests); the Linux resident's
+  Apply with a broken `config.toml` (`linux_apply_validates_replaces_and_controls_the_preview`, which writes
+  `[not valid`, presses Apply in the tray menu, and waits for the notice with the original PID still
+  running) passed locally on a nested X server (`Xephyr`, not `Xvfb`, which is not installed here) under
+  `dbus-run-session`, together with the other five `linux_apply` tests and `remote_listener`.
+
 - [x] **AH-249 — `[lints]` table (the Windows SAFETY comments are left).**
   `[workspace.lints]` in `Cargo.toml` with `rust.unsafe_op_in_unsafe_fn = "warn"` and
   `clippy.undocumented_unsafe_blocks = "warn"`; both crates have `[lints] workspace = true`. Findings per OS
