@@ -4,6 +4,7 @@
 //! A notice names the variable, never a value, so a misconfigured token cannot leak through a card
 //! or a log.
 use crate::{
+    command_sink::CommandSink,
     config::{Forward, SinkConfig, SinkType},
     events::Event,
     sink::{Dispatcher, Policy, Route, Sink},
@@ -37,6 +38,7 @@ pub fn build(forward: &Forward, env: impl Fn(&str) -> Option<String>) -> Built {
 fn route(sink: &SinkConfig, env: &impl Fn(&str) -> Option<String>) -> Result<Route, String> {
     let (sink_impl, secrets): (Box<dyn Sink>, Vec<String>) = match sink.kind {
         SinkType::Webhook => webhook(sink, env)?,
+        SinkType::Command => command(sink, env)?,
     };
     Ok(Route {
         sink: sink_impl,
@@ -50,7 +52,7 @@ fn webhook(
     sink: &SinkConfig,
     env: &impl Fn(&str) -> Option<String>,
 ) -> Result<(Box<dyn Sink>, Vec<String>), String> {
-    let (url, mut secrets) = expand_env(&sink.url, env)?;
+    let (url, mut secrets) = expand_env(sink.url.as_deref().unwrap_or_default(), env)?;
     let (body, more) = expand_env(sink.body.as_deref().unwrap_or("{text}"), env)?;
     secrets.extend(more);
     let content_type = sink
@@ -58,6 +60,28 @@ fn webhook(
         .clone()
         .unwrap_or_else(|| "text/plain; charset=utf-8".to_owned());
     Ok((Box::new(Webhook::new(&url, body, content_type)?), secrets))
+}
+
+fn command(
+    sink: &SinkConfig,
+    env: &impl Fn(&str) -> Option<String>,
+) -> Result<(Box<dyn Sink>, Vec<String>), String> {
+    let mut secrets = Vec::new();
+    let mut argv = Vec::new();
+    for argument in sink.command.as_deref().unwrap_or_default() {
+        let (argument, more) = expand_env(argument, env)?;
+        secrets.extend(more);
+        argv.push(argument);
+    }
+    let stdin = match &sink.stdin {
+        Some(template) => {
+            let (text, more) = expand_env(template, env)?;
+            secrets.extend(more);
+            Some(text)
+        }
+        None => None,
+    };
+    Ok((Box::new(CommandSink::new(argv, stdin)?), secrets))
 }
 
 /// The resident's running sinks. One process has one resident, so this is process state, like the
@@ -166,6 +190,23 @@ mod tests {
             assert!(notice.contains("user environment"), "{notice}");
             assert!(!notice.contains("secret-value"), "{notice}");
         }
+    }
+
+    const COMMAND: &str = "[[forward.sinks]]\ntype = \"command\"\ncommand = [\"mail\", \"--to\", \"${TO}\"]\nstdin = \"${PASS}: {text}\"\n";
+
+    #[test]
+    fn a_command_sink_expands_its_variables_in_the_arguments_and_stdin_and_scrubs_them() {
+        let built = build(
+            &forward(COMMAND),
+            env(&[("TO", "me@example.com"), ("PASS", "hunter2")]),
+        );
+        assert!(built.notices.is_empty(), "{:?}", built.notices);
+        assert_eq!(built.routes[0].sink.name(), "command");
+        assert_eq!(built.routes[0].secrets, ["me@example.com", "hunter2"]);
+        let missing = build(&forward(COMMAND), env(&[("PASS", "hunter2")]));
+        assert!(missing.routes.is_empty());
+        assert!(missing.notices[0].contains("TO"), "{:?}", missing.notices);
+        assert!(!missing.notices[0].contains("hunter2"));
     }
 
     #[test]

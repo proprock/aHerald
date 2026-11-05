@@ -730,6 +730,11 @@ are deferred (AH-204, AH-205).
   a CLI rather than an HTTP endpoint. Reuses `forward::build` and the `Sink` contract.
   Acceptance: a test with a recording command; no shell is involved; the message never reaches a
   shell parser.
+  Status (branch `feature/AH-220-command-sink`): implemented. `type = "command"` with `command`
+  (argument array) and optional `stdin`; `src/command_sink.rs`; a 10 s limit kills the command; the
+  error names the exit status only. Tests: a recording `sh` program (arguments, stdin, hostile folder
+  name runs nothing, exit status, timeout, secret scrubbed), config validation, build. Unix only: the
+  recording program is `sh`, so the Windows CI skips them; not run by hand with a real mailer.
 
 ## Milestone 10 — Release trust (deferred)
 

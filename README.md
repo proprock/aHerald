@@ -31,8 +31,8 @@ and keeps a queue so nothing is lost while you are away.
 - **Usage and warnings (opt-in):** Codex and Claude quota in the tray icon and a card, plus context-size
   and idle reminders per agent.
 - **Messenger forwarding (opt-in):** send each new card to [Telegram](https://telegram.org),
-  [ntfy](https://ntfy.sh), [Slack](https://slack.com), [Discord](https://discord.com) or any webhook as well, so you
-  hear about it away from the desk. Secrets come from environment variables, never from `config.toml`;
+  [ntfy](https://ntfy.sh), [Slack](https://slack.com), [Discord](https://discord.com) or any webhook, or run a
+  command (mail, Signal, `ssh`, `say`), as well, so you hear about it away from the desk. Secrets come from environment variables, never from `config.toml`;
   a message holds only the event and the harness (the folder name only if you allow it), never a prompt
   or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
@@ -102,6 +102,35 @@ body = '{"chat_id": "123456789", "text": "{text}"}'
 
 A message reads `Claude: input required [my-project]`. The Telegram and ntfy examples, the
 placeholders and the delivery rules are in [configuration](docs/configuration.md#messenger-forwarding-ah-213).
+
+### Or run a command
+
+For a service with a command line instead of an HTTP endpoint, a `command` sink runs a program for
+each message. The array is the program and its arguments; no shell reads it, so a folder name with
+spaces, quotes or `;` stays one argument and nothing runs. Typical uses:
+
+- **Mail** with [msmtp](https://marlam.de/msmtp/) or [mutt](http://www.mutt.org), the body on standard input.
+- **Signal** messages with [signal-cli](https://github.com/AsamK/signal-cli).
+- **A pop-up on another machine:** `notify-send` over `ssh`.
+- **A spoken alert** with `say` on macOS.
+
+```toml
+[[forward.sinks]]
+type = "command"
+kinds = ["permission_required", "input_required", "error"]
+command = ["msmtp", "-t"]
+stdin = "To: me@example.com\nSubject: aHerald\n\n{text}\n"
+```
+
+```toml
+[[forward.sinks]]
+type = "command"
+command = ["say", "{text}"]       # macOS; one more sink beside the mail one, each has its own filter
+```
+
+A failing command, a missing program or one that runs over 10 seconds becomes one error card with
+its exit status, never the program's output. Details, `${NAME}` secrets and the `ssh` caution:
+[configuration](docs/configuration.md#command-sink).
 
 ## Support at a glance
 

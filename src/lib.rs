@@ -10,6 +10,7 @@ pub mod card_surface;
 pub mod claude_usage;
 pub mod cli;
 mod codex_install;
+pub mod command_sink;
 pub mod config;
 mod default_config;
 pub mod demo;
