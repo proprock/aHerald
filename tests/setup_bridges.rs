@@ -176,6 +176,20 @@ fn deselecting_removes_only_that_bridge_and_unsetup_removes_the_rest() {
     // A setup naming no bridge leaves installed bridges alone.
     app.ok(&["--setup", "--harness", "claude", "--apply"]);
     assert!(app.pi().exists());
+    // ...unless it states that its selection is complete, as the installer pages do.
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--replace-bridges",
+        "--apply",
+    ]);
+    assert!(
+        !app.pi().exists(),
+        "an empty complete selection removes the bridge"
+    );
+    app.ok(&["--setup", "--harness", "pi", "--apply"]);
+    assert!(app.pi().exists());
     app.ok(&["--unsetup", "--apply"]);
     assert!(!app.pi().exists());
 }

@@ -59,7 +59,9 @@ aherald --unsetup --apply                                                # remov
   files already written.
 - Naming a bridge with `--harness` replaces the set of installed bridges (so naming only `pi`
   removes the OpenCode bridge); a setup that names none leaves installed bridges alone.
-  `--harness codex|claude` is unchanged.
+  `--harness codex|claude` is unchanged. `--replace-bridges` says the named bridges are the complete
+  set, empty when none is named; the Windows installer passes it so that a cleared box removes its
+  file.
 - The Windows installer, the macOS setup window and the Linux console setup list OpenCode, Pi and
   Goose beside Codex and Claude. They start unchecked on a first setup and show an installed bridge
   as checked, and what they apply is the complete selection: clearing a box removes that bridge

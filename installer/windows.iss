@@ -104,7 +104,7 @@ begin
   if WizardIsTaskSelected('pi') then Result := Result + ' --harness pi';
   if WizardIsTaskSelected('goose') then Result := Result + ' --harness goose';
   if Result = '' then Result := '--unsetup'
-  else Result := '--setup' + Result;
+  else Result := '--setup' + Result + ' --replace-bridges';
 end;
 
 function RunSetup(const Filename, Params: String): String;
