@@ -11,6 +11,9 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- Releases skip the same noisy timing and memory tests as pull requests; the nightly run keeps them
+  (see TODO.md, AH-251).
+- The minimum-compiler build runs on Windows, macOS and Linux, not only Windows (see TODO.md, AH-248).
 - CI and release builds fix the build time to the commit time, so two builds of one commit report the
   same time in `--version` and About (AH-252).
 - The About card, the Debian package and the crate describe aHerald as a companion for AI coding

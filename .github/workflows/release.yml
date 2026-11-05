@@ -79,8 +79,14 @@ jobs:
             throw "Tag $env:RELEASE_TAG does not match Cargo.toml version $version"
           }
 
+      # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
       - name: Test
-        run: cargo test --locked --workspace --all-targets
+        shell: bash
+        run: |
+          skips=$(sh .github/noisy-test-args.sh)
+          echo "Skipping: $skips"
+          # shellcheck disable=SC2086 # the names are plain identifiers
+          cargo test --locked --workspace --all-targets -- $skips
 
       - name: Test documentation examples
         run: cargo test --locked --workspace --doc
@@ -152,8 +158,14 @@ jobs:
           version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p for p in json.load(sys.stdin)["packages"] if p["name"] == "aherald")["version"])')"
           test "$RELEASE_TAG" = "v$version" || { echo "Tag $RELEASE_TAG does not match Cargo.toml version $version" >&2; exit 1; }
 
+      # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
       - name: Test
-        run: cargo test --locked --workspace --all-targets
+        shell: bash
+        run: |
+          skips=$(sh .github/noisy-test-args.sh)
+          echo "Skipping: $skips"
+          # shellcheck disable=SC2086 # the names are plain identifiers
+          cargo test --locked --workspace --all-targets -- $skips
 
       - name: Test documentation examples
         run: cargo test --locked --workspace --doc
@@ -208,7 +220,10 @@ jobs:
 
       - name: Test and build
         run: |
-          cargo test --locked --workspace --all-targets
+          skips=$(sh .github/noisy-test-args.sh)
+          echo "Skipping: $skips"
+          # shellcheck disable=SC2086 # the names are plain identifiers
+          cargo test --locked --workspace --all-targets -- $skips
           cargo test --locked --workspace --doc
           cargo build --locked --release
           python3 tests/console_setup_linux.py target/release/aherald

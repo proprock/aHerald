@@ -468,12 +468,24 @@ fn console_setup() -> Result<(), String> {
     let mut selection = defaults;
     selection.codex = choice("Configure Codex hooks?", defaults.codex)?;
     selection.claude = choice("Configure Claude Code hooks?", defaults.claude)?;
+    let names: Vec<&str> = aherald::bridge_setup::Bridge::ALL
+        .iter()
+        .map(|bridge| bridge.label())
+        .collect();
     println!(
-        "OpenCode, Pi and Goose use one small bridge file each. Choosing no is removing an installed one."
+        "{} use one small bridge file each. Choosing no is removing an installed one.",
+        match names.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            _ => names.join(""),
+        }
     );
-    selection.opencode = choice("Install the OpenCode bridge?", defaults.opencode)?;
-    selection.pi = choice("Install the Pi bridge?", defaults.pi)?;
-    selection.goose = choice("Install the Goose bridge?", defaults.goose)?;
+    for bridge in aherald::bridge_setup::Bridge::ALL {
+        let selected = choice(
+            &format!("Install the {} bridge?", bridge.label()),
+            defaults.bridge(bridge),
+        )?;
+        selection.set_bridge(bridge, selected);
+    }
     println!(
         "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
     );

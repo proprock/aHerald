@@ -24,7 +24,7 @@ impl Selection {
     /// Defaults from the saved receipt and the `--setup-settings` report.
     pub fn initial(previous: &[Agent], settings: &str) -> Self {
         let on = |key: &str| settings.lines().any(|line| line == format!("{key}=true"));
-        Self {
+        let mut selection = Self {
             codex: previous.contains(&Agent::Codex),
             claude: previous.contains(&Agent::Claude),
             codex_usage: on("codex_usage"),
@@ -33,22 +33,38 @@ impl Selection {
             claude_context: on("claude_context"),
             codex_idle: on("codex_idle"),
             claude_idle: on("claude_idle"),
-            opencode: on("opencode_bridge"),
-            pi: on("pi_bridge"),
-            goose: on("goose_bridge"),
+            ..Default::default()
+        };
+        for bridge in Bridge::ALL {
+            selection.set_bridge(bridge, on(&format!("{}_bridge", bridge.key())));
+        }
+        selection
+    }
+
+    /// Whether `bridge` is selected. The one place that maps a bridge to its field, so a new
+    /// `Bridge` variant fails to compile here until it has one.
+    pub fn bridge(&self, bridge: Bridge) -> bool {
+        match bridge {
+            Bridge::OpenCode => self.opencode,
+            Bridge::Pi => self.pi,
+            Bridge::Goose => self.goose,
+        }
+    }
+
+    pub fn set_bridge(&mut self, bridge: Bridge, selected: bool) {
+        match bridge {
+            Bridge::OpenCode => self.opencode = selected,
+            Bridge::Pi => self.pi = selected,
+            Bridge::Goose => self.goose = selected,
         }
     }
 
     /// Selected bridge files, in the order of the setup pages.
     pub fn bridges(&self) -> Vec<Bridge> {
-        [
-            (self.opencode, Bridge::OpenCode),
-            (self.pi, Bridge::Pi),
-            (self.goose, Bridge::Goose),
-        ]
-        .into_iter()
-        .filter_map(|(selected, bridge)| selected.then_some(bridge))
-        .collect()
+        Bridge::ALL
+            .into_iter()
+            .filter(|bridge| self.bridge(*bridge))
+            .collect()
     }
 
     /// Selected harnesses, Codex first.
@@ -197,5 +213,29 @@ mod tests {
         );
         let none = Selection::initial(&[], OFF);
         assert!(none.bridges().is_empty() && none.remove());
+    }
+
+    #[test]
+    fn every_bridge_can_be_selected_alone_and_read_back_from_the_report() {
+        for bridge in Bridge::ALL {
+            let mut selection = Selection::default();
+            assert!(!selection.bridge(bridge));
+            selection.set_bridge(bridge, true);
+            assert_eq!(selection.bridges(), vec![bridge], "{}", bridge.key());
+            selection.set_bridge(bridge, false);
+            assert!(selection.bridges().is_empty());
+
+            // The settings report names a bridge `<key>_bridge`.
+            let report = format!("{OFF}{}_bridge=true\n", bridge.key());
+            assert_eq!(Selection::initial(&[], &report).bridges(), vec![bridge]);
+        }
+        let everything: String = Bridge::ALL
+            .iter()
+            .map(|bridge| format!("{}_bridge=true\n", bridge.key()))
+            .collect();
+        assert_eq!(
+            Selection::initial(&[], &everything).bridges(),
+            Bridge::ALL.to_vec()
+        );
     }
 }

@@ -42,8 +42,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check the path classifier
-        run: sh tests/ci_platform_flags.sh
+      - name: Check the path classifier and the noisy-test list
+        run: |
+          sh tests/ci_platform_flags.sh
+          sh tests/ci_noisy_tests.sh
 
       # The checkout is the pull request merge commit, so diffing against the base branch
       # tip yields exactly the changes this pull request brings in; a diff needs only the
@@ -83,15 +85,27 @@ jobs:
 
   # The crate must keep building on the oldest compiler that Cargo.toml promises.
   msrv:
-    name: MSRV build
+    name: MSRV build (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: windows-latest
+    # The platforms the change affects, like the "quality" job: the per-OS crates (windows,
+    # objc2, x11rb, zbus) must also build on the declared minimum, not only on Windows (AH-248).
+    if: needs.changes.outputs.os != '[]'
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.os) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpulse0
 
       - name: Read rust-version from Cargo.toml
         id: msrv
@@ -192,18 +206,18 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       # Timing budgets and the native memory-growth check (AH-221) are noisy on a shared
-      # runner, so a pull request skips them; the nightly run keeps them. A renamed test only
-      # runs early again, never drops out of the nightly run.
+      # runner, so a pull request skips them; the nightly run keeps them. The list is
+      # .github/noisy-tests.txt, which the release workflow reads too (AH-251).
       - name: cargo test
         if: ${{ !inputs.full }}
+        shell: bash
         env:
           AHERALD_REQUIRE_NODE: ${{ runner.os == 'Linux' && '1' || '' }}
-        run: >-
-          cargo test --locked --workspace --all-targets --
-          --skip warmed_artwork_preparation_stays_inside_budget
-          --skip hot_paths_stay_inside_their_baseline_budgets
-          --skip the_wrapper_costs_little_beyond_starting_the_executable
-          --skip repeated_card_rendering_and_dpi_resize_release_native_resources
+        run: |
+          skips=$(sh .github/noisy-test-args.sh)
+          echo "Skipping: $skips"
+          # shellcheck disable=SC2086 # the names are plain identifiers
+          cargo test --locked --workspace --all-targets -- $skips
 
       - name: cargo test (including the noisy checks)
         if: ${{ inputs.full }}

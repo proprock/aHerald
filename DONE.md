@@ -3,6 +3,19 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-246 — One source for harness labels and bridge lists.**
+  `events::harness_label` takes the label from `Bridge::label` (plus Crush, which has no bridge file), so
+  `HARNESS_LABELS` is gone. `Selection` maps a bridge to its field in one exhaustive `match`
+  (`bridge`, `set_bridge`); `initial`, `bridges` and the Linux console prompts (`main.rs`, including the
+  "OpenCode, Pi and Goose use ..." line) iterate `Bridge::ALL`. `tests/installer_bridges.rs` fails when
+  `installer/windows.iss` lacks a task, the `--harness <key>` argument or the `<key>_bridge` report line for
+  a bridge (mutation check: deleting the Goose report line fails it; reverted). The Inno Setup script and the
+  macOS setup window are left as they were, by the task: `src/mac/setup_window.rs` still names the three
+  fields and its own arrays, so a new `Bridge` variant fails to compile in `setup_selection.rs`, in the label
+  and bridge tables, and in the installer test, but not in the macOS window. Red: `Selection::bridge` and
+  `set_bridge` did not exist. `tests/console_setup_linux.py` passes with the new prompts. Linux: ran locally.
+  Windows and macOS: compiled in CI only (no `cfg(windows)` or `src/mac/` code touched).
+
 - [x] **AH-237 — Bridge contract tests cannot skip silently in CI.**
   `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs` panic when Node 22+ is missing (checked locally with an
   empty `PATH`: panics with the variable, skips without it). The Linux leg of `quality` installs Node 22 with

@@ -86,7 +86,7 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
   the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
   it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
-  leak still shows within a day. Release still runs it. Work left: reproduce on Windows 11,
+  leak still shows within a day. The release skips it too (AH-251); only the nightly run keeps it. Work left: reproduce on Windows 11,
   decide whether the growth is a real leak (GDI/heap) or allocator and runner noise, and make
   the test deterministic (for example, count GDI and USER handles instead of private commit, or
   widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
@@ -514,16 +514,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   Acceptance: `tests/forward_webhook.rs` gets a fake-HTTP case with `Retry-After: 1` that is retried after ≥1 s;
   existing forward tests pass.
 
-- [ ] **AH-246 — One source for harness labels and bridge lists.**
-  `events.rs:124-129` (`HARNESS_LABELS`) must take labels from `Bridge::label` (plus Crush). `setup_selection.rs`
-  and the Linux console prompts (`main.rs:472-476`) iterate `Bridge::ALL` instead of naming fields. Leave the
-  Windows `.iss` and the macOS window as they are, but add a test that `installer/windows.iss` mentions every
-  `Bridge::key()`. Acceptance: adding a variant to `Bridge` fails a test until the installer is updated.
-
-- [ ] **AH-248 — MSRV on every OS.**
-  Turn the `msrv` job (`ci.yml:85-109`) into a matrix `[windows-latest, macos-15, ubuntu-22.04]` gated by
-  `needs.changes.outputs.os`; on Linux install `libpulse0`. Keep `cargo check --locked --workspace`.
-  Acceptance: the job is green on all three; `ci-gate` still needs it.
+- [ ] **AH-248 — MSRV on every OS (the CI check is left).**
+  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): the `msrv` job is a matrix over
+  `needs.changes.outputs.os` (windows-latest, macos-15, ubuntu-22.04 as the change selects them) and installs
+  `libpulse0` on Linux. Left: after the first CI run, confirm that "MSRV build" is green on all three legs
+  (a leg can fail for a real MSRV break on macOS or Linux that Windows never showed) and that "CI gate"
+  still waits for it. Then move this task to DONE.md.
 
 - [ ] **AH-249 — `[lints]` table.**
   Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
@@ -540,12 +536,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   `EmbarkStudios/cargo-deny-action` (`check advisories licenses bans sources`), run on `deps == 'true'` and in
   nightly. Acceptance: the job passes; a deliberately disallowed license in a scratch branch fails.
 
-- [ ] **AH-251 — One skip list for noisy tests; release uses it.**
-  Decided 2026-11-05: this replaces the AH-221 verdict ("Release still runs it"); the nightly run keeps
-  the noisy checks. Move the four `--skip` names from `ci.yml:189-196` to `.github/noisy-tests.txt` (one per line), read by a
-  small step that builds the arguments. Use the same list in the three test steps of `release.yml`. Update
-  AH-221's note in TODO.md (the release no longer runs the memory-growth check; nightly does). Acceptance: PR and
-  release logs show the same skips; the nightly run still runs them.
+- [ ] **AH-251 — One skip list for noisy tests; release uses it (the CI check is left).**
+  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): `.github/noisy-tests.txt` and
+  `.github/noisy-test-args.sh`, used by the `cargo test` step of `ci.yml` and the three test steps of
+  `release.yml`; the nightly full run still runs everything. Left: after the first CI run, confirm the
+  "Skipping: ..." line lists the four tests in the PR log, and that the next release candidate log shows the
+  same line on all three platforms (the Windows steps now use `shell: bash`). Then move this task to DONE.md.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.

@@ -120,18 +120,14 @@ impl Source {
         }
     }
 }
-/// Display names of the harnesses aHerald knows; any other key is drawn as it is.
-const HARNESS_LABELS: [(&str, &str); 4] = [
-    ("opencode", "OpenCode"),
-    ("pi", "Pi"),
-    ("goose", "Goose"),
-    ("crush", "Crush"),
-];
+/// Display name of a harness: the one its bridge gives it, Crush (no bridge file; set up by hand),
+/// or any other key as it is.
 fn harness_label(key: &str) -> &str {
-    HARNESS_LABELS
-        .iter()
-        .find(|(known, _)| *known == key)
-        .map_or(key, |(_, label)| *label)
+    match crate::bridge_setup::Bridge::from_name(key) {
+        Some(bridge) => bridge.label(),
+        None if key == "crush" => "Crush",
+        None => key,
+    }
 }
 /// Keys that other parts of aHerald already use: the two hook-based agents, internal card
 /// sources and the reserved words of the `[pets]` tables.
@@ -464,6 +460,16 @@ pub fn hook_error_code(error: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_harness_is_drawn_by_the_name_its_bridge_gives_it() {
+        for bridge in crate::bridge_setup::Bridge::ALL {
+            assert_eq!(harness_label(bridge.key()), bridge.label());
+        }
+        // Crush has no bridge file (it is set up by hand) but its events arrive by name.
+        assert_eq!(harness_label("crush"), "Crush");
+        assert_eq!(harness_label("unknown-harness"), "unknown-harness");
+    }
+
     use super::*;
 
     #[test]
