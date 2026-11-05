@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-05
+
 ### Added
 - `[remote]`: an opt-in listener (off by default) that takes hook events from agents in containers
   and virtual machines over HTTP with a token, and `aherald --remote-info` to print the endpoint and
