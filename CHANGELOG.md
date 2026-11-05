@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-05
+
 ### Added
 - The Windows installer, the macOS setup window and the Linux console setup now offer the OpenCode,
   Pi and Goose bridge files beside Codex and Claude Code. They start unchecked, show an installed

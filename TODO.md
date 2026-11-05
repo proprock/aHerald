@@ -270,6 +270,14 @@ and the acceptance evidence; reuse the Linux and Windows pieces rather than para
   before each run, record macOS and harness versions and commands, and update docs and the
   verification matrix. Extends AH-104 (live checks on macOS); depends on AH-118.
 
+- [ ] **AH-222 — Suppress notifications while the user watches the originating session (Linux X11).**
+  Windows (AH-098) and macOS (AH-120) suppress the card and the sound on positive evidence of both
+  the window and the session; on Linux `focus::observe` reports "unknown", so everything is
+  delivered. Evaluate X11 (`_NET_ACTIVE_WINDOW` and the window's PID against the terminal process
+  aHerald records) and Wayland-under-XWayland limits; a terminal with tabs needs a way to prove the
+  active tab (its tty). Same rule: suppress only on positive evidence of both, otherwise deliver; no
+  new permission prompt. Agree on the design before implementation.
+
 - [ ] **AH-120 — Suppress notifications while the user watches the originating session (macOS).**
   Windows suppresses the card and the sound when the Claude session's classic console is
   focused (AH-098, `src/focus.rs`); on other systems `focus::observe` reports "unknown" and
