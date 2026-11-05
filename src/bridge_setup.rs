@@ -84,7 +84,7 @@ impl Bridge {
             }
             Self::Goose => {
                 let mut value: Value = serde_json::from_str(GOOSE).unwrap_or_default();
-                let quoted = format!("'{}'", exe.replace('\'', "'\\''"));
+                let quoted = crate::quote::posix(&exe);
                 stamp(&mut value, &quoted);
                 serde_json::to_string_pretty(&value).unwrap_or_default() + "\n"
             }

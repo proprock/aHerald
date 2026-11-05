@@ -3,6 +3,69 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-237 — Bridge contract tests cannot skip silently in CI.**
+  `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs` panic when Node 22+ is missing (checked locally with an
+  empty `PATH`: panics with the variable, skips without it). The Linux leg of `quality` installs Node 22 with
+  a SHA-pinned `actions/setup-node` (v7.1.0) and sets the variable on both `cargo test` steps. PR #118: the
+  `ubuntu-22.04` log shows `test bridges_turn_harness_events_into_bounded_aherald_calls ... ok`; "Lint
+  workflows" (actionlint 1.7.12, zizmor 1.32.0) passes. Linux: ran locally and in CI.
+
+- [x] **AH-252 — Reproducible build stamp.**
+  `.github/actions/setup-rust` exports `SOURCE_DATE_EPOCH` from `git log -1 --format=%ct` (checked to be an
+  integer; the one `GITHUB_ENV` write carries a `zizmor: ignore[github-env]` with the reason), so every CI and
+  release job gets it; `build.rs` explains why. PR #118: the step ran and the build steps show the same
+  `SOURCE_DATE_EPOCH` in the `ubuntu-22.04` log. Locally two builds with one epoch print the same `--version`
+  line (minute resolution). Not done: comparing the `--version` of two real release builds of one commit; the
+  next release candidate shows it.
+
+- [x] **AH-244 — One civil-date implementation.**
+  `src/time.rs` holds `days_from_civil` and `civil_from_days`; `operational_log::format_timestamp` and
+  `claude_usage::iso_to_unix` use them instead of two copies of Hinnant's algorithm. New table tests (epoch,
+  1969-12-31, 2000 and 2024 leap days, 2100-02-28 and 2100-03-01, 1900-03-01, 2026-11-05), the century rule
+  and a round trip over every day from 1800 to 2200. Expected day numbers were checked against Python's
+  `datetime`; the existing log and usage tests pass unchanged. Linux: ran locally.
+
+- [x] **AH-242 — Shared quoting helpers.**
+  `src/quote.rs` has `posix` and `powershell`; the eight copies in `hook_setup.rs` (including its private
+  `quote`), `setup.rs` and `bridge_setup.rs` use them. Tests: spaces, quotes, `$`, backtick, backslash,
+  newline, empty string, and on Unix every posix word is run through `sh -c printf %s` and must come back
+  unchanged. `tests/hooks.rs`, `tests/setup.rs` and `tests/setup_bridges.rs` pass unchanged. The three
+  `cfg(windows)` call sites (`setup.rs`: Codex `commandWindows` and the encoded statusLine command) compile
+  only on Windows: PR #118 "Build and test (windows-latest)" and macOS passed (compiled/tested in CI only).
+  Linux: ran locally.
+
+- [x] **AH-236 — Claude plugin version follows the crate.**
+  `plugins/aherald/.claude-plugin/plugin.json` said 0.1.0 while the crate is 0.15.0. Set to the crate version;
+  `tests/workspace.rs::the_claude_plugin_has_the_version_of_aherald` asserts equality with
+  `CARGO_PKG_VERSION`. Red: left `0.1.0`, right `0.15.0`; green after the edit. `RELEASE.md` step 3 already
+  lists the file, so a release bump keeps it in step; the one-time edit outside `RELEASE.md` was approved by
+  the owner (2026-11-05). Branch `chore/AH-236-contract-tests`. Linux: ran locally.
+
+- [x] **AH-239 — The two shell guest senders stay identical.**
+  README.md and `docs/privacy.md` state what each sender posts (earlier, `docs/agents-release-privacy`).
+  Now `# BEGIN remote` / `# END remote` mark the curl post and the Codex acknowledgement in
+  `examples/sandbox/aherald-ping.sh` and `plugins/aherald/hooks/aherald-hook.sh`, and
+  `tests/sandbox_sender.rs::the_remote_block_is_the_same_in_both_shell_senders` compares the two blocks
+  without indentation (the plugin nests its copy in a branch). Red: no marker found; green after the markers.
+  The guards around the block differ by design (the launcher also runs local programs), so they stay
+  outside it. Linux: ran locally.
+
+- [x] **AH-256 — Default config parity test.**
+  `tests/config.rs::the_example_configuration_equals_the_built_in_defaults` parses `config.example.toml` and
+  compares the whole `Config` with the defaults through `Debug` text (no `PartialEq` added to some 25 nested
+  types). The only intended difference is the card colour of five events, which the example spells out and
+  the program resolves through `Config::event_color`; the test checks this against that function. Mutation
+  check: changing `Remote::default().bind` fails the test (reverted). Linux: ran locally.
+
+- [x] **AH-247 — Contract test between aherald-ping and the main hook parser.**
+  `aherald_ping::wanted` is `#[doc(hidden)] pub`; `crates/aherald-ping/tests/parser_contract.rs` asserts it
+  agrees with `Agent::{Claude,Codex}.parse_hook` over every event name either side knows (Claude: 14 names
+  and the notification types; Codex: 9 names; the recorded `tests/fixtures/*.json` hook payloads). The host
+  accepts `UserPromptSubmit`, `PreToolUse` and `PostToolUse` as activity evidence while a guest never
+  forwards them; they are the listed exception and a test pins that they really parse as activity.
+  `SessionEnd` is forwarded by the sender (the host uses it as evidence), unlike the task text assumed.
+  Mutation check: removing `SessionEnd` from the Claude arm fails the test (reverted). Linux: ran locally.
+
 - [x] **AH-271 — Split the remaining partly shipped tasks (follow-up of AH-241).**
   `CHANGELOG.md` cites nine IDs that are still open in TODO.md because their manual or live checks are
   outstanding: AH-093, AH-102, AH-103, AH-115, AH-117, AH-118, AH-120, AH-211, AH-222. For each, move the

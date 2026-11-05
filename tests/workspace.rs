@@ -33,3 +33,13 @@ fn the_packaging_scripts_still_read_the_program_version_first() {
         .unwrap();
     assert!(first.contains(env!("CARGO_PKG_VERSION")), "{first}");
 }
+
+#[test]
+fn the_claude_plugin_has_the_version_of_aherald() {
+    let text = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins/aherald/.claude-plugin/plugin.json"),
+    )
+    .unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+}

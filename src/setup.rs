@@ -471,8 +471,8 @@ fn codex_handler(exe: &Path) -> Value {
         let mut value = value;
         // Codex selects PowerShell on Windows (pwsh, then inbox PowerShell).
         // Call within that shell; do not start a second PowerShell process.
-        let exe = exe.display().to_string().replace('\'', "''");
-        value["commandWindows"] = format!("& '{exe}' --hook --resident | Out-String").into();
+        let exe = crate::quote::powershell(&exe.display().to_string());
+        value["commandWindows"] = format!("& {exe} --hook --resident | Out-String").into();
         value
     }
     #[cfg(not(windows))]
@@ -929,7 +929,7 @@ fn statusline_command(
         let base = hook_setup::statusline_command(exe);
         Ok((
             match original {
-                Some(command) => format!("{base} --then '{}'", command.replace('\'', "'\\''")),
+                Some(command) => format!("{base} --then {}", crate::quote::posix(command)),
                 None => base,
             },
             None,
@@ -958,9 +958,9 @@ fn encoded_statusline_command(exe: &Path, original: Option<&str>) -> String {
         // Process.Start initializes a text writer even though we use its byte stream.
         // Use BOM-free input encoding so that initialization cannot prefix the payload.
         let script = format!(
-            "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Diagnostics.ProcessStartInfo]::new(); $s.FileName='{}'; $s.Arguments='{}'; $s.UseShellExecute=$false; $s.CreateNoWindow=$true; $s.RedirectStandardInput=$true; $s.RedirectStandardOutput=$true; $p=[Diagnostics.Process]::Start($s); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.BaseStream.Close(); $p.StandardOutput.BaseStream.CopyTo([Console]::OpenStandardOutput()); $p.WaitForExit(); exit $p.ExitCode",
-            exe.display().to_string().replace('\'', "''"),
-            format!("--statusline{then}").replace('\'', "''")
+            "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); $s=[Diagnostics.ProcessStartInfo]::new(); $s.FileName={}; $s.Arguments={}; $s.UseShellExecute=$false; $s.CreateNoWindow=$true; $s.RedirectStandardInput=$true; $s.RedirectStandardOutput=$true; $p=[Diagnostics.Process]::Start($s); [Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream); $p.StandardInput.BaseStream.Close(); $p.StandardOutput.BaseStream.CopyTo([Console]::OpenStandardOutput()); $p.WaitForExit(); exit $p.ExitCode",
+            crate::quote::powershell(&exe.display().to_string()),
+            crate::quote::powershell(&format!("--statusline{then}"))
         );
         format!(
             "powershell.exe -NoProfile -NonInteractive -Command \"& ([scriptblock]::Create({})); # aherald --statusline\"",

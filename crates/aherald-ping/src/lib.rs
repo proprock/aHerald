@@ -71,8 +71,10 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String>
 }
 
 /// Whether the host takes this event; everything else (tool and prompt activity, subagents,
-/// idle reminders) never leaves the guest.
-fn wanted(agent: Agent, value: &Value) -> bool {
+/// idle reminders) never leaves the guest. Public only so that `tests/parser_contract.rs` can hold
+/// it to what the host's hook parser accepts.
+#[doc(hidden)]
+pub fn wanted(agent: Agent, value: &Value) -> bool {
     let name = value.get("hook_event_name").and_then(Value::as_str);
     match (agent, name) {
         (Agent::Claude, Some("Stop" | "StopFailure" | "PermissionRequest" | "SessionEnd")) => true,

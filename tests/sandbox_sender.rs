@@ -295,3 +295,37 @@ fn a_comma_decimal_locale_does_not_stop_the_senders() {
         assert_eq!(host.seen.lock().unwrap().len(), 1, "{script}");
     }
 }
+
+/// The lines between `# BEGIN remote` and `# END remote`, without indentation: the plugin launcher
+/// nests the block in a branch, the standalone sender does not.
+fn remote_block(script: &str) -> Vec<String> {
+    let text = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(script)).unwrap();
+    let mut lines = text.lines().map(str::trim);
+    assert!(
+        lines.by_ref().any(|line| line == "# BEGIN remote"),
+        "{script} has no `# BEGIN remote` marker"
+    );
+    let block: Vec<String> = lines
+        .by_ref()
+        .take_while(|line| *line != "# END remote")
+        .map(str::to_owned)
+        .collect();
+    assert!(
+        lines.all(|line| line != "# BEGIN remote"),
+        "{script} has more than one remote block"
+    );
+    assert!(!block.is_empty(), "{script} has an empty remote block");
+    block
+}
+
+#[test]
+fn the_remote_block_is_the_same_in_both_shell_senders() {
+    let [standalone, plugin] = SCRIPTS.map(remote_block);
+    assert_eq!(standalone, plugin);
+    // The shared block is the post itself, so a changed endpoint, header or timeout shows up here.
+    assert!(
+        standalone
+            .iter()
+            .any(|line| line.contains("/v1/hook?agent="))
+    );
+}
