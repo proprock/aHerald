@@ -105,7 +105,9 @@ impl Fixture {
         }
     }
     fn track(&self, pid: u32) {
-        // pidfd refers to this exact process even if a PID is subsequently reused.
+        // A pidfd refers to this exact process even if its PID is later reused.
+        // SAFETY: pidfd_open takes two integers and returns a new descriptor or -1; it reads no
+        // memory of ours.
         let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
         if raw < 0 {
             let _ = pipe::request(&self.scope, &Request::Quit, Duration::from_millis(300));
@@ -308,6 +310,7 @@ fn bounded_cleanup_terminates_the_owned_hung_process() {
     // SAFETY: pidfd_open returns a new descriptor for the owned child.
     let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, hung.0.id(), 0) } as i32;
     assert!(raw >= 0);
+    // SAFETY: `raw` is the new descriptor pidfd_open returned (checked above); nothing else owns it.
     let pidfd = unsafe { OwnedFd::from_raw_fd(raw) };
     assert!(!wait_for_exit(&pidfd, Duration::from_millis(20)));
     assert!(stop_owned(&pidfd, Duration::from_millis(20)));
@@ -634,6 +637,7 @@ fn fixture_panic_cleans_its_resident_without_stopping_another() {
     // SAFETY: pidfd_open returns a new descriptor for the known test resident.
     let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, failed_pid, 0) } as i32;
     assert!(raw >= 0);
+    // SAFETY: `raw` is the new descriptor pidfd_open returned (checked above); nothing else owns it.
     let pidfd = unsafe { OwnedFd::from_raw_fd(raw) };
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
         let _fixture = failed;

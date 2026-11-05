@@ -117,6 +117,8 @@ mod tests {
         // SAFETY: `file` owns a live descriptor; OwnedFd owns and closes the new copy.
         let leaked = unsafe { libc::dup(file.as_raw_fd()) };
         assert!(leaked > 2);
+        // SAFETY: `leaked` is the descriptor `dup` just returned (checked above to be a new
+        // one above stderr); nothing else owns it, so OwnedFd may close it.
         let leaked = unsafe { OwnedFd::from_raw_fd(leaked) };
         let path = format!("/dev/fd/{}", leaked.as_raw_fd());
         let args = [OsStr::new(&path)];
