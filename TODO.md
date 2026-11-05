@@ -887,3 +887,17 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   listener on the `docker0` bridge. Locally: both targets build and pass `package-ping.sh`; the
   container test passes with Alpine. The aarch64 binary was only built, never run (no emulator
   here); the release and CI jobs themselves have not run on GitHub.
+
+- [ ] **AH-229 — `aherald-ping --proxy <URL>` for guests that only reach the host through an HTTP proxy.**
+  Priority: low. Today only the shell sender works under `srt` (it reaches the host through the
+  proxy that `srt` sets for `curl`); the static `aherald-ping` cannot connect there. Add an explicit
+  `--proxy URL` flag (and `AHERALD_PROXY`), never read from `http_proxy`/`no_proxy`: `srt` lists the
+  Docker/LAN ranges in `no_proxy` as CIDR, which newer curl treats as "direct" and breaks, so guessing
+  from the environment is unreliable. With a proxy set: connect to it, send the request in absolute
+  form (`POST http://host:port/v1/hook?agent=...`), send `Proxy-Authorization: Basic` from the URL's
+  `user:pass@` (hand-written base64, no dependency), keep the same one-second deadline and the
+  silent exit 0. Estimate: 60 to 90 lines plus 60 to 80 lines of tests, a few KB of binary size.
+  Acceptance: unit tests with a fake proxy (absolute-form request, credentials, refused proxy,
+  hung proxy under 3 s, no proxy means unchanged behaviour); `tests/sandbox_runtimes.rs` srt test
+  also passes the static sender; `docs/sandboxes.md` srt row says to use `--proxy`. Only `srt`
+  0.0.81 can be checked here; Docker Sandboxes still needs its own policy rule for the port.
