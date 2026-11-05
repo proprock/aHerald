@@ -901,3 +901,21 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   hung proxy under 3 s, no proxy means unchanged behaviour); `tests/sandbox_runtimes.rs` srt test
   also passes the static sender; `docs/sandboxes.md` srt row says to use `--proxy`. Only `srt`
   0.0.81 can be checked here; Docker Sandboxes still needs its own policy rule for the port.
+
+- [ ] **AH-230 — Non-native harnesses (OpenCode, Pi, Goose, Crush) in containers and VMs.**
+  Priority: low. Start with Goose and Crush (their bridge is one command line); do OpenCode and Pi
+  after. Their bridges (`examples/harnesses/`) run `aherald --notify <key> --kind K [--activity|--ended]`
+  with an optional stdin `{session_id, cwd|working_dir}`; the harness states the kind, so the host
+  parses nothing, and nothing private is in the payload. Work: host route
+  `POST /v1/notify?harness=KEY&kind=K[&ended]` in `src/remote.rs` (validate with `is_harness_key`,
+  build the event with `events::external_event`, same token, limits and `respond()`; activity events
+  are not accepted); `aherald-ping --notify KEY --kind K [--ended]` with the same flags as
+  `aherald --notify` (drops activity locally) and a `--notify` branch in `aherald-ping.sh`; bridge
+  files pick the program from `AHERALD_PATH` or are edited by hand; a recipe per harness in
+  `docs/sandboxes.md` and the guest instructions. Check first whether the host drops events from a
+  harness that `--setup` has not enabled; if it does, add a small `[remote]` switch.
+  Estimate: 250 to 350 lines with tests, about half a day, +1 to 3 KB of binary size.
+  Acceptance: host and sender tests with fake stdin (kind, `ended`, activity refused, bad key,
+  bad token, oversize); the existing `--notify` tests unchanged. Limits: none of the four harnesses
+  is installed here, so that a harness really calls its bridge from a guest stays unverified;
+  context and idle warnings do not work for guest sessions.
