@@ -46,6 +46,7 @@ codesign --force --sign - "$app"
 
 for file in config.example.toml LICENSE README.md CHANGELOG.md; do cp "$file" "$root/"; done
 cp -R docs examples "$root/"
+rm -rf "$root/docs/notes" # engineering notes are project history, not user documentation
 cp docs/portable-macos.md "$root/START-HERE.md"
 
 {

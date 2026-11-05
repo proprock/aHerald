@@ -44,7 +44,7 @@ account, credentials, or installed Codex is needed by ordinary tests.
 
 Real dispatch of all three hooks was additionally verified with the installed
 Codex version and a local synthetic model provider in an isolated profile.
-See [Milestone 3 evidence](milestone-3.md) for timing, process lifetime, trust
+See [Milestone 3 evidence](notes/milestone-3.md) for timing, process lifetime, trust
 scope, and remaining manual coverage limits.
 
 Pending permission cards cannot track an individual approval response with these

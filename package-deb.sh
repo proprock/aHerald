@@ -35,7 +35,7 @@ Depends: libc6 (>= 2.35), libgcc-s1, libcairo2, libpango-1.0-0, libpangocairo-1.
 Section: utils
 Priority: optional
 Description: Desktop notifications for coding agents
- Native notification companion for Codex and Claude Code.
+ Native notification companion for AI coding agents: Codex, Claude Code, OpenCode, Pi, Goose and Crush.
 EOF
 cat > "$root/usr/share/applications/aherald.desktop" <<'EOF'
 [Desktop Entry]

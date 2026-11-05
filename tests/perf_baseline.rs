@@ -1,7 +1,7 @@
 #![cfg(windows)]
 //! Performance baseline: a debug resident shows a burst of animated cards, and the mean
 //! cost of each hot path must stay inside a budget. Historical reference measurements
-//! are in docs/milestone-5.md (AH-082). Rendering retains the target monitor DPI,
+//! are in docs/notes/milestone-5.md (AH-082). Rendering retains the target monitor DPI,
 //! so these are environment-dependent regression guards. Use --nocapture for the table.
 use aherald::{
     events::Event,
@@ -21,7 +21,7 @@ const BUDGETS: &[(&str, u64)] = &[
     // Composition reached 25.83 ms; 28 ms adds 8.4%. Both include debug DPI cost.
     // Ten fresh 1.5x runs: artwork 35.37-40.42 ms, sample SD 1.55 ms.
     // Fixed-1x perf_artwork stays at 30 ms; other DPI is not fully calibrated.
-    // Evidence and limits: docs/perf-baseline-investigation.md (2026-11-01).
+    // Evidence and limits: docs/notes/perf-baseline-investigation.md (2026-11-01).
     ("artwork.prepare", 61_000),
     ("composition.build", 28_000),
     ("frame.render", 3_000),

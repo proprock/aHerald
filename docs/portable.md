@@ -1,8 +1,9 @@
-# aHerald portable guide
+# aHerald portable guide (Windows)
 
-aHerald shows a small card when a coding agent (Codex, Claude Code) finishes a turn,
-needs permission or input, fails or is interrupted. It is one native Windows 10/11 x64
-program: `aherald.exe`. Nothing is installed and no administrator rights are needed.
+aHerald shows a small card when a coding agent (Codex, Claude Code, OpenCode, Pi, Goose,
+Crush) finishes a turn, needs permission or input, fails or is interrupted. This guide covers
+the Windows portable archive: one native Windows 10/11 x64 program, `aherald.exe`. For the
+other platforms see [macOS](portable-macos.md) and [Linux](portable-linux.md). Nothing is installed and no administrator rights are needed.
 No .NET, Node, Python, browser engine or C++ redistributable is required; the C runtime
 is linked in and only Windows system DLLs are used.
 
@@ -143,7 +144,8 @@ cargo build --release --target x86_64-pc-windows-msvc
 
 ## Limits to know
 
-- Windows 10/11 x64 only. macOS and Linux build but show no cards yet.
+- This archive is for Windows 10/11 x64. macOS and Linux have their own packages:
+  [macOS](portable-macos.md), [Linux](portable-linux.md).
 - Events come from agent hooks. Codex sessions that run no hook (unrelated CLI or app
   sessions) are not visible: [input waits](codex-input-waits.md).
 - Dismissing a card never answers an agent request, and aHerald never approves anything.

@@ -21,6 +21,7 @@ root=$stage/$name
 mkdir -p "$root"
 cp "$executable" "$root/aherald"
 cp -R assets docs examples "$root/"
+rm -rf "$root/docs/notes" # engineering notes are project history, not user documentation
 cp config.example.toml LICENSE README.md CHANGELOG.md "$root/"
 cp docs/portable-linux.md "$root/START-HERE.md"
 (cd "$stage" && tar -czf "$OLDPWD/$archive" "$name")

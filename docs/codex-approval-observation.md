@@ -111,7 +111,7 @@ and one field-presence capture); this disposable directory is not a release arti
 the cause of that failure was not diagnosed and later test binaries were not run.
 The subsequent full Windows run after AH-090/native-assets verification passed:
 517 tests passed, 17 ignored, including this characterization test and native overlay
-checks. See [the verification audit](diagnostics-audit.md). This does not supply the
+checks. See [the verification audit](notes/diagnostics-audit.md). This does not supply the
 missing live human-prompt, rejection or fallback evidence for AH-099.
 
 Future implementation needs a documented, available signal for the originating

@@ -4,7 +4,7 @@ version = "0.15.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
-description = "Portable native notification companion for coding agents (Windows first)"
+description = "Portable native notification companion for AI coding agents (Windows, macOS, Linux)"
 
 [workspace]
 # `aherald-ping` is a separate crate so a static musl build never compiles the GUI dependencies. The

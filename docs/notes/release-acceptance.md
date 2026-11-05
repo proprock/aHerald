@@ -1,5 +1,8 @@
 # Release acceptance (AH-023)
 
+> Historical record of the v0.1.0 (Windows-only) release. The current procedure and per-OS
+> checks are in [RELEASE.md](../../RELEASE.md).
+
 Automated part, run 2026-10-27 on Windows 11 (10.0.22621.4317), Rust 1.98.1 MSVC x64,
 branch `feature/AH-075`, version 0.1.0.
 
@@ -41,7 +44,7 @@ measurement script's `--quit` stopped that live resident.
 - Visual checks: topmost, transparency, focus, tray menus, Explorer restart, mixed DPI and
   multiple monitors (AH-020); they need a person at the screen. Card layout, the About card
   and native-DPI drawing at 100/150/200% were observed on 2026-10-27 (AH-076, AH-085,
-  AH-086; `docs/milestone-5.md`).
+  AH-086; `docs/notes/milestone-5.md`).
 - Long-lived waits: observed 2026-10-27 on the user's live resident, not in a dedicated
   test. `aherald.log` shows consecutive resident runs of up to about 2.7 hours
   without a crash, and the current run had been up for more than two hours. A single

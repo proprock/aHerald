@@ -19,7 +19,7 @@ equivalent token-usage snapshot. Schema availability does not prove passive
 access to another client's running session.
 
 The repository's existing hook verification targets an older Codex alpha
-(`0.164.0-alpha.11.1`, see [compatibility](codex-compatibility.md)). New hooks
+(`0.164.0-alpha.11.1`, see [compatibility](../codex-compatibility.md)). New hooks
 still require matching-release schema and runtime verification before support
 can be claimed. No prompts, transcripts, credentials or real session payloads
 were read during this investigation. No new captured fixtures exist.
@@ -34,7 +34,7 @@ The corresponding AH-059 input-context counter extension is recorded in AGENTS.m
 Updated defaults agreed on 2026-10-30: Claude idle 55 minutes, Codex idle 25 minutes;
 `idle_minutes = 0` disables the respective timer. Omitted values and partial warning
 tables retain the agent's default. Context warnings remain opt-in.
-See [configuration and upgrade instructions](configuration.md#session-warnings-ah-100--ah-101).
+See [configuration and upgrade instructions](../configuration.md#session-warnings-ah-100--ah-101).
 
 The implementation keeps up to 64 sessions, with at most one pending warning of
 each kind per retained session. Full-queue warnings retry without repeating the

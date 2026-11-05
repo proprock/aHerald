@@ -37,16 +37,18 @@ and keeps a queue so nothing is lost while you are away.
   or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Agents in containers and VMs (opt-in):** an agent inside Docker, a VM or a sandbox cannot reach the
   local pipe, so aHerald can also take its turn-end and wait events over HTTP with a token
-  (`[remote]`, off by default). The guest sends with a small shell script or the static
-  `aherald-ping` binary (Linux, x86_64 and aarch64), which sends only what aHerald reads: no tool input, prompt
-  or full path. Recipes per environment: [sandboxes](docs/sandboxes.md).
+  (`[remote]`, off by default). The static `aherald-ping` binary (Linux, x86_64 and aarch64) sends only
+  what aHerald reads: no tool input, prompt or full path. The shell sender and the plugin launcher post the
+  whole hook payload over plain HTTP, including the command awaiting approval
+  ([privacy](docs/privacy.md)). Recipes per environment: [sandboxes](docs/sandboxes.md).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
   on Windows, on macOS when you opt in, and on Linux X11 for one-session terminals, cards are
   suppressed while that session is focused (see [limits](#limits)).
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
 - **Private by design:** no network listener unless you turn on `[remote]`, IPC limited to your user, payloads treated as untrusted
-  and never logged, no tokens read except the two opt-in usage features. See [limits](#-limits).
+  and never logged, no tokens read except the two opt-in usage features. Everything aHerald reads or
+  sends, and how to turn it off: [privacy](docs/privacy.md). See [limits](#-limits).
 
 ## Install
 
@@ -171,9 +173,12 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Stable Rust; Windows builds use the MSVC toolchain. The [test runner guide](docs/ah-109-nextest.md), the
-opt-in [live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md) and the
-[task list](TODO.md) cover the rest. Release history: [CHANGELOG](CHANGELOG.md).
+Stable Rust; Windows builds use the MSVC toolchain. Tests run with plain `cargo test` (nextest was
+measured and not adopted: [notes](docs/notes/ah-109-nextest.md)). The opt-in
+[live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md), the
+[documentation index](docs/README.md), [contributor rules](AGENTS.md) and the [task list](TODO.md) cover
+the rest. Release procedure: [RELEASE.md](RELEASE.md); release history:
+[CHANGELOG](CHANGELOG.md).
 
 ## License
 

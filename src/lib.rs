@@ -75,7 +75,7 @@ pub fn version_line() -> String {
 /// Text of the tray's About card: heading line, then the body in the usage-card format.
 pub fn about_card_text() -> String {
     format!(
-        "{NAME}\nVersion {VERSION}\n{}\nNotification companion for Codex and Claude Code.\nMIT license.",
+        "{NAME}\nVersion {VERSION}\n{}\nNotification companion for coding agents.\nMIT license.",
         build_age_text()
     )
 }
