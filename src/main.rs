@@ -131,7 +131,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     let cli = aherald::cli::Cli::parse(args)?;
     if cli.operation.as_deref() == Some("help") {
-        println!("{}", aherald::help());
+        println!("{}", aherald::cli::help());
         return Ok(());
     }
     if cli.operation.as_deref() == Some("version") {
@@ -209,11 +209,8 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let report = {
             let file = match cli.hooks_file.clone() {
                 Some(file) => file,
-                None => aherald::hook_setup::default_file(
-                    aherald::agent::Agent::Claude,
-                    &aherald::paths::home_dir_with(|name| std::env::var_os(name))
-                        .ok_or("cannot locate the home directory; use --hooks-file")?,
-                ),
+                None => aherald::paths::agent_hook_file(aherald::agent::Agent::Claude)
+                    .ok_or("cannot locate the configuration directory; use --hooks-file")?,
             };
             aherald::hook_setup::run_statusline(
                 action,
@@ -234,11 +231,8 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|_| "cannot locate aHerald executable")?;
         let file = match cli.hooks_file.clone() {
             Some(file) => file,
-            None => aherald::hook_setup::default_file(
-                agent,
-                &aherald::paths::home_dir_with(|name| std::env::var_os(name))
-                    .ok_or("cannot locate the home directory; use --hooks-file")?,
-            ),
+            None => aherald::paths::agent_hook_file(agent)
+                .ok_or("cannot locate the configuration directory; use --hooks-file")?,
         };
         let command = aherald::hook_setup::command_for(&exe, agent, cfg!(windows));
         print!(
@@ -468,12 +462,24 @@ fn console_setup() -> Result<(), String> {
     let mut selection = defaults;
     selection.codex = choice("Configure Codex hooks?", defaults.codex)?;
     selection.claude = choice("Configure Claude Code hooks?", defaults.claude)?;
+    let names: Vec<&str> = aherald::bridge_setup::Bridge::ALL
+        .iter()
+        .map(|bridge| bridge.label())
+        .collect();
     println!(
-        "OpenCode, Pi and Goose use one small bridge file each. Choosing no is removing an installed one."
+        "{} use one small bridge file each. Choosing no is removing an installed one.",
+        match names.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            _ => names.join(""),
+        }
     );
-    selection.opencode = choice("Install the OpenCode bridge?", defaults.opencode)?;
-    selection.pi = choice("Install the Pi bridge?", defaults.pi)?;
-    selection.goose = choice("Install the Goose bridge?", defaults.goose)?;
+    for bridge in aherald::bridge_setup::Bridge::ALL {
+        let selected = choice(
+            &format!("Install the {} bridge?", bridge.label()),
+            defaults.bridge(bridge),
+        )?;
+        selection.set_bridge(bridge, selected);
+    }
     println!(
         "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
     );

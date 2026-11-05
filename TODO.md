@@ -86,7 +86,7 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
   the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
   it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
-  leak still shows within a day. Release still runs it. Work left: reproduce on Windows 11,
+  leak still shows within a day. The release skips it too (AH-251); only the nightly run keeps it. Work left: reproduce on Windows 11,
   decide whether the growth is a real leak (GDI/heap) or allocator and runner noise, and make
   the test deterministic (for example, count GDI and USER handles instead of private commit, or
   widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
@@ -464,14 +464,14 @@ P2 tasks run in the listed order; AH-266 goes last.
   (`xvfb-run … cargo test --test linux_apply -- --ignored --test-threads=1` and `--test remote_listener` pass).
   Verifiable on Linux.
 
-- [ ] **AH-232 — macOS: Claude-only usage refreshes while idle.**
-  `src/mac/resident.rs:1228` decides the idle wait from `codex.usage.enabled` only. Windows also checks
-  `claude.is_some()` (`src/resident_overlay.rs:229`) and subscribes to `on_change` (`:1298-1300`).
-  Extract `pub(crate) fn idle_poll_needed(codex_usage: bool, claude_usage: bool, has_deadline: bool) -> bool`
-  into `src/resident_request.rs` with unit tests, and use it in the Windows timer condition and the macOS
-  wait. Better still, also subscribe macOS to `usage.on_change`/`claude.on_change` with the existing
-  `Waker`. Acceptance: unit tests for all 8 combinations pass on Linux; macOS CI compiles. Not run:
-  live tray on a Mac (add a manual check line).
+- [ ] **AH-232 — macOS: Claude-only usage refreshes while idle (the Mac check and the subscription are left).**
+  Shipped on `chore/AH-246-single-sources`: `resident_request::idle_poll_needed(codex_usage, claude_usage,
+  has_deadline)` with a test of all eight combinations; the Windows timer and the macOS wait use it, so a
+  Claude-only setup now keeps polling on macOS. The macOS and Windows call sites compile only in their CI.
+  Left: (1) a manual check on a Mac with only `[claude.usage] enabled = true`: the tray icon and tooltip
+  update while idle (record the macOS version); (2) the better variant: subscribe the macOS resident to
+  `usage.on_change` / `claude.on_change` with the existing `Waker` (as Windows does at
+  `src/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
 
 - [ ] **AH-233 — Same Apply diagnostics on every OS.**
   On an invalid config, Linux posts a different message and does not log `InvalidConfiguration`
@@ -481,31 +481,7 @@ P2 tasks run in the listed order; AH-266 goes last.
   for valid/invalid/missing files and the exact message; Linux behaviour checked under xvfb; the macOS and
   Windows CI compile and pass.
 
-- [ ] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
-  `hook_setup::default_file` (`src/hook_setup.rs:70-75`) hard-codes the home paths. Replace its body with the
-  lookup in `setup::file_for` (`src/setup.rs:511-521`); move that function to `paths.rs` and use it from both.
-  The same applies to the statusLine target in `main.rs:208-216`. Change README.md:73 to
-  `aherald --setup --harness claude --apply  # or codex`, and keep `--install-hooks` documented as
-  the legacy path in docs/installation.md:138.
-  Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
-
-- [ ] **AH-238 — Help text lists every public flag.**
-  Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
-  resident control, setup, usage, diagnostics). Add the missing `--notify --kind --activity --ended`,
-  `--agent`, `--setup-window`, `--setup-executable` and `--help`; leave the internal `--*-child` and
-  `--test-after-apply` out. Add a unit test with a list of public flags that asserts each one appears in
-  `help()` and is accepted by `Cli::parse` in a minimal valid combination. Update
-  `tests/unsupported_platform.rs` and `tests/config_portable.rs:37`.
-  Acceptance: the tests pass; `aherald --help` is readable at 100 columns.
-
 ### P1 — consistency, CI and the release pipeline
-
-- [ ] **AH-243 — One atomic file writer.**
-  Add `src/atomic_file.rs`: `write(path, bytes, backup: bool)` = sibling temp file, `sync_all`, optional
-  `.aherald-backup` copy, rename (Windows: `MoveFileExW` with `REPLACE_EXISTING|WRITE_THROUGH`). Use it in
-  `hook_setup::write_inner` (`hook_setup.rs:399-436`) and `setup::apply_change` (`setup.rs:584-586`). Keep
-  `default_config::create` as is (it is exclusive-create, a different contract) but reuse its temp-name code.
-  Acceptance: unit tests (new file, replace, backup content, temp cleaned up on error); the setup tests pass.
 
 - [ ] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
   Move `expand_env`, `render` and `Escape` (`webhook.rs:21-133`) to `src/template.rs`; `webhook.rs` and
@@ -514,16 +490,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   Acceptance: `tests/forward_webhook.rs` gets a fake-HTTP case with `Retry-After: 1` that is retried after ≥1 s;
   existing forward tests pass.
 
-- [ ] **AH-246 — One source for harness labels and bridge lists.**
-  `events.rs:124-129` (`HARNESS_LABELS`) must take labels from `Bridge::label` (plus Crush). `setup_selection.rs`
-  and the Linux console prompts (`main.rs:472-476`) iterate `Bridge::ALL` instead of naming fields. Leave the
-  Windows `.iss` and the macOS window as they are, but add a test that `installer/windows.iss` mentions every
-  `Bridge::key()`. Acceptance: adding a variant to `Bridge` fails a test until the installer is updated.
-
-- [ ] **AH-248 — MSRV on every OS.**
-  Turn the `msrv` job (`ci.yml:85-109`) into a matrix `[windows-latest, macos-15, ubuntu-22.04]` gated by
-  `needs.changes.outputs.os`; on Linux install `libpulse0`. Keep `cargo check --locked --workspace`.
-  Acceptance: the job is green on all three; `ci-gate` still needs it.
+- [ ] **AH-248 — MSRV on every OS (the CI check is left).**
+  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): the `msrv` job is a matrix over
+  `needs.changes.outputs.os` (windows-latest, macos-15, ubuntu-22.04 as the change selects them) and installs
+  `libpulse0` on Linux. Left: after the first CI run, confirm that "MSRV build" is green on all three legs
+  (a leg can fail for a real MSRV break on macOS or Linux that Windows never showed) and that "CI gate"
+  still waits for it. Then move this task to DONE.md.
 
 - [ ] **AH-249 — `[lints]` table.**
   Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
@@ -540,12 +512,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   `EmbarkStudios/cargo-deny-action` (`check advisories licenses bans sources`), run on `deps == 'true'` and in
   nightly. Acceptance: the job passes; a deliberately disallowed license in a scratch branch fails.
 
-- [ ] **AH-251 — One skip list for noisy tests; release uses it.**
-  Decided 2026-11-05: this replaces the AH-221 verdict ("Release still runs it"); the nightly run keeps
-  the noisy checks. Move the four `--skip` names from `ci.yml:189-196` to `.github/noisy-tests.txt` (one per line), read by a
-  small step that builds the arguments. Use the same list in the three test steps of `release.yml`. Update
-  AH-221's note in TODO.md (the release no longer runs the memory-growth check; nightly does). Acceptance: PR and
-  release logs show the same skips; the nightly run still runs them.
+- [ ] **AH-251 — One skip list for noisy tests; release uses it (the CI check is left).**
+  Shipped on `chore/AH-246-single-sources` (in code; the CI proof is what is left): `.github/noisy-tests.txt` and
+  `.github/noisy-test-args.sh`, used by the `cargo test` step of `ci.yml` and the three test steps of
+  `release.yml`; the nightly full run still runs everything. Left: after the first CI run, confirm the
+  "Skipping: ..." line lists the four tests in the PR log, and that the next release candidate log shows the
+  same line on all three platforms (the Windows steps now use `shell: bash`). Then move this task to DONE.md.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.
@@ -555,6 +527,18 @@ P2 tasks run in the listed order; AH-266 goes last.
   OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
   but move them to `examples/tools/` and update `[[example]]` paths.
   Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
+
+- [ ] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
+  Seen on 2026-11-05 on Linux, in full `cargo test --workspace --all-targets` runs and not in isolation:
+  `tests/plugin_hook_script.rs::linux_override_passes_payload_and_suppresses_a_failing_program` and
+  `::linux_portable_location_is_discovered` (the script's fake program never wrote its record file: the exec
+  of a just-written script probably failed silently, which the hook script is built to hide) once; and
+  `tests/setup.rs::a_transient_executable_write_handle_does_not_fail_fixture_launch` once. Each passed on an
+  immediate re-run (5 of 5, 25 of 25 in isolation); two other full runs were green. Likely cause: another
+  test thread forks while a test still holds the write handle of the program it is about to start
+  (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
+  error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
+  runs in a row without these failures on a Linux runner. Not related to AH-243 or any change of that PR.
 
 ### P2 — structural refactoring of the residents (in this order)
 

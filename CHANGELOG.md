@@ -11,12 +11,21 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- `aherald --help` is grouped by purpose and lists every public flag, including `--notify`, `--kind`,
+  `--activity`, `--ended`, `--agent`, `--setup-window` and `--setup-executable` (AH-238).
+- Releases skip the same noisy timing and memory tests as pull requests; the nightly run keeps them
+  (see TODO.md, AH-251).
+- The minimum-compiler build runs on Windows, macOS and Linux, not only Windows (see TODO.md, AH-248).
 - CI and release builds fix the build time to the commit time, so two builds of one commit report the
   same time in `--version` and About (AH-252).
 - The About card, the Debian package and the crate describe aHerald as a companion for AI coding
   agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 
 ### Fixed
+- On macOS the idle resident keeps refreshing the tray when only Claude usage is enabled, as on Windows
+  (see TODO.md, AH-232 for the check on a Mac).
+- `--install-hooks`, `--uninstall-hooks` and the statusLine commands now write to `CLAUDE_CONFIG_DIR` and
+  `CODEX_HOME` when they are set, like `--setup`; they used the home directory only (AH-234).
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a
   test keeps it there (AH-236).
 

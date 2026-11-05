@@ -9,7 +9,7 @@ for an idle session (AH-074), so it is ignored; `StopFailure` is still unobserve
 
 ## Setup with a command
 
-`aherald --install-hooks claude` shows what it would add to `~/.claude/settings.json` (a dry run);
+`aherald --install-hooks claude` shows what it would add to `~/.claude/settings.json`, or to `$CLAUDE_CONFIG_DIR/settings.json` when that is set (a dry run);
 `--apply` writes it with a `settings.json.aherald-backup` copy and leaves every other setting and hook
 alone. `--uninstall-hooks claude --apply` removes only aHerald's entries; `--hooks-file PATH` picks
 another settings file. The commands refuse a file that is not valid JSON or has an unexpected shape.

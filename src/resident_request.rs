@@ -53,6 +53,14 @@ fn deliver_warning(
     }
 }
 
+/// Whether an idle resident, with nothing shown, still has to wake up on its own: a usage source
+/// (Codex or Claude) refreshes the tray icon and tooltip, and a session warning has a deadline.
+/// Without any, it blocks until an event arrives. Shared by the Windows timer and the macOS wait, so
+/// they cannot disagree about which usage sources count (AH-232).
+pub fn idle_poll_needed(codex_usage: bool, claude_usage: bool, has_deadline: bool) -> bool {
+    codex_usage || claude_usage || has_deadline
+}
+
 /// How long an aHerald notice card stays, before its fade-out.
 pub const NOTICE_MS: u64 = 8000;
 
@@ -394,6 +402,24 @@ fn respond_with_focus(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_idle_resident_polls_for_usage_or_a_warning_deadline_and_for_nothing_else() {
+        for codex_usage in [false, true] {
+            for claude_usage in [false, true] {
+                for has_deadline in [false, true] {
+                    assert_eq!(
+                        idle_poll_needed(codex_usage, claude_usage, has_deadline),
+                        codex_usage || claude_usage || has_deadline,
+                        "codex {codex_usage}, claude {claude_usage}, deadline {has_deadline}"
+                    );
+                }
+            }
+        }
+        // The case that macOS got wrong: Claude usage alone keeps the tray fresh.
+        assert!(idle_poll_needed(false, true, false));
+        assert!(!idle_poll_needed(false, false, false));
+    }
+
     use super::*;
     use crate::events::Event;
 

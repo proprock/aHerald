@@ -3,6 +3,57 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-243 — One atomic file writer.**
+  `src/atomic_file.rs`: `write(path, bytes, backup)` (sibling temporary file, `sync_all`, permissions of an
+  existing file kept, optional `.aherald-backup` copy, atomic replace; a symlink stays a symlink, missing
+  parents are created), `publish(temporary, path, replace)` (`rename` or an exclusive hard link on Unix;
+  `MoveFileExW` with `WRITE_THROUGH`, plus `REPLACE_EXISTING` when replacing, on Windows),
+  `temporary_sibling` and the `Temporary` guard. `hook_setup::write_inner` (hence `setup::apply_change` and the
+  rollback) uses `write`; `default_config::create` keeps its exclusive-create contract and now reuses
+  `temporary_sibling`, `Temporary` and `publish(.., false)` instead of its own copies. Unit tests: new file
+  with parents and nothing left behind, replace with backup content, a write without backup leaves the
+  earlier backup, a failed publish (a directory in the way) leaves the target and no temporary file,
+  exclusive publication never replaces an existing file, unique sibling names, and on Unix permissions and
+  symlinks. All were red against `unimplemented!()` stubs. `tests/hooks.rs`, `tests/setup.rs`,
+  `tests/setup_bridges.rs`, `tests/config.rs` and the `hook_setup` unit tests pass unchanged. Linux: ran
+  locally. The Windows branch of `publish` (one `unsafe` call, with its `SAFETY` comment, replacing the one in
+  `default_config.rs`) compiles only in the Windows CI: compiled/tested in CI only.
+
+- [x] **AH-238 — Help text lists every public flag.**
+  `help()` moved from `src/lib.rs` to `src/cli.rs` (`aherald::cli::help`) as a `concat!` grouped into hooks
+  and events, resident control, setup, usage and diagnostics, and configuration; every line is at most 100
+  columns. It now names `--notify --kind --activity --ended`, `--agent`, `--setup-window`,
+  `--setup-executable` and `--help`, which the old text omitted (checked against the old text from git); the
+  internal `--*-child` and `--test-after-apply` stay out. Tests in `cli.rs`: every public flag, with a minimal
+  command line, is accepted by `Cli::parse` and appears in `help()`; `help()` names no flag outside that
+  list or an internal one; no line exceeds 100 columns (red once: a 101-column line). `tests/config_portable.rs`
+  uses the new path; `tests/unsupported_platform.rs` needed no change. Linux: ran locally.
+
+- [x] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
+  `paths::agent_hook_file(_with)` is the one lookup of an agent's hook file (Claude: `CLAUDE_CONFIG_DIR` or
+  `~/.claude`; Codex: `CODEX_HOME` or `~/.codex`); `setup::file_for`, `--install-hooks`/`--uninstall-hooks`
+  and the statusLine commands in `main.rs` use it, and `hook_setup::default_file` (home-only) is gone; its
+  unit test moved to `paths` with the variable cases and empty-variable and no-home cases. README now
+  recommends `aherald --setup --harness claude --apply`; `docs/installation.md` keeps `--install-hooks` as the
+  legacy path and says it finds files like `--setup`; the Claude and Codex hook guides name the variables.
+  Red: four of five new `tests/hooks.rs::hook_file_location` tests failed (hooks and statusLine written under
+  `HOME` while `CLAUDE_CONFIG_DIR`/`CODEX_HOME` was set); the fifth (no variables) already passed. The
+  statusLine test is `cfg(not(windows))`; on Windows that command already used `setup::file_for`. Linux: ran
+  locally; Windows and macOS: compiled/tested in CI only.
+
+- [x] **AH-246 — One source for harness labels and bridge lists.**
+  `events::harness_label` takes the label from `Bridge::label` (plus Crush, which has no bridge file), so
+  `HARNESS_LABELS` is gone. `Selection` maps a bridge to its field in one exhaustive `match`
+  (`bridge`, `set_bridge`); `initial`, `bridges` and the Linux console prompts (`main.rs`, including the
+  "OpenCode, Pi and Goose use ..." line) iterate `Bridge::ALL`. `tests/installer_bridges.rs` fails when
+  `installer/windows.iss` lacks a task, the `--harness <key>` argument or the `<key>_bridge` report line for
+  a bridge (mutation check: deleting the Goose report line fails it; reverted). The Inno Setup script and the
+  macOS setup window are left as they were, by the task: `src/mac/setup_window.rs` still names the three
+  fields and its own arrays, so a new `Bridge` variant fails to compile in `setup_selection.rs`, in the label
+  and bridge tables, and in the installer test, but not in the macOS window. Red: `Selection::bridge` and
+  `set_bridge` did not exist. `tests/console_setup_linux.py` passes with the new prompts. Linux: ran locally.
+  Windows and macOS: compiled in CI only (no `cfg(windows)` or `src/mac/` code touched).
+
 - [x] **AH-237 — Bridge contract tests cannot skip silently in CI.**
   `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs` panic when Node 22+ is missing (checked locally with an
   empty `PATH`: panics with the variable, skips without it). The Linux leg of `quality` installs Node 22 with

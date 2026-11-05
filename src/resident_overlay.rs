@@ -226,7 +226,11 @@ impl Ui {
             .is_ok_and(|s| s.warnings.has_deadline() || !s.queue.items().is_empty())
         {
             Some(1000)
-        } else if self.config.codex.usage.enabled || self.claude.is_some() {
+        } else if crate::resident_request::idle_poll_needed(
+            self.config.codex.usage.enabled,
+            self.claude.is_some(),
+            false, // a deadline was handled above, at the faster rate
+        ) {
             Some(15_000)
         } else {
             None

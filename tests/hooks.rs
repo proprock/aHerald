@@ -142,3 +142,89 @@ fn powershell_gui_invocation_collects_hook_responses_with_quoted_paths() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// `--install-hooks` and `--install-statusline` write where the agent reads its settings: its own
+/// directory variable first, the home directory only without it (AH-234).
+mod hook_file_location {
+    use super::support::{self, TempDir};
+    use std::{path::Path, process::Command, time::Duration};
+
+    /// Runs aHerald with a scratch home and the given agent variables (others removed).
+    fn run(args: &[&str], home: &Path, vars: &[(&str, &Path)]) -> String {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_aherald"));
+        command
+            .args(args)
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .env(aherald::paths::HOME_VAR, home);
+        for (key, value) in vars {
+            command.env(key, value);
+        }
+        let output = support::run_bounded(&mut command, Duration::from_secs(10)).unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    #[test]
+    fn claude_hooks_go_to_claude_config_dir_when_it_is_set() {
+        let (home, config) = (TempDir::new("hk-home"), TempDir::new("hk-claude"));
+        let report = run(
+            &["--install-hooks", "claude", "--apply"],
+            &home,
+            &[("CLAUDE_CONFIG_DIR", &config)],
+        );
+        assert!(config.join("settings.json").is_file(), "{report}");
+        assert!(!home.join(".claude").exists(), "home must stay untouched");
+    }
+
+    #[test]
+    fn codex_hooks_go_to_codex_home_when_it_is_set() {
+        let (home, codex) = (TempDir::new("hk-home"), TempDir::new("hk-codex"));
+        let report = run(
+            &["--install-hooks", "codex", "--apply"],
+            &home,
+            &[("CODEX_HOME", &codex)],
+        );
+        assert!(codex.join("hooks.json").is_file(), "{report}");
+        assert!(!home.join(".codex").exists(), "home must stay untouched");
+    }
+
+    #[test]
+    fn without_the_variables_the_home_directory_is_used() {
+        let home = TempDir::new("hk-home");
+        run(&["--install-hooks", "claude", "--apply"], &home, &[]);
+        run(&["--install-hooks", "codex", "--apply"], &home, &[]);
+        assert!(home.join(".claude/settings.json").is_file());
+        assert!(home.join(".codex/hooks.json").is_file());
+    }
+
+    #[test]
+    fn removal_looks_in_the_same_place_as_installation() {
+        let (home, config) = (TempDir::new("hk-home"), TempDir::new("hk-claude"));
+        let vars = [("CLAUDE_CONFIG_DIR", &*config)];
+        run(&["--install-hooks", "claude", "--apply"], &home, &vars);
+        let written = std::fs::read_to_string(config.join("settings.json")).unwrap();
+        assert!(written.contains("aherald") || written.contains("aHerald"));
+        run(&["--uninstall-hooks", "claude", "--apply"], &home, &vars);
+        let after = std::fs::read_to_string(config.join("settings.json")).unwrap();
+        assert!(!after.contains("--hook"), "{after}");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_statusline_goes_to_claude_config_dir_too() {
+        let (home, config) = (TempDir::new("hk-home"), TempDir::new("hk-claude"));
+        run(
+            &["--install-statusline", "--apply"],
+            &home,
+            &[("CLAUDE_CONFIG_DIR", &config)],
+        );
+        let written = std::fs::read_to_string(config.join("settings.json")).unwrap();
+        assert!(written.contains("statusLine"), "{written}");
+        assert!(!home.join(".claude").exists(), "home must stay untouched");
+    }
+}

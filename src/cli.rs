@@ -34,6 +34,76 @@ pub struct Cli {
     pub raw_source: Option<crate::ipc::RawSource>,
 }
 
+/// The text of `--help`, grouped by purpose. Every public flag appears here; the internal
+/// `--*-child` and `--test-after-apply` re-entry flags do not. A test holds the list to `Cli::parse`.
+pub fn help() -> &'static str {
+    concat!(
+        "aHerald — native notification companion (Windows, macOS, Linux X11/XWayland)\n",
+        "Usage: aherald [OPERATION] [--resident | --transient] [--config PATH]\n",
+        "\n",
+        "Hooks and events (what an agent calls)\n",
+        "  --hook [--agent claude|codex]   Read one hook payload from stdin; Codex unless --agent claude.\n",
+        "  --notify HARNESS --kind KIND [--activity | --ended]\n",
+        "                                  Report an event of a harness without hooks (OpenCode, Pi, Goose,\n",
+        "                                  Crush). KIND: turn_complete, permission_required, input_required,\n",
+        "                                  error, interrupted. --activity: work resumed; --ended: the session\n",
+        "                                  ended (evidence only, never shown).\n",
+        "  --event EVENT                   Send a sample event of that kind, to check the configuration.\n",
+        "  --statusline [--then COMMAND]   Claude Code statusLine: tell a running resident the session name,\n",
+        "                                  quota and input context, and run COMMAND unchanged; without --then\n",
+        "                                  print the [claude.statusline] format, if set.\n",
+        "\n",
+        "Resident control\n",
+        "  --resident | --transient        Run the local notification service, or show one card and exit.\n",
+        "  --status | --quit               Ask the running resident for its state, or stop it.\n",
+        "  --remote-info                   Print the endpoint and token an agent in a container or VM needs;\n",
+        "                                  the resident listens only with [remote] enabled = true.\n",
+        "  --demo [SECONDS]                Loop a configuration preview (3-second pauses); exit through its\n",
+        "                                  tray. Takes no mode flag.\n",
+        "\n",
+        "Setup (dry runs unless --apply)\n",
+        "  --setup --harness NAME [--harness NAME] [--replace-bridges]\n",
+        "                                  Configure the selected harnesses for this executable. NAME: codex,\n",
+        "                                  claude, opencode, pi or goose. --replace-bridges makes the named\n",
+        "                                  bridge files the whole set (empty if none).\n",
+        "  --unsetup                       Remove the saved bindings.\n",
+        "  --console-setup                 Interactive setup (Linux).\n",
+        "  --setup-window                  The setup window (macOS).\n",
+        "  --codex-usage | --claude-usage | --codex-context | --claude-context | --codex-idle |\n",
+        "  --claude-idle  true|false       Change one usage or warning setting with --setup; custom\n",
+        "                                  thresholds are kept.\n",
+        "                                  First context enablement uses Codex 250k / Claude 400k when no\n",
+        "                                  threshold exists.\n",
+        "  --setup-executable PATH         Bind the hooks to this executable instead of the running one.\n",
+        "  --settings-file PATH            Absolute path of the configuration that setup edits or reports.\n",
+        "  --setup-settings                Report the current usage and warning flags without writing.\n",
+        "  --install-hooks AGENT | --uninstall-hooks AGENT\n",
+        "                                  Legacy: add or remove only aHerald's entries in the hook file of\n",
+        "                                  codex or claude, with a backup. --hooks-file PATH picks the file.\n",
+        "  --install-statusline | --uninstall-statusline\n",
+        "                                  Wrap or restore Claude Code's statusLine command.\n",
+        "  --apply                         Write the change instead of showing it.\n",
+        "\n",
+        "Usage and diagnostics\n",
+        "  --raw-output usage --harness codex|claude | --raw-output statusline\n",
+        "                                  Print the last unparsed usage answer, or the last Claude Code\n",
+        "                                  statusLine payload, kept in the running resident's memory only;\n",
+        "                                  the source and age go to stderr.\n",
+        "  --perf-report                   Rank the timings that a resident with general.logging = \"debug\"\n",
+        "                                  wrote to aherald.log.\n",
+        "  --version | --help              Print the version and build time, or this text.\n",
+        "\n",
+        "Configuration\n",
+        "  Without --config, the installation's default config.toml is used and created with defaults if\n",
+        "  absent. Linux system packages use XDG directories; portable installations use config.toml beside\n",
+        "  the executable. Relative resources use the selected configuration directory.\n",
+        "  Optional per-agent [claude.warnings] / [codex.warnings] context_tokens and idle_minutes enable\n",
+        "  session warnings in resident mode; Codex context requires PostModelRequest (verified CLI\n",
+        "  0.166.0-alpha.5.1). Enable usage in the resident configuration for read-only Codex quotas.\n",
+        "  Codex input monitoring: unsupported for unrelated sessions.\n",
+    )
+}
+
 impl Cli {
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut cli = Self::default();
@@ -371,5 +441,148 @@ impl Cli {
 
     pub fn selected_mode(&self, config: &crate::config::Config) -> Mode {
         self.mode.unwrap_or(config.general.mode)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every public flag with the smallest valid command line that uses it.
+    const PUBLIC: &[(&str, &[&str])] = &[
+        (
+            "--activity",
+            &[
+                "--notify",
+                "opencode",
+                "--kind",
+                "turn_complete",
+                "--activity",
+            ],
+        ),
+        ("--agent", &["--hook", "--agent", "claude"]),
+        ("--apply", &["--install-hooks", "claude", "--apply"]),
+        (
+            "--claude-context",
+            &["--setup", "--harness", "claude", "--claude-context", "true"],
+        ),
+        (
+            "--claude-idle",
+            &["--setup", "--harness", "claude", "--claude-idle", "false"],
+        ),
+        (
+            "--claude-usage",
+            &["--setup", "--harness", "claude", "--claude-usage", "true"],
+        ),
+        (
+            "--codex-context",
+            &["--setup", "--harness", "codex", "--codex-context", "true"],
+        ),
+        (
+            "--codex-idle",
+            &["--setup", "--harness", "codex", "--codex-idle", "false"],
+        ),
+        (
+            "--codex-usage",
+            &["--setup", "--harness", "codex", "--codex-usage", "true"],
+        ),
+        ("--config", &["--config", "config.toml"]),
+        ("--console-setup", &["--console-setup"]),
+        ("--demo", &["--demo", "5"]),
+        (
+            "--ended",
+            &["--notify", "opencode", "--kind", "turn_complete", "--ended"],
+        ),
+        ("--event", &["--event", "turn_complete"]),
+        ("--harness", &["--setup", "--harness", "codex"]),
+        ("--help", &["--help"]),
+        ("--hook", &["--hook"]),
+        (
+            "--hooks-file",
+            &["--install-hooks", "claude", "--hooks-file", "settings.json"],
+        ),
+        ("--install-hooks", &["--install-hooks", "codex"]),
+        ("--install-statusline", &["--install-statusline"]),
+        ("--kind", &["--notify", "pi", "--kind", "error"]),
+        ("--notify", &["--notify", "goose", "--kind", "interrupted"]),
+        ("--perf-report", &["--perf-report"]),
+        ("--quit", &["--quit"]),
+        ("--raw-output", &["--raw-output", "statusline"]),
+        ("--remote-info", &["--remote-info"]),
+        (
+            "--replace-bridges",
+            &["--setup", "--harness", "pi", "--replace-bridges"],
+        ),
+        ("--resident", &["--resident"]),
+        ("--setup", &["--setup", "--harness", "claude"]),
+        (
+            "--setup-executable",
+            &[
+                "--setup",
+                "--harness",
+                "codex",
+                "--setup-executable",
+                "/bin/aherald",
+            ],
+        ),
+        ("--setup-settings", &["--setup-settings"]),
+        ("--setup-window", &["--setup-window"]),
+        (
+            "--settings-file",
+            &["--setup-settings", "--settings-file", "/tmp/config.toml"],
+        ),
+        ("--status", &["--status"]),
+        ("--statusline", &["--statusline"]),
+        ("--then", &["--statusline", "--then", "other-command"]),
+        ("--transient", &["--transient"]),
+        ("--uninstall-hooks", &["--uninstall-hooks", "claude"]),
+        ("--uninstall-statusline", &["--uninstall-statusline"]),
+        ("--unsetup", &["--unsetup"]),
+        ("--version", &["--version"]),
+    ];
+
+    fn flags_in(text: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+            if word.len() > 2 && word.starts_with("--") && !found.iter().any(|f| f == word) {
+                found.push(word.to_owned());
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn every_public_flag_is_accepted_and_described_in_help() {
+        let help = help();
+        for (flag, line) in PUBLIC {
+            let args = line.iter().map(|arg| (*arg).to_owned());
+            assert!(Cli::parse(args).is_ok(), "{flag}: {line:?} is not accepted");
+            assert!(
+                flags_in(help).iter().any(|f| f == flag),
+                "{flag} is missing from --help"
+            );
+        }
+    }
+
+    #[test]
+    fn help_names_no_flag_that_is_not_public() {
+        for flag in flags_in(help()) {
+            assert!(
+                PUBLIC.iter().any(|(known, _)| *known == flag),
+                "{flag} appears in --help but is not a public flag"
+            );
+        }
+        assert!(!help().contains("-child") && !help().contains("test-after-apply"));
+    }
+
+    #[test]
+    fn help_fits_a_hundred_columns() {
+        for line in help().lines() {
+            assert!(
+                line.chars().count() <= 100,
+                "{} columns: {line}",
+                line.chars().count()
+            );
+        }
     }
 }

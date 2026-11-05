@@ -72,7 +72,7 @@ workflow. To check a download against it: `gh attestation verify <file> --repo p
 Then connect your agent. The program writes hook entries only when you ask, with a dry run first:
 
 ```sh
-aherald --install-hooks claude --apply            # or codex
+aherald --setup --harness claude --apply         # or codex
 aherald --setup --harness opencode --harness pi   # bridge files for other harnesses (dry run without --apply)
 ```
 

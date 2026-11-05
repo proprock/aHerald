@@ -5,7 +5,7 @@
 //! the rest of the file keeps its content and key order.
 use crate::agent::Agent;
 use serde_json::{Map, Value, json};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -65,14 +65,6 @@ pub fn command_for(exe: &Path, agent: Agent, windows: bool) -> String {
             "{} --hook{agent_flag} --resident",
             crate::quote::posix(&exe)
         )
-    }
-}
-
-/// The agent's hook file under `home`.
-pub fn default_file(agent: Agent, home: &Path) -> PathBuf {
-    match agent {
-        Agent::Claude => home.join(".claude/settings.json"),
-        Agent::Codex => home.join(".codex/hooks.json"),
     }
 }
 
@@ -402,42 +394,16 @@ pub(crate) fn write_inner(
     text: &str,
     backup: bool,
 ) -> Result<(), String> {
-    let fail = |e: std::io::Error| format!("cannot write {}: {e}", file.display());
-    let target = if exists {
-        std::fs::canonicalize(file).map_err(fail)?
-    } else {
-        if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent).map_err(fail)?;
-        }
-        file.to_path_buf()
-    };
-    let name = target
-        .file_name()
-        .ok_or("the hook file has no name")?
-        .to_os_string();
-    let sibling = |suffix: String| {
-        let mut n = name.clone();
-        n.push(suffix);
-        target.with_file_name(n)
-    };
-    if exists && backup {
-        std::fs::copy(&target, sibling(".aherald-backup".into())).map_err(fail)?;
-    }
-    let temporary = sibling(format!(".aherald-{}.tmp", std::process::id()));
-    std::fs::write(&temporary, text).map_err(fail)?;
-    if exists && let Ok(meta) = std::fs::metadata(&target) {
-        let _ = std::fs::set_permissions(&temporary, meta.permissions());
-    }
-    std::fs::rename(&temporary, &target).map_err(|e| {
-        let _ = std::fs::remove_file(&temporary);
-        fail(e)
-    })
+    // `exists` is what the caller read; a file that vanished since is simply created.
+    crate::atomic_file::write(file, text.as_bytes(), backup && exists)
+        .map_err(|e| format!("cannot write {}: {e}", file.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    use std::path::PathBuf;
 
     const CMD: &str =
         "'/Applications/aHerald.app/Contents/MacOS/aherald' --hook --agent claude --resident";
@@ -571,19 +537,6 @@ mod tests {
         assert_eq!(
             command_for(Path::new("C:\\Tools\\aherald.exe"), Agent::Claude, true),
             "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Tools\\aherald.exe' --hook --agent claude --resident | Out-String\""
-        );
-    }
-
-    #[test]
-    fn each_agent_has_its_own_default_file() {
-        let home = Path::new("/Users/me");
-        assert_eq!(
-            default_file(Agent::Claude, home),
-            Path::new("/Users/me/.claude/settings.json")
-        );
-        assert_eq!(
-            default_file(Agent::Codex, home),
-            Path::new("/Users/me/.codex/hooks.json")
         );
     }
 
