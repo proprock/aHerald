@@ -1,10 +1,10 @@
-//! Stand-ins for the service layer that has no Unix implementation yet, so the crate builds
-//! on macOS and Linux.
+//! Stand-ins for the resident and console window on Unix systems other than macOS and Linux,
+//! so the crate still builds there.
 //!
 //! Every function keeps the signature of its Windows twin and reports `UNSUPPORTED`
-//! (or "nothing found") instead of panicking. IPC, process spawning, HTTPS and the opener
-//! already have Unix implementations (`src/unix/`, AH-061); the resident service has a macOS
-//! one (`src/mac/`, AH-062) and arrives on Linux with AH-068.
+//! (or "nothing found") instead of panicking. Windows, macOS (`src/mac/`) and Linux
+//! (`src/linux/`) have real implementations; IPC, process spawning, HTTPS and the opener are
+//! shared by every Unix system (`src/unix/`).
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
 pub const UNSUPPORTED: &str = "this platform is not supported yet (Windows only)";

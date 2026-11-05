@@ -1,8 +1,10 @@
 # aHerald implementation plan
 
-aHerald is a portable, native Windows 10/11 x64 notification companion. Codex is
-the first supported agent. Ship one executable, `aherald.exe`, built with stable
-Rust and the MSVC toolchain. Start with Milestone 1 and keep each milestone usable.
+aHerald is a portable, native notification companion for AI coding agents on Windows
+10/11 x64, macOS (Apple Silicon) and Linux (X11/XWayland): Codex and Claude Code through
+their hooks, OpenCode, Pi, Goose and Crush through `--notify` and bridges, and agents in
+containers or VMs through `[remote]` and `aherald-ping`. One executable per platform, built
+with stable Rust. Keep each milestone usable. Project rules: `AGENTS.md`.
 
 ## Agreed decisions
 
@@ -1004,13 +1006,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   `aherald --setup --harness claude --apply  # or codex`, and keep `--install-hooks` documented as
   the legacy path in docs/installation.md:138.
   Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
-
-- [ ] **AH-235 — Remove stale "Windows first / Codex first" text.**
-  `Cargo.toml:7` description; `TODO.md:3-5` intro (cross-platform, six harnesses, plus a portable aherald-ping);
-  `docs/portable.md:4,146`; `about_card_text()` in `src/lib.rs` ("for coding agents"); the `src/unsupported.rs`
-  header (drop "arrives with AH-068"). (`TODO.md:65` is already fixed on `docs/agents-release-privacy`.)
-  Acceptance: `grep -rn "Windows first\|show no cards yet\|first supported agent" --exclude-dir=target .`
-  matches only DONE.md/CHANGELOG history; the `tray_about`/About tests are updated.
 
 - [ ] **AH-236 — Claude plugin version follows the crate.**
   `plugins/aherald/.claude-plugin/plugin.json` says 0.1.0. Set it to the crate version and extend

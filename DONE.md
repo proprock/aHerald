@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-235 — Remove stale "Windows first / Codex first" text.**
+  `Cargo.toml:7` description; `TODO.md:3-5` intro (cross-platform, six harnesses, plus a portable aherald-ping);
+  `docs/portable.md:4,146`; `about_card_text()` in `src/lib.rs` ("for coding agents"); the `src/unsupported.rs`
+  header (drop "arrives with AH-068"). (`TODO.md:65` is already fixed on `docs/agents-release-privacy`.)
+  Acceptance: `grep -rn "Windows first\|show no cards yet\|first supported agent" --exclude-dir=target .`
+  matches only DONE.md/CHANGELOG history; the `tray_about`/About tests are updated.
+  Closed 2026-11-05 (branch `docs/agents-release-privacy`). Updated `Cargo.toml` description, the
+  `TODO.md` intro, `docs/portable.md` (now the Windows portable guide, pointing to the macOS and Linux
+  guides), the About card text in `src/lib.rs`, the `src/unsupported.rs` header and the Debian package
+  description in `package-deb.sh`. `TODO.md:65` had already been fixed in the same branch. Checks on
+  Linux: the acceptance grep matches only the task text and the local audit file;
+  `cargo test --locked --lib build_stamp` passed; `cargo fmt --all -- --check` passed. The Windows
+  `tray_about` tests do not assert the changed sentence (CI only).
+
 - [x] **AH-095 — Evaluate native layer-shell on KDE/wlroots (split from AH-073).** Closed
   2026-11-04 with the maintainer as won't work. No KDE or wlroots session is available, and the
   evaluation is low priority: these desktops are a small share of Linux users. Ubuntu's default

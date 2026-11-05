@@ -9,6 +9,10 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Changed
+- The About card, the Debian package and the crate describe aHerald as a companion for AI coding
+  agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
+
 ## [0.15.0] - 2026-11-05
 
 ### Added
