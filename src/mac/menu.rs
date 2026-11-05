@@ -9,6 +9,7 @@ pub enum Command {
     About,
     Sound,
     Visual,
+    Messenger,
     Pause,
     ContextWarnings,
     IdleWarnings,
@@ -19,11 +20,12 @@ pub enum Command {
 }
 
 impl Command {
-    pub const ALL: [Command; 12] = [
+    pub const ALL: [Command; 13] = [
         Command::CodexSummary,
         Command::ClaudeSummary,
         Command::Sound,
         Command::Visual,
+        Command::Messenger,
         Command::Pause,
         Command::ContextWarnings,
         Command::IdleWarnings,
@@ -56,9 +58,13 @@ pub struct Item {
 }
 
 /// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
+/// `messenger` is the state of the messenger switch, or `None` when no sink is configured (the
+/// item is then not listed), as on the Windows tray.
+#[allow(clippy::too_many_arguments)]
 pub fn items(
     sound: bool,
     visual: bool,
+    messenger: Option<bool>,
     paused: bool,
     context: bool,
     idle: bool,
@@ -78,6 +84,11 @@ pub fn items(
     let rest = [
         (Command::Sound, "Sound".to_owned(), sound),
         (Command::Visual, "Pop-up".to_owned(), visual),
+        (
+            Command::Messenger,
+            "Messenger".to_owned(),
+            messenger.unwrap_or(false),
+        ),
         (Command::Pause, "Pause notifications".to_owned(), paused),
         (
             Command::ContextWarnings,
@@ -93,6 +104,7 @@ pub fn items(
     ];
     usage
         .chain(rest)
+        .filter(|(command, ..)| *command != Command::Messenger || messenger.is_some())
         .map(|(command, label, checked)| Item {
             command,
             label,
@@ -122,6 +134,7 @@ mod tests {
         let list = items(
             false,
             true,
+            None,
             true,
             true,
             false,
@@ -163,13 +176,14 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents_claude_first() {
-        let none = items(true, true, false, false, false, None, None);
+        let none = items(true, true, None, false, false, false, None, None);
         assert_eq!(none.len(), 10);
-        let claude = items(true, true, false, false, false, None, Some("Claude"));
+        let claude = items(true, true, None, false, false, false, None, Some("Claude"));
         assert!(!commands(&claude).contains(&Command::CodexSummary));
         let both = items(
             true,
             true,
+            None,
             false,
             false,
             false,
@@ -196,7 +210,7 @@ mod tests {
             (None, Some("a")),
             (Some("c"), Some("a")),
         ] {
-            let list = items(true, true, false, false, false, codex, claude);
+            let list = items(true, true, None, false, false, false, codex, claude);
             let has_usage = codex.is_some() || claude.is_some();
             let separated: Vec<Command> = list
                 .iter()
@@ -229,6 +243,23 @@ mod tests {
                     Command::Exit
                 ]
             );
+        }
+    }
+
+    /// Windows order: Sound, Pop-up, Messenger, Pause. The item exists only when a sink runs.
+    #[test]
+    fn the_messenger_switch_follows_pop_up_and_only_when_configured() {
+        let absent = items(true, true, None, false, false, false, None, None);
+        assert!(!commands(&absent).contains(&Command::Messenger));
+        for state in [false, true] {
+            let list = items(true, true, Some(state), false, false, false, None, None);
+            let order = commands(&list);
+            let at = order.iter().position(|c| *c == Command::Messenger).unwrap();
+            assert_eq!(order[at - 1], Command::Visual);
+            assert_eq!(order[at + 1], Command::Pause);
+            assert_eq!(item(&list, Command::Messenger).label, "Messenger");
+            assert_eq!(item(&list, Command::Messenger).checked, state);
+            assert!(!item(&list, Command::Messenger).separator_before);
         }
     }
 

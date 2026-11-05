@@ -183,7 +183,7 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
-      # Timing budgets and the native memory-growth check (AH-219) are noisy on a shared
+      # Timing budgets and the native memory-growth check (AH-221) are noisy on a shared
       # runner, so a pull request skips them; the nightly run keeps them. A renamed test only
       # runs early again, never drops out of the nightly run.
       - name: cargo test

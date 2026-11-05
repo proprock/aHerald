@@ -9,6 +9,10 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- The **Messenger** switch is now in the macOS and Linux tray menus too, beside Sound and Pop-up
+  and only when a sink is configured (AH-219).
+
 ## [0.13.0] - 2026-11-05
 
 ### Added

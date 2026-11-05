@@ -239,7 +239,10 @@ fn present(
     let mut test_sound = None;
     let transient = config_path.is_none();
     let tray = config_path.map(|_| {
-        super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false)
+        let tray =
+            super::tray::Tray::start(config.sounds.enabled, config.notifications.enabled, false);
+        tray.set_messenger(crate::forward::enabled());
+        tray
     });
     let usage = config_path.map(|_| {
         crate::usage_service::Service::codex(
@@ -366,6 +369,10 @@ fn present(
                                 eprintln!("aHerald: {error}");
                             }
                         });
+                    }
+                    Command::Messenger => {
+                        crate::forward::toggle();
+                        tray.set_messenger(crate::forward::enabled());
                     }
                     Command::Sound
                     | Command::Visual
