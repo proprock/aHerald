@@ -1,6 +1,6 @@
 #!/bin/sh
 # Release check for the macOS archive: structure, architecture, bundle metadata, signature
-# and a clean-extraction run. Usage: ./check-release-macos.sh <archive.zip> <version>
+# and a clean-extraction run. Usage: ./scripts/check-release-macos.sh <archive.zip> <version>
 set -eu
 archive=$1
 version=$2

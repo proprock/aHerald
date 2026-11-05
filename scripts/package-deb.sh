@@ -2,12 +2,13 @@
 # Build a system package without running package scripts or changing user homes.
 set -eu
 umask 022
-cd "$(dirname "$0")"
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/.."
+. "$here/version.sh"
 executable=${1:-target/release/aherald}
-version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)
-[ -n "$version" ] || { echo 'Cannot read version' >&2; exit 1; }
+version=$(crate_version)
 tag=${2:-v$version}
-[ "$tag" = "v$version" ] || { echo "Tag $tag does not match version $version" >&2; exit 1; }
+require_tag_matches "$tag" "$version"
 [ -x "$executable" ] || { echo "Build executable first: $executable" >&2; exit 1; }
 readelf -h "$executable" | grep -q 'Advanced Micro Devices X86-64' || { echo 'Executable is not x86_64 ELF' >&2; exit 1; }
 readelf -l "$executable" | grep -q 'ld-linux-x86-64.so.2' || { echo 'Executable must use the GNU libc loader' >&2; exit 1; }

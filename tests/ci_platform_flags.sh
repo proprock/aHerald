@@ -34,7 +34,7 @@ expect "macos-only source" 'windows=false linux=false macos=true os=["macos-15"]
 expect "unix tests select linux and macos" \
   'windows=false linux=true macos=true os=["macos-15","ubuntu-22.04"]' tests/unix_ipc.rs
 expect "shared mac input also builds on linux" 'linux=true macos=true' src/mac/input.rs
-expect "powershell scripts select windows" 'windows=true linux=false macos=false' check-release.ps1
+expect "powershell scripts select windows" 'windows=true linux=false macos=false' scripts/check-release.ps1
 expect "a docs change beside code does not widen the selection" \
   'windows=true linux=false macos=false' README.md src/tray.rs
 expect "an unknown path falls back to every platform" 'windows=true linux=true macos=true' brand-new-file.txt
@@ -51,9 +51,15 @@ expect "a core source change leaves the packaging checks to the full run" \
 expect "the Windows installer sources select the Windows package check" \
   'pkg_windows=true pkg_linux=false pkg_macos=false' installer/aherald.iss
 expect "a Debian script selects the Linux package check" \
-  'pkg_windows=false pkg_linux=true pkg_macos=false' package-deb.sh
+  'pkg_windows=false pkg_linux=true pkg_macos=false' scripts/package-deb.sh
 expect "a disk image script selects the macOS package check" \
-  'pkg_windows=false pkg_linux=false pkg_macos=true' package-dmg.sh
+  'pkg_windows=false pkg_linux=false pkg_macos=true' scripts/package-dmg.sh
+expect "the shared shell version reader selects the Linux and macOS package checks" \
+  'pkg_windows=false pkg_linux=true pkg_macos=true windows=false linux=true macos=true' scripts/version.sh
+expect "the Ping packaging script selects every platform's build but no package check" \
+  'pkg_windows=false pkg_linux=false pkg_macos=false windows=true linux=true macos=true' scripts/package-ping.sh
+expect "a Windows packaging script selects only the Windows package check" \
+  'pkg_windows=true pkg_linux=false pkg_macos=false' scripts/package-release.ps1
 expect "the manifest lock selects every package check" \
   'pkg_windows=true pkg_linux=true pkg_macos=true' Cargo.lock
 expect "hook setup code selects every package check" \

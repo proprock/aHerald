@@ -11,13 +11,16 @@ set -eu
 # Prints the platforms that a changed path affects, separated by spaces.
 platforms_for() {
   case "$1" in
-    src/linux/* | tests/linux_apply.rs | tests/linux_deb_lifecycle.sh | tests/linux_upgrade_ipc.sh | tests/console_setup_linux.py | tests/live/linux_* | package-deb.sh | package-linux.sh)
+    src/linux/* | tests/linux_apply.rs | tests/linux_deb_lifecycle.sh | tests/linux_upgrade_ipc.sh | tests/console_setup_linux.py | tests/live/linux_* | scripts/package-deb.sh | scripts/package-linux.sh)
       echo linux ;;
     # src/linux/mod.rs compiles this file into the Linux build as well.
     src/mac/input.rs)
       echo 'linux macos' ;;
-    src/mac/* | tests/mac_resident.rs | tests/macos_app_lifecycle.sh | package-macos.sh | package-dmg.sh | check-release-macos.sh | check-release-dmg.sh)
+    src/mac/* | tests/mac_resident.rs | tests/macos_app_lifecycle.sh | scripts/package-macos.sh | scripts/package-dmg.sh | scripts/check-release-macos.sh | scripts/check-release-dmg.sh)
       echo macos ;;
+    # Sourced by the Debian, Linux and macOS packaging scripts.
+    scripts/version.sh)
+      echo 'linux macos' ;;
     # Compiled under cfg(unix): Linux and macOS.
     src/unix/* | tests/https_off.rs | tests/log_local_offset.rs | tests/perf_statusline.rs | tests/plugin_hook_script.rs | tests/sandbox_sender.rs | tests/statusline.rs | tests/unix_audio.rs | tests/unix_hook.rs | tests/unix_ipc.rs | tests/unsupported_platform.rs | tests/usage_local_reset.rs)
       echo 'linux macos' ;;
@@ -27,7 +30,7 @@ platforms_for() {
       echo windows ;;
     tests/statusline_windows.rs | tests/app_icon.rs |tests/config_notice.rs | tests/hook_lifecycle.rs | tests/ipc_diagnostics.rs | tests/local.rs | tests/native_assets.rs | tests/native_notice.rs | tests/native_overlay.rs | tests/perf_baseline.rs | tests/process.rs | tests/process_stats.rs | tests/process_wait.rs | tests/resident.rs | tests/resident_fixture.rs | tests/resident_perf_log.rs | tests/resident_render_faults.rs | tests/runner_contract.rs | tests/tray.rs | tests/tray_about.rs | tests/tray_restart.rs | tests/usage_live.rs | tests/window_wait.rs)
       echo windows ;;
-    *.ps1 | installer/* | build-installer.ps1 | check-release.ps1 | package-release.ps1)
+    *.ps1 | installer/*)
       echo windows ;;
     *)
       echo all ;;
@@ -41,10 +44,12 @@ packaging_for() {
   case "$1" in
     installer/* | *.ps1 | tests/installer_*)
       echo windows ;;
-    package-deb.sh | package-linux.sh | tests/linux_deb_lifecycle.sh | tests/linux_upgrade_ipc.sh | tests/console_setup_linux.py | src/linux/*)
+    scripts/package-deb.sh | scripts/package-linux.sh | tests/linux_deb_lifecycle.sh | tests/linux_upgrade_ipc.sh | tests/console_setup_linux.py | src/linux/*)
       echo linux ;;
-    package-macos.sh | package-dmg.sh | check-release-macos.sh | check-release-dmg.sh | tests/macos_app_lifecycle.sh | src/mac/*)
+    scripts/package-macos.sh | scripts/package-dmg.sh | scripts/check-release-macos.sh | scripts/check-release-dmg.sh | tests/macos_app_lifecycle.sh | src/mac/*)
       echo macos ;;
+    scripts/version.sh)
+      echo 'linux macos' ;;
     Cargo.toml | Cargo.lock | build.rs | assets/* | resources/* | .github/* | src/main.rs | src/cli.rs | src/paths.rs | src/restart.rs | src/default_config.rs | src/codex_install.rs | src/*setup*.rs)
       echo 'windows linux macos' ;;
   esac

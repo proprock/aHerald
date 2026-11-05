@@ -1,9 +1,9 @@
 #!/bin/sh
 # Release check for the macOS disk image: layout, bundle metadata, signature, and the isolated
 # app lifecycle run against the program inside the mounted image.
-# Usage: ./check-release-dmg.sh <image.dmg> <version>
+# Usage: ./scripts/check-release-dmg.sh <image.dmg> <version>
 set -eu
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 image=$1
 version=$2
 fail() { echo "FAIL: $*" >&2; exit 1; }

@@ -36,11 +36,11 @@ path = "src/bin/aherald-cli.rs"
 
 [[example]]
 name = "generate_assets"
-path = "generate_assets.rs"
+path = "examples/tools/generate_assets.rs"
 
 [[example]]
 name = "generate_app_icon"
-path = "generate_app_icon.rs"
+path = "examples/tools/generate_app_icon.rs"
 
 [[example]]
 name = "session_warning_bridge"

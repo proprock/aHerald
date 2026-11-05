@@ -138,8 +138,8 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo build --release --target x86_64-pc-windows-msvc
-.\check-release.ps1      # needs llvm-readobj: x64, GUI subsystem, no separate C runtime
-.\package-release.ps1    # builds dist\aherald-vX.Y.Z-windows-x64.zip and proves a clean extraction runs
+.\scripts\check-release.ps1      # needs llvm-readobj: x64, GUI subsystem, no separate C runtime
+.\scripts\package-release.ps1    # builds dist\aherald-vX.Y.Z-windows-x64.zip and proves a clean extraction runs
 ```
 
 ## Limits to know

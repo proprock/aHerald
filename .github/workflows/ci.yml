@@ -263,12 +263,12 @@ jobs:
         run: |
           cargo build --locked --release --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./check-release.ps1
+          ./scripts/check-release.ps1
 
       - name: Package the Windows release candidate
         if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
         shell: pwsh
-        run: ./package-release.ps1
+        run: ./scripts/package-release.ps1
 
       - name: Install the signed Inno Setup compiler
         if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
@@ -278,7 +278,7 @@ jobs:
         if: runner.os == 'Windows' && needs.changes.outputs.pkg_windows == 'true'
         shell: pwsh
         run: |
-          ./build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
+          ./scripts/build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
           $version = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq 'aherald').version
           ./tests/installer_windows.ps1 -Installer "dist/aherald-v$version-windows-x64-setup-test.exe"
 
@@ -312,8 +312,9 @@ jobs:
 
       - name: Assemble the Debian package and verify its isolated lifecycle
         run: |
-          version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
-          sh ./package-deb.sh target/debug/aherald "v$version"
+          . ./scripts/version.sh
+          version="$(crate_version)"
+          sh ./scripts/package-deb.sh target/debug/aherald "v$version"
           sh ./tests/linux_deb_lifecycle.sh "dist/aherald-v$version-linux-x86_64-gnu.deb"
 
   # The static sender in a real container (AH-228). An optional feature that needs the Docker
@@ -353,8 +354,8 @@ jobs:
         env:
           AHERALD_PING_STATIC: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/ping/aherald-ping
         run: |
-          sh ./package-ping.sh x86_64
-          sh ./package-ping.sh aarch64
+          sh ./scripts/package-ping.sh x86_64
+          sh ./scripts/package-ping.sh aarch64
           cargo test --locked -p aherald-ping --test container -- --ignored
 
   # One required check for every job: it passes when each one succeeded or was skipped

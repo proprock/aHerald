@@ -1,19 +1,20 @@
 #!/bin/sh
 # Package a previously built static aherald-ping for one Linux architecture and check it.
-# Usage: package-ping.sh x86_64|aarch64 [tag]   (build first, see below)
+# Usage: scripts/package-ping.sh x86_64|aarch64 [tag]   (build first, see below)
 #   cargo build --locked --profile ping -p aherald-ping --target <arch>-unknown-linux-musl
 set -eu
-cd "$(dirname "$0")"
-arch=${1:?usage: package-ping.sh x86_64|aarch64 [tag]}
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/.."
+. "$here/version.sh"
+arch=${1:?usage: scripts/package-ping.sh x86_64|aarch64 [tag]}
 case "$arch" in
   x86_64) machine='Advanced Micro Devices X86-64' ;;
   aarch64) machine='AArch64' ;;
   *) echo "Unknown architecture: $arch" >&2; exit 1 ;;
 esac
-version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)
-[ -n "$version" ] || { echo 'Cannot read version' >&2; exit 1; }
+version=$(crate_version)
 tag=${2:-v$version}
-[ "$tag" = "v$version" ] || { echo "Tag $tag does not match version $version" >&2; exit 1; }
+require_tag_matches "$tag" "$version"
 binary=target/$arch-unknown-linux-musl/ping/aherald-ping
 [ -x "$binary" ] || { echo "Build first: $binary" >&2; exit 1; }
 readelf -h "$binary" | grep -q "$machine" || { echo "Not a $arch ELF: $binary" >&2; exit 1; }

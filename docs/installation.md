@@ -268,7 +268,7 @@ apt repository for automatic future updates. The `.tar.gz` portable archive
 remains available and keeps its own existing layout.
 
 Build a package from a previously compiled x86-64 GNU/Linux executable with
-`sh package-deb.sh target/release/aherald`. It produces the `.deb` and SHA-256
+`sh scripts/package-deb.sh target/release/aherald`. It produces the `.deb` and SHA-256
 file in `dist`. The isolated lifecycle check
 `sh tests/linux_deb_lifecycle.sh dist/aherald-vX.Y.Z-linux-x86_64-gnu.deb`
 requires Linux user, mount and PID namespaces plus `dpkg`. It runs in a private
@@ -277,8 +277,8 @@ does not verify dependency installation through apt or graphical installation.
 
 ## Building the Windows installer
 
-Build and check the release executable, then run `package-release.ps1` and
-`build-installer.ps1`. The latter requires Inno Setup 7 (or a compatible compiler
+Build and check the release executable, then run `scripts/package-release.ps1` and
+`scripts/build-installer.ps1`. The latter requires Inno Setup 7 (or a compatible compiler
 with `ExecAndCaptureOutput`) on the build machine only. Windows release CI installs
 the pinned, signature-verified Inno Setup 7.1.1 compiler and publishes both the
 portable ZIP and setup EXE, with SHA-256 files. The setup EXE is not code-signed by
