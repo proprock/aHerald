@@ -33,5 +33,6 @@ User guides, grouped by task. Start with the guide for your platform; the
 
 - [Privacy register](privacy.md)
 - [Windows application icon](app-icon.md)
-- [Engineering notes](notes/): investigations, spikes, milestone and per-ticket acceptance
-  records, and design plans. They are history: the current behaviour is in the guides above.
+- [Engineering notes](https://github.com/proprock/aHerald/tree/master/docs/notes): investigations,
+  spikes, milestone and per-ticket acceptance records, and design plans. They are history, kept in
+  the repository and left out of release archives; the current behaviour is in the guides above.

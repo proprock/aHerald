@@ -188,7 +188,8 @@ cargo test --locked --workspace --doc
 - `TODO.md`: each task lists dependencies and acceptance criteria; check it only after the
   criteria pass. When a task closes, move it to `DONE.md` in the same pull request with the
   commands, results and versions; leftover manual checks become new IDs. No `[x]` items stay
-  in `TODO.md`, and every ID in `CHANGELOG.md` exists in `DONE.md`.
+  in `TODO.md`. Every ID a `CHANGELOG.md` entry credits exists in `DONE.md`; a "see TODO.md"
+  pointer may name an open task, such as an acceptance check still to run.
 
 ## Commits and branches
 

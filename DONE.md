@@ -15,8 +15,8 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   their open checks are AH-272 to AH-278, placed where the originals were. AH-117: `update_tap` merged a
   tap pull request for every release from 0.9.1 to 0.15.0, so that check is done. AH-093 and AH-115 stay
   open: they are acceptance tasks with no code of their own, and CHANGELOG 0.9.0-beta cites them only as
-  "See TODO.md". So every ID that a CHANGELOG entry credits is in DONE.md; the two pointers are the
-  exception.
+  "See TODO.md". So every ID that a CHANGELOG entry credits is in DONE.md; AGENTS.md now allows such
+  "see TODO.md" pointers to open tasks.
 
 - [x] **AH-222 — Suppress notifications while the user watches the originating session (Linux X11).**
   Windows (AH-098) and macOS (AH-120) suppress the card and the sound on positive evidence of both
@@ -273,7 +273,9 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   README Development says tests run with plain `cargo test` and links the nextest note as history, the
   docs index and AGENTS.md. Check: a script resolving every relative markdown link in tracked `.md` files
   reports none broken (before and after); `cargo fmt --check` clean. The packaging scripts copy the whole
-  `docs/` folder, so the archives now carry `docs/notes/` too.
+  `docs/` folder; they now remove `docs/notes/` from the Windows, macOS and Linux archives (and so
+  from the Windows installer), and the index links the notes on GitHub. Checked by building the Linux
+  archive: no `docs/notes` entry, 27 guides.
 
 - [x] **AH-241 — TODO.md / DONE.md hygiene.**
   Move every `[x]` item from TODO.md to DONE.md unchanged (AH-116, 105, 090, 201–204, 223–228). For AH-206, 213,

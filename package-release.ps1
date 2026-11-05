@@ -29,6 +29,8 @@ foreach ($file in 'config.example.toml', 'LICENSE', 'README.md', 'CHANGELOG.md')
 foreach ($dir in 'assets', 'examples', 'docs') {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $dir) -Destination $root -Recurse
 }
+# Engineering notes are project history, not user documentation.
+Remove-Item -LiteralPath (Join-Path $root 'docs/notes') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'docs/portable.md') -Destination (Join-Path $root 'START-HERE.md')
 
 # Metadata: what this archive is and the hash of every file in it (the manifest lists itself last).
