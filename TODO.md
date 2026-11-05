@@ -464,14 +464,14 @@ P2 tasks run in the listed order; AH-266 goes last.
   (`xvfb-run … cargo test --test linux_apply -- --ignored --test-threads=1` and `--test remote_listener` pass).
   Verifiable on Linux.
 
-- [ ] **AH-232 — macOS: Claude-only usage refreshes while idle.**
-  `src/mac/resident.rs:1228` decides the idle wait from `codex.usage.enabled` only. Windows also checks
-  `claude.is_some()` (`src/resident_overlay.rs:229`) and subscribes to `on_change` (`:1298-1300`).
-  Extract `pub(crate) fn idle_poll_needed(codex_usage: bool, claude_usage: bool, has_deadline: bool) -> bool`
-  into `src/resident_request.rs` with unit tests, and use it in the Windows timer condition and the macOS
-  wait. Better still, also subscribe macOS to `usage.on_change`/`claude.on_change` with the existing
-  `Waker`. Acceptance: unit tests for all 8 combinations pass on Linux; macOS CI compiles. Not run:
-  live tray on a Mac (add a manual check line).
+- [ ] **AH-232 — macOS: Claude-only usage refreshes while idle (the Mac check and the subscription are left).**
+  Shipped on `chore/AH-246-single-sources`: `resident_request::idle_poll_needed(codex_usage, claude_usage,
+  has_deadline)` with a test of all eight combinations; the Windows timer and the macOS wait use it, so a
+  Claude-only setup now keeps polling on macOS. The macOS and Windows call sites compile only in their CI.
+  Left: (1) a manual check on a Mac with only `[claude.usage] enabled = true`: the tray icon and tooltip
+  update while idle (record the macOS version); (2) the better variant: subscribe the macOS resident to
+  `usage.on_change` / `claude.on_change` with the existing `Waker` (as Windows does at
+  `src/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
 
 - [ ] **AH-233 — Same Apply diagnostics on every OS.**
   On an invalid config, Linux posts a different message and does not log `InvalidConfiguration`

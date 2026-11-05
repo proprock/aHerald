@@ -1225,9 +1225,11 @@ fn present(
             ui.step();
             let wait = if ui.animating() {
                 NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
-            } else if ui.config.codex.usage.enabled
-                || ui.shared.lock().is_ok_and(|s| s.warnings.has_deadline())
-            {
+            } else if crate::resident_request::idle_poll_needed(
+                ui.config.codex.usage.enabled,
+                ui.claude.is_some(),
+                ui.shared.lock().is_ok_and(|s| s.warnings.has_deadline()),
+            ) {
                 // Usage polling keeps the icon and tooltip fresh while nothing is shown.
                 NSDate::dateWithTimeIntervalSinceNow(1.0)
             } else {
