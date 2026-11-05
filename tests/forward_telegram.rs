@@ -6,55 +6,14 @@ use aherald::{
     telegram::Telegram,
 };
 use std::{
-    io::{Read, Write},
     net::TcpListener,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+mod support;
+use support::fake_http::fake_api;
 
 const TOKEN: &str = "123456:SECRET-TOKEN";
-
-/// Serves each canned response to one request and records the raw requests.
-fn fake_api(responses: Vec<&'static str>) -> (u16, Arc<Mutex<Vec<String>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let requests = Arc::new(Mutex::new(Vec::new()));
-    let seen = requests.clone();
-    std::thread::spawn(move || {
-        for response in responses {
-            let Ok((mut stream, _)) = listener.accept() else {
-                return;
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut chunk = [0u8; 1024];
-            loop {
-                let read = stream.read(&mut chunk).unwrap_or(0);
-                request.extend_from_slice(&chunk[..read]);
-                let text = String::from_utf8_lossy(&request).into_owned();
-                let done = text.split_once("\r\n\r\n").is_some_and(|(head, body)| {
-                    let length = head
-                        .to_lowercase()
-                        .split("content-length:")
-                        .nth(1)
-                        .and_then(|rest| rest.lines().next()?.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    body.len() >= length
-                });
-                if read == 0 || done {
-                    break;
-                }
-            }
-            seen.lock()
-                .unwrap()
-                .push(String::from_utf8_lossy(&request).into_owned());
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (port, requests)
-}
 
 fn message(folder: Option<&str>) -> Message {
     Message {

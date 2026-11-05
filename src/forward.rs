@@ -6,8 +6,9 @@
 use crate::{
     config::{Forward, SinkConfig, SinkType},
     events::Event,
-    sink::{Dispatcher, Policy, Route},
+    sink::{Dispatcher, Policy, Route, Sink},
     telegram::Telegram,
+    webhook::{Webhook, expand_env},
 };
 use std::{path::Path, sync::Mutex};
 
@@ -43,6 +44,37 @@ fn route(
     env: &impl Fn(&str) -> Option<String>,
     read: &impl Fn(&Path) -> std::io::Result<String>,
 ) -> Result<Route, String> {
+    let (sink_impl, secrets): (Box<dyn Sink>, Vec<String>) = match sink.kind {
+        SinkType::Telegram => telegram(sink, env, read)?,
+        SinkType::Webhook => webhook(sink, env)?,
+    };
+    Ok(Route {
+        sink: sink_impl,
+        kinds: sink.kinds.clone(),
+        secrets,
+        include_folder: sink.include_folder,
+    })
+}
+
+fn webhook(
+    sink: &SinkConfig,
+    env: &impl Fn(&str) -> Option<String>,
+) -> Result<(Box<dyn Sink>, Vec<String>), String> {
+    let (url, mut secrets) = expand_env(sink.url.as_deref().ok_or("no url")?, env)?;
+    let (body, more) = expand_env(sink.body.as_deref().unwrap_or("{text}"), env)?;
+    secrets.extend(more);
+    let content_type = sink
+        .content_type
+        .clone()
+        .unwrap_or_else(|| "text/plain; charset=utf-8".to_owned());
+    Ok((Box::new(Webhook::new(&url, body, content_type)?), secrets))
+}
+
+fn telegram(
+    sink: &SinkConfig,
+    env: &impl Fn(&str) -> Option<String>,
+    read: &impl Fn(&Path) -> std::io::Result<String>,
+) -> Result<(Box<dyn Sink>, Vec<String>), String> {
     let variable = |name: &str| {
         env(name)
             .map(|value| value.trim().to_owned())
@@ -75,13 +107,7 @@ fn route(
         (None, None) => return Err("no token_env or token_file".to_owned()),
     };
     let chat_id = variable(sink.chat_id_env.as_deref().ok_or("no chat_id_env")?)?;
-    let SinkType::Telegram = sink.kind;
-    Ok(Route {
-        sink: Box::new(Telegram::new(token.clone(), chat_id)),
-        kinds: sink.kinds.clone(),
-        secrets: vec![token],
-        include_folder: sink.include_folder,
-    })
+    Ok((Box::new(Telegram::new(token.clone(), chat_id)), vec![token]))
 }
 
 /// The resident's running sinks. One process has one resident, so this is process state, like the

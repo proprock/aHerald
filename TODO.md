@@ -705,9 +705,11 @@ are deferred (AH-204, AH-205).
   Status (branch `feature/AH-213`): done and tested — POST in both HTTP layers, the sink contract,
   worker, filter, retry, drop-oldest, error de-duplication, secret redaction, `[forward]`
   configuration, the Telegram sink against a fake Bot API, and the Windows tray **Messenger**
-  switch (an agreed addition). Telegram was built directly rather than as a preset on a webhook
-  sink; the generic sink moved to AH-220. Left open: the by-hand check with a real bot on
-  Windows 11 and Linux, and a compile and test run on macOS and Linux (AH-219 for their menus).
+  switch (an agreed addition), and the generic **webhook** sink (`${NAME}` environment secrets,
+  `{text}` body template) with Telegram as its documented example. The Telegram sink was built
+  first and kept; whether to drop it in favour of the webhook is open. Left open: the by-hand check
+  with a real bot on Windows 11 and Linux, and a compile and test run on macOS and Linux (AH-219
+  for their menus).
   Not run here: `cargo check` for the macOS and Linux targets (no C cross toolchain).
 
 - [ ] **AH-219 — Messenger switch in the macOS and Linux tray menus (split from AH-213).**
@@ -717,12 +719,12 @@ are deferred (AH-204, AH-205).
   Acceptance: the pure menu tests list the item only when a sink runs, in the Windows order;
   checked by hand on macOS and a Linux desktop.
 
-- [ ] **AH-220 — Generic webhook and command sinks (split from AH-213).**
-  A sink that POSTs a template (kind, harness, optional folder) to a URL from an environment
-  variable, and one that runs a command as an argument vector without a shell. Together they serve
-  ntfy, Slack and others without a preset each. Reuses `https::post`, `forward::build` and the
-  `Sink` contract; needs a decision on the template syntax and on URL secrets (many webhook URLs
-  are secrets). Acceptance: tests with a fake server and a recording command; no shell is involved.
+- [ ] **AH-220 — Command sink (split from AH-213).**
+  The webhook sink is done under AH-213. What is left is a sink that runs a command as an argument
+  vector without a shell, with the same `${NAME}` and `{text}` placeholders, for services that have
+  a CLI rather than an HTTP endpoint. Reuses `forward::build` and the `Sink` contract.
+  Acceptance: a test with a recording command; no shell is involved; the message never reaches a
+  shell parser.
 
 ## Milestone 10 — Release trust (deferred)
 

@@ -140,6 +140,43 @@ chat_id_env = "AHERALD_TELEGRAM_CHAT"
   `https://api.telegram.org/bot<token>/getUpdates`. aHerald calls `sendMessage` with `chat_id` and
   plain `text` only.
 
+#### Webhook sink (any HTTP service)
+
+`type = "webhook"` POSTs a body template to a URL, which serves ntfy, Slack, Discord, Telegram and
+anything else that takes an HTTP request. Telegram as a webhook, with the token in an environment
+variable:
+
+```toml
+[[forward.sinks]]
+type = "webhook"
+kinds = ["permission_required", "input_required"]
+url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
+content_type = "application/json"
+body = '{"chat_id": "123456789", "text": "{text}"}'
+```
+
+ntfy needs no body or content type (the default is the plain message text):
+
+```toml
+[[forward.sinks]]
+type = "webhook"
+url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
+```
+
+- **`${NAME}`** (in `url` and `body`) is replaced when aHerald starts by the environment variable
+  `NAME`. Use it for every secret: the token, a secret topic, a webhook address. The value is
+  scrubbed from every error and card. A missing or empty variable shows a card naming the
+  variable. Put no secret literally in `url` or `body`: aHerald does not check for it.
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`** (in `body` only) are replaced at each send.
+  `{text}` is the message line, for example `Claude: input required`; `{folder}` is empty unless
+  `include_folder = true`. They are filled in one pass: a value that contains `{kind}` is not
+  expanded again, and other braces (JSON) stay as written.
+- **`content_type`** defaults to `text/plain; charset=utf-8`. When it contains `json`, the values
+  are escaped to sit inside a JSON string, so write your own quotes around the placeholder
+  (`"text": "{text}"`).
+- `url` is `https://` (plain `http://` works but sends everything in the clear). A 2xx answer is a
+  success; anything else is an error card with the HTTP status.
+
 ### Claude status line text
 
 `[claude.statusline] format` is the text `aherald --statusline` prints when you have no status

@@ -762,3 +762,48 @@ fn a_token_file_beside_the_configuration_resolves_to_an_absolute_path() {
         Some(dir.join("secrets/token.txt").as_path())
     );
 }
+
+const WEBHOOK: &str =
+    "[[forward.sinks]]\ntype = \"webhook\"\nurl = \"https://api.example/bot${TOKEN}/send\"\n";
+
+#[test]
+fn a_webhook_sink_defaults_to_a_plain_text_body_of_the_message() {
+    let config = Config::parse(WEBHOOK, &PathBuf::from(".")).unwrap();
+    let sink = &config.forward.sinks[0];
+    assert_eq!(
+        sink.url.as_deref(),
+        Some("https://api.example/bot${TOKEN}/send")
+    );
+    assert_eq!(sink.body.as_deref(), None);
+    assert_eq!(sink.content_type.as_deref(), None);
+    assert_eq!(sink.kinds.len(), 4);
+}
+
+#[test]
+fn a_webhook_sink_takes_a_body_and_a_content_type() {
+    let text = format!(
+        "{WEBHOOK}body = '{{\"text\": \"{{text}}\"}}'\ncontent_type = \"application/json\"\n"
+    );
+    let sink = &Config::parse(&text, &PathBuf::from("."))
+        .unwrap()
+        .forward
+        .sinks[0];
+    assert_eq!(sink.body.as_deref(), Some("{\"text\": \"{text}\"}"));
+    assert_eq!(sink.content_type.as_deref(), Some("application/json"));
+}
+
+#[rstest]
+#[case::no_url("[[forward.sinks]]\ntype = \"webhook\"\n")]
+#[case::token_field(
+    "[[forward.sinks]]\ntype = \"webhook\"\nurl = \"https://h/\"\ntoken_env = \"T\"\n"
+)]
+#[case::telegram_with_url(
+    "[[forward.sinks]]\ntype = \"telegram\"\ntoken_env = \"T\"\nchat_id_env = \"C\"\nurl = \"https://h/\"\n"
+)]
+fn a_sink_with_fields_of_another_type_or_no_url_is_refused(#[case] text: &str) {
+    let error = Config::parse(text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with("invalid configuration: forward.sinks"),
+        "{error}"
+    );
+}

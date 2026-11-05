@@ -8,6 +8,7 @@ use std::{
 
 #[cfg(windows)]
 pub mod detached;
+pub mod fake_http;
 #[cfg(windows)]
 mod resident;
 #[cfg(windows)]

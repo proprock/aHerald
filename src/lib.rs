@@ -31,6 +31,7 @@ pub mod statusline_launch;
 pub mod telegram;
 pub mod usage;
 pub mod usage_service;
+pub mod webhook;
 #[cfg(unix)]
 #[path = "unix/zone.rs"]
 pub(crate) mod zone;

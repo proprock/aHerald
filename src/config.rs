@@ -46,10 +46,12 @@ impl Default for Forward {
 #[serde(rename_all = "lowercase")]
 pub enum SinkType {
     Telegram,
+    Webhook,
 }
 
 /// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration names the
-/// environment variable or the file they are read from, and an unknown `token` key is refused.
+/// environment variable or the file they are read from (`token_env`, `token_file`, or `${NAME}` in
+/// a webhook `url` or `body`), and an unknown `token` key is refused.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SinkConfig {
@@ -63,6 +65,13 @@ pub struct SinkConfig {
     pub token_env: Option<String>,
     pub token_file: Option<PathBuf>,
     pub chat_id_env: Option<String>,
+    /// Webhook only: the address to POST to; `${NAME}` is replaced by an environment variable.
+    pub url: Option<String>,
+    /// Webhook only: the body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}`
+    /// and `{folder}` at each send. Default `{text}`.
+    pub body: Option<String>,
+    /// Webhook only; default `text/plain; charset=utf-8`. A JSON type escapes the values.
+    pub content_type: Option<String>,
 }
 fn default_sink_kinds() -> Vec<Kind> {
     vec![
@@ -73,7 +82,7 @@ fn default_sink_kinds() -> Vec<Kind> {
     ]
 }
 /// An environment variable name: letters, digits and underscores, so a pasted secret fails.
-fn is_variable_name(name: &str) -> bool {
+pub(crate) fn is_variable_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
         && !name.starts_with(|c: char| c.is_ascii_digit())
@@ -813,6 +822,29 @@ impl Config {
         }
         for (index, sink) in self.forward.sinks.iter().enumerate() {
             let at = format!("invalid configuration: forward.sinks[{index}]");
+            match sink.kind {
+                SinkType::Webhook => {
+                    let tokens = sink.token_env.is_some()
+                        || sink.token_file.is_some()
+                        || sink.chat_id_env.is_some();
+                    if sink.url.is_none() || tokens {
+                        return Err(format!(
+                            "{at} (webhook) needs url and takes no token_env, token_file or chat_id_env"
+                        ));
+                    }
+                    continue;
+                }
+                SinkType::Telegram => {
+                    if [&sink.url, &sink.body, &sink.content_type]
+                        .into_iter()
+                        .any(Option::is_some)
+                    {
+                        return Err(format!(
+                            "{at} (telegram) takes no url, body or content_type"
+                        ));
+                    }
+                }
+            }
             let named = [&sink.token_env, &sink.chat_id_env]
                 .into_iter()
                 .flatten()

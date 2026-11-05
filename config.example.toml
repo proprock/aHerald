@@ -361,3 +361,10 @@ enabled = true
 # include_folder = false
 # token_env = "AHERALD_TELEGRAM_TOKEN"   # or: token_file = "telegram.token"
 # chat_id_env = "AHERALD_TELEGRAM_CHAT"
+# Any HTTP service: ${NAME} is replaced at start by that environment variable (use it for every
+# secret); {text}, {kind}, {harness}, {folder} are filled at each send. See docs/configuration.md.
+# [[forward.sinks]]
+# type = "webhook"
+# url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
+# # content_type = "application/json"
+# # body = '{"text": "{text}"}'
