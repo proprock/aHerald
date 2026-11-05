@@ -771,3 +771,70 @@ are deferred (AH-204, AH-205).
     Gatekeeper "Open Anyway" step in the README.
   - Acceptance: the release workflow signs with a secret held in the `release` environment, and a
     clean Windows 11 and macOS 15 machine starts the downloaded file without a warning.
+
+## Milestone 11 — Notifications from sandboxes and virtual machines
+
+Agreed design (2026-11-05, plan in the planning session; evidence labels there): an agent that
+runs inside a container or VM cannot reach the resident's same-user IPC. Add one opt-in transport,
+HTTP/1.1 POST over TCP to a listener inside the resident, and two guest-side senders that speak
+the same wire contract: a shell script (instructions for a person or for the agent inside the
+guest) and a static binary `aherald-ping`. The host parses the raw hook payload with the existing
+`Agent::parse_hook`; the sender never parses agent formats and never supplies `window`/`tty`.
+Out of scope: TLS, cloud sandboxes, relays, multi-user use, a daemon in the guest, Unix-socket
+bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first release.
+
+- [ ] **AH-223 — Spike: verify the assumptions behind the sandbox sender.**
+  Check, and write down in `docs/sandboxes.md` (or the task status): which build layouts the
+  packaging scripts accept (`--workspace` use), whether the lib builds for musl, Codex's reply
+  contract for an empty hook reply, and per environment (Docker Linux, Podman, Docker Sandboxes,
+  Lima, coop, srt, nono) how a guest reaches the host. Unverified items stay marked as such.
+  Acceptance: a table of verified, documented and unverified items with the command or URL.
+  Status (2026-11-05, local part done): verified here — CI and release use `cargo build --locked`,
+  `cargo test --locked --all-targets` and `cargo test --locked --doc` with no `--workspace`, so a
+  workspace would leave `aherald-ping` untested unless `-p aherald-ping` is added. A scratch
+  workspace (root package plus `crates/aherald-ping`) builds only `aherald` by default and keeps
+  `target/debug/aherald`. **But** `cargo metadata --no-deps` lists `aherald-ping` first, and
+  `ci.yml:100,250` and `release.yml:77,152` read `packages[0]` for the version and
+  `rust_version`; those lines must select the package by name (AH-226). Codex: Stop writes `{}`,
+  PermissionRequest and Interrupt write nothing (`docs/codex-hooks.md:23`), and the launcher already
+  prints nothing when no executable is found, so an empty reply is the existing degraded path.
+  Not done: musl build of the lib (target not installed here), per-environment reachability
+  (needs the real environments), srt/nono/Codex-sandbox behaviour.
+
+- [ ] **AH-224 — Host listener for forwarded hook events.**
+  Depends on AH-223 (build facts only). `[remote]` config (`enabled = false`, `bind`), a
+  generated token in a 0600 file in the data directory, `src/remote.rs` (std only): HTTP/1.1
+  `POST /v1/hook?agent=claude|codex`, Bearer token compared in constant time, 64 KiB body limit,
+  1 s read deadline, at most 8 connections, one thread per connection, never holding the shared
+  lock while reading. Runs only in the resident. Reuses `Agent::parse_hook`, forces `window` and
+  `tty` to none, applies the same kind and `hooks_enabled` gates as the local hook (extracted into
+  a library function used by both paths), then `resident_request::respond`. Only the five terminal
+  and wait events are accepted; other events get a quick 200. Answers with the hook reply.
+  A bind failure is logged and retried with backoff. A non-loopback bind logs a warning.
+  Acceptance (tests first): wrong, missing and extra tokens (401), oversize (413), malformed (400),
+  unknown agent, hung client honours the deadline, connection cap, `window` in the payload is
+  ignored, concurrent sessions, resident restart, listener off by default; existing hook tests
+  unchanged.
+
+- [ ] **AH-225 — Shell sender for guests.**
+  Depends on AH-224. A branch in `plugins/aherald/hooks/aherald-hook.sh` when `AHERALD_ENDPOINT`
+  is set, plus a standalone `examples/sandbox/aherald-ping.sh`, and hook snippets for Claude and
+  Codex that register only the five events. Always exits 0, bounded to about 1 s.
+  Acceptance: script tests like `plugin_hook_script.rs`; behaviour unchanged when the variable is
+  unset; refused and blackholed endpoints return quickly.
+
+- [ ] **AH-226 — `aherald-ping`, a static sender binary.**
+  Depends on AH-224. Separate crate `crates/aherald-ping` in a new workspace (root package keeps
+  its paths); std plus `serde_json`; a `[profile.ping]` with `panic = "abort"`. Accepts `--hook`,
+  `--agent`, `--resident`, `--transient`, `--endpoint`, `--token-file`, `--self-test`; drops events
+  outside the five; removes everything except an allowlist of fields (so `tool_input`,
+  `transcript_path` and prompt text never leave the guest); prints the host's reply; exits 0.
+  Acceptance: unit tests for the filter and redaction; integration tests against the listener.
+
+- [ ] **AH-227 — Documentation and the agent instructions for guests.**
+  `docs/sandboxes.md` with a recipe per environment (each proven by AH-223),
+  `docs/sandbox-setup-for-agents.md`, `docs/configuration.md` `[remote]`, `examples/sandbox/`.
+
+- [ ] **AH-228 — Release `aherald-ping` for musl and test it in a container.**
+  Depends on AH-226. x86_64 and aarch64 musl artifacts with checksums and attestation, a static
+  link check, and a Linux CI job with a Docker container (non-required at first).
