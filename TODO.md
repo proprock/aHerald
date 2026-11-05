@@ -815,6 +815,17 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   unknown agent, hung client honours the deadline, connection cap, `window` in the payload is
   ignored, concurrent sessions, resident restart, listener off by default; existing hook tests
   unchanged.
+  Status (branch `feature/AH-224-remote-listener`): implemented on Linux and tested. `src/remote.rs`
+  (std only), `[remote]` in `config.rs`, `resident_request::remote_deliver`, `aherald --remote-info`,
+  `remote-token` beside `config.toml` (0600), log records `remote.listening/bind_failed/rejected`,
+  config.example.toml, docs/configuration.md, CHANGELOG. Tests: 16 unit tests (routes, token, size,
+  deadline, connection cap, bind retry, activity dropped, busy Stop, window ignored, token file),
+  4 integration tests with a real resident (`tests/remote_listener.rs`), config tests; clippy
+  clean. The dispatch gate did not need extracting: the listener applies `hooks_enabled` and the
+  busy-Stop rule itself and `respond` applies the per-kind switch. **Not verified here:** the
+  macOS and Windows resident wiring and the Windows `BCryptGenRandom` token (new
+  `Win32_Security_Cryptography` feature) were written but not compiled — the CI legs must build
+  them; the real hook path under `xvfb` in CI; a guest on a real bridge (AH-223).
 
 - [ ] **AH-225 — Shell sender for guests.**
   Depends on AH-224. A branch in `plugins/aherald/hooks/aherald-hook.sh` when `AHERALD_ENDPOINT`

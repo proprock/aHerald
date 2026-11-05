@@ -242,6 +242,30 @@ stdin = "{text}\n"
 
 On macOS, a spoken alert: `command = ["say", "{text}"]`.
 
+### Agents in containers and virtual machines (AH-224)
+
+An agent inside a container or VM cannot reach the resident's same-user pipe. With
+`[remote] enabled = true` (resident mode) aHerald also accepts the hook payload over HTTP:
+
+```
+POST /v1/hook?agent=claude|codex      Authorization: Bearer <token>      body: the hook stdin
+```
+
+`aherald --remote-info` prints `AHERALD_ENDPOINT` and `AHERALD_TOKEN` (and creates the token file
+`remote-token`, readable by you only, beside `config.toml`). The guest-side sender is the next
+step (AH-225, AH-226); until then any HTTP client works.
+
+- Only turn ends and waits are taken (`Stop`, `StopFailure`, `PermissionRequest`, `Notification`,
+  `SessionEnd`); per-tool and per-prompt activity is dropped, so context and idle warnings do not
+  work for a guest's sessions. The payload is parsed here, so a guest can never name a window or
+  terminal of this machine, and a card from a guest is never suppressed for being "watched".
+- The token only keeps other local clients out. There is no TLS: bind to loopback or a private
+  bridge, not to `0.0.0.0`. A `PermissionRequest` payload carries the tool input (for Bash, the
+  command waiting for approval); aHerald never stores or logs it, but on the wire it is plain text.
+- A bind that fails (a Docker bridge that does not exist yet) is logged as `remote.bind_failed` and
+  tried again every 30 seconds. There is no autostart: a resident must be running.
+- Limits: 64 KiB per request, one second per request, eight connections at once.
+
 ### Claude status line text
 
 `[claude.statusline] format` is the text `aherald --statusline` prints when you have no status

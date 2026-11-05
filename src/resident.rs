@@ -146,6 +146,16 @@ fn run_with_usage_and_test(
         |state: &Shared| wake(state.window),
     ));
     crate::forward::start(&config.forward);
+    let remote = crate::remote::start_if_enabled(
+        &config,
+        path,
+        crate::resident_request::remote_deliver(
+            shared.clone(),
+            config.clone(),
+            start,
+            |state: &Shared| wake(state.window),
+        ),
+    );
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let state = shared.clone();
     let shutdown = stop.clone();
@@ -218,6 +228,7 @@ fn run_with_usage_and_test(
         test,
     );
     crate::notice::clear();
+    drop(remote);
     crate::forward::stop();
     stop.store(true, Ordering::Release);
     stop_event.signal();

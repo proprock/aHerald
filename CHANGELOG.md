@@ -10,6 +10,9 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- `[remote]`: an opt-in listener (off by default) that takes hook events from agents in containers
+  and virtual machines over HTTP with a token, and `aherald --remote-info` to print the endpoint and
+  token. The sender for guests follows (AH-224).
 - Linux X11: a card and its sound are suppressed while you look at the session behind it, as on
   Windows and macOS, when the Claude session runs in a one-session terminal (xterm, urxvt, rxvt, st,
   mlterm, aterm, eterm, alacritty) whose window is the active one and owns no other window. Tabbed

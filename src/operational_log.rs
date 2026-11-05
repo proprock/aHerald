@@ -113,6 +113,12 @@ pub enum Record {
     /// A hook could not hand its event to the resident (not reachable, not startable, or its
     /// queue refused it); the reason stays on the hook's stderr.
     HookDeliveryFailed,
+    /// The `[remote]` listener is accepting connections.
+    RemoteListening,
+    /// The `[remote]` address could not be bound; it is tried again later.
+    RemoteBindFailed,
+    /// A forwarded hook was refused; the word is one of `remote::reject_code`.
+    RemoteRejected(&'static str),
     UsageFailure,
     SessionLookupFailure,
     /// A configured sound file cannot be used; the reason is one of `SoundError::code`.
@@ -240,6 +246,9 @@ impl Record {
             Self::InvalidConfiguration => (Level::Warn, "config.invalid".into()),
             Self::ResidentStartupFailure => (Level::Error, "resident.startup_failed".into()),
             Self::HookDeliveryFailed => (Level::Warn, "hook.delivery_failed".into()),
+            Self::RemoteListening => (Level::Info, "remote.listening".into()),
+            Self::RemoteBindFailed => (Level::Warn, "remote.bind_failed".into()),
+            Self::RemoteRejected(why) => (Level::Warn, format!("remote.rejected {why}").into()),
             Self::UsageFailure => (Level::Warn, "usage.failed".into()),
             Self::SessionLookupFailure => (Level::Warn, "session.lookup_failed".into()),
             Self::SoundRejected(reason) => (Level::Warn, format!("audio.rejected {reason}").into()),

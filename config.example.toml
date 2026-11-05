@@ -372,3 +372,13 @@ enabled = true
 # type = "command"
 # kinds = ["permission_required", "input_required"]
 # command = ["say", "{text}"]
+
+[remote]
+# Take hook events from an agent in a container or virtual machine; default false. The guest sends
+# the hook payload to this address with a token (`aherald --remote-info` prints both). Needs
+# resident mode. See docs/configuration.md.
+enabled = false
+# `address:port` to listen on, an IP address and never a name. 127.0.0.1 reaches Docker Desktop
+# and some VMs; a Linux Docker or Firecracker guest needs the host's address on its bridge (for
+# example 172.17.0.1:47821 or 172.16.0.1:47821), which stays unbound until that bridge exists.
+bind = "127.0.0.1:47821"
