@@ -15,6 +15,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
   token (AH-224). Guests send with `examples/sandbox/aherald-ping.sh` (shell and `curl`; the Claude
   plugin launcher does too when `AHERALD_ENDPOINT` is set) or the new `aherald-ping` program, a
   separate crate in a new Cargo workspace that sends only what aHerald reads (AH-225, AH-226).
+  Releases attach static `aherald-ping` binaries for Linux x86_64 and aarch64 (musl) with checksums
+  and provenance; recipes in `docs/sandboxes.md` (AH-227, AH-228).
 - Linux X11: a card and its sound are suppressed while you look at the session behind it, as on
   Windows and macOS, when the Claude session runs in a one-session terminal (xterm, urxvt, rxvt, st,
   mlterm, aterm, eterm, alacritty) whose window is the active one and owns no other window. Tabbed

@@ -865,10 +865,18 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   **Not done:** the aarch64 musl target (AH-228); a proxy (Docker
   Sandboxes) is not supported; Windows and macOS builds of the crate were not compiled here.
 
-- [ ] **AH-227 — Documentation and the agent instructions for guests.**
+- [x] **AH-227 — Documentation and the agent instructions for guests.**
   `docs/sandboxes.md` with a recipe per environment (each proven by AH-223),
   `docs/sandbox-setup-for-agents.md`, `docs/configuration.md` `[remote]`, `examples/sandbox/`.
+  Status: written. Recipes are labelled verified (Docker Engine, bubblewrap on Linux) or upstream docs.
 
-- [ ] **AH-228 — Release `aherald-ping` for musl and test it in a container.**
+- [x] **AH-228 — Release `aherald-ping` for musl and test it in a container.**
   Depends on AH-226. x86_64 and aarch64 musl artifacts with checksums and attestation, a static
   link check, and a Linux CI job with a Docker container (non-required at first).
+  Status: `package-ping.sh x86_64|aarch64` (static check: no INTERP, no NEEDED; names the file and its
+  checksum), release job `package_ping` (rust-lld links both musl targets, no C cross toolchain;
+  attested; part of the draft's checksum check), and CI job `ping_container` (`continue-on-error`,
+  not in the gate) running `crates/aherald-ping/tests/container.rs` (ignored by default) against a
+  listener on the `docker0` bridge. Locally: both targets build and pass `package-ping.sh`; the
+  container test passes with Alpine. The aarch64 binary was only built, never run (no emulator
+  here); the release and CI jobs themselves have not run on GitHub.

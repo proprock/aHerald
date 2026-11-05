@@ -19,7 +19,7 @@ platforms_for() {
     src/mac/* | tests/mac_resident.rs | tests/macos_app_lifecycle.sh | package-macos.sh | package-dmg.sh | check-release-macos.sh | check-release-dmg.sh)
       echo macos ;;
     # Compiled under cfg(unix): Linux and macOS.
-    src/unix/* | tests/https_off.rs | tests/log_local_offset.rs | tests/perf_statusline.rs | tests/plugin_hook_script.rs | tests/statusline.rs | tests/unix_audio.rs | tests/unix_hook.rs | tests/unix_ipc.rs | tests/unsupported_platform.rs | tests/usage_local_reset.rs)
+    src/unix/* | tests/https_off.rs | tests/log_local_offset.rs | tests/perf_statusline.rs | tests/plugin_hook_script.rs | tests/sandbox_sender.rs | tests/statusline.rs | tests/unix_audio.rs | tests/unix_hook.rs | tests/unix_ipc.rs | tests/unsupported_platform.rs | tests/usage_local_reset.rs)
       echo 'linux macos' ;;
     tests/audio_log.rs)
       echo 'windows macos' ;;

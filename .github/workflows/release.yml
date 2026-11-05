@@ -239,9 +239,59 @@ jobs:
             dist/*.deb.sha256
           if-no-files-found: error
 
+  package_ping:
+    name: Package aherald-ping (Linux musl)
+    needs: verify_tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      # The crate is pure Rust, so rust-lld links both targets without a C cross toolchain.
+      - name: Build both static binaries
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+        run: |
+          cargo build --locked --profile ping -p aherald-ping --target x86_64-unknown-linux-musl
+          cargo build --locked --profile ping -p aherald-ping --target aarch64-unknown-linux-musl
+
+      - name: Verify they are static and name the files
+        run: |
+          sh ./package-ping.sh x86_64 "$RELEASE_TAG"
+          sh ./package-ping.sh aarch64 "$RELEASE_TAG"
+
+      - name: Run the x86_64 build in a container against a host listener
+        env:
+          AHERALD_PING_STATIC: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/ping/aherald-ping
+        run: cargo test --locked -p aherald-ping --test container -- --ignored
+
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/aherald-ping-*-musl
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aherald-ping-linux-musl
+          path: |
+            dist/aherald-ping-*-musl
+            dist/aherald-ping-*-musl.sha256
+          if-no-files-found: error
+
   draft_release:
     name: Draft GitHub Release
-    needs: [package, package_macos, package_linux]
+    needs: [package, package_macos, package_linux, package_ping]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -265,10 +315,14 @@ jobs:
         with:
           name: linux-x86_64-gnu
           path: release-artifacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aherald-ping-linux-musl
+          path: release-artifacts
 
       - name: Check that every platform delivered its files and checksums
         run: |
-          for pattern in '*-setup.exe' '*.dmg' '*.deb' '*.tar.gz' '*.zip'; do
+          for pattern in '*-setup.exe' '*.dmg' '*.deb' '*.tar.gz' '*.zip' 'aherald-ping-*-musl'; do
             compgen -G "release-artifacts/$pattern" > /dev/null || { echo "No $pattern in the release artifacts." >&2; exit 1; }
           done
           for file in release-artifacts/*; do

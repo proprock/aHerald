@@ -284,6 +284,34 @@ jobs:
           sh ./package-deb.sh target/debug/aherald "v$version"
           sh ./tests/linux_deb_lifecycle.sh "dist/aherald-v$version-linux-x86_64-gnu.deb"
 
+  # The static sender in a real container (AH-228). Not part of the CI gate yet: it needs the
+  # Docker bridge of the runner, so it is watched for a while before it is required.
+  ping_container:
+    name: aherald-ping in a container (ubuntu-22.04)
+    needs: changes
+    if: needs.changes.outputs.linux == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Build the static sender
+        run: cargo build --locked --profile ping -p aherald-ping --target x86_64-unknown-linux-musl
+
+      - name: Package it and run it in a container
+        env:
+          AHERALD_PING_STATIC: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/ping/aherald-ping
+        run: |
+          sh ./package-ping.sh x86_64
+          cargo test --locked -p aherald-ping --test container -- --ignored
+
   # One required check for every job: it passes when each one succeeded or was skipped
   # because it does not apply to the change. It runs even when a job failed, so the check
   # never hangs.
