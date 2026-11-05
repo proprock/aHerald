@@ -707,9 +707,10 @@ are deferred (AH-204, AH-205).
   configuration, the generic **webhook** sink (`${NAME}` environment secrets, `{text}` body
   template, escaping by content type) tested against a fake server, and the Windows tray
   **Messenger** switch (an agreed addition). Telegram is a documented webhook example, not a
-  separate sink (decided with the maintainer; `token_file` was dropped with it). Left open: the
-  by-hand check with a real bot on Windows 11 and Linux, and a compile and test run on macOS and
-  Linux (AH-219 for their menus).
+  separate sink (decided with the maintainer; `token_file` was dropped with it). Checked by hand
+  on Linux (2026-11-05, Ubuntu 22.04, real Telegram bot, `include_folder` on and off, package 0.12.0
+  resident). Left open: the by-hand check on Windows 11, and a compile and test run on macOS
+  (AH-219 for the macOS and Linux menus).
   Not run here: `cargo check` for the macOS and Linux targets (no C cross toolchain).
 
 - [ ] **AH-219 — Messenger switch in the macOS and Linux tray menus (split from AH-213).**
