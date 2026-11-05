@@ -464,6 +464,12 @@ fn console_setup() -> Result<(), String> {
     selection.codex = choice("Configure Codex hooks?", defaults.codex)?;
     selection.claude = choice("Configure Claude Code hooks?", defaults.claude)?;
     println!(
+        "OpenCode, Pi and Goose use one small bridge file each. Choosing no is removing an installed one."
+    );
+    selection.opencode = choice("Install the OpenCode bridge?", defaults.opencode)?;
+    selection.pi = choice("Install the Pi bridge?", defaults.pi)?;
+    selection.goose = choice("Install the Goose bridge?", defaults.goose)?;
+    println!(
         "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
     );
     selection.codex_usage = choice("Enable Codex usage monitoring?", defaults.codex_usage)?;

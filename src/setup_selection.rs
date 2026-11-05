@@ -2,7 +2,7 @@
 //!
 //! Pure data: it turns the current receipt and settings into defaults, and the
 //! user's final choices into arguments for [`crate::setup::run_with_options`].
-use crate::{agent::Agent, setup::UsageOptions};
+use crate::{agent::Agent, bridge_setup::Bridge, setup::UsageOptions};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
@@ -14,6 +14,10 @@ pub struct Selection {
     pub claude_context: bool,
     pub codex_idle: bool,
     pub claude_idle: bool,
+    /// The bridge files of the harnesses that have no hooks of their own.
+    pub opencode: bool,
+    pub pi: bool,
+    pub goose: bool,
 }
 
 impl Selection {
@@ -29,7 +33,22 @@ impl Selection {
             claude_context: on("claude_context"),
             codex_idle: on("codex_idle"),
             claude_idle: on("claude_idle"),
+            opencode: on("opencode_bridge"),
+            pi: on("pi_bridge"),
+            goose: on("goose_bridge"),
         }
+    }
+
+    /// Selected bridge files, in the order of the setup pages.
+    pub fn bridges(&self) -> Vec<Bridge> {
+        [
+            (self.opencode, Bridge::OpenCode),
+            (self.pi, Bridge::Pi),
+            (self.goose, Bridge::Goose),
+        ]
+        .into_iter()
+        .filter_map(|(selected, bridge)| selected.then_some(bridge))
+        .collect()
     }
 
     /// Selected harnesses, Codex first.
@@ -40,9 +59,9 @@ impl Selection {
             .collect()
     }
 
-    /// Choosing no harness removes the saved bindings.
+    /// Choosing no harness and no bridge removes everything setup saved.
     pub fn remove(&self) -> bool {
-        !self.codex && !self.claude
+        !self.codex && !self.claude && self.bridges().is_empty()
     }
 
     /// Usage is always set; a warning applies to a selected agent only, so an
@@ -55,6 +74,8 @@ impl Selection {
             claude_context: self.claude.then_some(self.claude_context),
             codex_idle: self.codex.then_some(self.codex_idle),
             claude_idle: self.claude.then_some(self.claude_idle),
+            // A setup page knows the bridges, so its choice replaces the whole set.
+            bridges: Some(self.bridges()),
             ..Default::default()
         }
     }
@@ -148,6 +169,7 @@ mod tests {
             claude_context: true,
             codex_idle: true,
             claude_idle: false,
+            ..Default::default()
         };
         let options = selection.options();
         assert_eq!(options.codex, Some(true));
@@ -158,5 +180,22 @@ mod tests {
         assert_eq!(options.claude_idle, Some(false));
         assert_eq!(options.file, None);
         assert_eq!(options.executable, None);
+        // A setup page names the bridges, so it replaces the set even when it is empty.
+        assert_eq!(options.bridges, Some(Vec::new()));
+    }
+
+    #[test]
+    fn bridges_come_from_the_settings_report_and_keep_a_setup_alive_without_hooks() {
+        let report = format!("{OFF}opencode_bridge=true\npi_bridge=false\ngoose_bridge=true\n");
+        let selection = Selection::initial(&[], &report);
+        assert!(selection.opencode && !selection.pi && selection.goose);
+        assert_eq!(selection.bridges(), vec![Bridge::OpenCode, Bridge::Goose]);
+        assert!(!selection.remove(), "a bridge alone is not a removal");
+        assert_eq!(
+            selection.options().bridges,
+            Some(vec![Bridge::OpenCode, Bridge::Goose])
+        );
+        let none = Selection::initial(&[], OFF);
+        assert!(none.bridges().is_empty() && none.remove());
     }
 }

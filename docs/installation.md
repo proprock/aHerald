@@ -10,7 +10,9 @@ when a hook fires.
 Run `aherald-vX.Y.Z-windows-x64-setup.exe`. Installation is per user, without
 administrator privileges, under `%LOCALAPPDATA%\Programs\aHerald` by default.
 Select Codex, Claude Code, both, or neither. Both checkboxes start unchecked on a
-new installation; upgrades retain the previous selection. No autostart entry is
+new installation; upgrades retain the previous selection. Three more checkboxes install the
+bridge file of OpenCode, Pi or Goose (`/TASKS=opencode`, `pi`, `goose`); they follow the same
+rules, and a silent install with an explicit `/TASKS=` is the complete selection. No autostart entry is
 created. A successful interactive installation offers a checked "Launch aHerald"
 checkbox on the finish page; clear it to leave the application stopped. Silent
 installation and failed hook setup do not launch it. You can also start aHerald
@@ -226,7 +228,8 @@ aherald --console-setup
 ```
 
 Run console setup as the desktop user, without sudo. It previews the selected
-Codex and Claude hooks, usage settings and, for each selected agent, the context and
+Codex and Claude hooks, the OpenCode, Pi and Goose bridge files (an installed one is the default
+answer, and answering no removes it), usage settings and, for each selected agent, the context and
 idle warnings, then asks before applying them. Each user configures their own hooks.
 Every choice starts off on a first setup; later runs read the saved selections and
 configuration, and an agent you deselect keeps its settings. Enabling the Claude context
