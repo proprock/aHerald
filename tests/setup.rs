@@ -1006,7 +1006,7 @@ fn installer_reads_usage_defaults_without_creating_config() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
+        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     assert!(!app.root.join("config.toml").exists());
 }
@@ -1020,7 +1020,7 @@ fn installer_changes_only_selected_usage_and_preserves_comments_and_sources() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
+        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     let args = ["--setup", "--harness", "codex", "--codex-usage", "true"];
     app.ok(&args);
@@ -1104,7 +1104,7 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false"
+        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     for args in [
         vec!["--codex-usage", "true"],

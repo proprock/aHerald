@@ -22,7 +22,7 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSSt
 use std::path::PathBuf;
 
 const WIDTH: f64 = 520.0;
-const HEIGHT: f64 = 600.0;
+const HEIGHT: f64 = 690.0;
 const MARGIN: f64 = 20.0;
 const ROW: f64 = 24.0;
 
@@ -38,6 +38,9 @@ enum Box {
     ClaudeContext,
     ClaudeIdle,
     Launch,
+    OpenCode,
+    Pi,
+    Goose,
 }
 
 /// Title, column (0 Codex, 1 Claude Code; `None` spans both) and top of each checkbox.
@@ -50,8 +53,16 @@ const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
     (Box::CodexIdle, "Idle warning", Some(0), 196.0),
     (Box::ClaudeContext, "Context warning", Some(1), 168.0),
     (Box::ClaudeIdle, "Idle warning", Some(1), 196.0),
-    (Box::Launch, "Launch aHerald after applying", None, 330.0),
+    (Box::Launch, "Launch aHerald after applying", None, 420.0),
 ];
+
+/// The bridge-file checkboxes: one column each of three, under the two agents.
+const BRIDGES: [(Box, &str); 3] = [
+    (Box::OpenCode, "OpenCode"),
+    (Box::Pi, "Pi"),
+    (Box::Goose, "Goose"),
+];
+const BRIDGES_TOP: f64 = 354.0;
 
 struct Controls {
     exe: PathBuf,
@@ -74,6 +85,9 @@ impl Controls {
             claude_context: self.checked(Box::ClaudeContext),
             codex_idle: self.checked(Box::CodexIdle),
             claude_idle: self.checked(Box::ClaudeIdle),
+            opencode: self.checked(Box::OpenCode),
+            pi: self.checked(Box::Pi),
+            goose: self.checked(Box::Goose),
         }
     }
 
@@ -223,29 +237,47 @@ pub fn run() -> Result<(), String> {
         defaults.claude_idle,
         true,
     ];
-    let boxes: Vec<Retained<NSButton>> = BOXES
+    let checkbox = |title: &str, x: f64, width: f64, top: f64, on: bool| {
+        // SAFETY: no target and no action: the checkbox only keeps its own state.
+        let button = unsafe {
+            NSButton::checkboxWithTitle_target_action(&NSString::from_str(title), None, None, mtm)
+        };
+        button.setFrame(frame(x, top, width, ROW));
+        button.setState(state(on));
+        content.addSubview(&button);
+        button
+    };
+    let mut boxes: Vec<Retained<NSButton>> = BOXES
         .iter()
         .zip(initial)
         .map(|(&(_, title, column, top), on)| {
-            // SAFETY: no target and no action: the checkbox only keeps its own state.
-            let button = unsafe {
-                NSButton::checkboxWithTitle_target_action(
-                    &NSString::from_str(title),
-                    None,
-                    None,
-                    mtm,
-                )
-            };
             let (x, width) = match column {
                 Some(index) => (column_x(index), column_width),
                 None => (MARGIN, inner),
             };
-            button.setFrame(frame(x, top, width, ROW));
-            button.setState(state(on));
-            content.addSubview(&button);
-            button
+            checkbox(title, x, width, top, on)
         })
         .collect();
+    // After the main boxes, in the order of `Box`: OpenCode, Pi, Goose.
+    let bridge_width = inner / 3.0;
+    boxes.extend(
+        BRIDGES
+            .iter()
+            .zip([defaults.opencode, defaults.pi, defaults.goose])
+            .enumerate()
+            .map(|(index, (&(_, title), on))| {
+                let x = MARGIN + bridge_width * index as f64;
+                checkbox(title, x, bridge_width, BRIDGES_TOP, on)
+            }),
+    );
+    let bridges_heading = label(
+        "Other harnesses (a small bridge file each; Crush is set up by hand)",
+        MARGIN,
+        BRIDGES_TOP - 24.0,
+        inner,
+        20.0,
+    );
+    bridges_heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     let note = label(
         "Claude usage auto: login token, then the last statusLine report. A Claude context warning wraps your statusLine command (kept and still shown; restored when turned off or removed). Warnings apply to selected agents; thresholds are kept.",
         MARGIN,
@@ -265,7 +297,7 @@ pub fn run() -> Result<(), String> {
     format_note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     format_note.setTextColor(Some(&NSColor::secondaryLabelColor()));
 
-    let heading = label("Details", MARGIN, 402.0, inner, 18.0);
+    let heading = label("Details", MARGIN, 492.0, inner, 18.0);
     heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     // A framed, selectable, scrolling box so it reads as the output area; the note about a
     // receipt from another installation, when there is one, is the first thing shown in it.
@@ -281,7 +313,7 @@ pub fn run() -> Result<(), String> {
         "Preview shows what Apply would change; Apply makes the changes.{note_text}"
     )));
     scroll.setBorderType(NSBorderType::BezelBorder);
-    scroll.setFrame(frame(MARGIN, 422.0, inner, 158.0));
+    scroll.setFrame(frame(MARGIN, 512.0, inner, 158.0));
     content.addSubview(&scroll);
 
     let controller = mtm
@@ -303,7 +335,7 @@ pub fn run() -> Result<(), String> {
                 mtm,
             )
         };
-        button.setFrame(frame(x, 362.0, 100.0, 32.0));
+        button.setFrame(frame(x, 452.0, 100.0, 32.0));
         content.addSubview(&button);
     }
 

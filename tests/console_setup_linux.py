@@ -46,6 +46,8 @@ def dialog(executable, environment, answers):
 def prompts(codex, claude):
     """The prompts a run shows: warning questions only for a selected agent."""
     names = ["Configure Codex hooks?", "Configure Claude Code hooks?",
+             "Install the OpenCode bridge?", "Install the Pi bridge?",
+             "Install the Goose bridge?",
              "Enable Codex usage monitoring?", "Enable Claude usage monitoring?"]
     if codex:
         names += ["Enable Codex context warning?", "Enable Codex idle warning?"]
@@ -54,10 +56,14 @@ def prompts(codex, claude):
     return names + ["Apply these changes?"]
 
 
-def run(exe, env, harnesses, answers, apply=True):
-    """Answer hooks, usage and the selected agents' warnings; then apply or decline."""
+def run(exe, env, harnesses, answers, apply=True, bridges=("", "", "")):
+    """Answer hooks, bridges, usage and the selected agents' warnings; then apply or decline.
+
+    `answers` are the hook, usage and warning answers; `bridges` are the OpenCode, Pi and Goose
+    answers, which an empty string leaves at their default (what is installed now)."""
     codex, claude = harnesses
     names = prompts(codex, claude)
+    answers = list(answers[:2]) + list(bridges) + list(answers[2:])
     assert len(answers) == len(names) - 1, (answers, names)
     steps = list(zip(names, answers + ["y" if apply else "n"]))
     if apply:
@@ -80,6 +86,9 @@ def main():
         env = os.environ.copy()
         env.update(HOME=str(root), CODEX_HOME=str(root / "codex"),
                    CLAUDE_CONFIG_DIR=str(root / "claude"))
+        # The bridge files follow these two; a runner's own values would move them.
+        for name in ("XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR"):
+            env.pop(name, None)
         codex_hooks = root / "codex/hooks.json"
         claude_file = root / "claude/settings.json"
         config = root / "config.toml"
@@ -131,8 +140,32 @@ def main():
         assert config.read_bytes() == kept
         assert b"aherald" not in claude_file.read_bytes()
 
-        # Deselecting everything removes the hooks.
-        run(exe, env, (False, False), ["n", "n", "n", "n"])
+        # Bridge files: none by default, one installed on request, kept by an empty answer,
+        # removed by "n"; the hooks are not touched by any of it.
+        opencode = root / ".config/opencode/plugins/aherald.ts"
+        goose = root / ".agents/plugins/aherald/hooks/hooks.json"
+        assert not opencode.exists() and not goose.exists()
+        assert settings(exe, env)["opencode_bridge"] == "false"
+        hooks_before = codex_hooks.read_bytes()
+        run(exe, env, (True, False), ["", "n", "", "", "", ""], bridges=("y", "n", "y"))
+        assert opencode.exists() and goose.exists() and not (root / ".pi").exists()
+        state = settings(exe, env)
+        assert (state["opencode_bridge"], state["pi_bridge"], state["goose_bridge"]) == (
+            "true", "false", "true"), state
+        assert codex_hooks.read_bytes() == hooks_before
+        run(exe, env, (True, False), ["", "n", "", "", "", ""])
+        assert opencode.exists() and goose.exists(), "an empty answer keeps an installed bridge"
+        run(exe, env, (True, False), ["", "n", "", "", "", ""], bridges=("", "", "n"))
+        assert opencode.exists() and not goose.exists()
+        assert settings(exe, env)["goose_bridge"] == "false"
+
+        # Deselecting every hook keeps a chosen bridge; deselecting everything removes all.
+        run(exe, env, (False, False), ["n", "n", "", ""])
+        assert b'"hooks"' not in codex_hooks.read_bytes() and opencode.exists()
+        run(exe, env, (False, False), ["n", "n", "", ""], bridges=("n", "", ""))
+        assert not opencode.exists()
+        run(exe, env, (True, False), ["y", "n", "", "", "", ""])
+        run(exe, env, (False, False), ["n", "n", "", ""])
         assert b'"hooks"' not in codex_hooks.read_bytes()
         print("Console setup: preview, defaults, warnings, statusLine wrap/restore, "
               "repeat and deselection passed")

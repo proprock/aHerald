@@ -58,7 +58,13 @@ aherald --unsetup --apply                                                # remov
   removed or replaced file is kept next to it as `*.aherald-backup`. A failed write restores the
   files already written.
 - Naming a bridge with `--harness` replaces the set of installed bridges (so naming only `pi`
-  removes the OpenCode bridge); a setup that names none, including the installer pages, leaves
-  installed bridges alone. `--harness codex|claude` is unchanged.
-- The Windows installer, the macOS setup window and the Linux console setup do not list these
-  harnesses yet; use the command line.
+  removes the OpenCode bridge); a setup that names none leaves installed bridges alone.
+  `--harness codex|claude` is unchanged. `--replace-bridges` says the named bridges are the complete
+  set, empty when none is named; the Windows installer passes it so that a cleared box removes its
+  file.
+- The Windows installer, the macOS setup window and the Linux console setup list OpenCode, Pi and
+  Goose beside Codex and Claude. They start unchecked on a first setup and show an installed bridge
+  as checked, and what they apply is the complete selection: clearing a box removes that bridge
+  (it is kept as `*.aherald-backup`), and a silent Windows install with an explicit `/TASKS=` that
+  omits `opencode`, `pi` or `goose` removes the installed bridge too. Crush has no bridge file, so
+  it is not listed.

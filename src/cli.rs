@@ -203,6 +203,11 @@ impl Cli {
                         Some(args.next().ok_or("--settings-file requires a path")?.into());
                 }
                 "--apply" => cli.apply = true,
+                // A setup page states its whole selection: the bridges named with --harness are
+                // the complete set, empty when none is named, so a cleared box removes its file.
+                "--replace-bridges" => {
+                    cli.usage.bridges.get_or_insert_with(Vec::new);
+                }
                 "--then" => {
                     if cli.then.is_some() {
                         return Err("duplicate --then".into());

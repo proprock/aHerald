@@ -11,6 +11,7 @@ $receipt = Join-Path $appDir 'aherald-setup.json'
 $uninstaller = Join-Path $appDir 'unins000.exe'
 $previousCodex = $env:CODEX_HOME
 $previousClaude = $env:CLAUDE_CONFIG_DIR
+$previousXdg = $env:XDG_CONFIG_HOME
 $receiptText = $null
 $ownedResidents = [Collections.Generic.List[Diagnostics.Process]]::new()
 $fakeExe = Join-Path $testRoot "old-resident.exe"
@@ -141,6 +142,20 @@ try {
         Assert-Test ($afterWarnings.Contains($value)) "Warning deselection erased a custom threshold: $value"
     }
 
+    # Bridge files for harnesses without hooks: installed on request, kept by a default upgrade,
+    # removed when deselected, and removed by the uninstaller (checked after it below).
+    $env:XDG_CONFIG_HOME = Join-Path $testRoot 'Xdg'
+    $bridgeFile = Join-Path $env:XDG_CONFIG_HOME 'opencode\plugins\aherald.ts'
+    $keepTasks = 'claude,usageclaude,contextclaude,idleclaude'
+    Assert-Test ((Install-Test ($keepTasks + ',opencode') 'bridge-install.log') -eq 0) 'Bridge install failed'
+    Assert-Test (Test-Path -LiteralPath $bridgeFile) 'The OpenCode bridge was not installed'
+    Assert-Test (((& (Join-Path $appDir 'aherald-cli.exe') --setup-settings) -join "`n").Contains('opencode_bridge=true')) 'The settings report omits the installed bridge'
+    Assert-Test ((Invoke-InstallerProcess $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $appDir + '"'), '/GROUP="aHerald Installer Test"')) -eq 0) 'Default upgrade with a bridge failed'
+    Assert-Test (Test-Path -LiteralPath $bridgeFile) 'A default upgrade removed the installed bridge'
+    Assert-Test ((Install-Test $keepTasks 'bridge-remove.log') -eq 0) 'Bridge deselection failed'
+    Assert-Test (-not (Test-Path -LiteralPath $bridgeFile)) 'Deselecting the bridge left the file'
+    Assert-Test ((Install-Test ($keepTasks + ',opencode') 'bridge-reinstall.log') -eq 0) 'Bridge reinstall failed'
+
     $receiptText = Get-Content -LiteralPath $receipt -Raw
     [IO.File]::WriteAllText($receipt, '{invalid')
     $null = Invoke-InstallerProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + (Join-Path $testRoot 'uninstall-blocked.log') + '"'))
@@ -150,6 +165,7 @@ try {
     $env:CLAUDE_CONFIG_DIR = Join-Path $testRoot 'OtherClaude'
     Assert-Test ((Invoke-InstallerProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/LOG="' + (Join-Path $testRoot 'uninstall.log') + '"'))) -eq 0) 'Uninstall failed'
     Assert-Test (-not (Test-Path -LiteralPath (Join-Path $appDir 'aherald.exe'))) 'Uninstall left the executable'
+    Assert-Test (-not (Test-Path -LiteralPath $bridgeFile)) 'Uninstall left the bridge file'
     $restored = Get-Content -LiteralPath (Join-Path $claudeDir 'settings.json') -Raw | ConvertFrom-Json
     Assert-Test (($restored | ConvertTo-Json -Depth 20 -Compress) -eq (($foreign | ConvertFrom-Json) | ConvertTo-Json -Depth 20 -Compress)) 'Uninstall did not restore foreign settings/hooks'
     Assert-Test (Test-Path -LiteralPath $config) 'Uninstall deleted user configuration'
@@ -187,4 +203,5 @@ finally {
     }
     $env:CODEX_HOME = $previousCodex
     $env:CLAUDE_CONFIG_DIR = $previousClaude
+    $env:XDG_CONFIG_HOME = $previousXdg
 }

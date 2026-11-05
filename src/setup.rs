@@ -114,8 +114,16 @@ fn settings_text(file: &Path) -> Result<(Option<String>, crate::config::Config),
 
 /// Read effective values without creating a default or starting runtime services.
 pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, String> {
-    let (_, config) = settings_text(&settings_file(exe, selected)?)?;
-    Ok(format!(
+    let file = settings_file(exe, selected)?;
+    let (_, config) = settings_text(&file)?;
+    // A portable installation keeps its receipt beside the configuration; the installer asks from a
+    // temporary copy of the program, so look where the selected configuration lives.
+    let owner = match (selected, exe.file_name(), file.parent()) {
+        (Some(_), Some(name), Some(directory)) => directory.join(name),
+        _ => exe.to_path_buf(),
+    };
+    let bridges = selected_bridges(&owner);
+    let mut report = format!(
         "codex_usage={}\nclaude_usage={}\ncodex_context={}\nclaude_context={}\ncodex_idle={}\nclaude_idle={}\n",
         config.codex.usage.enabled,
         config.claude.usage.enabled,
@@ -123,7 +131,15 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         config.claude.warnings.context_threshold().is_some(),
         config.codex.warnings.idle_threshold().is_some(),
         config.claude.warnings.idle_threshold().is_some()
-    ))
+    );
+    for bridge in Bridge::ALL {
+        report.push_str(&format!(
+            "{}_bridge={}\n",
+            bridge.key(),
+            bridges.contains(&bridge)
+        ));
+    }
+    Ok(report)
 }
 
 /// Writes every planned change, or none: the snapshot is rechecked first so edits made while
@@ -282,15 +298,42 @@ pub fn wrapped_statusline_command(exe: &Path) -> Result<Option<String>, String> 
 }
 
 /// Read the receipt without changing it, for an interactive setup's defaults.
-pub fn selected_harnesses(exe: &Path) -> Result<Vec<Agent>, String> {
+/// The saved receipt of the installation `exe`, if there is one.
+fn saved_receipt(exe: &Path) -> Result<Option<Receipt>, String> {
     let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
         .join("aherald-setup.json");
     let Some(text) = read(&file)? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let receipt: Receipt = serde_json::from_str(&text)
         .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?;
-    if receipt.version != 1 || receipt.executable != exe {
+    if receipt.version != 1 {
+        return Err("unsupported aHerald setup receipt version".into());
+    }
+    Ok(Some(receipt))
+}
+
+/// The bridge files the receipt of `exe` records; none when there is no receipt or it belongs to
+/// another installation (a later Apply replaces what that receipt holds).
+pub fn selected_bridges(exe: &Path) -> Vec<Bridge> {
+    saved_receipt(exe)
+        .ok()
+        .flatten()
+        .map(|receipt| {
+            receipt
+                .bridges
+                .iter()
+                .filter_map(|bridge| Bridge::from_name(&bridge.harness))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn selected_harnesses(exe: &Path) -> Result<Vec<Agent>, String> {
+    let Some(receipt) = saved_receipt(exe)? else {
+        return Ok(Vec::new());
+    };
+    if receipt.executable != exe {
         return Err(
             "setup receipt belongs to another installation or has an unsupported version".into(),
         );

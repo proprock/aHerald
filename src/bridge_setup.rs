@@ -22,6 +22,7 @@ const GOOSE: &str = include_str!("../examples/harnesses/goose-hooks.json");
 const TS_DEFAULT: &str = r#"process.env.AHERALD_EXE || "aherald""#;
 
 impl Bridge {
+    pub const ALL: [Self; 3] = [Self::OpenCode, Self::Pi, Self::Goose];
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "opencode" => Some(Self::OpenCode),

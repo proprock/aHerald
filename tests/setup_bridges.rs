@@ -176,6 +176,20 @@ fn deselecting_removes_only_that_bridge_and_unsetup_removes_the_rest() {
     // A setup naming no bridge leaves installed bridges alone.
     app.ok(&["--setup", "--harness", "claude", "--apply"]);
     assert!(app.pi().exists());
+    // ...unless it states that its selection is complete, as the installer pages do.
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--replace-bridges",
+        "--apply",
+    ]);
+    assert!(
+        !app.pi().exists(),
+        "an empty complete selection removes the bridge"
+    );
+    app.ok(&["--setup", "--harness", "pi", "--apply"]);
+    assert!(app.pi().exists());
     app.ok(&["--unsetup", "--apply"]);
     assert!(!app.pi().exists());
 }
@@ -246,4 +260,63 @@ fn bridge_selections_are_only_valid_with_setup_and_never_twice() {
         let output = app.run(args);
         assert!(!output.status.success(), "{args:?}");
     }
+}
+
+#[test]
+fn the_settings_report_lists_which_bridges_are_installed() {
+    let app = Home::new("report");
+    let report = app.ok(&["--setup-settings"]);
+    for line in [
+        "opencode_bridge=false",
+        "pi_bridge=false",
+        "goose_bridge=false",
+    ] {
+        assert!(report.lines().any(|l| l == line), "{report}");
+    }
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "opencode",
+        "--harness",
+        "goose",
+        "--apply",
+    ]);
+    let report = app.ok(&["--setup-settings"]);
+    for line in [
+        "opencode_bridge=true",
+        "pi_bridge=false",
+        "goose_bridge=true",
+    ] {
+        assert!(report.lines().any(|l| l == line), "{report}");
+    }
+}
+
+/// The Windows installer asks from a temporary copy of the program, naming the installed
+/// configuration: the receipt that sits beside that configuration is the one to read.
+#[test]
+fn the_report_finds_the_receipt_beside_a_named_configuration_from_another_copy() {
+    let app = Home::new("elsewhere");
+    app.ok(&["--setup", "--harness", "pi", "--apply"]);
+    let temporary = app.root.join("tmp");
+    std::fs::create_dir_all(&temporary).unwrap();
+    let copy = temporary.join(app.exe.file_name().unwrap());
+    std::fs::copy(&app.exe, &copy).unwrap();
+    let config = app.root.join("config.toml");
+    let home = app.root.join("home");
+    let output = support::run_bounded(
+        Command::new(&copy)
+            .args(["--setup-settings", "--settings-file"])
+            .arg(&config)
+            .env("HOME", &home)
+            .env("USERPROFILE", &home),
+        std::time::Duration::from_secs(20),
+    )
+    .unwrap();
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{report}");
+    assert!(report.lines().any(|l| l == "pi_bridge=true"), "{report}");
+    assert!(
+        report.lines().any(|l| l == "opencode_bridge=false"),
+        "{report}"
+    );
 }

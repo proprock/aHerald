@@ -46,7 +46,7 @@ and keeps a queue so nothing is lost while you are away.
 
 | OS | Get it |
 |---|---|
-| **Windows** | Per-user setup EXE (Codex / Claude Code checkboxes) or the portable ZIP from [Releases](https://github.com/proprock/aHerald/releases/latest) |
+| **Windows** | Per-user setup EXE (Codex, Claude Code and OpenCode / Pi / Goose checkboxes) or the portable ZIP from [Releases](https://github.com/proprock/aHerald/releases/latest) |
 | **macOS** (Apple Silicon) | `brew tap proprock/tap && brew install --cask aherald` ([Homebrew](https://brew.sh)), or the disk image (ad-hoc signed, see below) |
 | **Linux** (x86-64, glibc) | `.deb` (`sudo apt install ./aherald-*.deb`) or the `.tar.gz` portable archive |
 

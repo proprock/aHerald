@@ -657,10 +657,18 @@ are deferred (AH-204, AH-205).
   Former AH-209 and AH-210. Opt-in live checks with isolated harness configuration,
   and a short guide for adding the next harness (arguments, bridge, tests, docs).
 
-- [ ] **AH-206 — Offer the new harnesses in the installers (deferred).**
+- [ ] **AH-206 — Offer the new harnesses in the installers.**
   Depends on AH-204. Windows installer, macOS setup window and Linux console setup list OpenCode,
   Pi and Goose beside Codex and Claude (default unchecked, installed ones retained) and pass the
   selection as `UsageOptions::bridges`. The Windows part can be checked by CI only on this setup.
+  Status (branch `feature/AH-206-installer-harnesses`): implemented on all three. `Selection` holds
+  the bridges and `options()` always names them; `--setup-settings` reports `<name>_bridge=` read
+  from the receipt beside the selected configuration (the Windows installer asks from a temporary
+  copy). Linux console setup asks three more questions (`tests/console_setup_linux.py` covers
+  install, keep, remove and removal with hooks); the macOS window has a row of three checkboxes;
+  `installer/windows.iss` has three tasks and `tests/installer_windows.ps1` a bridge lifecycle.
+  Not run: the Windows installer test (CI only), the macOS window by hand, and `mac/setup_window.rs`
+  compiles only in the macOS CI.
 
 ## Milestone 9 — Notifications to external messengers (deferred)
 

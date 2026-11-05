@@ -10,6 +10,11 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- The Windows installer, the macOS setup window and the Linux console setup now offer the OpenCode,
+  Pi and Goose bridge files beside Codex and Claude Code. They start unchecked, show an installed
+  bridge as checked and apply the whole selection (clearing a box removes that bridge, kept as
+  `*.aherald-backup`). `--setup-settings` reports `opencode_bridge`, `pi_bridge` and `goose_bridge`
+  (AH-206).
 - A `command` forward sink runs a program for each message, for services without an HTTP endpoint:
   mail through `msmtp` or `mutt`, `signal-cli`, `notify-send` over `ssh`, `say`. `command` is an
   array (the program and its arguments), so no shell reads a folder name; `stdin` is optional text

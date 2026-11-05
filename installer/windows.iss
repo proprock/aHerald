@@ -40,6 +40,9 @@ LicenseFile=..\LICENSE
 [Tasks]
 Name: codex; Description: "Configure Codex hooks for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
 Name: claude; Description: "Configure Claude Code hooks for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
+Name: opencode; Description: "Install the OpenCode bridge file for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
+Name: pi; Description: "Install the Pi bridge file for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
+Name: goose; Description: "Install the Goose bridge file for this user"; GroupDescription: "Connect aHerald to:"; Flags: unchecked
 Name: usagecodex; Description: "Show Codex usage"; GroupDescription: "Optional usage display:"; Flags: unchecked
 Name: usageclaude; Description: "Show Claude usage"; GroupDescription: "Optional usage display:"; Flags: unchecked
 Name: contextcodex; Description: "Codex context warning (250k tokens)"; GroupDescription: "Session warnings (existing thresholds are preserved):"; Flags: unchecked
@@ -96,8 +99,12 @@ begin
   Result := '';
   if WizardIsTaskSelected('codex') then Result := Result + ' --harness codex';
   if WizardIsTaskSelected('claude') then Result := Result + ' --harness claude';
+  // The bridge files of harnesses without hooks; the selection replaces the installed set.
+  if WizardIsTaskSelected('opencode') then Result := Result + ' --harness opencode';
+  if WizardIsTaskSelected('pi') then Result := Result + ' --harness pi';
+  if WizardIsTaskSelected('goose') then Result := Result + ' --harness goose';
   if Result = '' then Result := '--unsetup'
-  else Result := '--setup' + Result;
+  else Result := '--setup' + Result + ' --replace-bridges';
 end;
 
 function RunSetup(const Filename, Params: String): String;
@@ -273,7 +280,10 @@ begin
      not ReadTaskSetting(Output.StdOut, 'codex_context', 'contextcodex') or
      not ReadTaskSetting(Output.StdOut, 'claude_context', 'contextclaude') or
      not ReadTaskSetting(Output.StdOut, 'codex_idle', 'idlecodex') or
-     not ReadTaskSetting(Output.StdOut, 'claude_idle', 'idleclaude') then begin
+     not ReadTaskSetting(Output.StdOut, 'claude_idle', 'idleclaude') or
+     not ReadTaskSetting(Output.StdOut, 'opencode_bridge', 'opencode') or
+     not ReadTaskSetting(Output.StdOut, 'pi_bridge', 'pi') or
+     not ReadTaskSetting(Output.StdOut, 'goose_bridge', 'goose') then begin
     Result := 'The application returned an incomplete settings report.';
     Exit;
   end;
