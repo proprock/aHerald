@@ -3,6 +3,38 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-236 — Claude plugin version follows the crate.**
+  `plugins/aherald/.claude-plugin/plugin.json` said 0.1.0 while the crate is 0.15.0. Set to the crate version;
+  `tests/workspace.rs::the_claude_plugin_has_the_version_of_aherald` asserts equality with
+  `CARGO_PKG_VERSION`. Red: left `0.1.0`, right `0.15.0`; green after the edit. `RELEASE.md` step 3 already
+  lists the file, so a release bump keeps it in step; the one-time edit outside `RELEASE.md` was approved by
+  the owner (2026-11-05). Branch `chore/AH-236-contract-tests`. Linux: ran locally.
+
+- [x] **AH-239 — The two shell guest senders stay identical.**
+  README.md and `docs/privacy.md` state what each sender posts (earlier, `docs/agents-release-privacy`).
+  Now `# BEGIN remote` / `# END remote` mark the curl post and the Codex acknowledgement in
+  `examples/sandbox/aherald-ping.sh` and `plugins/aherald/hooks/aherald-hook.sh`, and
+  `tests/sandbox_sender.rs::the_remote_block_is_the_same_in_both_shell_senders` compares the two blocks
+  without indentation (the plugin nests its copy in a branch). Red: no marker found; green after the markers.
+  The guards around the block differ by design (the launcher also runs local programs), so they stay
+  outside it. Linux: ran locally.
+
+- [x] **AH-256 — Default config parity test.**
+  `tests/config.rs::the_example_configuration_equals_the_built_in_defaults` parses `config.example.toml` and
+  compares the whole `Config` with the defaults through `Debug` text (no `PartialEq` added to some 25 nested
+  types). The only intended difference is the card colour of five events, which the example spells out and
+  the program resolves through `Config::event_color`; the test checks this against that function. Mutation
+  check: changing `Remote::default().bind` fails the test (reverted). Linux: ran locally.
+
+- [x] **AH-247 — Contract test between aherald-ping and the main hook parser.**
+  `aherald_ping::wanted` is `#[doc(hidden)] pub`; `crates/aherald-ping/tests/parser_contract.rs` asserts it
+  agrees with `Agent::{Claude,Codex}.parse_hook` over every event name either side knows (Claude: 14 names
+  and the notification types; Codex: 9 names; the recorded `tests/fixtures/*.json` hook payloads). The host
+  accepts `UserPromptSubmit`, `PreToolUse` and `PostToolUse` as activity evidence while a guest never
+  forwards them; they are the listed exception and a test pins that they really parse as activity.
+  `SessionEnd` is forwarded by the sender (the host uses it as evidence), unlike the task text assumed.
+  Mutation check: removing `SessionEnd` from the Claude arm fails the test (reverted). Linux: ran locally.
+
 - [x] **AH-271 — Split the remaining partly shipped tasks (follow-up of AH-241).**
   `CHANGELOG.md` cites nine IDs that are still open in TODO.md because their manual or live checks are
   outstanding: AH-093, AH-102, AH-103, AH-115, AH-117, AH-118, AH-120, AH-211, AH-222. For each, move the

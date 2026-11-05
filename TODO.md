@@ -243,7 +243,6 @@ shared development-profile and artwork performance changes need no separate port
   session type, desktop environment, monitor setup and results. Xorg and multi-monitor
   behavior have not yet been verified.
 
-
 ## Milestone 5 — Polish and portable release
 
 - [ ] **AH-267 — Codex session names off by default (`[codex] session_names`).**
@@ -490,16 +489,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   the legacy path in docs/installation.md:138.
   Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
 
-- [ ] **AH-236 — Claude plugin version follows the crate.**
-  `plugins/aherald/.claude-plugin/plugin.json` says 0.1.0. Set it to the crate version and extend
-  `tests/workspace.rs` to assert `plugin.json.version == CARGO_PKG_VERSION`.
-  Acceptance: the test fails before the fix and passes after; the release checklist (AH-240) lists the file.
-
-- [ ] **AH-237 — Bridge contract tests cannot skip silently in CI.**
-  `tests/bridges.rs` returns success without Node ≥ 22. Add `AHERALD_REQUIRE_NODE=1`: when it is set and Node
-  is missing, the test panics. In `ci.yml`, on the `ubuntu-22.04` leg of `quality`, add a SHA-pinned
-  `actions/setup-node` with `node-version: 22` before `cargo test`, and set the env var for that step.
-  Acceptance: the CI log shows the bridge test executing (`node --test` output on failure); zizmor and actionlint pass.
+- [ ] **AH-237 — Bridge contract tests cannot skip silently in CI (the CI log check is left).**
+  Shipped on `chore/AH-236-contract-tests` (see DONE.md): `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs`
+  panic when Node 22+ is missing, and the Linux leg of `quality` installs Node 22 with a SHA-pinned
+  `actions/setup-node` and sets the variable. Left: after the first CI run of that branch, confirm in the
+  `ubuntu-22.04` log that `bridges_turn_harness_events_into_bounded_aherald_calls` ran and passed, and that
+  actionlint and zizmor pass (neither tool is installed locally). Then move this task to DONE.md.
 
 - [ ] **AH-238 — Help text lists every public flag.**
   Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
@@ -509,13 +504,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   `help()` and is accepted by `Cli::parse` in a minimal valid combination. Update
   `tests/unsupported_platform.rs` and `tests/config_portable.rs:37`.
   Acceptance: the tests pass; `aherald --help` is readable at 100 columns.
-
-- [ ] **AH-239 — The two shell guest senders stay identical.**
-  Done on `docs/agents-release-privacy` (2026-11-05): README.md and `docs/privacy.md` state that `aherald-ping`
-  strips the payload while the shell sender and the plugin launcher post it whole over plain HTTP. Left: add a
-  test that `examples/sandbox/aherald-ping.sh` and the remote block of `plugins/aherald/hooks/aherald-hook.sh`
-  stay identical: extract the lines between marker comments `# BEGIN remote` / `# END remote` and compare them
-  in `tests/sandbox_sender.rs`. Acceptance: the test fails when one copy changes.
 
 ### P1 — consistency, CI and the release pipeline
 
@@ -549,16 +537,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   and the Linux console prompts (`main.rs:472-476`) iterate `Bridge::ALL` instead of naming fields. Leave the
   Windows `.iss` and the macOS window as they are, but add a test that `installer/windows.iss` mentions every
   `Bridge::key()`. Acceptance: adding a variant to `Bridge` fails a test until the installer is updated.
-
-- [ ] **AH-247 — Contract test between aherald-ping and the main hook parser.**
-  `wanted(agent, &Value)` (`crates/aherald-ping/src/lib.rs:75`) is private; expose it as
-  `#[doc(hidden)] pub`. In a new `crates/aherald-ping/tests/parser_contract.rs`, build one payload per hook
-  event name (Claude: `Stop`, `StopFailure`, `Notification`, `PermissionRequest`, `UserPromptSubmit`,
-  `SessionEnd`, …; Codex: the names in `tests/fixtures/codex-*.json`, `stop.json`, `permission-request.json`,
-  `interrupt.json`) and assert that `wanted` is true exactly when
-  `aherald::agent::Agent::{Claude,Codex}.parse_hook(bytes)` (`src/agent.rs:46`) returns `Ok(Some(event))` for a
-  turn end or a wait. List the deliberately dropped events (activity, session end) in the test with a reason.
-  Acceptance: renaming or adding an event on either side fails the test.
 
 - [ ] **AH-248 — MSRV on every OS.**
   Turn the `msrv` job (`ci.yml:85-109`) into a matrix `[windows-latest, macos-15, ubuntu-22.04]` gated by
@@ -600,11 +578,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
   but move them to `examples/tools/` and update `[[example]]` paths.
   Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
-
-- [ ] **AH-256 — Default config parity test.**
-  In `tests/config.rs`, parse `config.example.toml` and compare the whole `Config` with `Config::default()`
-  (derive or implement `PartialEq` where missing), with an explicit allowlist of intended differences and a
-  comment for each. Acceptance: changing a default in only one place fails the test.
 
 ### P2 — structural refactoring of the residents (in this order)
 

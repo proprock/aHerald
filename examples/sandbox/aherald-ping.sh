@@ -16,10 +16,12 @@ if [ -z "${AHERALD_ENDPOINT:-}" ] || [ -z "${AHERALD_TOKEN:-}" ] || ! command -v
   exit 0
 fi
 # At most 64 KiB, the limit of the listener; curl gives up after one second whatever happens.
+# BEGIN remote
 response=$(head -c 65536 | curl --silent --fail --max-time 1 --connect-timeout 1 \
   --request POST --header "Authorization: Bearer $AHERALD_TOKEN" --data-binary @- \
   "${AHERALD_ENDPOINT%/}/v1/hook?agent=$agent" 2>/dev/null) || response=
 if [ "$agent" = codex ] && [ "$response" = '{}' ]; then
   printf '%s\n' '{}'
 fi
+# END remote
 exit 0

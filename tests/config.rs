@@ -857,3 +857,36 @@ fn an_unknown_remote_setting_or_a_literal_token_is_refused() {
         Config::parse("[remote]\ntoken = \"SECRET-VALUE\"\n", &PathBuf::from(".")).unwrap_err();
     assert!(!error.contains("SECRET-VALUE"), "{error}");
 }
+
+/// `config.example.toml` is what a new user starts from and what `--setup` writes, so it must say
+/// the same as the program does without a file. `Config` has no `PartialEq` (every nested type
+/// would need one for this single check), so the whole tree is compared through its `Debug` text.
+#[test]
+fn the_example_configuration_equals_the_built_in_defaults() {
+    // Intended differences: the example spells out the built-in card colour of these events so
+    // that a user can change it; the program resolves an unset colour to the same value through
+    // `Config::event_color`. Nothing else may differ.
+    const COLOURS_SPELLED_OUT: [Kind; 5] = [
+        Kind::TurnComplete,
+        Kind::PermissionRequired,
+        Kind::InputRequired,
+        Kind::Error,
+        Kind::Interrupted,
+    ];
+    let dir = PathBuf::from(".");
+    let example = Config::parse(include_str!("../config.example.toml"), &dir).unwrap();
+    let mut defaults = Config::parse("", &dir).unwrap();
+    for kind in COLOURS_SPELLED_OUT {
+        assert!(
+            example.events[kind].color.is_some(),
+            "{kind:?} no longer spells out its colour in config.example.toml; drop it from the list"
+        );
+        defaults.events[kind].color = Some(defaults.event_color(kind));
+    }
+    assert_eq!(format!("{example:#?}"), format!("{defaults:#?}"));
+    assert_eq!(
+        format!("{:#?}", Config::default()),
+        format!("{:#?}", Config::parse("", &dir).unwrap()),
+        "an absent file and an empty file must configure the same program"
+    );
+}

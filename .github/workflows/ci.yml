@@ -176,6 +176,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpulse0 xvfb xauth dbus
 
+      # The OpenCode and Pi bridge contract tests (tests/bridges.rs) run under Node 22. The Linux leg
+      # requires them, so a runner image without Node fails instead of skipping them silently.
+      - name: Install Node.js for the bridge tests
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy
@@ -188,6 +196,8 @@ jobs:
       # runs early again, never drops out of the nightly run.
       - name: cargo test
         if: ${{ !inputs.full }}
+        env:
+          AHERALD_REQUIRE_NODE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: >-
           cargo test --locked --workspace --all-targets --
           --skip warmed_artwork_preparation_stays_inside_budget
@@ -197,6 +207,8 @@ jobs:
 
       - name: cargo test (including the noisy checks)
         if: ${{ inputs.full }}
+        env:
+          AHERALD_REQUIRE_NODE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: cargo test --locked --workspace --all-targets
 
       # --all-targets leaves out documentation tests.
