@@ -37,7 +37,12 @@ pub fn outputs(config: &Config, evidence: Evidence) -> Outputs {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(target_os = "linux")]
+pub fn observe(event: &Event, _config: &Config) -> Evidence {
+    crate::linux::focus::observe(event)
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn observe(_event: &Event, _config: &Config) -> Evidence {
     Evidence {
         window_focused: None,

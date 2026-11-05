@@ -9,6 +9,12 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+### Added
+- Linux X11: a card and its sound are suppressed while you look at the session behind it, as on
+  Windows and macOS, when the Claude session runs in a one-session terminal (xterm, urxvt, rxvt, st,
+  mlterm, aterm, eterm, alacritty) whose window is the active one and owns no other window. Tabbed
+  terminals such as GNOME Terminal, tmux and Wayland sessions are always delivered (AH-222).
+
 ## [0.14.0] - 2026-11-05
 
 ### Added

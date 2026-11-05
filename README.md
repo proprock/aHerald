@@ -36,8 +36,8 @@ and keeps a queue so nothing is lost while you are away.
   a message holds only the event and the harness (the folder name only if you allow it), never a prompt
   or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
-  on Windows, and on macOS when you opt in, cards are suppressed while that session is focused (Linux
-  always delivers: see [limits](#limits)).
+  on Windows, on macOS when you opt in, and on Linux X11 for one-session terminals, cards are
+  suppressed while that session is focused (see [limits](#limits)).
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
 - **Private by design:** no network listener, IPC limited to your user, payloads treated as untrusted
@@ -148,8 +148,9 @@ Coverage and what was verified live per version: [harness compatibility](docs/ha
 
 ## Limits
 
-- Suppressing cards while you watch the originating session works on Windows and, opt-in, on macOS;
-  Linux has no way to identify the session yet, so it always delivers (AH-222).
+- Suppressing cards while you watch the originating session needs proof of the window and the session:
+  a classic Windows console, Terminal.app or iTerm2 on macOS (opt-in), or xterm-like one-session terminals
+  on a Linux X11 session. Tabbed terminals such as GNOME Terminal, tmux and Wayland sessions always deliver.
 - Only sessions that report through a hook, bridge or `--notify` are visible; unrelated Codex CLI or app
   sessions are not observed.
 - Native Wayland is not available (XWayland is used). On GNOME the tray needs an AppIndicator extension.
