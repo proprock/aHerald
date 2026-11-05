@@ -34,7 +34,7 @@ and keeps a queue so nothing is lost while you are away.
   [ntfy](https://ntfy.sh), [Slack](https://slack.com), [Discord](https://discord.com) or any webhook as well, so you
   hear about it away from the desk. Secrets come from environment variables, never from `config.toml`;
   a message holds only the event and the harness (the folder name only if you allow it), never a prompt
-  or a path. The Windows tray has a switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
+  or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
   cards are suppressed while that session is focused.
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
@@ -118,8 +118,6 @@ Coverage and what was verified live per version: [harness compatibility](docs/ha
 
 ## Limits
 
-- The **Messenger** tray switch exists on Windows only so far; on macOS and Linux forwarding follows
-  `forward.enabled` until you exit (AH-219).
 - Only sessions that report through a hook, bridge or `--notify` are visible; unrelated Codex CLI or app
   sessions are not observed.
 - Native Wayland is not available (XWayland is used). On GNOME the tray needs an AppIndicator extension.

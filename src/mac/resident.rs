@@ -44,7 +44,7 @@ const ART_WAIT_MS: u64 = 300;
 const FRAME_MS: u64 = 16;
 
 /// What the status menu was last built from: the five switches, then the usage lines.
-type MenuKey = ((bool, bool, bool, bool, bool), String);
+type MenuKey = ((bool, bool, bool, bool, bool), Option<bool>, String);
 
 struct Shared {
     queue: Queue,
@@ -377,8 +377,10 @@ impl Ui {
             .flatten()
             .collect();
         let tooltip = tooltip.join("\n");
+        let messenger = crate::forward::enabled();
         let key = (
             (sound, visual, paused, context, idle),
+            messenger,
             format!(
                 "{}\n{}",
                 codex.as_deref().unwrap_or(""),
@@ -389,6 +391,7 @@ impl Ui {
             self.tray.set_menu(&menu::items(
                 sound,
                 visual,
+                messenger,
                 paused,
                 context,
                 idle,
@@ -525,6 +528,10 @@ impl Ui {
                             self.audio_cancel = Arc::new(AtomicBool::new(false));
                         }
                     }
+                }
+                Command::Messenger => {
+                    // The menu is rebuilt on the next tick because the state is in its key.
+                    crate::forward::toggle();
                 }
                 Command::Config => {
                     let path = self.config_path.clone();

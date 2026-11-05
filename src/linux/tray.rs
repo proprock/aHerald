@@ -11,6 +11,7 @@ pub const MENU_PATH: &str = "/MenuBar";
 pub enum Command {
     Sound,
     Visual,
+    Messenger,
     Pause,
     ContextWarnings,
     IdleWarnings,
@@ -26,6 +27,8 @@ pub enum Command {
 #[derive(Clone, Default, PartialEq)]
 struct TrayState {
     toggles: [bool; 5],
+    /// The messenger switch; `None` when no sink is configured, so the item is not listed.
+    messenger: Option<bool>,
     codex: Option<String>,
     claude: Option<String>,
     icon: Vec<u8>,
@@ -119,7 +122,10 @@ impl Item {
 type Props = HashMap<String, OwnedValue>;
 type Layout = (i32, Props, Vec<OwnedValue>);
 // Match the Windows menu, with the first separator only when usage is shown.
-const MENU_ITEMS: [i32; 16] = [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7];
+const MESSENGER: i32 = 18;
+const MENU_ITEMS: [i32; 17] = [
+    10, 11, 8, 1, 2, MESSENGER, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7,
+];
 
 pub struct Menu {
     pub sender: Sender<Command>,
@@ -134,6 +140,7 @@ fn properties(id: i32, state: &TrayState) -> Props {
         1 => "Sound",
         2 => "Pop-up",
         3 => "Pause notifications",
+        MESSENGER => "Messenger",
         4 => "Edit configuration",
         7 => "Exit",
         10 => state.claude.as_deref().unwrap_or(""),
@@ -152,6 +159,13 @@ fn properties(id: i32, state: &TrayState) -> Props {
         p.insert("type".into(), label("separator"));
     } else {
         p.insert("label".into(), label(name));
+    }
+    if id == MESSENGER {
+        p.insert("toggle-type".into(), label("checkmark"));
+        p.insert(
+            "toggle-state".into(),
+            OwnedValue::from(i32::from(state.messenger.unwrap_or(false))),
+        );
     }
     if let Some(index) = match id {
         1..=3 => Some((id - 1) as usize),
@@ -190,10 +204,11 @@ impl Menu {
         let children = if parent_id == 0 && recursion_depth != 0 {
             MENU_ITEMS
                 .into_iter()
-                .filter(|id| match id {
+                .filter(|id| match *id {
                     10 => state.claude.is_some(),
                     11 => state.codex.is_some(),
                     8 => state.claude.is_some() || state.codex.is_some(),
+                    MESSENGER => state.messenger.is_some(),
                     _ => true,
                 })
                 .map(|id| {
@@ -237,6 +252,7 @@ impl Menu {
         let command = match id {
             1 => Command::Sound,
             2 => Command::Visual,
+            MESSENGER => Command::Messenger,
             3 => Command::Pause,
             4 => Command::Config,
             6 => Command::About,
@@ -289,6 +305,14 @@ impl Tray {
         let toggles = [sound, visual, paused, context, idle];
         if state.toggles != toggles {
             state.toggles = toggles;
+            state.revision = state.revision.wrapping_add(1);
+        }
+    }
+    /// The state of the messenger switch, or `None` when no sink runs (the item is then hidden).
+    pub fn set_messenger(&self, messenger: Option<bool>) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.messenger != messenger {
+            state.messenger = messenger;
             state.revision = state.revision.wrapping_add(1);
         }
     }
@@ -405,6 +429,71 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    /// Windows order: Sound, Pop-up, Messenger, Pause. The item exists only when a sink runs.
+    #[test]
+    fn the_messenger_switch_sits_after_pop_up_and_only_when_configured() {
+        let ids = |messenger| {
+            let state = Arc::new(std::sync::Mutex::new(TrayState {
+                messenger,
+                ..TrayState::default()
+            }));
+            let (sender, _receiver) = std::sync::mpsc::channel();
+            let menu = Menu { sender, state };
+            let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
+            children
+                .into_iter()
+                .map(|child| {
+                    let (id, ..) = <(i32, Props, Vec<OwnedValue>)>::try_from(child).unwrap();
+                    id
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(!ids(None).contains(&MESSENGER));
+        let listed = ids(Some(false));
+        let position = |id| listed.iter().position(|i| *i == id).unwrap();
+        assert_eq!(position(MESSENGER), position(2) + 1);
+        assert_eq!(position(3), position(MESSENGER) + 1);
+        for (messenger, expected) in [(Some(false), 0), (Some(true), 1)] {
+            let state = TrayState {
+                messenger,
+                ..TrayState::default()
+            };
+            assert_eq!(
+                String::try_from(properties(MESSENGER, &state).remove("label").unwrap()).unwrap(),
+                "Messenger"
+            );
+            assert_eq!(
+                i32::try_from(
+                    properties(MESSENGER, &state)
+                        .remove("toggle-state")
+                        .unwrap()
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let menu = Menu {
+            sender,
+            state: Arc::new(std::sync::Mutex::new(TrayState::default())),
+        };
+        menu.event(MESSENGER, "clicked", Value::from(0i32), 0);
+        assert_eq!(receiver.try_recv().unwrap(), Command::Messenger);
+    }
+
+    #[test]
+    fn changing_the_messenger_switch_bumps_the_revision_once() {
+        let tray = Tray::start(true, true, false);
+        let revision = || tray.state.lock().unwrap().revision;
+        let before = revision();
+        tray.set_messenger(Some(true));
+        assert_eq!(revision(), before.wrapping_add(1));
+        tray.set_messenger(Some(true));
+        assert_eq!(revision(), before.wrapping_add(1));
+        tray.set_messenger(None);
+        assert_eq!(revision(), before.wrapping_add(2));
+    }
+
     #[test]
     fn menu_exposes_toggle_state_and_dispatches_only_clicks() {
         let initial = TrayState {
@@ -420,7 +509,9 @@ mod tests {
         assert_eq!(children.len(), 16);
         assert_eq!(
             MENU_ITEMS,
-            [10, 11, 8, 1, 2, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7]
+            [
+                10, 11, 8, 1, 2, MESSENGER, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7
+            ]
         );
         for separator in [8, 9, 16, 17] {
             let value = properties(separator, &initial).remove("type").unwrap();

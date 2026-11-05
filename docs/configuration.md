@@ -130,8 +130,8 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
 - **Filter:** `kinds` is independent of `notifications.suppress_when_focused`, which concerns the
   screen in front of you. aHerald does not detect that you are away from the computer.
 - **Tray switch:** when a sink is configured, the tray menu has a **Messenger** item beside Sound and
-  Pop-up. It switches all sinks off and on until you exit; the next start uses `forward.enabled`.
-  (Windows only so far; AH-219 covers the macOS and Linux menus.)
+  Pop-up (Windows, macOS and Linux). It switches all sinks off and on until you exit; the next start
+  uses `forward.enabled`.
 - **Delivery:** each sink has its own worker, a queue of 32 messages (the oldest is dropped when
   full) and three tries. A slow or unreachable messenger never delays cards, the tray or hooks. A
   failure is shown as a card once for each distinct error, never with the token.

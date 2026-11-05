@@ -78,7 +78,7 @@ AH-060 rewrote the Windows-only target statements in AGENTS.md, INFO.md, README 
   or document why the timeout is environmental. Acceptance: the full run passes on Windows 11,
   with the commands and results recorded.
 
-- [ ] **AH-219 — Flaky native memory-growth test on the Windows runner.**
+- [ ] **AH-221 — Flaky native memory-growth test on the Windows runner.**
   `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
   (src/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
   (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
@@ -719,6 +719,10 @@ are deferred (AH-204, AH-205).
   StatusNotifierItem menu in `src/linux/tray.rs`; both residents already start and stop the sinks.
   Acceptance: the pure menu tests list the item only when a sink runs, in the Windows order;
   checked by hand on macOS and a Linux desktop.
+  Status (branch `feature/AH-219-tray-messenger`): implemented. `mac::menu::items` and the Linux
+  dbusmenu list **Messenger** after Pop-up only when a sink runs (pure tests for order, label,
+  check state and absence); both residents flip `forward::toggle` and refresh the menu. Not run:
+  by hand on a macOS menu bar and a Linux tray, and `mac/resident.rs` compiles only in the macOS CI.
 
 - [ ] **AH-220 — Command sink (split from AH-213).**
   The webhook sink is done under AH-213. What is left is a sink that runs a command as an argument
