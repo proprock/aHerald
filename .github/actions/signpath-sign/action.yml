@@ -1,0 +1,67 @@
+name: Sign with SignPath
+description: >
+  Send files to SignPath for Authenticode signing and put the signed files back at the same
+  paths (Windows only). The caller decides whether to run it; see docs/signing.md.
+
+inputs:
+  files:
+    description: Newline-separated paths of the files to sign. All must share one directory.
+    required: true
+  api-token:
+    description: SignPath API token (the SIGNPATH_API_TOKEN secret).
+    required: true
+  organization-id:
+    description: SignPath organization ID (the SIGNPATH_ORGANIZATION_ID variable).
+    required: true
+  artifact-configuration-slug:
+    description: Artifact configuration in the SignPath project that matches the files.
+    required: true
+  project-slug:
+    default: aherald
+  signing-policy-slug:
+    default: release-signing
+  artifact-name:
+    description: Name of the temporary GitHub artifact that carries the unsigned files.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Upload the unsigned files
+      id: unsigned
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.files }}
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: Submit the signing request and wait for the signed files
+      uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+      with:
+        api-token: ${{ inputs.api-token }}
+        organization-id: ${{ inputs.organization-id }}
+        project-slug: ${{ inputs.project-slug }}
+        signing-policy-slug: ${{ inputs.signing-policy-slug }}
+        artifact-configuration-slug: ${{ inputs.artifact-configuration-slug }}
+        github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+        wait-for-completion-timeout-in-seconds: "3600"
+        output-artifact-directory: ${{ runner.temp }}/signpath-${{ inputs.artifact-name }}
+
+    # The signed archive holds the files by name; each goes back over the unsigned original
+    # and must carry a valid signature, or the job fails before anything is packaged.
+    - name: Put the signed files back and check their signatures
+      shell: pwsh
+      env:
+        FILES: ${{ inputs.files }}
+        SIGNED_DIR: ${{ runner.temp }}/signpath-${{ inputs.artifact-name }}
+      run: |
+        foreach ($path in ($env:FILES -split "`n" | Where-Object { $_.Trim() })) {
+          $path = $path.Trim()
+          $signed = Join-Path $env:SIGNED_DIR (Split-Path -Leaf $path)
+          if (-not (Test-Path -LiteralPath $signed)) { throw "SignPath returned no $(Split-Path -Leaf $path)" }
+          Copy-Item -LiteralPath $signed -Destination $path -Force
+          $signature = Get-AuthenticodeSignature -LiteralPath $path
+          if ($signature.Status -ne 'Valid') { throw "$path has signature status $($signature.Status)" }
+          Write-Host "$path signed by $($signature.SignerCertificate.Subject)"
+        }

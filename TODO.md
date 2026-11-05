@@ -771,6 +771,21 @@ are deferred (AH-204, AH-205).
     Gatekeeper "Open Anyway" step in the README.
   - Acceptance: the release workflow signs with a secret held in the `release` environment, and a
     clean Windows 11 and macOS 15 machine starts the downloaded file without a warning.
+  Decision (2026-11-05): Windows only, through the SignPath Foundation (free). macOS stays
+  unsigned because Developer ID needs the paid Apple Developer Program.
+  Status (branch `feature/AH-218-windows-signing`): workflow prepared, task stays open. `release.yml`
+  signs both executables before packaging and the setup EXE afterwards, only when the variable
+  `SIGNPATH_ORGANIZATION_ID` is set, so releases are unchanged until then; `docs/signing.md` has the
+  setup steps and artifact configurations. Not done: the SignPath application, the account, the
+  secret; nothing was run against SignPath, and the YAML was only parsed. The token is a repository
+  secret rather than a `release` environment secret (see the doc for why).
+  Paused (2026-11-05): the SignPath Foundation application form requires links showing that the
+  project is widely used or trusted (media coverage, blog posts, download statistics, GitHub
+  insights, community discussions). aHerald does not have that reputation yet, so the application
+  is deferred until it does. The branch is pushed and not merged; no PR is open. Resume by
+  applying at https://signpath.org/apply, then follow `docs/signing.md`. Fallbacks if the
+  Foundation declines: Azure Artifact Signing or a paid certificate (the composite action is
+  SignPath-specific and would be replaced).
 
 ## Milestone 11 — Notifications from sandboxes and virtual machines
 

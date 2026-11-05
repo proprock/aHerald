@@ -88,6 +88,21 @@ jobs:
       - name: Build release executable
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
 
+      # Signing is on once the SignPath organization is configured (docs/signing.md); until
+      # then the Windows files are published unsigned, as before. Both executables are signed
+      # before the archive and the installer are built, so each copy carries the signature.
+      - name: Sign the executables
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: ./.github/actions/signpath-sign
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          artifact-configuration-slug: windows-executables
+          artifact-name: windows-unsigned-executables
+          files: |
+            target/x86_64-pc-windows-msvc/release/aherald.exe
+            target/x86_64-pc-windows-msvc/release/aherald-cli.exe
+
       - name: Check the executable is portable
         shell: pwsh
         run: ./check-release.ps1
@@ -102,6 +117,25 @@ jobs:
       - name: Build the per-user Windows installer
         shell: pwsh
         run: ./build-installer.ps1 -Tag $env:RELEASE_TAG
+
+      # The setup EXE changes when it is signed, so its checksum file is written again.
+      - name: Sign the installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: ./.github/actions/signpath-sign
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          artifact-configuration-slug: windows-installer
+          artifact-name: windows-unsigned-installer
+          files: dist/aherald-${{ env.RELEASE_TAG }}-windows-x64-setup.exe
+
+      - name: Write the installer checksum again after signing
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        run: |
+          $installer = "dist/aherald-$env:RELEASE_TAG-windows-x64-setup.exe"
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLower()
+          Set-Content -LiteralPath "$installer.sha256" -Value "$hash  $([IO.Path]::GetFileName($installer))" -Encoding ascii
 
       - name: Verify isolated installer lifecycle
         shell: pwsh
