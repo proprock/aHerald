@@ -17,7 +17,10 @@ fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stamp the build time into the binary for `--version` and the About card.
-    // SOURCE_DATE_EPOCH keeps reproducible builds reproducible.
+    // SOURCE_DATE_EPOCH keeps reproducible builds reproducible: CI and release builds set it to the
+    // commit time (`.github/actions/setup-rust`), so two builds of one commit print the same line.
+    // Without it the stamp is the time this script last ran, which a local incremental build does
+    // not refresh: "built ... ago" can then be older than the binary.
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     let built = env::var("SOURCE_DATE_EPOCH")
         .ok()

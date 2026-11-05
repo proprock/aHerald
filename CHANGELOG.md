@@ -10,13 +10,15 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Changed
+- CI and release builds fix the build time to the commit time, so two builds of one commit report the
+  same time in `--version` and About. See TODO.md (AH-252) for the check still to run in CI.
+- The About card, the Debian package and the crate describe aHerald as a companion for AI coding
+  agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
+
 ### Fixed
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a
   test keeps it there (AH-236).
-
-### Changed
-- The About card, the Debian package and the crate describe aHerald as a companion for AI coding
-  agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 
 ## [0.15.0] - 2026-11-05
 

@@ -507,23 +507,12 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-242 — Shared quoting helpers.**
-  Add `src/quote.rs` with `pub(crate) fn posix(s: &str) -> String` (single-quote, `'\''`) and
-  `pub(crate) fn powershell(s: &str) -> String` (`''`). Replace the copies at `hook_setup.rs:59,64,223,228`,
-  `setup.rs:474,932,962` and `bridge_setup.rs:87`. Acceptance: unit tests (spaces, quotes, `$`, newline, empty
-  string); `tests/hooks.rs`, `tests/setup.rs` and `tests/setup_bridges.rs` pass unchanged.
-
 - [ ] **AH-243 — One atomic file writer.**
   Add `src/atomic_file.rs`: `write(path, bytes, backup: bool)` = sibling temp file, `sync_all`, optional
   `.aherald-backup` copy, rename (Windows: `MoveFileExW` with `REPLACE_EXISTING|WRITE_THROUGH`). Use it in
   `hook_setup::write_inner` (`hook_setup.rs:399-436`) and `setup::apply_change` (`setup.rs:584-586`). Keep
   `default_config::create` as is (it is exclusive-create, a different contract) but reuse its temp-name code.
   Acceptance: unit tests (new file, replace, backup content, temp cleaned up on error); the setup tests pass.
-
-- [ ] **AH-244 — One civil-date implementation.**
-  Move `days_from_civil`/`civil_from_days` from `operational_log.rs:45-70` into `src/time.rs` and make
-  `claude_usage::iso_to_unix` (`claude_usage.rs:191-232`) use it. Acceptance: table tests (epoch, leap day,
-  2100-03-01, a negative offset), plus the existing log and usage tests.
 
 - [ ] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
   Move `expand_env`, `render` and `Escape` (`webhook.rs:21-133`) to `src/template.rs`; `webhook.rs` and
@@ -565,10 +554,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   AH-221's note in TODO.md (the release no longer runs the memory-growth check; nightly does). Acceptance: PR and
   release logs show the same skips; the nightly run still runs them.
 
-- [ ] **AH-252 — Reproducible build stamp.**
-  In `release.yml` and `ci.yml`, export `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)` before building. In
-  `build.rs`, add a comment explaining that without it the stamp is the last build-script run. Acceptance:
-  two release builds of the same commit print the same `--version` line.
+- [ ] **AH-252 — Reproducible build stamp (the CI check is left).**
+  Shipped on `chore/AH-236-contract-tests` (see DONE.md): `.github/actions/setup-rust` exports
+  `SOURCE_DATE_EPOCH` from the commit time, so every CI and release build gets it, and `build.rs` says why.
+  Left: after the first CI run of that branch, confirm in a job log that the step ran, and (on the next release
+  candidate) that two builds of one commit print the same `--version` line. actionlint and zizmor are not
+  installed locally.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.

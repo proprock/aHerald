@@ -33,3 +33,10 @@ runs:
       if: inputs.cache == 'true'
       with:
         save-if: ${{ github.ref == 'refs/heads/master' }}
+
+    # build.rs stamps the build time into the binary (`--version`, About). Without a fixed
+    # SOURCE_DATE_EPOCH the stamp is the moment the build script last ran, so two builds of one
+    # commit differ. The commit time makes the stamp, and with it the binary, reproducible (AH-252).
+    - name: Fix the build time to the commit time
+      shell: bash
+      run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"

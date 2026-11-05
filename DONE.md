@@ -3,6 +3,21 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-244 — One civil-date implementation.**
+  `src/time.rs` holds `days_from_civil` and `civil_from_days`; `operational_log::format_timestamp` and
+  `claude_usage::iso_to_unix` use them instead of two copies of Hinnant's algorithm. New table tests (epoch,
+  1969-12-31, 2000 and 2024 leap days, 2100-02-28 and 2100-03-01, 1900-03-01, 2026-11-05), the century rule
+  and a round trip over every day from 1800 to 2200. Expected day numbers were checked against Python's
+  `datetime`; the existing log and usage tests pass unchanged. Linux: ran locally.
+
+- [x] **AH-242 — Shared quoting helpers.**
+  `src/quote.rs` has `posix` and `powershell`; the eight copies in `hook_setup.rs` (including its private
+  `quote`), `setup.rs` and `bridge_setup.rs` use them. Tests: spaces, quotes, `$`, backtick, backslash,
+  newline, empty string, and on Unix every posix word is run through `sh -c printf %s` and must come back
+  unchanged. `tests/hooks.rs`, `tests/setup.rs` and `tests/setup_bridges.rs` pass unchanged. The three
+  `cfg(windows)` call sites (`setup.rs`: Codex `commandWindows` and the encoded statusLine command) compile
+  only in the Windows CI: compiled/tested in CI only. Linux: ran locally.
+
 - [x] **AH-236 — Claude plugin version follows the crate.**
   `plugins/aherald/.claude-plugin/plugin.json` said 0.1.0 while the crate is 0.15.0. Set to the crate version;
   `tests/workspace.rs::the_claude_plugin_has_the_version_of_aherald` asserts equality with

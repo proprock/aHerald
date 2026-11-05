@@ -29,6 +29,7 @@ pub mod sink;
 pub mod statusline;
 pub mod statusline_format;
 pub mod statusline_launch;
+pub(crate) mod time;
 pub mod usage;
 pub mod usage_service;
 pub mod webhook;
@@ -125,6 +126,7 @@ pub mod presenter;
 pub mod process;
 #[cfg(windows)]
 pub mod process_stats;
+pub(crate) mod quote;
 pub mod reentry;
 pub mod remote;
 pub mod resource_cache;

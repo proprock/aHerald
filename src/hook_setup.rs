@@ -56,13 +56,15 @@ pub fn command_for(exe: &Path, agent: Agent, windows: bool) -> String {
         Agent::Codex => "",
     };
     if windows {
-        let exe = exe.replace('\'', "''");
+        let exe = crate::quote::powershell(&exe);
         format!(
-            "powershell.exe -NoProfile -NonInteractive -Command \"& '{exe}' --hook{agent_flag} --resident | Out-String\""
+            "powershell.exe -NoProfile -NonInteractive -Command \"& {exe} --hook{agent_flag} --resident | Out-String\""
         )
     } else {
-        let exe = exe.replace('\'', "'\\''");
-        format!("'{exe}' --hook{agent_flag} --resident")
+        format!(
+            "{} --hook{agent_flag} --resident",
+            crate::quote::posix(&exe)
+        )
     }
 }
 
@@ -219,13 +221,9 @@ pub(crate) fn plan_handler(
 /// `'<exe>' --statusline`, quoted for `sh`.
 pub fn statusline_command(exe: &Path) -> String {
     format!(
-        "'{}' --statusline",
-        exe.display().to_string().replace('\'', "'\\''")
+        "{} --statusline",
+        crate::quote::posix(&exe.display().to_string())
     )
-}
-
-fn quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 /// The wrapped command of a statusLine command this program wrote, if it is one:
@@ -273,7 +271,9 @@ pub fn plan_statusline(
         Action::Install => match current_command {
             Some(command) if wrapped(&command).is_some() => {
                 let wanted = match wrapped(&command).flatten() {
-                    Some(original) => format!("{exe_command} --then {}", quote(&original)),
+                    Some(original) => {
+                        format!("{exe_command} --then {}", crate::quote::posix(&original))
+                    }
                     None => exe_command.to_owned(),
                 };
                 if command != wanted {
@@ -282,7 +282,7 @@ pub fn plan_statusline(
             }
             Some(command) => {
                 object["statusLine"]["command"] =
-                    format!("{exe_command} --then {}", quote(&command)).into();
+                    format!("{exe_command} --then {}", crate::quote::posix(&command)).into();
                 changes.push("wrap your statusLine command".into());
             }
             None => {

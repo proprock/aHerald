@@ -224,13 +224,7 @@ pub fn iso_to_unix(text: &str) -> Option<i64> {
         }
         _ => return None,
     };
-    // Days from civil date (proleptic Gregorian), Howard Hinnant's algorithm.
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
+    let days = crate::time::days_from_civil(year, month, day);
     Some(days * 86_400 + hour * 3600 + minute * 60 + second - offset)
 }
 
