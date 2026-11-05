@@ -1,0 +1,49 @@
+{
+  "description": "aHerald hooks for Codex inside a container or VM: only turn ends and waits. Replace the script path, set AHERALD_ENDPOINT and AHERALD_TOKEN (aherald --remote-info on the host) and merge into ~/.codex/hooks.json.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh codex",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
