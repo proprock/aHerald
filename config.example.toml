@@ -364,3 +364,11 @@ enabled = true
 # url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
 # content_type = "application/json"
 # body = '{"chat_id": "123456789", "text": "{text}"}'
+# A program instead of an HTTP request: the array is the program and its arguments (no shell reads
+# it), `stdin` is optional text written to the program's standard input. {text}, {kind},
+# {harness}, {folder} are filled at each send, as written; ${NAME} as above. A command that fails
+# or runs over 10 seconds is one card with its exit status, never its output.
+# [[forward.sinks]]
+# type = "command"
+# kinds = ["permission_required", "input_required"]
+# command = ["say", "{text}"]

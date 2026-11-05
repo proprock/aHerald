@@ -724,7 +724,10 @@ const WEBHOOK: &str =
 fn a_webhook_sink_defaults_to_a_plain_text_body_of_the_message() {
     let config = Config::parse(WEBHOOK, &PathBuf::from(".")).unwrap();
     let sink = &config.forward.sinks[0];
-    assert_eq!(sink.url, "https://api.example/bot${TOKEN}/send");
+    assert_eq!(
+        sink.url.as_deref(),
+        Some("https://api.example/bot${TOKEN}/send")
+    );
     assert_eq!(sink.body.as_deref(), None);
     assert_eq!(sink.content_type.as_deref(), None);
     assert_eq!(
@@ -762,6 +765,55 @@ fn an_incomplete_or_unsupported_sink_is_refused(#[case] text: &str) {
     let error = Config::parse(text, &PathBuf::from(".")).unwrap_err();
     assert!(
         error.starts_with("invalid configuration: forward.sinks"),
+        "{error}"
+    );
+}
+
+const COMMAND: &str =
+    "[[forward.sinks]]\ntype = \"command\"\ncommand = [\"msmtp\", \"me@example.com\"]\n";
+
+#[test]
+fn a_command_sink_takes_the_program_and_arguments_as_an_array_and_an_optional_stdin() {
+    let text = format!("{COMMAND}stdin = \"Subject: aHerald\\n\\n{{text}}\\n\"\n");
+    let sink = &Config::parse(&text, &PathBuf::from("."))
+        .unwrap()
+        .forward
+        .sinks[0];
+    assert_eq!(sink.kind, aherald::config::SinkType::Command);
+    assert_eq!(
+        sink.command.as_deref(),
+        Some(&["msmtp".to_owned(), "me@example.com".to_owned()][..])
+    );
+    assert_eq!(sink.stdin.as_deref(), Some("Subject: aHerald\n\n{text}\n"));
+    assert!(sink.url.is_none());
+}
+
+#[rstest]
+#[case::no_command("[[forward.sinks]]\ntype = \"command\"\n", "command")]
+#[case::empty_command("[[forward.sinks]]\ntype = \"command\"\ncommand = []\n", "command")]
+#[case::blank_program(
+    "[[forward.sinks]]\ntype = \"command\"\ncommand = [\" \"]\n",
+    "command"
+)]
+#[case::folder_first(
+    "[[forward.sinks]]\ntype = \"command\"\ncommand = [\"say\", \"{folder}\"]\n",
+    "command"
+)]
+#[case::url_on_a_command(
+    "[[forward.sinks]]\ntype = \"command\"\ncommand = [\"say\"]\nurl = \"https://h/\"\n",
+    "url"
+)]
+#[case::command_on_a_webhook(
+    "[[forward.sinks]]\ntype = \"webhook\"\nurl = \"https://h/\"\ncommand = [\"say\"]\n",
+    "command"
+)]
+fn a_misplaced_or_missing_command_setting_is_refused_naming_the_setting(
+    #[case] text: &str,
+    #[case] setting: &str,
+) {
+    let error = Config::parse(text, &PathBuf::from(".")).unwrap_err();
+    assert!(
+        error.starts_with(&format!("invalid configuration: forward.sinks.{setting} ")),
         "{error}"
     );
 }

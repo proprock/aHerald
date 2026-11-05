@@ -46,6 +46,7 @@ impl Default for Forward {
 #[serde(rename_all = "lowercase")]
 pub enum SinkType {
     Webhook,
+    Command,
 }
 
 /// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration writes
@@ -61,13 +62,72 @@ pub struct SinkConfig {
     /// The folder name goes to a third party, so it is sent only when asked for.
     #[serde(default)]
     pub include_folder: bool,
-    /// The address to POST to; `${NAME}` is replaced by an environment variable.
-    pub url: String,
-    /// The body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and `{folder}`
-    /// at each send. Default `{text}`.
+    /// Webhook: the address to POST to; `${NAME}` is replaced by an environment variable.
+    pub url: Option<String>,
+    /// Webhook: the body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and
+    /// `{folder}` at each send. Default `{text}`.
     pub body: Option<String>,
-    /// Default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
+    /// Webhook: default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
     pub content_type: Option<String>,
+    /// Command: the program and its arguments, one array element each. No shell reads them, so a
+    /// value with spaces, quotes or `;` stays one argument. `${NAME}` and the send-time
+    /// placeholders work as in a webhook body.
+    pub command: Option<Vec<String>>,
+    /// Command: the text written to the program's standard input; default nothing.
+    pub stdin: Option<String>,
+}
+impl SinkConfig {
+    /// Checks what a type needs and forbids. Messages name the setting, never a value.
+    fn validate(&self) -> Result<(), String> {
+        let bad = |setting: &str, reason: &str| {
+            Err(format!(
+                "invalid configuration: forward.sinks.{setting} {reason}"
+            ))
+        };
+        match self.kind {
+            SinkType::Webhook => {
+                if self.url.is_none() {
+                    return bad("url", "is missing");
+                }
+                for (setting, present) in [
+                    ("command", self.command.is_some()),
+                    ("stdin", self.stdin.is_some()),
+                ] {
+                    if present {
+                        return bad(setting, "is only for a command sink");
+                    }
+                }
+            }
+            SinkType::Command => {
+                let Some(command) = &self.command else {
+                    return bad("command", "is missing");
+                };
+                if command
+                    .first()
+                    .is_none_or(|program| program.trim().is_empty())
+                {
+                    return bad("command", "must start with the program to run");
+                }
+                // A folder name can begin with "-", which a program would read as an option.
+                if command
+                    .iter()
+                    .any(|argument| argument.starts_with("{folder}"))
+                {
+                    return bad("command", "must not start an argument with {folder}");
+                }
+                for (setting, present) in [
+                    ("url", self.url.is_some()),
+                    ("body", self.body.is_some()),
+                    ("content_type", self.content_type.is_some()),
+                ] {
+                    if present {
+                        return bad(setting, "is only for a webhook sink");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 fn default_sink_kinds() -> Vec<Kind> {
     vec![
@@ -794,6 +854,9 @@ impl Config {
         Ok(config)
     }
     fn validate(&self) -> Result<(), String> {
+        for sink in &self.forward.sinks {
+            sink.validate()?;
+        }
         crate::statusline_format::validate(&self.claude.statusline.format)
             .map_err(|e| format!("invalid configuration: claude.statusline.format {e}"))?;
         for (agent, warnings) in [

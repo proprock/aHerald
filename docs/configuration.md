@@ -104,9 +104,10 @@ warning was created; they do not advance while waiting in the notification queue
 
 ### Messenger forwarding (AH-213)
 
-A *sink* sends each card the queue accepted as new to a messenger, in addition to the card. The
-one sink type is `webhook`, an HTTP POST that serves Telegram, ntfy, Slack, Discord and anything
-else that takes a request. Nothing is sent unless you configure a sink.
+A *sink* sends each card the queue accepted as new to a messenger, in addition to the card. There
+are two types: `webhook`, an HTTP POST that serves Telegram, ntfy, Slack, Discord and anything else
+that takes a request, and `command`, which runs a program (mail, Signal, `ssh`, `say`). Nothing is
+sent unless you configure a sink.
 
 ```toml
 [forward]
@@ -177,6 +178,67 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
   so do not use a JSON or form body with such a type.
 - `url` is `https://` (plain `http://` works but sends everything in the clear). A 2xx answer is a
   success; anything else is an error card with the HTTP status.
+
+#### Command sink
+
+`type = "command"` runs a program for each message, for services that have a command line rather
+than an HTTP endpoint: mail through `msmtp` or `mutt`, `signal-cli`, a notification on another
+machine through `ssh`, a spoken alert with `say`.
+
+```toml
+[[forward.sinks]]
+type = "command"
+kinds = ["permission_required", "input_required"]
+command = ["signal-cli", "-a", "${AHERALD_SIGNAL_NUMBER}", "send", "-m", "{text}", "+15557654321"]
+```
+
+- **`command`** is the program and its arguments, one array element each. **No shell reads it**: a
+  folder name with spaces, quotes, `;` or `$(...)` stays one argument and nothing runs. The program
+  is found through `PATH` of the resident (a resident started from the Run key, the installer or a
+  desktop autostart entry has a shorter `PATH` than your terminal; use a full path if in doubt). No
+  argument may start with `{folder}`, because a folder named `-x` would read as an option.
+- **`stdin`** (optional) is written to the program's standard input, then closed. Use it for mail
+  bodies and for anything that must stay out of the argument list.
+- **`${NAME}`** (in `command` and `stdin`) is replaced when aHerald starts, as for a webhook, and
+  scrubbed from errors. Other local users can list a program's arguments with `ps`, so for a secret
+  prefer `stdin`, or let the program read its own configuration or environment; the program
+  inherits the resident's environment.
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`** are filled at each send, as written (nothing is
+  escaped, since nothing parses them). `{folder}` is empty unless `include_folder = true`.
+- **Result:** exit status 0 is a success. Anything else, a program that is not found, or one that
+  runs over 10 seconds (it is killed) is one error card per distinct error, naming the exit status
+  and never the program's output or arguments. Retries, the queue of 32 and the per-sink worker
+  are those of a webhook.
+- **`ssh` runs its arguments through a shell on the other machine**, so do not put `{text}` in a
+  remote command line. Send it on standard input and let the remote side read it:
+
+```toml
+[[forward.sinks]]
+type = "command"
+command = ["ssh", "desktop", "read -r line; notify-send aHerald \"$line\""]
+stdin = "{text}\n"
+```
+
+Mail, with a configured `msmtp` (it takes the recipient from the headers with `-t`):
+
+```toml
+[[forward.sinks]]
+type = "command"
+kinds = ["permission_required", "input_required", "error"]
+command = ["msmtp", "-t"]
+stdin = "To: me@example.com\nSubject: aHerald\n\n{text}\n"
+```
+
+With `mutt` (the body comes from standard input):
+
+```toml
+[[forward.sinks]]
+type = "command"
+command = ["mutt", "-s", "aHerald: {text}", "me@example.com"]
+stdin = "{text}\n"
+```
+
+On macOS, a spoken alert: `command = ["say", "{text}"]`.
 
 ### Claude status line text
 

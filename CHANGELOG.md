@@ -10,6 +10,12 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 ## [Unreleased]
 
 ### Added
+- A `command` forward sink runs a program for each message, for services without an HTTP endpoint:
+  mail through `msmtp` or `mutt`, `signal-cli`, `notify-send` over `ssh`, `say`. `command` is an
+  array (the program and its arguments), so no shell reads a folder name; `stdin` is optional text
+  for its standard input; `${NAME}` secrets and `{text}`, `{kind}`, `{harness}`, `{folder}` work as
+  in a webhook. A failing, missing or over-10-second command is one error card with its exit
+  status, never its output (AH-220).
 - The **Messenger** switch is now in the macOS and Linux tray menus too, beside Sound and Pop-up
   and only when a sink is configured (AH-219).
 
