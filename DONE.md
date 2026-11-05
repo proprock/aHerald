@@ -3,6 +3,18 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
+  `paths::agent_hook_file(_with)` is the one lookup of an agent's hook file (Claude: `CLAUDE_CONFIG_DIR` or
+  `~/.claude`; Codex: `CODEX_HOME` or `~/.codex`); `setup::file_for`, `--install-hooks`/`--uninstall-hooks`
+  and the statusLine commands in `main.rs` use it, and `hook_setup::default_file` (home-only) is gone; its
+  unit test moved to `paths` with the variable cases and empty-variable and no-home cases. README now
+  recommends `aherald --setup --harness claude --apply`; `docs/installation.md` keeps `--install-hooks` as the
+  legacy path and says it finds files like `--setup`; the Claude and Codex hook guides name the variables.
+  Red: four of five new `tests/hooks.rs::hook_file_location` tests failed (hooks and statusLine written under
+  `HOME` while `CLAUDE_CONFIG_DIR`/`CODEX_HOME` was set); the fifth (no variables) already passed. The
+  statusLine test is `cfg(not(windows))`; on Windows that command already used `setup::file_for`. Linux: ran
+  locally; Windows and macOS: compiled/tested in CI only.
+
 - [x] **AH-246 — One source for harness labels and bridge lists.**
   `events::harness_label` takes the label from `Bridge::label` (plus Crush, which has no bridge file), so
   `HARNESS_LABELS` is gone. `Selection` maps a bridge to its field in one exhaustive `match`

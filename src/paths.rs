@@ -112,6 +112,29 @@ pub fn claude_config_dir() -> Option<PathBuf> {
     claude_config_dir_with(|name| std::env::var_os(name))
 }
 
+/// The file that holds an agent's hooks (and, for Claude Code, its statusLine): Claude's
+/// `settings.json` in `CLAUDE_CONFIG_DIR` or `<home>/.claude`; Codex's `hooks.json` in `CODEX_HOME`
+/// or `<home>/.codex`. The one lookup that `--setup`, `--install-hooks` and the statusLine commands
+/// share, so they never write to different files.
+pub fn agent_hook_file_with(
+    agent: crate::agent::Agent,
+    get: impl Fn(&str) -> Option<OsString>,
+) -> Option<PathBuf> {
+    match agent {
+        crate::agent::Agent::Claude => {
+            claude_config_dir_with(get).map(|dir| dir.join("settings.json"))
+        }
+        crate::agent::Agent::Codex => non_empty(get("CODEX_HOME"))
+            .map(PathBuf::from)
+            .or_else(|| home_dir_with(&get).map(|home| home.join(".codex")))
+            .map(|dir| dir.join("hooks.json")),
+    }
+}
+
+pub fn agent_hook_file(agent: crate::agent::Agent) -> Option<PathBuf> {
+    agent_hook_file_with(agent, |name| std::env::var_os(name))
+}
+
 /// The `Contents/Resources` directory when `executable` is the main program of a macOS
 /// application bundle (`X.app/Contents/MacOS/<name>`); `None` for a bare executable.
 pub fn bundle_resources(executable: &Path) -> Option<PathBuf> {
@@ -157,6 +180,48 @@ mod tests {
                 .find(|(key, _)| *key == name)
                 .map(|(_, value)| OsString::from(value))
         }
+    }
+
+    #[test]
+    fn an_agents_hook_file_follows_its_own_directory_variable_then_home() {
+        use crate::agent::Agent;
+        let home = env(&[(HOME_VAR, "/Users/me")]);
+        assert_eq!(
+            agent_hook_file_with(Agent::Claude, &home),
+            Some(PathBuf::from("/Users/me/.claude/settings.json"))
+        );
+        assert_eq!(
+            agent_hook_file_with(Agent::Codex, &home),
+            Some(PathBuf::from("/Users/me/.codex/hooks.json"))
+        );
+        let both = env(&[
+            (HOME_VAR, "/Users/me"),
+            ("CLAUDE_CONFIG_DIR", "/cfg/claude"),
+            ("CODEX_HOME", "/cfg/codex"),
+        ]);
+        assert_eq!(
+            agent_hook_file_with(Agent::Claude, &both),
+            Some(PathBuf::from("/cfg/claude/settings.json"))
+        );
+        assert_eq!(
+            agent_hook_file_with(Agent::Codex, &both),
+            Some(PathBuf::from("/cfg/codex/hooks.json"))
+        );
+        // An empty variable is unset, and without a home there is no answer.
+        let empty = env(&[
+            (HOME_VAR, "/Users/me"),
+            ("CODEX_HOME", ""),
+            ("CLAUDE_CONFIG_DIR", ""),
+        ]);
+        assert_eq!(
+            agent_hook_file_with(Agent::Codex, &empty),
+            Some(PathBuf::from("/Users/me/.codex/hooks.json"))
+        );
+        assert_eq!(
+            agent_hook_file_with(Agent::Claude, &empty),
+            Some(PathBuf::from("/Users/me/.claude/settings.json"))
+        );
+        assert_eq!(agent_hook_file_with(Agent::Codex, env(&[])), None);
     }
 
     #[cfg(target_os = "linux")]

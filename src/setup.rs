@@ -509,15 +509,8 @@ fn same_execution(a: &Value, b: &Value) -> bool {
 }
 
 fn file_for(agent: Agent) -> Result<PathBuf, String> {
-    let get = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
-    match agent {
-        Agent::Claude => crate::paths::claude_config_dir_with(get).map(|p| p.join("settings.json")),
-        Agent::Codex => get("CODEX_HOME")
-            .map(PathBuf::from)
-            .or_else(|| crate::paths::home_dir_with(get).map(|p| p.join(".codex")))
-            .map(|p| p.join("hooks.json")),
-    }
-    .ok_or_else(|| format!("cannot locate {} configuration directory", agent.label()))
+    crate::paths::agent_hook_file(agent)
+        .ok_or_else(|| format!("cannot locate {} configuration directory", agent.label()))
 }
 
 fn read(file: &Path) -> Result<Option<String>, String> {

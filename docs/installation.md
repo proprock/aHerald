@@ -136,7 +136,8 @@ Without `--apply`, setup and removal only show the planned changes. `--setup`
 means the complete desired selection for this installation: deselected bindings
 from its receipt are removed. An empty selection uses `--unsetup`. The legacy
 `--install-hooks AGENT` / `--uninstall-hooks AGENT` commands remain available for
-manual per-file configuration and do not create a setup receipt.
+manual per-file configuration and do not create a setup receipt. They find the agent's file
+the same way `--setup` does, with `CODEX_HOME` and `CLAUDE_CONFIG_DIR` first (below).
 
 Codex uses `CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` by default. Claude uses
 `CLAUDE_CONFIG_DIR/settings.json`, or `~/.claude/settings.json`. Overrides must be

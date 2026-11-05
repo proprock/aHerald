@@ -481,14 +481,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   for valid/invalid/missing files and the exact message; Linux behaviour checked under xvfb; the macOS and
   Windows CI compile and pass.
 
-- [ ] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
-  `hook_setup::default_file` (`src/hook_setup.rs:70-75`) hard-codes the home paths. Replace its body with the
-  lookup in `setup::file_for` (`src/setup.rs:511-521`); move that function to `paths.rs` and use it from both.
-  The same applies to the statusLine target in `main.rs:208-216`. Change README.md:73 to
-  `aherald --setup --harness claude --apply  # or codex`, and keep `--install-hooks` documented as
-  the legacy path in docs/installation.md:138.
-  Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
-
 - [ ] **AH-238 — Help text lists every public flag.**
   Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
   resident control, setup, usage, diagnostics). Add the missing `--notify --kind --activity --ended`,

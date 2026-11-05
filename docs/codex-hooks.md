@@ -33,7 +33,7 @@ unrelated-session observation is implemented.
 
 ## Setup with a command
 
-`aherald --install-hooks codex` shows what it would add to `~/.codex/hooks.json` (a dry run);
+`aherald --install-hooks codex` shows what it would add to `~/.codex/hooks.json`, or to `$CODEX_HOME/hooks.json` when that is set (a dry run);
 `--apply` writes it, keeping a `hooks.json.aherald-backup` copy and every entry that is not
 aHerald's. `--uninstall-hooks codex --apply` removes only aHerald's entries. `--hooks-file PATH`
 selects another file, for example a project's `.codex/hooks.json`. You still start a new Codex session,

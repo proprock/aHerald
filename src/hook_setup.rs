@@ -5,7 +5,7 @@
 //! the rest of the file keeps its content and key order.
 use crate::agent::Agent;
 use serde_json::{Map, Value, json};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -65,14 +65,6 @@ pub fn command_for(exe: &Path, agent: Agent, windows: bool) -> String {
             "{} --hook{agent_flag} --resident",
             crate::quote::posix(&exe)
         )
-    }
-}
-
-/// The agent's hook file under `home`.
-pub fn default_file(agent: Agent, home: &Path) -> PathBuf {
-    match agent {
-        Agent::Claude => home.join(".claude/settings.json"),
-        Agent::Codex => home.join(".codex/hooks.json"),
     }
 }
 
@@ -438,6 +430,7 @@ pub(crate) fn write_inner(
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    use std::path::PathBuf;
 
     const CMD: &str =
         "'/Applications/aHerald.app/Contents/MacOS/aherald' --hook --agent claude --resident";
@@ -571,19 +564,6 @@ mod tests {
         assert_eq!(
             command_for(Path::new("C:\\Tools\\aherald.exe"), Agent::Claude, true),
             "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Tools\\aherald.exe' --hook --agent claude --resident | Out-String\""
-        );
-    }
-
-    #[test]
-    fn each_agent_has_its_own_default_file() {
-        let home = Path::new("/Users/me");
-        assert_eq!(
-            default_file(Agent::Claude, home),
-            Path::new("/Users/me/.claude/settings.json")
-        );
-        assert_eq!(
-            default_file(Agent::Codex, home),
-            Path::new("/Users/me/.codex/hooks.json")
         );
     }
 
