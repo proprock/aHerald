@@ -12,7 +12,7 @@ use crate::{
     http_common::Zero,
     https::Wiped,
     sink::{Message, Sink},
-    webhook::{Escape, render},
+    template::{Escape, render},
 };
 use std::{
     io::{ErrorKind, Write},

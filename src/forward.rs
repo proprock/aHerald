@@ -8,7 +8,8 @@ use crate::{
     config::{Forward, SinkConfig, SinkType},
     events::Event,
     sink::{Dispatcher, Policy, Route, Sink},
-    webhook::{Webhook, expand_env},
+    template::expand_env,
+    webhook::Webhook,
 };
 use std::sync::Mutex;
 
