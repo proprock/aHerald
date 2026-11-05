@@ -396,6 +396,37 @@ shared development-profile and artwork performance changes need no separate port
   [Windows application icon](docs/app-icon.md). Completed 2026-11-01: embedded
   multi-size resource, native release-EXE loading tests and Explorer screenshots accepted.
 
+- [ ] **AH-267 — Codex session names off by default (`[codex] session_names`).**
+  Today the resident always asks the user's own `codex app-server` for the thread name of every
+  Codex card (`session_source::Service::codex()` or `::shared(usage.names())`, chosen in
+  `src/resident_overlay.rs:1171-1175`, `src/mac/resident.rs:1192-1196` and
+  `src/linux/resident.rs:273-281`). Only transient mode has a switch (`[codex] transient_names`,
+  default false). Agreed 2026-11-05: add `[codex] session_names` (default **false**), the one switch
+  for Codex name lookups.
+  - `session_names = false`: no lookup in either mode. No `codex app-server` child or worker is
+    started for names, and the card keeps the harness-only heading. Reuse the disabled path of
+    `session_source::Service::transient` (`src/session_source.rs:78-90`), for example as
+    `Service::disabled()`. Usage polling (`[codex.usage]`) is unaffected and still runs its own
+    connection.
+  - `session_names = true`: the resident looks names up as it does today (shared connection when
+    `[codex.usage]` is on, its own otherwise). Transient mode additionally needs
+    `transient_names = true`, which keeps its meaning and its cost note.
+  - Existing configurations stay valid: `transient_names` remains an accepted key
+    (`deny_unknown_fields` must not reject old files). Claude cards are unaffected.
+  - Update `config.example.toml` (`[codex]`, with a comment on what the lookup does),
+    `docs/configuration.md`, `docs/codex-hooks.md:78`, `docs/privacy.md` (the "Codex session names"
+    row moves to opt-in) and `CHANGELOG.md` under `Changed` (names now need opting in).
+  Test first: in `tests/transient_names.rs` (or a new `tests/session_names.rs`), the default is false
+  and parses; the disabled service never calls its connect closure and labels a Codex event without
+  a name; with `session_names = true` a fake transport's name reaches the label; and transient
+  requires both switches. Wire all three residents through one shared helper,
+  `session_source::Service::for_resident(&Config, Option<NameLookup>)`, so the choice is not copied
+  three times.
+  Acceptance: the tests above pass on Linux; the macOS and Windows CI legs pass (the residents only
+  compile there; report them as "CI only"); by hand, a resident with the default configuration shows
+  Codex cards without a name and starts no `codex app-server` while `[codex.usage]` is off (check
+  the process list).
+
 - [ ] **AH-106 — Optional context and five-hour quota indicators in notifications.**
   Discuss and agree on the design before implementation: optionally show context
   utilization as a horizontal bar and the quota for the current five-hour usage
@@ -919,3 +950,278 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   bad token, oversize); the existing `--notify` tests unchanged. Limits: none of the four harnesses
   is installed here, so that a harness really calls its bridge from a guest stays unverified;
   context and idle warnings do not work for guest sessions.
+
+## Milestone 12 — Audit follow-ups (2026-11-05)
+
+Source: `audit-20261105.md` (local, untracked), an architecture, CI and release audit of v0.15.0.
+Conventions for these tasks: test first wherever a test is named; this repository's `AGENTS.md`
+applies (dependencies, parity, per-platform status wording). `src/mac/` builds only in the macOS CI
+and the Windows modules only in the Windows CI: report such parts as "CI only", never as verified.
+Always run `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`
+and `cargo test --locked --workspace --all-targets`, and push a branch so CI covers the other platforms.
+P2 tasks run in the listed order; AH-266 goes last.
+
+### P0 — defects and wrong statements
+
+- [ ] **AH-231 — Linux resident: no periodic wake-ups while idle.**
+  `src/linux/resident.rs:836` sleeps 16 ms on every pass even with nothing shown. Make the loop block
+  until there is work: an X11 event, an IPC/queue change, the next warning or usage deadline, or an animation
+  frame. Suggested approach: wait with `poll(2)` (libc is already a dependency) on the X connection fd
+  (`x11rb` `RustConnection` exposes it via `AsRawFd`) plus an `eventfd`/pipe that `Shared` writes to when
+  `Controls` changes state (mirror the macOS `Waker`, `mac/resident.rs:105-171`). The timeout is the
+  earliest warning deadline, 16 ms only while animating or displayed.
+  **Caution:** today the Linux tray picks up new usage snapshots only because of the 16 ms poll; the usage
+  services run on their own threads and the UI loop has no usage deadline. Wire `usage.on_change` and
+  `claude.on_change` (`src/usage_service.rs:821`) to the same eventfd, as Windows does at
+  `src/resident_overlay.rs:1298-1300`. Without this, blocking reproduces the macOS bug (AH-232) on Linux.
+  Acceptance: a new ignored-under-xvfb test like Windows `idle_resident_has_no_periodic_wakeups…`
+  (`src/resident.rs:538`) counts loop passes over 2 s idle (≤ 3); a test with a stub `UsageSource` shows a
+  changed snapshot reaching the tray levels within one wake-up; cards, the tray menu and warnings still work
+  (`xvfb-run … cargo test --test linux_apply -- --ignored --test-threads=1` and `--test remote_listener` pass).
+  Verifiable on Linux.
+
+- [ ] **AH-232 — macOS: Claude-only usage refreshes while idle.**
+  `src/mac/resident.rs:1228` decides the idle wait from `codex.usage.enabled` only. Windows also checks
+  `claude.is_some()` (`src/resident_overlay.rs:229`) and subscribes to `on_change` (`:1298-1300`).
+  Extract `pub(crate) fn idle_poll_needed(codex_usage: bool, claude_usage: bool, has_deadline: bool) -> bool`
+  into `src/resident_request.rs` with unit tests, and use it in the Windows timer condition and the macOS
+  wait. Better still, also subscribe macOS to `usage.on_change`/`claude.on_change` with the existing
+  `Waker`. Acceptance: unit tests for all 8 combinations pass on Linux; macOS CI compiles. Not run:
+  live tray on a Mac (add a manual check line).
+
+- [ ] **AH-233 — Same Apply diagnostics on every OS.**
+  On an invalid config, Linux posts a different message and does not log `InvalidConfiguration`
+  (`src/linux/resident.rs:354-360` vs `src/resident_overlay.rs:752-756`, `src/mac/resident.rs:557-563`). Add
+  `pub(crate) fn apply_outcome(path: &Path) -> Result<Config, ApplyError>` to `src/resident_request.rs`,
+  where `ApplyError` has `message()` and logs the record once. Call it from all three. Acceptance: a unit test
+  for valid/invalid/missing files and the exact message; Linux behaviour checked under xvfb; the macOS and
+  Windows CI compile and pass.
+
+- [ ] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
+  `hook_setup::default_file` (`src/hook_setup.rs:70-75`) hard-codes the home paths. Replace its body with the
+  lookup in `setup::file_for` (`src/setup.rs:511-521`); move that function to `paths.rs` and use it from both.
+  The same applies to the statusLine target in `main.rs:208-216`. Change README.md:73 to
+  `aherald --setup --harness claude --apply  # or codex`, and keep `--install-hooks` documented as
+  the legacy path in docs/installation.md:138.
+  Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
+
+- [ ] **AH-235 — Remove stale "Windows first / Codex first" text.**
+  `Cargo.toml:7` description; `TODO.md:3-5` intro (cross-platform, six harnesses, plus a portable aherald-ping);
+  `docs/portable.md:4,146`; `about_card_text()` in `src/lib.rs` ("for coding agents"); the `src/unsupported.rs`
+  header (drop "arrives with AH-068"). (`TODO.md:65` is already fixed on `docs/agents-release-privacy`.)
+  Acceptance: `grep -rn "Windows first\|show no cards yet\|first supported agent" --exclude-dir=target .`
+  matches only DONE.md/CHANGELOG history; the `tray_about`/About tests are updated.
+
+- [ ] **AH-236 — Claude plugin version follows the crate.**
+  `plugins/aherald/.claude-plugin/plugin.json` says 0.1.0. Set it to the crate version and extend
+  `tests/workspace.rs` to assert `plugin.json.version == CARGO_PKG_VERSION`.
+  Acceptance: the test fails before the fix and passes after; the release checklist (AH-240) lists the file.
+
+- [ ] **AH-237 — Bridge contract tests cannot skip silently in CI.**
+  `tests/bridges.rs` returns success without Node ≥ 22. Add `AHERALD_REQUIRE_NODE=1`: when it is set and Node
+  is missing, the test panics. In `ci.yml`, on the `ubuntu-22.04` leg of `quality`, add a SHA-pinned
+  `actions/setup-node` with `node-version: 22` before `cargo test`, and set the env var for that step.
+  Acceptance: the CI log shows the bridge test executing (`node --test` output on failure); zizmor and actionlint pass.
+
+- [ ] **AH-238 — Help text lists every public flag.**
+  Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
+  resident control, setup, usage, diagnostics). Add the missing `--notify --kind --activity --ended`,
+  `--agent`, `--setup-window`, `--setup-executable` and `--help`; leave the internal `--*-child` and
+  `--test-after-apply` out. Add a unit test with a list of public flags that asserts each one appears in
+  `help()` and is accepted by `Cli::parse` in a minimal valid combination. Update
+  `tests/unsupported_platform.rs` and `tests/config_portable.rs:37`.
+  Acceptance: the tests pass; `aherald --help` is readable at 100 columns.
+
+- [ ] **AH-239 — README states exactly what each guest sender sends.**
+  `docs/privacy.md` (added on `docs/agents-release-privacy`) already states the difference.
+  README.md:39-41: say the same in one sentence: `aherald-ping` strips the payload to the fields aHerald reads,
+  while the shell sender and the plugin launcher post it whole over plain HTTP (docs/sandboxes.md:39,96). Add a
+  test that `examples/sandbox/aherald-ping.sh` and the remote block of `plugins/aherald/hooks/aherald-hook.sh`
+  stay identical: extract the lines between marker comments `# BEGIN remote` / `# END remote` and compare them
+  in `tests/sandbox_sender.rs`. Acceptance: the test fails when one copy changes.
+
+- [ ] **AH-240 — Release procedure follow-ups.**
+  `RELEASE.md` is rewritten and tracked on `docs/agents-release-privacy` (four platforms, version sync in
+  four files, compare links, tap, rollback including the cask). Left: link it from the README Development
+  section; mark `docs/release-acceptance.md` as the v0.1.0 record at its top; add the missing compare links for
+  past versions at the bottom of `CHANGELOG.md`. The `plugin.json` version is AH-236.
+  Acceptance: README links `RELEASE.md`; `CHANGELOG.md` has a compare link for every version heading.
+
+- [ ] **AH-241 — TODO.md / DONE.md hygiene.**
+  Move every `[x]` item from TODO.md to DONE.md unchanged (AH-116, 105, 090, 201–204, 223–228). For AH-206, 213,
+  219 and 220 (shipped in 0.13.0/0.14.0): move the implemented part to DONE.md and open new IDs only for the
+  manual checks still listed as "Not run". Remove the empty "Milestone 6" and "Milestone 7" sections or give them
+  open tasks. Acceptance: `grep -c '^- \[x\]' TODO.md` is 0; every ID in CHANGELOG exists in DONE.md.
+
+### P1 — consistency, CI and the release pipeline
+
+- [ ] **AH-242 — Shared quoting helpers.**
+  Add `src/quote.rs` with `pub(crate) fn posix(s: &str) -> String` (single-quote, `'\''`) and
+  `pub(crate) fn powershell(s: &str) -> String` (`''`). Replace the copies at `hook_setup.rs:59,64,223,228`,
+  `setup.rs:474,932,962` and `bridge_setup.rs:87`. Acceptance: unit tests (spaces, quotes, `$`, newline, empty
+  string); `tests/hooks.rs`, `tests/setup.rs` and `tests/setup_bridges.rs` pass unchanged.
+
+- [ ] **AH-243 — One atomic file writer.**
+  Add `src/atomic_file.rs`: `write(path, bytes, backup: bool)` = sibling temp file, `sync_all`, optional
+  `.aherald-backup` copy, rename (Windows: `MoveFileExW` with `REPLACE_EXISTING|WRITE_THROUGH`). Use it in
+  `hook_setup::write_inner` (`hook_setup.rs:399-436`) and `setup::apply_change` (`setup.rs:584-586`). Keep
+  `default_config::create` as is (it is exclusive-create, a different contract) but reuse its temp-name code.
+  Acceptance: unit tests (new file, replace, backup content, temp cleaned up on error); the setup tests pass.
+
+- [ ] **AH-244 — One civil-date implementation.**
+  Move `days_from_civil`/`civil_from_days` from `operational_log.rs:45-70` into `src/time.rs` and make
+  `claude_usage::iso_to_unix` (`claude_usage.rs:191-232`) use it. Acceptance: table tests (epoch, leap day,
+  2100-03-01, a negative offset), plus the existing log and usage tests.
+
+- [ ] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
+  Move `expand_env`, `render` and `Escape` (`webhook.rs:21-133`) to `src/template.rs`; `webhook.rs` and
+  `command_sink.rs` import from it. In `sink.rs`, let `send` return an error with an optional retry delay; when
+  `Webhook` sees 429/503 with `retry_after`, wait `min(retry_after, 30 s)` instead of the fixed 2 s backoff.
+  Acceptance: `tests/forward_webhook.rs` gets a fake-HTTP case with `Retry-After: 1` that is retried after ≥1 s;
+  existing forward tests pass.
+
+- [ ] **AH-246 — One source for harness labels and bridge lists.**
+  `events.rs:124-129` (`HARNESS_LABELS`) must take labels from `Bridge::label` (plus Crush). `setup_selection.rs`
+  and the Linux console prompts (`main.rs:472-476`) iterate `Bridge::ALL` instead of naming fields. Leave the
+  Windows `.iss` and the macOS window as they are, but add a test that `installer/windows.iss` mentions every
+  `Bridge::key()`. Acceptance: adding a variant to `Bridge` fails a test until the installer is updated.
+
+- [ ] **AH-247 — Contract test between aherald-ping and the main hook parser.**
+  `wanted(agent, &Value)` (`crates/aherald-ping/src/lib.rs:75`) is private; expose it as
+  `#[doc(hidden)] pub`. In a new `crates/aherald-ping/tests/parser_contract.rs`, build one payload per hook
+  event name (Claude: `Stop`, `StopFailure`, `Notification`, `PermissionRequest`, `UserPromptSubmit`,
+  `SessionEnd`, …; Codex: the names in `tests/fixtures/codex-*.json`, `stop.json`, `permission-request.json`,
+  `interrupt.json`) and assert that `wanted` is true exactly when
+  `aherald::agent::Agent::{Claude,Codex}.parse_hook(bytes)` (`src/agent.rs:46`) returns `Ok(Some(event))` for a
+  turn end or a wait. List the deliberately dropped events (activity, session end) in the test with a reason.
+  Acceptance: renaming or adding an event on either side fails the test.
+
+- [ ] **AH-248 — MSRV on every OS.**
+  Turn the `msrv` job (`ci.yml:85-109`) into a matrix `[windows-latest, macos-15, ubuntu-22.04]` gated by
+  `needs.changes.outputs.os`; on Linux install `libpulse0`. Keep `cargo check --locked --workspace`.
+  Acceptance: the job is green on all three; `ci-gate` still needs it.
+
+- [ ] **AH-249 — `[lints]` table.**
+  Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
+  `rust.unsafe_op_in_unsafe_fn = "warn"` and `clippy.undocumented_unsafe_blocks = "warn"`.
+  Step 1: count the findings per OS (Linux locally; Windows and macOS from one CI run on a draft branch) and
+  record the counts in the PR. If one OS has more than ~50, add `#![allow(clippy::undocumented_unsafe_blocks)]`
+  to its platform modules (`src/mac/*`, the Windows root modules) with a `// TODO(AH-249)` and enforce the lint
+  only on shared and new code. Step 2: fix the remaining findings with real `// SAFETY:` comments, never empty ones.
+  Acceptance: clippy `-D warnings` green on all three; the per-OS counts are in the PR description.
+
+- [ ] **AH-250 — cargo-deny for licenses and bans.**
+  Add `deny.toml` (allow MIT, Apache-2.0, BSD-2/3, ISC, Unicode-3.0, Zlib; deny unknown registries and git
+  sources; `multiple-versions = "warn"`). In `ci.yml`, replace `cargo audit` with a SHA-pinned
+  `EmbarkStudios/cargo-deny-action` (`check advisories licenses bans sources`), run on `deps == 'true'` and in
+  nightly. Acceptance: the job passes; a deliberately disallowed license in a scratch branch fails.
+
+- [ ] **AH-251 — One skip list for noisy tests; release uses it.**
+  Decided 2026-11-05: this replaces the AH-221 verdict ("Release still runs it"); the nightly run keeps
+  the noisy checks. Move the four `--skip` names from `ci.yml:189-196` to `.github/noisy-tests.txt` (one per line), read by a
+  small step that builds the arguments. Use the same list in the three test steps of `release.yml`. Update
+  AH-221's note in TODO.md (the release no longer runs the memory-growth check; nightly does). Acceptance: PR and
+  release logs show the same skips; the nightly run still runs them.
+
+- [ ] **AH-252 — Reproducible build stamp.**
+  In `release.yml` and `ci.yml`, export `SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)` before building. In
+  `build.rs`, add a comment explaining that without it the stamp is the last build-script run. Acceptance:
+  two release builds of the same commit print the same `--version` line.
+
+- [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
+  Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.
+  Add `scripts/version.sh` (`crate_version`, `require_tag_matches`) and `scripts/Version.ps1`, both based on
+  `cargo metadata --no-deps --format-version 1` (python3 or `ConvertFrom-Json`), so `tests/workspace.rs:26-35`'s
+  sed constraint can go. Update `ci.yml`, `release.yml`, `.github/platform-flags.sh` (one `scripts/*` rule per
+  OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
+  but move them to `examples/tools/` and update `[[example]]` paths.
+  Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
+
+- [ ] **AH-254 — Docs index and engineering notes split.**
+  Create `docs/README.md` with user guides grouped (install, configure, harnesses, sandboxes, troubleshooting).
+  Move the engineering notes (`ah-0xx-*`, `milestone-*`, `*-investigation`, `wayland-spike`, `diagnostics-audit`,
+  `session-warnings-research`, `plans/`) to `docs/notes/` with `git mv` and fix links (`grep -rn "docs/ah-"`).
+  Fix README.md:174: nextest is not the test runner (the decision is in DONE.md); point to `tests/live/README.md`
+  and `docs/notes/ah-109-nextest.md` as history. Acceptance: a link check (`grep -o '](docs/[^)]*)'` resolves)
+  passes for README, docs and TODO.
+
+- [ ] **AH-256 — Default config parity test.**
+  In `tests/config.rs`, parse `config.example.toml` and compare the whole `Config` with `Config::default()`
+  (derive or implement `PartialEq` where missing), with an explicit allowlist of intended differences and a
+  comment for each. Acceptance: changing a default in only one place fails the test.
+
+### P2 — structural refactoring of the residents (in this order)
+
+- [ ] **AH-257 — Shared tray menu model.**
+  Generalize the pure `src/mac/menu.rs` into `src/tray_menu.rs`: `enum Command` (Pause, Sound, Popup,
+  Messenger, ContextWarnings, IdleWarnings, Usage, EditConfig, Apply, ApplyTest, About, Quit, …), `struct Item
+  { command, label, checked, enabled, separator_before }`, and `fn items(state: &MenuState) -> Vec<Item>`.
+  Windows (`tray.rs:9-22,207-258`) maps `Command` ↔ numeric IDs with a `match`; Linux (`linux/tray.rs:137-185`)
+  maps it to dbusmenu IDs; macOS uses it directly. Labels exist only in `tray_menu.rs`. Acceptance: the pure
+  tests (order, separators, Messenger only with a sink, checked states) run on Linux; all three CI legs pass;
+  manual check lines for each OS's tray.
+
+- [ ] **AH-258 — Shared command effects.**
+  Depends on AH-257. Add `fn apply(command, &mut Shared, &Config) -> Vec<Effect>` to `src/resident_request.rs`,
+  with `Effect` covering Redraw, CancelAudio, OpenConfig, Restart{test}, ShowNotice(..), Quit and the rest. The
+  three dispatchers (`resident_overlay.rs:707-826`, `linux/resident.rs:~300-420`, `mac/resident.rs:517-628`)
+  only translate a platform event to `Command` and execute the `Effect`s. AH-233's `apply_outcome` becomes part
+  of it. Acceptance: unit tests for each command's effects; the existing tray tests pass on all OS.
+
+- [ ] **AH-259 — Shared `Shared` state and constructor.**
+  Move the near-identical `Shared` struct, its `Controls` impl, `toggle_warning` and the constructor
+  (`resident.rs:23-48,133-140`, `linux/resident.rs:30-60`, `mac/resident.rs:49-81,284`) into
+  `resident_request.rs`. Platform extras (the Windows `window` handle) go into a generic `ext: T` field.
+  Acceptance: no behaviour change; all CI legs pass.
+
+- [ ] **AH-260 — Shared resident runtime start and teardown.**
+  Depends on AH-259. `resident_runtime::start(config, scope, wake: impl Fn()) -> Runtime` performs
+  `notice::install`, `forward::start`, `remote::start_if_enabled` and the listener thread
+  (`serve_until`→`respond`→`diagnostics.record`, including `perf::tick`, made available to every OS). `Drop` tears
+  down in the existing order. Replace the three ~100-line copies. Acceptance: `tests/resident.rs`,
+  `tests/mac_resident.rs`, `tests/remote_listener.rs` (xvfb) and `linux_apply` pass; Linux now logs perf ticks.
+
+- [ ] **AH-261 — Shared usage view.**
+  Extract `codex_shown`, the usage card text and pagination, and the `Levels::from_views` input
+  (`resident_overlay.rs:110-140,267,559`, `mac/resident.rs:365-470,752`, `linux/resident.rs:300-315`) into pure
+  functions in `tray_usage.rs`. Subscribe macOS and Linux to `Service::on_change` as Windows does. Acceptance: pure
+  tests for Codex-only, Claude-only and both; drawing code untouched.
+
+- [ ] **AH-262 — Linux resident as a `Ui` struct.**
+  Depends on AH-231 and AH-258. Turn the ~25 locals of `present` (`linux/resident.rs:244-298`) into a
+  `struct Ui` with `step`, `handle_*` and `draw` methods, mirroring `mac/resident.rs`. Move artwork preparation
+  to a worker thread like Windows and macOS (`resident_overlay.rs:1122-1160`). Acceptance: the xvfb tests pass;
+  no function in the file exceeds ~150 lines.
+
+- [ ] **AH-263 — Compile-time contract for platform twins.**
+  Align the signatures: `restart::launch(test: bool)` on both (delete the unused `unix/restart.rs:10 launch()`),
+  and `shell::open -> Result<(), String>` on both. Add `src/platform_contract.rs` (`#[cfg(test)]`) that pins
+  each twin with `const _: fn(bool) -> … = crate::restart::launch;`, and the same for `pipe::request`,
+  `local::Scope`, `detached`, `https::request_at` and `shell::open`. Collapse the duplicated
+  `get/post/get_at/post_at` wrappers into `http_common.rs` over the per-OS `request_at`. Acceptance: the
+  contract module compiles in all three CI legs.
+
+- [ ] **AH-264 — CLI operations as an enum.**
+  Replace `Cli.operation: Option<String>` (`cli.rs:6`) with `enum Operation`, and the `if` chain in
+  `main.rs:73-433` with a `match` calling one function per operation (moved into `src/commands/` or kept in
+  `main.rs`). Parse the child modes (`main.rs:76-131`) in `Cli::parse`. A small parser crate (`lexopt`,
+  `pico-args`) is allowed if it removes code (justify it in the PR per `AGENTS.md`). Acceptance: `tests/cli.rs`
+  and `tests/aherald_cli.rs` pass; `main.rs` is under 250 lines.
+
+- [ ] **AH-265 — `--install-hooks` delegates to the setup backend.**
+  Depends on AH-234, AH-242 and AH-243. Make `--install-hooks X` / `--uninstall-hooks X` run `setup` for that
+  single harness (receipt, exact matching, rollback, exec form), keeping `--hooks-file` as a target override.
+  The same for `--install-statusline` on unix (Windows already uses `setup::run_statusline_only`). Then delete
+  the planner code left unused in `hook_setup.rs`. Migration: entries written by the old path (a shell
+  string containing "aherald" and `--hook`) are recognised and replaced once. Acceptance: `tests/hooks.rs`
+  rewritten against the new behaviour, a migration test for an old-style entry, and `hook_setup.rs` under 300 lines.
+
+- [ ] **AH-266 — Windows modules into `src/windows/`; fewer test binaries.**
+  Depends on AH-257…AH-263 being merged (to avoid conflicts). `git mv` the Windows-only root modules into
+  `src/windows/` (`#[path]` wiring in `lib.rs` as for `unix/`), make the 7 unused `pub mod`s `pub(crate)`, and
+  group the `lib.rs` declarations. Merge the ~45 public-API-only integration tests into `tests/api/main.rs`
+  (one module per former file). Simplify `.github/platform-flags.sh` to `src/windows/*`, `src/linux/*`,
+  `src/mac/*`, `src/unix/*` and add a self-check to `tests/ci_platform_flags.sh`: every `tests/*.rs` with a file-level `#![cfg(windows)]`
+  (or unix, linux, macos) classifies to exactly that platform, and vice versa.
+  Acceptance: measure `cargo test --no-run` wall time on Linux before and after (record both); all CI legs and
+  the nightly run pass.
