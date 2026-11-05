@@ -704,12 +704,12 @@ are deferred (AH-204, AH-205).
   and Linux.
   Status (branch `feature/AH-213`): done and tested — POST in both HTTP layers, the sink contract,
   worker, filter, retry, drop-oldest, error de-duplication, secret redaction, `[forward]`
-  configuration, the Telegram sink against a fake Bot API, and the Windows tray **Messenger**
-  switch (an agreed addition), and the generic **webhook** sink (`${NAME}` environment secrets,
-  `{text}` body template) with Telegram as its documented example. The Telegram sink was built
-  first and kept; whether to drop it in favour of the webhook is open. Left open: the by-hand check
-  with a real bot on Windows 11 and Linux, and a compile and test run on macOS and Linux (AH-219
-  for their menus).
+  configuration, the generic **webhook** sink (`${NAME}` environment secrets, `{text}` body
+  template, escaping by content type) tested against a fake server, and the Windows tray
+  **Messenger** switch (an agreed addition). Telegram is a documented webhook example, not a
+  separate sink (decided with the maintainer; `token_file` was dropped with it). Left open: the
+  by-hand check with a real bot on Windows 11 and Linux, and a compile and test run on macOS and
+  Linux (AH-219 for their menus).
   Not run here: `cargo check` for the macOS and Linux targets (no C cross toolchain).
 
 - [ ] **AH-219 — Messenger switch in the macOS and Linux tray menus (split from AH-213).**

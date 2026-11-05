@@ -104,30 +104,29 @@ warning was created; they do not advance while waiting in the notification queue
 
 ### Messenger forwarding (AH-213)
 
-A *sink* sends each card the queue accepted as new to a messenger, in addition to the card.
-Telegram is the first. Nothing is sent unless you configure a sink.
+A *sink* sends each card the queue accepted as new to a messenger, in addition to the card. The
+one sink type is `webhook`, an HTTP POST that serves Telegram, ntfy, Slack, Discord and anything
+else that takes a request. Nothing is sent unless you configure a sink.
 
 ```toml
 [forward]
 enabled = true            # initial state of the tray "Messenger" switch
 
 [[forward.sinks]]
-type = "telegram"
+type = "webhook"
 kinds = ["turn_complete", "permission_required", "input_required", "error"]  # the default
 include_folder = false    # the default; see below
-token_env = "AHERALD_TELEGRAM_TOKEN"   # or: token_file = "telegram.token"
-chat_id_env = "AHERALD_TELEGRAM_CHAT"
+url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
 ```
 
 - **What is sent:** a line such as `Claude: input required`, with the folder name in brackets only
   when `include_folder = true`. Never a prompt, an assistant message, a path or a session name. The
   folder name goes to a third party, which is why it is off by default.
-- **Secrets are never in `config.toml`.** `token_env` and `chat_id_env` name environment variables;
-  `token_file` names a file (relative to the configuration) holding the token. A literal `token` key,
-  or a value pasted where a variable name belongs, is refused at load without being echoed. On Unix a
-  token file that other users can read is refused. A missing or empty variable shows a card naming the
-  variable, not its value. A resident started from the Windows Run key or the installer sees only your
-  *user* environment variables, so set them with `setx` or in System Properties and restart aHerald.
+- **Secrets are never in `config.toml`.** Write `${NAME}` where a secret belongs; aHerald replaces
+  it with the environment variable `NAME` when it starts. A literal `token` key is refused at load
+  without being echoed. A missing or empty variable shows a card naming the variable, not its value.
+  A resident started from the Windows Run key or the installer sees only your *user* environment
+  variables, so set them with `setx` or in System Properties and restart aHerald.
 - **Filter:** `kinds` is independent of `notifications.suppress_when_focused`, which concerns the
   screen in front of you. aHerald does not detect that you are away from the computer.
 - **Tray switch:** when a sink is configured, the tray menu has a **Messenger** item beside Sound and
@@ -136,15 +135,14 @@ chat_id_env = "AHERALD_TELEGRAM_CHAT"
 - **Delivery:** each sink has its own worker, a queue of 32 messages (the oldest is dropped when
   full) and three tries. A slow or unreachable messenger never delays cards, the tray or hooks. A
   failure is shown as a card once for each distinct error, never with the token.
-- **Telegram:** create a bot with @BotFather, send it a message, and read your chat id from
-  `https://api.telegram.org/bot<token>/getUpdates`. aHerald calls `sendMessage` with `chat_id` and
-  plain `text` only.
 
-#### Webhook sink (any HTTP service)
+#### Webhook sink
 
-`type = "webhook"` POSTs a body template to a URL, which serves ntfy, Slack, Discord, Telegram and
-anything else that takes an HTTP request. Telegram as a webhook, with the token in an environment
-variable:
+`type = "webhook"` POSTs a body template to a URL.
+
+**Telegram.** Create a bot with @BotFather and copy its token. Send the bot any message, then open
+`https://api.telegram.org/bot<token>/getUpdates` and read `message.chat.id` (a number; a group id
+is negative). Set the token in the user environment, then:
 
 ```toml
 [[forward.sinks]]
@@ -155,7 +153,7 @@ content_type = "application/json"
 body = '{"chat_id": "123456789", "text": "{text}"}'
 ```
 
-ntfy needs no body or content type (the default is the plain message text):
+**ntfy** needs no body or content type (the default is the plain message text):
 
 ```toml
 [[forward.sinks]]

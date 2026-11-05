@@ -45,13 +45,12 @@ impl Default for Forward {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SinkType {
-    Telegram,
     Webhook,
 }
 
-/// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration names the
-/// environment variable or the file they are read from (`token_env`, `token_file`, or `${NAME}` in
-/// a webhook `url` or `body`), and an unknown `token` key is refused.
+/// One `[[forward.sinks]]` entry. Secrets are never held here: the configuration writes
+/// `${NAME}` in `url` or `body`, which names an environment variable, and an unknown `token` key
+/// is refused.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SinkConfig {
@@ -62,15 +61,12 @@ pub struct SinkConfig {
     /// The folder name goes to a third party, so it is sent only when asked for.
     #[serde(default)]
     pub include_folder: bool,
-    pub token_env: Option<String>,
-    pub token_file: Option<PathBuf>,
-    pub chat_id_env: Option<String>,
-    /// Webhook only: the address to POST to; `${NAME}` is replaced by an environment variable.
-    pub url: Option<String>,
-    /// Webhook only: the body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}`
-    /// and `{folder}` at each send. Default `{text}`.
+    /// The address to POST to; `${NAME}` is replaced by an environment variable.
+    pub url: String,
+    /// The body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and `{folder}`
+    /// at each send. Default `{text}`.
     pub body: Option<String>,
-    /// Webhook only; default `text/plain; charset=utf-8`. A JSON type escapes the values.
+    /// Default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
     pub content_type: Option<String>,
 }
 fn default_sink_kinds() -> Vec<Kind> {
@@ -81,7 +77,7 @@ fn default_sink_kinds() -> Vec<Kind> {
         Kind::Error,
     ]
 }
-/// An environment variable name: letters, digits and underscores, so a pasted secret fails.
+/// An environment variable name: letters, digits and underscores.
 pub(crate) fn is_variable_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
@@ -756,16 +752,6 @@ impl Config {
                 }
             }
         }
-        for path in config
-            .forward
-            .sinks
-            .iter_mut()
-            .filter_map(|sink| sink.token_file.as_mut())
-        {
-            if path.is_relative() {
-                *path = directory.join(&*path);
-            }
-        }
         for path in std::iter::once(&mut config.pets.default)
             .flatten()
             .chain(config.pets.by_harness.values_mut())
@@ -818,49 +804,6 @@ impl Config {
                 return Err(format!(
                     "invalid configuration: {agent}.warnings.idle_minutes must be between 1 and 525600"
                 ));
-            }
-        }
-        for (index, sink) in self.forward.sinks.iter().enumerate() {
-            let at = format!("invalid configuration: forward.sinks[{index}]");
-            match sink.kind {
-                SinkType::Webhook => {
-                    let tokens = sink.token_env.is_some()
-                        || sink.token_file.is_some()
-                        || sink.chat_id_env.is_some();
-                    if sink.url.is_none() || tokens {
-                        return Err(format!(
-                            "{at} (webhook) needs url and takes no token_env, token_file or chat_id_env"
-                        ));
-                    }
-                    continue;
-                }
-                SinkType::Telegram => {
-                    if [&sink.url, &sink.body, &sink.content_type]
-                        .into_iter()
-                        .any(Option::is_some)
-                    {
-                        return Err(format!(
-                            "{at} (telegram) takes no url, body or content_type"
-                        ));
-                    }
-                }
-            }
-            let named = [&sink.token_env, &sink.chat_id_env]
-                .into_iter()
-                .flatten()
-                .all(|name| is_variable_name(name));
-            if !named {
-                return Err(format!(
-                    "{at} token_env and chat_id_env must be environment variable names, not values"
-                ));
-            }
-            if sink.token_env.is_some() == sink.token_file.is_some() {
-                return Err(format!(
-                    "{at} needs exactly one of token_env and token_file"
-                ));
-            }
-            if sink.chat_id_env.is_none() {
-                return Err(format!("{at}.chat_id_env is missing"));
             }
         }
         let n = &self.notifications;

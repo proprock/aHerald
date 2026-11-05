@@ -28,7 +28,6 @@ pub mod sink;
 pub mod statusline;
 pub mod statusline_format;
 pub mod statusline_launch;
-pub mod telegram;
 pub mod usage;
 pub mod usage_service;
 pub mod webhook;

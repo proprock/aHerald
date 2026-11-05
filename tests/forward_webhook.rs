@@ -9,7 +9,7 @@ use aherald::{
     sink::{Dispatcher, Policy},
 };
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -33,15 +33,11 @@ fn dispatcher(
     vars: &'static [(&'static str, &'static str)],
 ) -> (Dispatcher, Arc<Mutex<Vec<String>>>) {
     let forward = Config::parse(config, &PathBuf::from(".")).unwrap().forward;
-    let built = build(
-        &forward,
-        |name| {
-            vars.iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| (*value).to_owned())
-        },
-        |_: &Path| Err(std::io::ErrorKind::NotFound.into()),
-    );
+    let built = build(&forward, |name| {
+        vars.iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| (*value).to_owned())
+    });
     assert!(built.notices.is_empty(), "{:?}", built.notices);
     let posted = Arc::new(Mutex::new(Vec::new()));
     let record = posted.clone();
@@ -145,11 +141,43 @@ fn a_missing_variable_leaves_the_sink_out_with_a_notice_naming_it() {
     )
     .unwrap()
     .forward;
-    let built = build(
-        &forward,
-        |_| None,
-        |_: &Path| Err(std::io::ErrorKind::NotFound.into()),
-    );
+    let built = build(&forward, |_| None);
     assert!(built.routes.is_empty());
     assert!(built.notices[0].contains("NOT_SET"), "{:?}", built.notices);
+}
+
+#[test]
+fn a_hung_server_never_delays_submitting_cards() {
+    // Accepts the connection and never answers.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let config = format!(
+        "[[forward.sinks]]\ntype = \"webhook\"\nkinds = [\"input_required\"]\n\
+         url = \"http://127.0.0.1:{port}/hook\"\n"
+    );
+    let (dispatcher, _) = dispatcher(&config, &[]);
+    let started = Instant::now();
+    for _ in 0..20 {
+        dispatcher.submit_event(&event(None));
+    }
+    assert!(started.elapsed() < Duration::from_millis(500));
+    drop(listener);
+}
+
+#[test]
+fn an_unreachable_server_is_one_error_card_without_the_secret() {
+    let port = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let config = format!(
+        "[[forward.sinks]]\ntype = \"webhook\"\nkinds = [\"input_required\"]\n\
+         url = \"http://127.0.0.1:{port}/bot${{TOKEN}}/send\"\n"
+    );
+    let (dispatcher, posted) = dispatcher(&config, VARS);
+    dispatcher.submit_event(&event(None));
+    wait_for(|| (!posted.lock().unwrap().is_empty()).then_some(()));
+    let posted = posted.lock().unwrap();
+    assert!(posted[0].contains("cannot reach"), "{posted:?}");
+    assert!(!posted[0].contains("SECRET"), "{posted:?}");
 }
