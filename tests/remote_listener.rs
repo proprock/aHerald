@@ -19,7 +19,13 @@ struct Resident {
 }
 
 impl Resident {
-    fn start(remote: Option<u16>) -> Self {
+    /// `None` where the resident cannot start: the Linux resident opens an X display first, and a
+    /// plain `cargo test` on a headless runner has none. CI runs this file again under `xvfb-run`.
+    fn start(remote: Option<u16>) -> Option<Self> {
+        if cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_none() {
+            eprintln!("skipped: no X display (run under xvfb-run)");
+            return None;
+        }
         let root = std::env::temp_dir().join(format!(
             "aherald-remote-{}-{}",
             std::process::id(),
@@ -51,7 +57,7 @@ impl Resident {
             assert!(Instant::now() < deadline, "the resident did not start");
             std::thread::sleep(Duration::from_millis(50));
         }
-        resident
+        Some(resident)
     }
 
     fn aherald(&self, args: &[&str]) -> String {
@@ -148,7 +154,9 @@ fn wait_for_listener(port: u16) {
 #[test]
 fn nothing_listens_unless_the_configuration_enables_it() {
     let port = free_port();
-    let _resident = Resident::start(None);
+    let Some(_resident) = Resident::start(None) else {
+        return;
+    };
     std::thread::sleep(Duration::from_millis(300));
     assert!(connect(port).is_none());
 }
@@ -156,7 +164,9 @@ fn nothing_listens_unless_the_configuration_enables_it() {
 #[test]
 fn a_forwarded_stop_reaches_the_resident_queue_and_a_wrong_token_does_not() {
     let port = free_port();
-    let resident = Resident::start(Some(port));
+    let Some(resident) = Resident::start(Some(port)) else {
+        return;
+    };
     wait_for_listener(port);
     let token = resident.token();
     assert_eq!(token.trim().len(), 64);
@@ -179,7 +189,9 @@ fn a_forwarded_stop_reaches_the_resident_queue_and_a_wrong_token_does_not() {
 #[test]
 fn remote_info_prints_the_endpoint_and_the_token_the_resident_uses() {
     let port = free_port();
-    let resident = Resident::start(Some(port));
+    let Some(resident) = Resident::start(Some(port)) else {
+        return;
+    };
     wait_for_listener(port);
     let info = resident.aherald(&["--remote-info"]);
     assert!(
@@ -195,7 +207,9 @@ fn remote_info_prints_the_endpoint_and_the_token_the_resident_uses() {
 #[test]
 fn the_listener_goes_away_with_the_resident() {
     let port = free_port();
-    let resident = Resident::start(Some(port));
+    let Some(resident) = Resident::start(Some(port)) else {
+        return;
+    };
     wait_for_listener(port);
     drop(resident);
     assert!(connect(port).is_none());

@@ -203,6 +203,13 @@ jobs:
       - name: cargo test --doc
         run: cargo test --locked --workspace --doc
 
+      # The resident opens an X display first, so these tests skip on a runner without one.
+      - name: Test the remote listener with a real resident
+        if: runner.os == 'Linux'
+        run: >-
+          xvfb-run -a -s '-screen 0 1280x1024x24'
+          cargo test --locked --test remote_listener
+
       - name: Test Linux tray and warning lifecycle
         if: runner.os == 'Linux'
         run: >-
