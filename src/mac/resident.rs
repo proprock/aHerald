@@ -94,6 +94,7 @@ struct Waker(Mutex<Option<Retained<NSApplication>>>);
 // SAFETY: the only use of the retained application off the main thread is posting an
 // application-defined event, which AppKit documents as callable from any thread.
 unsafe impl Send for Waker {}
+// SAFETY: as for Send above; the mutex serializes access to the retained application.
 unsafe impl Sync for Waker {}
 
 impl Waker {

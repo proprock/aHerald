@@ -1,4 +1,5 @@
 #![cfg(windows)]
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use aherald::{ipc::Response, local::Scope};
 use std::time::{Duration, Instant};

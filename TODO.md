@@ -485,20 +485,14 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-249 — `[lints]` table.**
-  Add a `[workspace.lints]` table, with `[lints] workspace = true` in both crates:
-  `rust.unsafe_op_in_unsafe_fn = "warn"` and `clippy.undocumented_unsafe_blocks = "warn"`.
-  Step 1: count the findings per OS (Linux locally; Windows and macOS from one CI run on a draft branch) and
-  record the counts in the PR. If one OS has more than ~50, add `#![allow(clippy::undocumented_unsafe_blocks)]`
-  to its platform modules (`src/mac/*`, the Windows root modules) with a `// TODO(AH-249)` and enforce the lint
-  only on shared and new code. Step 2: fix the remaining findings with real `// SAFETY:` comments, never empty ones.
-  Acceptance: clippy `-D warnings` green on all three; the per-OS counts are in the PR description.
-
-- [ ] **AH-250 — cargo-deny for licenses and bans.**
-  Add `deny.toml` (allow MIT, Apache-2.0, BSD-2/3, ISC, Unicode-3.0, Zlib; deny unknown registries and git
-  sources; `multiple-versions = "warn"`). In `ci.yml`, replace `cargo audit` with a SHA-pinned
-  `EmbarkStudios/cargo-deny-action` (`check advisories licenses bans sources`), run on `deps == 'true'` and in
-  nightly. Acceptance: the job passes; a deliberately disallowed license in a scratch branch fails.
+- [ ] **AH-249 — `[lints]` table: write the Windows SAFETY comments.**
+  Shipped on `chore/AH-249-lints-and-deny` (see DONE.md): `[workspace.lints]` with
+  `unsafe_op_in_unsafe_fn` and `clippy::undocumented_unsafe_blocks` at "warn" in both crates. Left: the Windows
+  modules `src/{resident,local,resident_overlay,tray,overlay,pipe,tray_native_tests,restart,audio_windows,
+  detached}.rs` and 19 Windows-dependent files in `tests/` carry `#![allow(clippy::undocumented_unsafe_blocks)]
+  // TODO(AH-249)`. Remove the attribute from one file at a time, write a real `// SAFETY:` comment for each
+  finding (never an empty one), and push; Windows CI is the only place to check it. Acceptance: no
+  `TODO(AH-249)` left and clippy `-D warnings` green on all three.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.

@@ -1,3 +1,4 @@
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::ipc;
 #[test]
 fn frames_round_trip_and_reject_invalid_length_version_and_json() {

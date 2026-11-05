@@ -12,6 +12,17 @@ description = "Portable native notification companion for AI coding agents (Wind
 # unchanged. Its version must equal this one (tests/workspace.rs).
 members = ["crates/aherald-ping"]
 
+# One lint policy for both crates (AH-249). Unsafe code is limited to the OS bindings; these make
+# every `unsafe` block say why it is sound.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[lints]
+workspace = true
+
 [lib]
 path = "src/lib.rs"
 

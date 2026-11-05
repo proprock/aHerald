@@ -1,3 +1,4 @@
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::app_server::{Client, Error, Transport};
 use serde_json::{Value, json};
 use std::{collections::VecDeque, time::Duration};

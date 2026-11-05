@@ -1,4 +1,5 @@
 //! Single resident card. The GUI never waits for asset decoding or IPC.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::reentry::{Deferred, Gate};
 use crate::{
     animation::PreparedAnimation,

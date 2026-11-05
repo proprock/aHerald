@@ -1,4 +1,5 @@
 //! Exact process handles, verified parentage and graceful shutdown for launcher tests.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     ipc::{Request, Response, pipe},
     local::Scope,

@@ -1,4 +1,5 @@
 //! Deadline-bound overlapped named-pipe operations. All I/O is off the GUI thread.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::{
     ipc::{self, Request, Response},
     local::{Handle, PipeServer, Scope, wide},

@@ -3,6 +3,30 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-249 — `[lints]` table (the Windows SAFETY comments are left).**
+  `[workspace.lints]` in `Cargo.toml` with `rust.unsafe_op_in_unsafe_fn = "warn"` and
+  `clippy.undocumented_unsafe_blocks = "warn"`; both crates have `[lints] workspace = true`. Findings per OS
+  from `cargo clippy --all-targets`: Linux 4 (fixed with `// SAFETY:` comments in `src/unix/detached.rs` and
+  `tests/linux_apply.rs`), macOS 1 (`unsafe impl Sync for Waker`, fixed), Windows 80 in the library tests
+  alone (39 in the library) plus more in the integration tests, over the 50 the ticket sets. So, as the ticket
+  directs, the Windows modules and Windows-dependent test files got `#![allow(clippy::undocumented_unsafe_blocks)]`
+  with `// TODO(AH-249)`; the lint is enforced on all shared code, on `src/mac/`, on `src/unix/`, `src/linux/` and
+  on new files. Evidence: Linux clippy `-D warnings` ran locally; PR #122 CI green on Windows, macOS and Linux
+  after two rounds that exposed the counts. The remaining work is the open AH-249 in `TODO.md`.
+
+- [x] **AH-250 — cargo-deny for licenses and bans.**
+  `deny.toml` (targets: Windows, macOS, Linux gnu and musl; allowed licenses MIT, Apache-2.0, BSD-2/3, ISC,
+  Unicode-3.0, Zlib, plus CDLA-Permissive-2.0 for `webpki-roots` only; unknown registries and git sources
+  denied; `multiple-versions = "warn"`). The "Dependency audit" job in `ci.yml` runs the SHA-pinned
+  `EmbarkStudios/cargo-deny-action` v2.1.1 (`check advisories licenses bans sources`) instead of `cargo audit`,
+  on `deps == 'true'` and in the nightly run (which calls `ci.yml`). Decision: `unmaintained = "workspace"`, so
+  the three zbus split-out crates (RUSTSEC-2026-0370 to 0372, no safe upgrade) do not fail the check; yanked
+  crates and vulnerabilities still do. Warnings left: duplicate `getrandom`, `miniz_oxide`, `syn`; yanked
+  `async-executor` (`cargo update -p async-executor` is a separate change). Evidence: `cargo deny` 0.18.9
+  locally, all four checks ok; removing `ISC` from the allow list fails `licenses` with "rejected: license is
+  not explicitly allowed" (restored); the CI job passed on PR #122 (Linux). zizmor: no findings; actionlint not
+  run (no Docker daemon locally), the "Lint workflows" job passed in CI.
+
 - [x] **AH-245 — Templating out of `webhook.rs`; honour Retry-After.**
   `expand_env`, `render` and `Escape` moved to `src/template.rs` with their seven tests unchanged (the
   webhook and the command sink import from it; the URL-parsing tests stay in `webhook.rs`). `Sink::send` now
