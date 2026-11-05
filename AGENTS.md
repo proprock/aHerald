@@ -190,6 +190,17 @@ cargo test --locked --workspace --doc
   commands, results and versions; leftover manual checks become new IDs. No `[x]` items stay
   in `TODO.md`. Every ID a `CHANGELOG.md` entry credits exists in `DONE.md`; a "see TODO.md"
   pointer may name an open task, such as an acceptance check still to run.
+- Bookkeeping that needs a pull request's CI results (closing its tickets in `TODO.md` and
+  `DONE.md` with the run evidence) is not pushed to that pull request: each push re-runs CI.
+  When opening a pull request you already know needs it, say at the top of the description
+  "Keep the branch after merge: ticket bookkeeping follows". The repository deletes head
+  branches on merge and a pull request cannot opt out, so after the owner merges, restore the
+  branch from the pull request's last commit:
+  `gh api repos/proprock/aHerald/git/refs -f ref=refs/heads/<branch> -f sha=$(gh pr view <n> --json headRefOid --jq .headRefOid)`
+  (check first that `git ls-remote --heads origin <branch>` shows it gone). Then, on that
+  branch: pull `master`, make the bookkeeping commit, push, and open a second, docs-only pull
+  request. That one is final and its branch is deleted on merge. Work for the next task never
+  rides on it. Do not change the repository's branch-deletion setting.
 
 ## Commits and branches
 

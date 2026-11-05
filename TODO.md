@@ -524,6 +524,57 @@ P2 tasks run in the listed order; AH-266 goes last.
   Acceptance: the three logs, the two `--version` lines and the nightly log are recorded in DONE.md; a
   difference opens a ticket.
 
+- [ ] **AH-281 — Screenshots and an animation in the README.**
+  Show what the program looks like: the notification cards (input required, done, error, the usage
+  warning), the tray icon with its tooltip, and the tray menu (Sound, Pop-up, Messenger, Settings), on at
+  least Windows and one of macOS or Linux. Capture on a clean desktop with no personal paths, folder names
+  or account data (a demo session or `--demo` output is fine); store files under `docs/images/`, compress
+  them (PNG or WebP, short GIF or WebM/MP4 loop for the card animation, each under ~1 MB), give each an
+  `alt` text, and link them from `README.md` next to the feature list. Acceptance: README renders the images
+  on GitHub in light and dark themes; no image holds private data; sizes are listed in the PR.
+
+- [ ] **AH-282 — Rolling nightly prerelease.**
+  Extend `nightly.yml` so that a green nightly run publishes the release `nightly` and replaces the
+  previous one. Depends on nothing; touch `release.yml` only to share code, with its behaviour and the
+  version checks unchanged.
+  1. **Reuse.** Inspect `nightly.yml` (it calls `ci.yml` as `full_ci`) and `release.yml`
+     (`package`, `package_macos`, `package_linux`, `package_ping`). Move the packaging into a reusable
+     workflow (`workflow_call`) or composite actions that both call, if that removes real duplication; do not
+     copy the jobs. Reuse the `package-*.sh`/`.ps1` scripts and the existing file names.
+  2. **Assets.** The same as a stable release: Windows x64 portable ZIP and Setup EXE; macOS ARM64 ZIP and
+     DMG; Linux x64 TAR.GZ and DEB; the Linux musl `aherald-ping` for x64 and ARM64; and `SHA256SUMS`.
+     The version stays the one in `Cargo.toml`; no version tag is needed. Name the build by commit
+     (for example the asset suffix `-nightly-<short sha>`) only where a script already takes a suffix.
+  3. **Publish only after success.** The publish job `needs` the full CI and every package job, runs on
+     `schedule` and `workflow_dispatch` of the default branch only, and first checks that every expected
+     asset exists and is not empty. Upload artifacts with `retention-days: 1`; no build caches kept for it.
+  4. **Replace, do not accumulate.** One prerelease: tag `nightly`, title `aHerald Nightly`,
+     `prerelease: true`, not "latest", target the exact commit SHA built, notes with the UTC build date, the
+     SHA and a link to the commit. Order: (a) prepare and verify all assets locally in the job; (b) move the
+     `nightly` tag to the SHA; (c) create or edit the release and upload the assets (`gh release` with
+     `--clobber`, or create the new release first and delete the old assets after the upload succeeded);
+     (d) verify the asset list through `gh release view`. Never delete the existing nightly before (a) has
+     passed. Check each `gh` step explicitly; a failure leaves the previous nightly and fails the run, with
+     the recovery step (re-run the workflow) in the log. A short window with moved tag and old or partial
+     assets is unavoidable, since a tag move and an upload are not one operation: document it.
+  5. **Safety.** Top-level `permissions: contents: read`; `contents: write` only on the publish job.
+     `concurrency` group `nightly-publish` with `cancel-in-progress: false`. The job touches only the tag
+     and release named `nightly`, never a `v*` tag or a regular release (guard the tag name and fail if
+     the release found is not a prerelease). GitHub release immutability: if the repository setting makes
+     releases immutable, a published release cannot be edited and a tag cannot be moved; check the setting,
+     and document that it must be off for this repository (or that the nightly then needs another design).
+  6. **Docs.** `README.md` and `RELEASE.md` (or a short `docs/nightly.md`): the permanent URL
+     `https://github.com/proprock/aHerald/releases/tag/nightly`; stable versus nightly (nightly is the latest
+     green `master`, unsigned like the stable builds, may break, not for production); the schedule (the cron
+     of `nightly.yml`) and how to run it by hand (`gh workflow run nightly.yml`); retention (one release, old
+     assets replaced); what a failed night means (the previous nightly stays, the failed run is the signal).
+     `CHANGELOG.md` `[Unreleased]` gets a line.
+  Acceptance: `actionlint` and `zizmor` clean; a `workflow_dispatch` run on a branch other than `master`
+  does not publish; one manual run on `master` (with the owner's go-ahead, since it creates the release)
+  publishes all assets with a matching `SHA256SUMS`, and the tag points to the built commit; a second run
+  leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
+  nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
+
 ### P2 — structural refactoring of the residents (in this order)
 
 - [ ] **AH-257 — Shared tray menu model.**
