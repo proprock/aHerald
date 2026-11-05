@@ -1,0 +1,51 @@
+# cargo-deny policy (AH-250): advisories, licenses, duplicate versions and where crates may come
+# from. CI runs `cargo deny check advisories licenses bans sources` (.github/workflows/ci.yml).
+
+[graph]
+# Dependencies that only one platform pulls in (windows, objc2, x11rb, zbus) count too.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+]
+
+[advisories]
+version = 2
+# The zbus split-out crates (zbus_names, zvariant, zvariant_derive; RUSTSEC-2026-0370 to 0372) are
+# reported unmaintained as standalone crates and have no safe upgrade. Only direct dependencies of this
+# workspace fail the check, which matches what `cargo audit` did (warnings, no failure); revisit when
+# zbus itself moves. Vulnerabilities and yanked crates are not affected by this setting.
+unmaintained = "workspace"
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+# The agreed list is the policy even where no current dependency uses an entry.
+unused-allowed-license = "allow"
+# webpki-roots (Mozilla's CA list, pulled in by ureq and rustls for HTTPS) is licensed
+# CDLA-Permissive-2.0, a permissive data licence. Allowed for that crate only, not for the tree.
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
+
+[bans]
+# Two versions of one crate cost binary size; list them, do not fail.
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

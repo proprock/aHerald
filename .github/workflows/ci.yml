@@ -122,8 +122,9 @@ jobs:
       - name: cargo check
         run: cargo check --locked --workspace
 
-  # Known vulnerabilities in the dependency tree. A pull request runs it when the manifest or
-  # the lock file changes; the nightly run catches advisories published later.
+  # Known vulnerabilities, licenses, duplicate versions and crate sources of the dependency tree,
+  # by the policy in deny.toml (AH-250). A pull request runs it when the manifest or the lock file
+  # changes; the nightly run catches advisories published later.
   audit:
     name: Dependency audit
     needs: changes
@@ -135,12 +136,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
-          tool: cargo-audit
-
-      - name: cargo audit
-        run: cargo audit
+          command: check
+          command-arguments: advisories licenses bans sources
 
   # Lints the workflow files themselves: syntax and expression errors (actionlint) and
   # security smells such as template injection and unpinned actions (zizmor).
