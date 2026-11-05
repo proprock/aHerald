@@ -52,16 +52,57 @@ pub fn expand_env(
     Ok((out, secrets))
 }
 
+/// How a substituted value is made safe for the body it lands in. It follows the content type, so
+/// a value (a folder name can hold any character) cannot add a JSON field or a form parameter.
+/// Any other type gets the value as written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Escape {
+    Raw,
+    Json,
+    Form,
+}
+
+impl Escape {
+    pub fn for_content_type(content_type: &str) -> Self {
+        let media = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if media == "application/x-www-form-urlencoded" {
+            Self::Form
+        } else if media.ends_with("json") {
+            Self::Json
+        } else {
+            Self::Raw
+        }
+    }
+}
+
+/// Percent-encodes every byte except the unreserved characters of RFC 3986.
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 /// Fills `{text}`, `{kind}`, `{harness}` and `{folder}` in one pass, so a value that itself
 /// contains a placeholder is not expanded again. Other braces (JSON) are left alone.
-pub fn render(template: &str, message: &Message, json: bool) -> String {
-    let escape = |value: &str| {
-        if json {
+pub fn render(template: &str, message: &Message, mode: Escape) -> String {
+    let escape = |value: &str| match mode {
+        Escape::Json => {
             let quoted = serde_json::Value::from(value).to_string();
             quoted[1..quoted.len() - 1].to_owned()
-        } else {
-            value.to_owned()
         }
+        Escape::Form => percent_encode(value),
+        Escape::Raw => value.to_owned(),
     };
     let mut out = String::with_capacity(template.len() + message.text.len());
     let mut rest = template;
@@ -161,8 +202,8 @@ impl Sink for Webhook {
     }
 
     fn send(&mut self, message: &Message) -> Result<(), String> {
-        let json = self.content_type.to_ascii_lowercase().contains("json");
-        let body = Wiped(render(&self.body.0, message, json));
+        let mode = Escape::for_content_type(&self.content_type);
+        let body = Wiped(render(&self.body.0, message, mode));
         let target = &self.target.0;
         let headers = format!("Content-Type: {}\r\n", self.content_type);
         let response = https::post_at(
@@ -233,7 +274,7 @@ mod tests {
     #[test]
     fn message_placeholders_are_filled_once_and_json_braces_survive() {
         let template = r#"{"chat_id": "42", "text": "{text}", "who": "{harness}/{kind}/{folder}"}"#;
-        let body = render(template, &message("hi {kind}"), false);
+        let body = render(template, &message("hi {kind}"), Escape::Raw);
         assert_eq!(
             body,
             r#"{"chat_id": "42", "text": "hi {kind}", "who": "Claude/input_required/project"}"#
@@ -243,16 +284,48 @@ mod tests {
     #[test]
     fn a_json_body_escapes_the_values_so_the_result_always_parses() {
         let nasty = "say \"hi\"\nback\\slash\t{text}";
-        let body = render(r#"{"text": "{text}"}"#, &message(nasty), true);
+        let body = render(r#"{"text": "{text}"}"#, &message(nasty), Escape::Json);
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed["text"], nasty);
+    }
+
+    #[test]
+    fn a_form_body_percent_encodes_the_values_so_none_can_add_a_field() {
+        let mut hostile = message("done & more=1");
+        hostile.folder = Some("x&chat_id=666 é".into());
+        let body = render("text={text}&folder={folder}", &hostile, Escape::Form);
+        assert_eq!(
+            body,
+            "text=done%20%26%20more%3D1&folder=x%26chat_id%3D666%20%C3%A9"
+        );
+    }
+
+    #[test]
+    fn the_escaping_follows_the_content_type() {
+        for (content_type, expected) in [
+            ("application/json", Escape::Json),
+            ("Application/JSON; charset=utf-8", Escape::Json),
+            ("application/vnd.api+json", Escape::Json),
+            ("application/x-www-form-urlencoded", Escape::Form),
+            (
+                "Application/X-WWW-Form-Urlencoded; charset=utf-8",
+                Escape::Form,
+            ),
+            ("text/plain; charset=utf-8", Escape::Raw),
+        ] {
+            assert_eq!(
+                Escape::for_content_type(content_type),
+                expected,
+                "{content_type}"
+            );
+        }
     }
 
     #[test]
     fn an_absent_folder_renders_empty() {
         let mut message = message("t");
         message.folder = None;
-        assert_eq!(render("[{folder}]", &message, false), "[]");
+        assert_eq!(render("[{folder}]", &message, Escape::Raw), "[]");
     }
 
     #[test]

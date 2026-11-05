@@ -171,9 +171,12 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
   `{text}` is the message line, for example `Claude: input required`; `{folder}` is empty unless
   `include_folder = true`. They are filled in one pass: a value that contains `{kind}` is not
   expanded again, and other braces (JSON) stay as written.
-- **`content_type`** defaults to `text/plain; charset=utf-8`. When it contains `json`, the values
-  are escaped to sit inside a JSON string, so write your own quotes around the placeholder
-  (`"text": "{text}"`).
+- **`content_type`** defaults to `text/plain; charset=utf-8` and also chooses how the values are
+  made safe, because a folder name can hold any character:
+  a JSON type (`application/json`, `…+json`) escapes them to sit inside a JSON string, so write your
+  own quotes around the placeholder (`"text": "{text}"`);
+  `application/x-www-form-urlencoded` percent-encodes them; any other type inserts them as written,
+  so do not use a JSON or form body with such a type.
 - `url` is `https://` (plain `http://` works but sends everything in the clear). A 2xx answer is a
   success; anything else is an error card with the HTTP status.
 
