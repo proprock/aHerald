@@ -1035,13 +1035,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   stay identical: extract the lines between marker comments `# BEGIN remote` / `# END remote` and compare them
   in `tests/sandbox_sender.rs`. Acceptance: the test fails when one copy changes.
 
-- [ ] **AH-240 — Release procedure follow-ups.**
-  `RELEASE.md` is rewritten and tracked on `docs/agents-release-privacy` (four platforms, version sync in
-  four files, compare links, tap, rollback including the cask). Left: link it from the README Development
-  section; mark `docs/release-acceptance.md` as the v0.1.0 record at its top; add the missing compare links for
-  past versions at the bottom of `CHANGELOG.md`. The `plugin.json` version is AH-236.
-  Acceptance: README links `RELEASE.md`; `CHANGELOG.md` has a compare link for every version heading.
-
 - [ ] **AH-241 — TODO.md / DONE.md hygiene.**
   Move every `[x]` item from TODO.md to DONE.md unchanged (AH-116, 105, 090, 201–204, 223–228). For AH-206, 213,
   219 and 220 (shipped in 0.13.0/0.14.0): move the implemented part to DONE.md and open new IDs only for the

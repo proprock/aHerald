@@ -1,5 +1,8 @@
 # Release acceptance (AH-023)
 
+> Historical record of the v0.1.0 (Windows-only) release. The current procedure and per-OS
+> checks are in [RELEASE.md](../RELEASE.md).
+
 Automated part, run 2026-10-27 on Windows 11 (10.0.22621.4317), Rust 1.98.1 MSVC x64,
 branch `feature/AH-075`, version 0.1.0.
 

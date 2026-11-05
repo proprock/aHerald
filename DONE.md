@@ -3,6 +3,19 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-240 — Release procedure follow-ups.**
+  `RELEASE.md` is rewritten and tracked on `docs/agents-release-privacy` (four platforms, version sync in
+  four files, compare links, tap, rollback including the cask). Left: link it from the README Development
+  section; mark `docs/release-acceptance.md` as the v0.1.0 record at its top; add the missing compare links for
+  past versions at the bottom of `CHANGELOG.md`. The `plugin.json` version is AH-236.
+  Acceptance: README links `RELEASE.md`; `CHANGELOG.md` has a compare link for every version heading.
+  Closed 2026-11-05 (branch `docs/agents-release-privacy`). README Development links `RELEASE.md`;
+  `docs/release-acceptance.md` opens with a note marking it as the v0.1.0 record; `CHANGELOG.md` has
+  compare links for `[Unreleased]` and all 13 version headings (v0.1.0 links its tag), and its header
+  mentions adding the link and points to `RELEASE.md`. Checks: every `## [X]` heading has a matching
+  `[X]:` reference and every tag exists (`git rev-parse vX`); the release-notes `awk` extraction picks
+  up the links only for the 0.1.0 section, which is never republished. Docs only; no build run.
+
 - [x] **AH-235 — Remove stale "Windows first / Codex first" text.**
   `Cargo.toml:7` description; `TODO.md:3-5` intro (cross-platform, six harnesses, plus a portable aherald-ping);
   `docs/portable.md:4,146`; `about_card_text()` in `src/lib.rs` ("for coding agents"); the `src/unsupported.rs`

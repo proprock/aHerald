@@ -174,7 +174,8 @@ cargo build --release
 
 Stable Rust; Windows builds use the MSVC toolchain. The [test runner guide](docs/ah-109-nextest.md), the
 opt-in [live harness checks](tests/live/README.md), [packaging scripts](docs/portable.md) and the
-[task list](TODO.md) cover the rest. Release history: [CHANGELOG](CHANGELOG.md).
+[task list](TODO.md) cover the rest. Release procedure: [RELEASE.md](RELEASE.md); release history:
+[CHANGELOG](CHANGELOG.md).
 
 ## License
 

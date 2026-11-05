@@ -5,7 +5,8 @@ All notable changes to aHerald are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Ticket IDs refer to `DONE.md`.
 
 Before tagging a release, rename `Unreleased` to the version and date, for example
-`## [0.1.0] - 2026-11-01`; the release workflow publishes that section as the notes.
+`## [0.1.0] - 2026-11-01`, and add its compare link at the bottom; the release workflow
+publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
@@ -468,3 +469,18 @@ configuration work.
 - macOS and Linux build and have IPC, spawn and HTTPS, but no overlay, tray or audio, so
   the notification service does not run there yet (AH-062 onward). Unix IPC isolates
   by user id only; there is no logon-session equivalent.
+
+[Unreleased]: https://github.com/proprock/aHerald/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/proprock/aHerald/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/proprock/aHerald/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/proprock/aHerald/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/proprock/aHerald/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/proprock/aHerald/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/proprock/aHerald/compare/v0.9.1...v0.10.0
+[0.9.1]: https://github.com/proprock/aHerald/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/proprock/aHerald/compare/v0.9.0-beta...v0.9.0
+[0.9.0-beta]: https://github.com/proprock/aHerald/compare/v0.8.0-beta...v0.9.0-beta
+[0.8.0-beta]: https://github.com/proprock/aHerald/compare/v0.5.0...v0.8.0-beta
+[0.5.0]: https://github.com/proprock/aHerald/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/proprock/aHerald/compare/v0.1.0...v0.4.0
+[0.1.0]: https://github.com/proprock/aHerald/releases/tag/v0.1.0
