@@ -9,6 +9,8 @@ Before tagging a release, rename `Unreleased` to the version and date, for examp
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-05
+
 ### Added
 - Opt-in messenger forwarding: `[forward]` and `[[forward.sinks]]` send each new card (kind,
   harness and, only if allowed, the folder name) with a webhook POST, which serves Telegram, ntfy,
