@@ -34,7 +34,7 @@ fn default_is_beside_current_executable_and_help_explains_it() {
             .unwrap()
             .join("config.toml")
     );
-    assert!(aherald::help().contains("config.toml beside"));
+    assert!(aherald::cli::help().contains("config.toml beside"));
 }
 #[test]
 fn first_load_creates_defaults_without_replacing_existing_custom_resources() {

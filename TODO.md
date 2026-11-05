@@ -481,15 +481,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   for valid/invalid/missing files and the exact message; Linux behaviour checked under xvfb; the macOS and
   Windows CI compile and pass.
 
-- [ ] **AH-238 — Help text lists every public flag.**
-  Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
-  resident control, setup, usage, diagnostics). Add the missing `--notify --kind --activity --ended`,
-  `--agent`, `--setup-window`, `--setup-executable` and `--help`; leave the internal `--*-child` and
-  `--test-after-apply` out. Add a unit test with a list of public flags that asserts each one appears in
-  `help()` and is accepted by `Cli::parse` in a minimal valid combination. Update
-  `tests/unsupported_platform.rs` and `tests/config_portable.rs:37`.
-  Acceptance: the tests pass; `aherald --help` is readable at 100 columns.
-
 ### P1 — consistency, CI and the release pipeline
 
 - [ ] **AH-243 — One atomic file writer.**

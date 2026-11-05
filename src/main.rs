@@ -131,7 +131,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     }
     let cli = aherald::cli::Cli::parse(args)?;
     if cli.operation.as_deref() == Some("help") {
-        println!("{}", aherald::help());
+        println!("{}", aherald::cli::help());
         return Ok(());
     }
     if cli.operation.as_deref() == Some("version") {

@@ -11,6 +11,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- `aherald --help` is grouped by purpose and lists every public flag, including `--notify`, `--kind`,
+  `--activity`, `--ended`, `--agent`, `--setup-window` and `--setup-executable` (AH-238).
 - Releases skip the same noisy timing and memory tests as pull requests; the nightly run keeps them
   (see TODO.md, AH-251).
 - The minimum-compiler build runs on Windows, macOS and Linux, not only Windows (see TODO.md, AH-248).

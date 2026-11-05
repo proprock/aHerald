@@ -3,6 +3,16 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-238 — Help text lists every public flag.**
+  `help()` moved from `src/lib.rs` to `src/cli.rs` (`aherald::cli::help`) as a `concat!` grouped into hooks
+  and events, resident control, setup, usage and diagnostics, and configuration; every line is at most 100
+  columns. It now names `--notify --kind --activity --ended`, `--agent`, `--setup-window`,
+  `--setup-executable` and `--help`, which the old text omitted (checked against the old text from git); the
+  internal `--*-child` and `--test-after-apply` stay out. Tests in `cli.rs`: every public flag, with a minimal
+  command line, is accepted by `Cli::parse` and appears in `help()`; `help()` names no flag outside that
+  list or an internal one; no line exceeds 100 columns (red once: a 101-column line). `tests/config_portable.rs`
+  uses the new path; `tests/unsupported_platform.rs` needed no change. Linux: ran locally.
+
 - [x] **AH-234 — `--install-hooks` honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`; README recommends `--setup`.**
   `paths::agent_hook_file(_with)` is the one lookup of an agent's hook file (Claude: `CLAUDE_CONFIG_DIR` or
   `~/.claude`; Codex: `CODEX_HOME` or `~/.codex`); `setup::file_for`, `--install-hooks`/`--uninstall-hooks`
