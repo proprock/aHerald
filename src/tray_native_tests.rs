@@ -1,3 +1,4 @@
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use super::*;
 use crate::{
     config::{TrayGraph, UsageDisplay},

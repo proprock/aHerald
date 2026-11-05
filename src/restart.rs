@@ -1,4 +1,5 @@
 //! A detached replacement waits for the old process, including all worker cleanup.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{
     ffi::{OsStr, OsString},
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},

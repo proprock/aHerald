@@ -1,4 +1,5 @@
 //! Resident lifecycle; IPC never waits for notification presentation.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::{
     config::Config,
     ipc::{Response, pipe},

@@ -1,4 +1,5 @@
 //! Local user/logon-scoped native resources for the resident process.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{marker::PhantomData, rc::Rc};
 use windows::{
     Win32::{

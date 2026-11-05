@@ -1,4 +1,5 @@
 //! Detached children inherit only their explicitly listed transfer handles.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{
     ffi::OsStr,
     fs::File,

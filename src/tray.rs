@@ -1,4 +1,5 @@
 //! Native notification-area resources. Menu actions are runtime-only.
+#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use windows::{
     Win32::{
         Foundation::*,
