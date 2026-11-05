@@ -3,6 +3,21 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-237 — Bridge contract tests cannot skip silently in CI.**
+  `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs` panic when Node 22+ is missing (checked locally with an
+  empty `PATH`: panics with the variable, skips without it). The Linux leg of `quality` installs Node 22 with
+  a SHA-pinned `actions/setup-node` (v7.1.0) and sets the variable on both `cargo test` steps. PR #118: the
+  `ubuntu-22.04` log shows `test bridges_turn_harness_events_into_bounded_aherald_calls ... ok`; "Lint
+  workflows" (actionlint 1.7.12, zizmor 1.32.0) passes. Linux: ran locally and in CI.
+
+- [x] **AH-252 — Reproducible build stamp.**
+  `.github/actions/setup-rust` exports `SOURCE_DATE_EPOCH` from `git log -1 --format=%ct` (checked to be an
+  integer; the one `GITHUB_ENV` write carries a `zizmor: ignore[github-env]` with the reason), so every CI and
+  release job gets it; `build.rs` explains why. PR #118: the step ran and the build steps show the same
+  `SOURCE_DATE_EPOCH` in the `ubuntu-22.04` log. Locally two builds with one epoch print the same `--version`
+  line (minute resolution). Not done: comparing the `--version` of two real release builds of one commit; the
+  next release candidate shows it.
+
 - [x] **AH-244 — One civil-date implementation.**
   `src/time.rs` holds `days_from_civil` and `civil_from_days`; `operational_log::format_timestamp` and
   `claude_usage::iso_to_unix` use them instead of two copies of Hinnant's algorithm. New table tests (epoch,
@@ -16,7 +31,8 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   newline, empty string, and on Unix every posix word is run through `sh -c printf %s` and must come back
   unchanged. `tests/hooks.rs`, `tests/setup.rs` and `tests/setup_bridges.rs` pass unchanged. The three
   `cfg(windows)` call sites (`setup.rs`: Codex `commandWindows` and the encoded statusLine command) compile
-  only in the Windows CI: compiled/tested in CI only. Linux: ran locally.
+  only on Windows: PR #118 "Build and test (windows-latest)" and macOS passed (compiled/tested in CI only).
+  Linux: ran locally.
 
 - [x] **AH-236 — Claude plugin version follows the crate.**
   `plugins/aherald/.claude-plugin/plugin.json` said 0.1.0 while the crate is 0.15.0. Set to the crate version;

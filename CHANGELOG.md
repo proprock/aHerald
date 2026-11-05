@@ -12,7 +12,7 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ### Changed
 - CI and release builds fix the build time to the commit time, so two builds of one commit report the
-  same time in `--version` and About. See TODO.md (AH-252) for the check still to run in CI.
+  same time in `--version` and About (AH-252).
 - The About card, the Debian package and the crate describe aHerald as a companion for AI coding
   agents on Windows, macOS and Linux, no longer for Codex and Claude Code on Windows first (AH-235).
 

@@ -489,13 +489,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   the legacy path in docs/installation.md:138.
   Acceptance: a test in `tests/hooks.rs` with `CLAUDE_CONFIG_DIR` set writes there; the same for `CODEX_HOME`.
 
-- [ ] **AH-237 — Bridge contract tests cannot skip silently in CI (the CI log check is left).**
-  Shipped on `chore/AH-236-contract-tests` (see DONE.md): `AHERALD_REQUIRE_NODE=1` makes `tests/bridges.rs`
-  panic when Node 22+ is missing, and the Linux leg of `quality` installs Node 22 with a SHA-pinned
-  `actions/setup-node` and sets the variable. Left: after the first CI run of that branch, confirm in the
-  `ubuntu-22.04` log that `bridges_turn_harness_events_into_bounded_aherald_calls` ran and passed, and that
-  actionlint and zizmor pass (neither tool is installed locally). Then move this task to DONE.md.
-
 - [ ] **AH-238 — Help text lists every public flag.**
   Move `help()` from `src/lib.rs` to `src/cli.rs`, as a multi-line `concat!` grouped by purpose (hooks,
   resident control, setup, usage, diagnostics). Add the missing `--notify --kind --activity --ended`,
@@ -553,13 +546,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   small step that builds the arguments. Use the same list in the three test steps of `release.yml`. Update
   AH-221's note in TODO.md (the release no longer runs the memory-growth check; nightly does). Acceptance: PR and
   release logs show the same skips; the nightly run still runs them.
-
-- [ ] **AH-252 — Reproducible build stamp (the CI check is left).**
-  Shipped on `chore/AH-236-contract-tests` (see DONE.md): `.github/actions/setup-rust` exports
-  `SOURCE_DATE_EPOCH` from the commit time, so every CI and release build gets it, and `build.rs` says why.
-  Left: after the first CI run of that branch, confirm in a job log that the step ran, and (on the next release
-  candidate) that two builds of one commit print the same `--version` line. actionlint and zizmor are not
-  installed locally.
 
 - [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.
