@@ -35,12 +35,17 @@ and keeps a queue so nothing is lost while you are away.
   command (mail, Signal, `ssh`, `say`), as well, so you hear about it away from the desk. Secrets come from environment variables, never from `config.toml`;
   a message holds only the event and the harness (the folder name only if you allow it), never a prompt
   or a path. The tray has an on/off switch ([configuration](docs/configuration.md#messenger-forwarding-ah-213)).
+- **Agents in containers and VMs (opt-in):** an agent inside Docker, a VM or a sandbox cannot reach the
+  local pipe, so aHerald can also take its turn-end and wait events over HTTP with a token
+  (`[remote]`, off by default). The guest sends with a small shell script or the static
+  `aherald-ping` binary (Linux, x86_64 and aarch64), which sends only what aHerald reads: no tool input, prompt
+  or full path. Recipes per environment: [sandboxes](docs/sandboxes.md).
 - **Click to activate:** a click can bring the originating terminal or [Claude Desktop](https://claude.ai/download) session forward;
   on Windows, on macOS when you opt in, and on Linux X11 for one-session terminals, cards are
   suppressed while that session is focused (see [limits](#limits)).
 - **Native everywhere:** Win32 on Windows 10/11 x64, AppKit on Apple Silicon macOS, and an X11/XWayland
   overlay with a StatusNotifierItem tray on Linux. Identical behaviour on all three.
-- **Private by design:** no network listener, IPC limited to your user, payloads treated as untrusted
+- **Private by design:** no network listener unless you turn on `[remote]`, IPC limited to your user, payloads treated as untrusted
   and never logged, no tokens read except the two opt-in usage features. See [limits](#-limits).
 
 ## Install
