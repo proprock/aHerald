@@ -6,6 +6,12 @@ rust-version = "1.88"
 license = "MIT"
 description = "Portable native notification companion for coding agents (Windows first)"
 
+[workspace]
+# `aherald-ping` is a separate crate so a static musl build never compiles the GUI dependencies. The
+# root package stays the default member: `cargo build`, `cargo test` and the packaging scripts are
+# unchanged. Its version must equal this one (tests/workspace.rs).
+members = ["crates/aherald-ping"]
+
 [lib]
 path = "src/lib.rs"
 
@@ -76,6 +82,12 @@ debug = false
 lto = true
 codegen-units = 1
 strip = true
+
+# `cargo build --profile ping -p aherald-ping`: the smallest sender, for guests.
+[profile.ping]
+inherits = "release"
+opt-level = "z"
+panic = "abort"
 
 # Test-only parameterization (AH-110); never linked into aherald.exe.
 [dev-dependencies]

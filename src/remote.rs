@@ -267,6 +267,13 @@ fn read_and_process(context: &Context, stream: &mut TcpStream, deadline: Instant
     if !authorized(&head, &context.token) {
         return Reply::status(401);
     }
+    // `aherald-ping --self-test`: proves the address and the token without making a card.
+    if head.target == "/v1/ping" {
+        return Reply {
+            status: 200,
+            body: "aherald".into(),
+        };
+    }
     let agent = match route(&head) {
         Ok(agent) => agent,
         Err(reply) => return reply,
@@ -702,6 +709,15 @@ mod tests {
                 assert_eq!(post(addr, token, target, STOP).0, 401, "{token:?} {target}");
             }
         }
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_ping_route_needs_the_token_and_makes_no_event() {
+        let (_remote, addr, seen) = listen("");
+        assert_eq!(post(addr, None, "/v1/ping", b"").0, 401);
+        let (status, body) = post(addr, Some(TOKEN), "/v1/ping", b"");
+        assert_eq!((status, body.as_str()), (200, "aherald"));
         assert!(seen.lock().unwrap().is_empty());
     }
 

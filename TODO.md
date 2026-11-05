@@ -833,6 +833,13 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   Codex that register only the five events. Always exits 0, bounded to about 1 s.
   Acceptance: script tests like `plugin_hook_script.rs`; behaviour unchanged when the variable is
   unset; refused and blackholed endpoints return quickly.
+  Status (branch `feature/AH-224-remote-listener`): implemented. `examples/sandbox/aherald-ping.sh`,
+  `claude-settings.json` and `codex-hooks.json` (five events, two for Codex without `StopFailure`
+  and `Notification`), and the same branch in `plugins/aherald/hooks/aherald-hook.sh`.
+  `tests/sandbox_sender.rs` runs both scripts against the real listener: delivery, Codex `{}`,
+  wrong token, missing settings, refused and hung hosts under 3 s, oversize, unknown agent, and
+  that an explicit endpoint never runs the local program. Needs `curl` and `head -c` in the guest;
+  the token is visible in the guest's process list while curl runs.
 
 - [ ] **AH-226 — `aherald-ping`, a static sender binary.**
   Depends on AH-224. Separate crate `crates/aherald-ping` in a new workspace (root package keeps
@@ -841,6 +848,22 @@ bind mounts, non-native harnesses (OpenCode, Pi, Goose, Crush) in the first rele
   outside the five; removes everything except an allowlist of fields (so `tool_input`,
   `transcript_path` and prompt text never leave the guest); prints the host's reply; exits 0.
   Acceptance: unit tests for the filter and redaction; integration tests against the listener.
+  Status (branch `feature/AH-224-remote-listener`): implemented and tested on Linux (gnu). Workspace
+  with `[profile.ping]`; the root package stays the default member, so `cargo build --release` and
+  the packaging scripts are unchanged (checked: `cargo build --release` builds no `aherald-ping`; the
+  scripts' `sed` still reads the root version first; `tests/workspace.rs` keeps the two versions
+  equal). CI and release now use `--workspace` for tests, clippy and MSRV check and pick the
+  package named `aherald` out of `cargo metadata` (it lists `aherald-ping` first). `--self-test`
+  uses a new authenticated `GET/POST /v1/ping` on the listener. 17 unit and integration tests
+  in the crate. Redaction keeps only `hook_event_name`, `session_id`, `turn_id`, `agent_id`,
+  `notification_type`, the last component of `cwd`, task types and wakeup recurrence (`tool_name` is
+  dropped too: the host does not read it). A `ping` profile build is 402 KB dynamic on gnu; the
+  `x86_64-unknown-linux-musl` build is 517 KB, static-pie (`file`, `ldd` agree). Checked end to end
+  from an `alpine` container on Docker Engine (Linux, bridge `docker0` = 172.17.0.1, listener bound
+  there): `--self-test`, a Claude Stop and a Codex Stop through `aherald-ping` and a Stop through
+  `aherald-ping.sh` (curl from `apk`) all reached an isolated resident; a wrong token is refused.
+  **Not done:** the aarch64 musl target (AH-228); a proxy (Docker
+  Sandboxes) is not supported; Windows and macOS builds of the crate were not compiled here.
 
 - [ ] **AH-227 — Documentation and the agent instructions for guests.**
   `docs/sandboxes.md` with a recipe per environment (each proven by AH-223),

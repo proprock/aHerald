@@ -1,0 +1,21 @@
+[package]
+name = "aherald-ping"
+version = "0.14.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Sends the hook events of an agent in a container or VM to aHerald on the host"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "aherald-ping"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+
+# Tests run the real program against the real listener; never linked into the sender.
+[dev-dependencies]
+aherald = { path = "../.." }

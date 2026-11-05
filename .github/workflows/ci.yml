@@ -97,7 +97,7 @@ jobs:
         id: msrv
         shell: pwsh
         run: |
-          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].rust_version
+          $version = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq 'aherald').rust_version
           if (-not $version) { throw 'Cargo.toml has no rust-version' }
           "version=$version" >> $env:GITHUB_OUTPUT
 
@@ -106,7 +106,7 @@ jobs:
           toolchain: ${{ steps.msrv.outputs.version }}
 
       - name: cargo check
-        run: cargo check --locked
+        run: cargo check --locked --workspace
 
   # Known vulnerabilities in the dependency tree. A pull request runs it when the manifest or
   # the lock file changes; the nightly run catches advisories published later.
@@ -181,7 +181,7 @@ jobs:
           components: clippy
 
       - name: cargo clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       # Timing budgets and the native memory-growth check (AH-221) are noisy on a shared
       # runner, so a pull request skips them; the nightly run keeps them. A renamed test only
@@ -189,7 +189,7 @@ jobs:
       - name: cargo test
         if: ${{ !inputs.full }}
         run: >-
-          cargo test --locked --all-targets --
+          cargo test --locked --workspace --all-targets --
           --skip warmed_artwork_preparation_stays_inside_budget
           --skip hot_paths_stay_inside_their_baseline_budgets
           --skip the_wrapper_costs_little_beyond_starting_the_executable
@@ -197,11 +197,11 @@ jobs:
 
       - name: cargo test (including the noisy checks)
         if: ${{ inputs.full }}
-        run: cargo test --locked --all-targets
+        run: cargo test --locked --workspace --all-targets
 
       # --all-targets leaves out documentation tests.
       - name: cargo test --doc
-        run: cargo test --locked --doc
+        run: cargo test --locked --workspace --doc
 
       - name: Test Linux tray and warning lifecycle
         if: runner.os == 'Linux'
@@ -247,7 +247,7 @@ jobs:
         shell: pwsh
         run: |
           ./build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest
-          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          $version = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq 'aherald').version
           ./tests/installer_windows.ps1 -Installer "dist/aherald-v$version-windows-x64-setup-test.exe"
 
   # Ubuntu 22.04 is pinned on purpose: the Debian package declares libc6 >= 2.35, and the
