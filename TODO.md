@@ -92,98 +92,20 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
   hosted runner, and the `--skip` is removed from ci.yml.
 
-- [ ] **AH-102 — Native macOS installer and setup UI.**
-  Uses the common native setup backend from AH-097. Deliver GUI app installation
-  and Homebrew Cask packaging for Apple Silicon, preserving the portable archive.
-  Provide native user-context selection of Codex, Claude Code, both or neither;
-  start unchecked on first setup, retain the selection on upgrade, and delegate
-  changes to `--setup` / `--unsetup` with explicit `--apply`.
-  Do not block package updates/removal on resident shutdown. Check old-resident
-  and new-client IPC compatibility; document when users must restart residents.
-  Match Windows usage selection and launch-after-install behavior: read current
-  values on upgrades, keep new usage off, explain Claude auto, preserve configured
-  sources and unrelated formatting, and include changes in setup rollback.
-  Use a stable installed app path and fixed hook executable paths, without
-  runtime discovery or developer runtimes. Preserve the harness's normal hook
-  trust flow and do not add autostart. Reuse dry run, all-file preflight, backups,
-  rollback, idempotence and exact saved-binding removal. Keep the receipt and
-  writable user data outside the signed app bundle; never modify its contents
-  during setup. Preserve configuration, assets customized by the user, logs and
-  backups on upgrade/removal, and preserve foreign hooks and other installations.
-  Define a user-context removal flow for both GUI and Cask installations that
-  cleans owned hooks before removing the executable, with visible failure and
-  a repair path. Define behavior for an active resident and moved app bundles.
-  Extend macOS release CI with installer/Cask artifacts and checksums alongside
-  the portable archive; do not claim signing/notarization without implementing
-  and verifying it. Add isolated native lifecycle checks for first install,
-  repeated setup, selection changes, malformed configuration, failed writes,
-  upgrade, cleanup failure and uninstall after environment overrides change.
-  Acceptance: verify the GUI, both installation paths, native hooks, delivery and
-  dismissal on the MacBook Pro M1, recording OS/harness versions and limitations;
-  verify a normal user installation without Homebrew or developer tools for the
-  GUI path. Document setup, repair and removal. See docs/installation.md.
-  Scope change (2026-11-03): the Homebrew Cask is split out as AH-117 (separate tap
-  repository); AH-102 delivers the DMG, the in-app setup window and the portable archive.
-  Status 2026-11-03 (branch `feature/ah-102-macos-installer`): implemented
-  `setup_selection::Selection` (shared with the Linux console setup), the AppKit setup window
-  (`--setup-window`, also opened by a bare launch of an installed bundle), `package-dmg.sh`,
-  `check-release-dmg.sh`, `tests/macos_app_lifecycle.sh` (also run against the mounted image),
-  release/CI steps and docs. Automated: fmt, Clippy and `cargo test --all-targets` pass on macOS
-  (748 passed); the lifecycle check passes and fails on a no-op executable; the DMG built and
-  verified locally. Manual on the M1 (macOS Tahoe 26.6.2, run from a copy of the debug build
-  with isolated CODEX_HOME/CLAUDE_CONFIG_DIR): window layout, scrolling details, Preview, Apply,
-  retained selection, removal and a malformed settings file passed. Still open: installing from
-  the real DMG into /Applications and the Finder double-click launch, Codex/Claude hook
-  delivery and dismissal with the installed app, a normal user without developer tools,
-  old-resident/new-client IPC compatibility check on macOS, and Remove/Repair buttons (removal
-  works by clearing both choices; repair by applying again). Not signed or notarized.
-  `[claude.statusline] format` checked on macOS (Darwin 25.6.0, debug build, commands only): the
-  same text prints with the config beside the executable and with the config under
-  Application Support in an app bundle, and through the wrapper that `--setup` installed for a
-  non-empty format. The setup window explains it; the text itself stays in config.toml.
+- [ ] **AH-272 — macOS DMG installation by hand (left from AH-102).**
+  On the MacBook Pro M1 with a released DMG: install into /Applications and launch with a Finder
+  double-click; Codex and Claude Code hook delivery and dismissal with the installed app; the whole
+  path as a normal user without developer tools; an older running resident with a newer client.
+  Decide whether the setup window needs Remove and Repair buttons (today removal clears both choices
+  and repair applies again). Not signed or notarized (AH-218).
+  Acceptance: results recorded with the macOS, harness and aHerald versions.
 
-- [ ] **AH-103 — Ubuntu package and interactive console setup.**
-  Uses the common native setup backend from AH-097. Deliver an x86_64 `.deb`
-  installable through apt and a graphical package manager, preserving the
-  portable archive. Provide an interactive console setup run by the user after
-  installation, with selection of Codex, Claude Code, both or neither; start
-  unchecked on first setup, retain the selection on upgrade, and delegate changes
-  to `--setup` / `--unsetup` with explicit `--apply`. Do not require an
-  interactive terminal or configure user hooks from package scripts.
-  Match Windows graceful shutdown before updates/removal: verify the owned app
-  path, wait for process exit, and abort if graceful shutdown fails.
-  Match Windows usage selection and launch-after-install behavior: read current
-  values on upgrades, keep new usage off, explain Claude auto, preserve configured
-  sources and unrelated formatting, and include changes in setup rollback.
-  Use stable installation paths and fixed hook executable paths, without runtime
-  discovery or extra developer runtimes. Preserve normal hook trust and do not
-  add autostart. Reuse dry run, preflight, backups, rollback, idempotence, saved
-  file paths and exact binding ownership. Preserve foreign hooks, configuration,
-  customized assets, logs and backups across updates/removal.
-  The system package owns its executable and built-in resources. Use XDG config,
-  data and state directories for each user's config, receipt, assets and logs;
-  preserve user files even on purge and keep portable layout unchanged. Package
-  scripts must not modify user homes or hooks. Document that each user should run
-  --unsetup --apply before removal; removal remains noninteractive and may leave
-  stale hooks, recoverable by reinstalling and running cleanup as that user.
-  Extend Linux release CI with the package and checksum alongside the portable
-  archive; add isolated native lifecycle checks for install, repeated setup,
-  selection changes, malformed configuration, failed writes, upgrade, cleanup
-  failure and uninstall after environment overrides change.
-  Acceptance: verify apt and graphical installation, interactive console setup, hook
-  delivery/dismissal, update and removal on a clean supported Ubuntu desktop
-  without developer tools. Record Ubuntu version, desktop/session type and
-  harness versions; document required system packages, repair and removal.
-  See docs/installation.md; warning setup controls are tracked in AH-114 and
-  overlay Xorg/multi-monitor acceptance remains AH-093.
-  Partial 2026-11-02: package construction, XDG paths and console setup have
-  isolated tests. A private dpkg root exercises install, same-version upgrade,
-  user cleanup and purge with dependency checks forced; an Xvfb/D-Bus probe
-  verified new-client IPC against an older resident. On Ubuntu 22.04.5, lintian
-  reported no findings and apt-get -s resolved the local package on this host
-  (with a warning about an unreadable third-party sources file). Clean Ubuntu apt/graphical
-  installation, real hook delivery/dismissal and update/removal remain to be
-  accepted; the isolated tests do not establish those results.
+- [ ] **AH-273 — Ubuntu package acceptance on a clean desktop (left from AH-103).**
+  On a clean supported Ubuntu desktop without developer tools: install the released `.deb` with apt
+  and with the graphical package manager, run the console setup, see hook delivery and dismissal,
+  then update and remove. Record the Ubuntu version, desktop and session type, harness versions and
+  any system packages needed. Xorg and multi-monitor behaviour stay AH-093.
+  Acceptance: results recorded; docs/installation.md updated if a step differs.
 
 - [ ] **AH-104 — Optional live harness checks on macOS and Linux.**
   Extend the optional group in tests/live/README.md with native macOS/Linux
@@ -202,22 +124,11 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   delivery checks also depend on AH-102/AH-103. Linux warning-specific live
   acceptance and documentation are tracked in AH-115.
 
-- [ ] **AH-117 — Homebrew Cask for aHerald (split from AH-102).**
-  Publish a Cask for the Apple Silicon app in a separate tap repository, installing the
-  released DMG or ZIP by URL and SHA-256 from the release artifacts. Do not claim signing or
-  notarization; keep the portable archive. Removal must clean owned hooks in user context
-  before the executable is removed (`zap` is not enough): define the uninstall flow, its
-  visible failure and the repair path, and document that Homebrew runs as the user while
-  hooks belong to that user. Updates must not block on a running resident; document the
-  restart. Acceptance: `brew install --cask`, setup window, hooks, delivery and dismissal,
-  upgrade and uninstall on the MacBook Pro M1.
-  Decisions 2026-11-03: tap `proprock/homebrew-tap` (`brew tap proprock/tap`), shared by
-  future projects; no quarantine removal (README documents right-click, Open); stable releases
-  only, updated by the `update_tap` release job through a pull request using the secret
-  `TAP_TOKEN`. Status: `proprock/homebrew-tap` exists with the Cask (0.9.0, checksum verified
-  against the released DMG), README, `update-cask.sh` and a style-audit CI (green). `TAP_TOKEN`
-  is set. Not yet checked: `brew install --cask`, upgrade and uninstall on the M1, and the first
-  `update_tap` run.
+- [ ] **AH-274 — Homebrew Cask by hand on the M1 (left from AH-117).**
+  `brew tap proprock/tap && brew install --cask aherald`, the setup window, hooks, delivery and
+  dismissal; `brew upgrade` with a resident running (restart as documented); `brew uninstall` after
+  cleaning the hooks in user context, and the repair path when that was skipped.
+  Acceptance: results recorded with the macOS, Homebrew and aHerald versions.
 
 ### macOS parity with 0.9.0-beta
 
@@ -225,25 +136,11 @@ The warning engine (`session_warnings`), the setup backend and the tray text are
 already, and the macOS resident keeps the warning state. What differs is the tray controls
 and the acceptance evidence; reuse the Linux and Windows pieces rather than parallel code.
 
-- [ ] **AH-118 — Context/Idle warning switches and Apply / Apply + Test in the macOS tray.**
-  The Windows tray (`src/tray.rs`) and the Linux tray (`src/linux/tray.rs`, handlers in
-  `src/linux/resident.rs`) offer "Context warnings", "Idle warnings", "Apply" and
-  "Apply + Test"; the macOS menu (`src/mac/menu.rs`) has only "Restart". Add the same entries
-  with the same order, labels and check marks, wired to `Warnings::set_enabled` and to
-  re-reading the configuration with the preview cards, as on the other platforms.
-  Acceptance: pure menu tests for order, labels and check state; switches change what the
-  resident admits, observed through the resident (not source text); Apply keeps usage and
-  event handling running; verified by hand on the MacBook Pro M1 (cards, dismissal).
-  Status 2026-11-03 (branch `feature/ah-118-mac-tray-warnings`, stacked on AH-102): the menu
-  has the Windows order and separators (usage lines, Sound, Pop-up, Pause, Context warnings,
-  Idle warnings, About, Edit configuration, Apply + Test, Apply, Exit; Apply was Restart). The
-  switches call the shared `Warnings` gates (tested through the resident state). Apply + Test
-  restarts the resident with `--test-after-apply` and shows the shared `demo::Carousel` as on
-  Windows and Linux: arrows, wheel and body clicks, a "[Test]" heading with "Disabled in
-  config", each sample's sound once, ended by dismissal or the first real card; the click
-  decision is the pure `input::carousel_click`. Automated: fmt, Clippy and
-  `cargo test --all-targets` (753 passed). Not yet checked by hand on the M1: the menu itself,
-  the switches' effect on live cards, Apply, Apply + Test (cards, sounds, arrows, wheel, dismiss).
+- [ ] **AH-275 — macOS tray warnings and Apply by hand (left from AH-118).**
+  On the M1: the menu order and check marks; Context and Idle warnings switches change which live
+  cards appear; Apply keeps usage and events running; Apply + Test shows the carousel with sounds,
+  arrows, wheel and dismissal.
+  Acceptance: results recorded with the macOS and aHerald versions.
 
 - [ ] **AH-119 — macOS live warning acceptance and documentation.**
   The macOS counterpart of AH-115. With the AH-118 switches, verify real Codex and Claude
@@ -255,42 +152,17 @@ and the acceptance evidence; reuse the Linux and Windows pieces rather than para
   before each run, record macOS and harness versions and commands, and update docs and the
   verification matrix. Extends AH-104 (live checks on macOS); depends on AH-118.
 
-- [ ] **AH-222 — Suppress notifications while the user watches the originating session (Linux X11).**
-  Windows (AH-098) and macOS (AH-120) suppress the card and the sound on positive evidence of both
-  the window and the session; on Linux `focus::observe` reports "unknown", so everything is
-  delivered. Evaluate X11 (`_NET_ACTIVE_WINDOW` and the window's PID against the terminal process
-  aHerald records) and Wayland-under-XWayland limits; a terminal with tabs needs a way to prove the
-  active tab (its tty). Same rule: suppress only on positive evidence of both, otherwise deliver; no
-  new permission prompt. Agree on the design before implementation.
-  Status (branch `feature/AH-222-linux-focus`): implemented for X11 sessions (`src/linux/focus.rs`).
-  Window: the captured host window equals `_NET_ACTIVE_WINDOW`. Session: the owner's `comm` is a
-  one-session terminal (xterm, urxvt, rxvt, st, mlterm, aterm, eterm, alacritty) and it owns no other
-  window. Wayland sessions, tabbed terminals, tmux and errors deliver. Pure tests cover the rule; not
-  run against a live X server here (the session is Wayland, no Xvfb): acceptance on Xorg with xterm
-  and with a tabbed terminal is open. Konsole (D-Bus `currentSession`) and Kitty (remote control) could
-  later give the selected tab.
+- [ ] **AH-278 — Linux X11 focus suppression on Xorg (left from AH-222).**
+  On an Xorg session: a card is suppressed while the originating xterm (or another one-session
+  terminal) is in front; a tabbed terminal (GNOME Terminal), tmux and another window still deliver.
+  Acceptance: results recorded with the distribution, desktop, terminal and aHerald versions.
 
-- [ ] **AH-120 — Suppress notifications while the user watches the originating session (macOS).**
-  Windows suppresses the card and the sound when the Claude session's classic console is
-  focused (AH-098, `src/focus.rs`); on other systems `focus::observe` reports "unknown" and
-  nothing is suppressed. Evaluate the macOS options: the frontmost application through
-  `NSWorkspace` and the terminal process aHerald already records (`src/mac/terminal.rs`) tell
-  the app, but a tabbed Terminal.app or iTerm window also needs a way to prove the active tab
-  or session (for example its tty). The project rule stays: suppress only on positive evidence
-  of both the window and the session; otherwise deliver. Agree on the design and any new
-  permission (Automation/Accessibility prompts are not acceptable by default) before
-  implementation; keep both `suppress_when_focused` options and their defaults.
-  Acceptance: pure policy tests with the macOS evidence, and live checks on the M1 in Terminal
-  and in a second terminal app, including unknown origins that must still be delivered.
-  Design agreed 2026-11-03: opt-in Automation. `[general] detect_terminal_tab` (default false)
-  adds `Event::tty` (the nearest ancestor's device, one `ps` per hook) and, for Terminal.app
-  and iTerm2 only, reads the selected tab's device with `osascript` (1.5 s bound) when that
-  terminal is in front (`NSRunningApplication.isActive`, no NSWorkspace feature added). Equal
-  devices are `Session::Same`; everything else delivers. Claude main sessions only, as on
-  Windows. Status 2026-11-03 (branch `feature/ah-120-mac-focus-suppression`): implemented with
-  unit tests (761 pass); NOT checked live: the Automation prompt, the real tab comparison in
-  Terminal.app and iTerm2, a second tab/terminal delivering, and the `NSAppleEventsUsageDescription`
-  text in the bundle.
+- [ ] **AH-276 — macOS terminal-tab suppression by hand (left from AH-120).**
+  With `[general] detect_terminal_tab = true` on the M1: the Automation prompt and its text
+  (`NSAppleEventsUsageDescription` in the bundle); a card is suppressed while the originating tab of
+  Terminal.app and of iTerm2 is in front; another tab, another terminal and an unknown origin still
+  deliver.
+  Acceptance: results recorded with the macOS, terminal and aHerald versions.
 
 ### Linux parity with 0.8.0-beta
 
@@ -438,62 +310,13 @@ shared development-profile and artwork performance changes need no separate port
   with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
   fields, or the doc records the difference and the mapping is adjusted test-first.
 
-- [ ] **AH-211 — Windows: a console companion for command-line output and the `statusLine`
-  command.** One cause, two symptoms: `aherald.exe` is a GUI-subsystem program (so a hook never
-  opens a console window) and has no console of its own.
-  1. Command-line output. `--version`, `--help`, `--status`, `--setup`, `--perf-report`,
-  `--raw-output` and their error messages print nothing in PowerShell or cmd unless piped
-  (`| Out-String`); the packaging scripts and docs work around it.
-  2. The `statusLine` command. On Windows the command in `~/.claude/settings.json` is always (with
-  or without `--then`) a PowerShell script spelled as `[char[]]` codes, which nobody can read or
-  audit. It is that way because Claude Code runs a `statusLine` through Git Bash if installed and
-  PowerShell otherwise, and the command must survive both (they expand `$`, quotes and backslashes
-  differently); PowerShell neither waits for a GUI program nor collects its stdout unless piped; and
-  `Out-String` would re-encode UTF-8 and ANSI colours, so the script copies bytes by hand. A
-  `statusLine` has no `args` or `shell` field (only `type`, `command`, `padding`,
-  `refreshInterval`, `hideVimModeIndicator`), so there is no exec form as for hooks.
-  Approach: ship `aherald-cli.exe` beside `aherald.exe`, a tiny console-subsystem program that starts
-  `aherald.exe` with the same arguments, gives it its own stdin, stdout and stderr, waits and
-  returns its exit code. It is not for hooks (a parent without a console could flash a window); it
-  is fine for the `statusLine` (Claude Code runs it in a terminal; check the IDE extension) and for
-  commands typed by hand. The `statusLine` command becomes `C:/…/aherald-cli.exe --statusline`.
-  Decide on Windows: (a) a path with spaces cannot be quoted the same way in Git Bash and in
-  PowerShell, so such an install needs the fallback below; (b) the user's wrapped command: keep
-  `--then '…'` on the command line (the same quoting problem) or read the original `statusLine`
-  from the receipt `aherald-setup.json`, which already holds it, so the line stays short.
-  Fallback: an aHerald-owned `statusline.ps1` beside the executable (listed in the receipt, backed
-  up and removed like the bridges of AH-204) with the command
-  `powershell -NoProfile -ExecutionPolicy Bypass -File C:/…/statusline.ps1`, for a path with spaces
-  or a missing companion; the script copies stdin and stdout byte for byte. Not chosen:
-  `AttachConsole` at start (the shell still does not wait for a GUI program).
-  Acceptance, by hand on Windows 11 and Server 2019 (not by reading code) and with a CI pipe test:
-  `aherald-cli --version` and an unknown option print in PowerShell, cmd and Windows Terminal
-  without `| Out-String`, with the exit code kept; with output piped nothing changes; the status
-  line, a wrapped user command, its exit code and non-ASCII output are unchanged;
-  `--install-statusline` and `--uninstall-statusline` restore the original exactly and replace the
-  old encoded command; a hook from Claude Code and Codex still delivers and opens no console window;
-  `package-release.ps1` no longer needs its pipe workaround.
-  Status 2026-11-04 (branch `feature/ah-211-windows-console-companion`): `aherald-cli.exe`
-  (std only) exists. Inheriting the console shows nothing for a GUI child (seen in a real
-  PowerShell and cmd), so it relays stdin, stdout and stderr through pipes and returns the exit
-  code; pipe tests compare it with `aherald.exe` (`tests/aherald_cli.rs`), and `--version` and an
-  unknown option were checked by hand in PowerShell and cmd. Decisions: (a) a bare
-  `C:/…/aherald-cli.exe --statusline` when no character in the path is special to either shell;
-  else `powershell -File "…/statusline.ps1"` with an aHerald-owned script (receipt, backup, removal);
-  the encoded command stays only for a path with `"`, `$` or a backtick. (b) The maintainer chose
-  the receipt: `--statusline` without `--then` reads the original from `aherald-setup.json`; a
-  missing receipt gives a plain line, a corrupt one a plain line and a note on stderr.
-  `tests/statusline_windows.rs` runs the generated command through PowerShell and Git Bash:
-  bytes, non-ASCII and ANSI output and exit code 7 relayed; `--unsetup` restores the original
-  exactly and removes the script; setup replaces an earlier encoded command. `package-release.ps1`,
-  `build-installer.ps1` and the installer ship the companion; the script no longer pipes. About 7 ms
-  per status line refresh is added by the companion (25 ms to 32 ms, release build).
-  Remaining: manual checks on Server 2019 and in Windows Terminal; a live Claude Code and Codex
-  hook (still `aherald.exe`, unchanged) shows no console window; the installer lifecycle with the
-  companion (`tests/installer_windows.ps1` still pipes).
-  `--install-statusline` / `--uninstall-statusline` now work on Windows (they share the setup
-  receipt; tests in `tests/statusline_windows.rs` cover dry run, wrap, idempotence, exact restore,
-  the spaced-path script, an earlier encoded command, and hooks left alone).
+- [ ] **AH-277 — Windows console companion checks (left from AH-211).**
+  By hand: `aherald-cli` in Windows Terminal and on Windows Server 2019 (output, exit code, an unknown
+  option); a live Claude Code and Codex hook (still `aherald.exe`) opens no console window. Automated:
+  `tests/installer_windows.ps1` calls `aherald-cli.exe` instead of piping `aherald.exe`, so the
+  installer lifecycle covers the companion.
+  Acceptance: manual results recorded with the Windows build; the installer test passes in the
+  Windows CI.
 
 ## Milestone 8 — Extensible harness integrations and basic OpenCode/Pi support
 
@@ -693,14 +516,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   test that `examples/sandbox/aherald-ping.sh` and the remote block of `plugins/aherald/hooks/aherald-hook.sh`
   stay identical: extract the lines between marker comments `# BEGIN remote` / `# END remote` and compare them
   in `tests/sandbox_sender.rs`. Acceptance: the test fails when one copy changes.
-
-- [ ] **AH-271 — Split the remaining partly shipped tasks (follow-up of AH-241).**
-  `CHANGELOG.md` cites nine IDs that are still open in TODO.md because their manual or live checks are
-  outstanding: AH-093, AH-102, AH-103, AH-115, AH-117, AH-118, AH-120, AH-211, AH-222. For each, move the
-  shipped part to DONE.md with its status lines, and keep or open an ID holding only the checks still
-  marked "Not run" / "not yet checked" (as AH-268 to AH-270 did for AH-206/213/219/220). Do not mark a
-  check done without its recorded evidence.
-  Acceptance: every ID in CHANGELOG exists in DONE.md; no open task describes shipped code as pending.
 
 ### P1 — consistency, CI and the release pipeline
 
