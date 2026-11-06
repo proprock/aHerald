@@ -597,3 +597,52 @@ P2 tasks run in the listed order; AH-266 goes last.
   (or unix, linux, macos) classifies to exactly that platform, and vice versa.
   Acceptance: measure `cargo test --no-run` wall time on Linux before and after (record both); all CI legs and
   the nightly run pass.
+
+## Milestone 13 — Messenger notifications (2026-11-06)
+
+- [ ] **AH-285 — Messenger messages: an optional computer name and a header line.**
+  With the same chat fed by several computers, a message does not say which one sent it. Add an opt-in
+  per-sink switch `include_host` (default `false`, like `include_folder`) that puts the computer's name into
+  the message, and change the message layout. Depends on nothing. The new layout, a header line, a blank
+  line and the existing message line (the example names are made up):
+  ```
+  <host>/<project_dir>
+
+  <harness>: <message>
+  ```
+  for example `workstation-1/aHerald`, a blank line, then `Claude: turn complete`. `<project_dir>` is the
+  folder name that `include_folder` sends today (`Event::folder`); `<harness>: <message>` is the line sent
+  today without the folder (`Claude: turn complete`).
+  1. **Header rules.** The header is built from what is enabled and available: host and folder joined
+     by `/`; only the host (`workstation-1`); only the folder (`aHerald`); neither means no header and no
+     blank line, so the default message is exactly the one sent today (`Claude: turn complete`). A folder
+     that is not known (the event carries none) is omitted, not shown empty. The folder no longer appears in
+     brackets after the harness name; this changes the text for users of `include_folder` and goes into
+     `CHANGELOG.md` under `Changed`.
+  2. **Host name.** The OS computer name, read per platform without a new heavy dependency (`libc`
+     `gethostname` on macOS and Linux, the Win32 computer-name call or `COMPUTERNAME` on Windows; a new direct
+     crate needs the justification that `AGENTS.md` asks for). Sanitise it like the folder name: control
+     characters removed, at most 64 characters, no FQDN trimming, no hashing or other obfuscation. If it cannot be
+     read or is empty, fall back to the computer's IP address: the address of the interface that the default
+     route uses (the local address of a UDP socket "connected" to a public address, which sends no packet;
+     no network request, no DNS), IPv4 first, shown as plain text (`192.0.2.10`). If there is no address
+     either, the host is left out. Neither lookup may block or fail a card or a hook; the fallback is used only
+     with `include_host = true` and is covered by the same privacy entry, which names the IP address too.
+  3. **Placeholders.** `{text}` stays the whole message and now includes the header and the blank line when
+     there is a header; add `{host}` (empty unless `include_host = true`) next to `{kind}`, `{harness}` and
+     `{folder}`. A message now has two lines, so check each consumer: a JSON body escapes the newline, a form
+     body percent-encodes it, plain text (ntfy) keeps it, and a command sink (`src/command_sink.rs`) gets it in
+     `{text}` in `argv` or on stdin. Document that a body which wants its own layout can use the single
+     placeholders instead of `{text}`.
+  4. **Privacy.** The computer name goes to a third party, so it is opt-in and off by default, agreed here
+     and recorded in `docs/privacy.md` (the "Messenger forwarding" row: what, when, where it goes, how to turn
+     it off) and in `docs/configuration.md` (the `[[forward.sinks]]` options and the placeholders) in the same
+     change. `README.md` only where it shows a forwarded message.
+  5. **Parity.** Message building lives in `src/sink.rs` and is platform independent; only the host-name
+     read differs per OS. Check that all three platforms get the same text for the same event.
+  Acceptance: pure tests in `src/sink.rs` for the four header cases (none, host, folder, both), an event
+  without a folder, a host that cannot be read (the IP fallback, and no address either), a 64-character cut and removal of control characters, and
+  `{host}`/`{text}` in a JSON, a form and a plain-text body plus a command sink with the two-line text; the
+  existing sink tests pass with the default message unchanged; `docs/privacy.md` and `docs/configuration.md`
+  updated; the usual checks on Linux and CI on the three platforms; one manual check on a real messenger
+  (record what it showed) with `include_host = true` on each platform.
