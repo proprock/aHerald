@@ -1106,11 +1106,10 @@ pub(super) fn run_preview(
     );
     let claude = claude_usage(&config);
     // With Codex usage polling on, session names share its app-server child.
-    let source_labels = if config.codex.usage.enabled {
-        crate::session_source::Service::shared(usage.names())
-    } else {
-        crate::session_source::Service::codex()
-    };
+    let source_labels = crate::session_source::Service::for_resident(
+        &config,
+        config.codex.usage.enabled.then(|| usage.names()),
+    );
     let window = Box::new(Window {
         usage_target: Arc::new(Mutex::new(None)),
         gate: Gate::default(),

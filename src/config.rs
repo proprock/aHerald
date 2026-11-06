@@ -624,6 +624,8 @@ impl Default for Claude {
 pub struct Codex {
     pub hooks_enabled: bool,
     pub input_monitoring: bool,
+    /// Allow read-only Codex session name lookups in resident and transient modes.
+    pub session_names: bool,
     /// Look up the session name in transient mode. Each card then starts its own
     /// `codex app-server` child (about 140 ms), so it is off unless asked for.
     pub transient_names: bool,
@@ -636,6 +638,7 @@ impl Default for Codex {
         Self {
             hooks_enabled: true,
             input_monitoring: false,
+            session_names: false,
             transient_names: false,
             usage: Usage::default(),
             warnings: SessionWarnings::with_idle(25),

@@ -338,15 +338,15 @@ impl Ui {
                 wake.signal();
             });
         }
-        let labels = if transient {
-            crate::session_source::Service::transient_codex(config.codex.transient_names)
-        } else if config.codex.usage.enabled {
-            crate::session_source::Service::shared(
-                usage.as_ref().expect("resident usage service").names(),
-            )
-        } else {
-            crate::session_source::Service::codex()
-        };
+        let labels = crate::session_source::Service::for_mode(
+            &config,
+            if transient {
+                crate::config::Mode::Transient
+            } else {
+                crate::config::Mode::Resident
+            },
+            usage.as_ref().map(|service| service.names()),
+        );
         let artwork = ArtworkWorker::spawn(&config, || {}, {
             let wake = wake.clone();
             move || wake.signal()

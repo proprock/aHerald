@@ -1,5 +1,9 @@
 # Portable configuration
 
+Codex session names are opt-in: set `[codex] session_names = true` to show names on
+resident cards. Transient cards additionally require `transient_names = true` and start
+an app-server per card. Usage polling is independent of these switches.
+
 Without `--config`, aHerald uses exactly `config.toml` in the directory containing
 the running `aherald.exe`. It never searches the working directory or APPDATA.
 Normal event, hook, resident and demo startup creates an absent standard file

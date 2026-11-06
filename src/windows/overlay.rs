@@ -628,7 +628,7 @@ pub fn show(event: &Event, config: &Config) -> Result<(), String> {
     show_with_source(
         event,
         config,
-        crate::session_source::Service::transient_codex(config.codex.transient_names),
+        crate::session_source::Service::for_mode(config, crate::config::Mode::Transient, None),
     )
 }
 fn show_with_source(

@@ -198,9 +198,11 @@ hooks_enabled = true
 # Reserved observation switch; default false. true reports unsupported monitoring
 # of unrelated Codex CLI/app sessions; it does not enable input-wait detection.
 input_monitoring = false
-# Transient mode (no resident) shows one card per process. true looks up the Codex session
-# name, which starts a `codex app-server` child for every card (about 140 ms); false leaves
-# the name row empty. The resident always looks names up over a shared connection.
+# Opt in to read-only Codex session name lookups; false leaves the name row empty.
+# The resident shares the usage connection when available, or starts its own app-server.
+session_names = false
+# Transient mode also requires session_names = true. Each card starts its own
+# `codex app-server` child (about 140 ms).
 transient_names = false
 
 [claude]

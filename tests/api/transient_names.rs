@@ -52,9 +52,88 @@ fn codex_event() -> Event {
 
 #[test]
 fn transient_names_are_off_by_default() {
+    assert!(!Config::default().codex.session_names);
+    let default: Config = toml::from_str("[codex]\n").unwrap();
+    assert!(!default.codex.session_names);
     assert!(!Config::default().codex.transient_names);
     let config: Config = toml::from_str("[codex]\ntransient_names = true").unwrap();
     assert!(config.codex.transient_names);
+}
+
+#[test]
+fn resident_names_follow_the_session_names_switch() {
+    for enabled in [false, true] {
+        let mut config = Config::default();
+        config.codex.session_names = enabled;
+        let starts = Arc::new(AtomicUsize::new(0));
+        let counter = starts.clone();
+        let mut service = session_source::Service::for_mode_with(
+            &config,
+            aherald::config::Mode::Resident,
+            None,
+            move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Server(None))
+            },
+        );
+        let event = codex_event();
+        let deadline = Instant::now() + Duration::from_millis(if enabled { 3000 } else { 150 });
+        loop {
+            let heading = service.label(&event);
+            assert_eq!(heading.title, "Codex");
+            if enabled && heading.name.as_deref() == Some("My task") {
+                break;
+            }
+            if !enabled {
+                assert_eq!(heading.name, None);
+            }
+            if Instant::now() >= deadline {
+                assert!(!enabled, "name never resolved");
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(starts.load(Ordering::SeqCst), usize::from(enabled));
+    }
+}
+
+#[test]
+fn transient_requires_both_name_switches() {
+    for session_names in [false, true] {
+        for transient_names in [false, true] {
+            let mut config = Config::default();
+            config.codex.session_names = session_names;
+            config.codex.transient_names = transient_names;
+            let starts = Arc::new(AtomicUsize::new(0));
+            let counter = starts.clone();
+            let mut service = session_source::Service::for_mode_with(
+                &config,
+                aherald::config::Mode::Transient,
+                None,
+                move |_| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(Server(None))
+                },
+            );
+            let enabled = session_names && transient_names;
+            let deadline = Instant::now() + Duration::from_millis(if enabled { 3000 } else { 100 });
+            loop {
+                let heading = service.label(&codex_event());
+                if enabled && heading.name.as_deref() == Some("My task") {
+                    break;
+                }
+                if !enabled {
+                    assert_eq!(heading.name, None);
+                }
+                if Instant::now() >= deadline {
+                    assert!(!enabled, "name never resolved");
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(starts.load(Ordering::SeqCst), usize::from(enabled));
+        }
+    }
 }
 
 #[test]
