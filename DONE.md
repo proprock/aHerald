@@ -171,7 +171,12 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   ETXTBSY), the bound is 30 s, and `parallel_fixture_copies_and_launches_never_meet_a_busy_executable` runs
   without any retry. Reproduced locally by pinning the test binary and two CPU hogs to two cores
   (`taskset -c 0,1`); after the fix 60 of 60 runs are green there. Evidence: **ran locally** (Linux): 25 of 25 runs of the binary, and
-  60 runs of the four stress binaries with 64 threads under CPU load, free of failures; runner run: see below.
+  60 runs of the four stress binaries with 64 threads under CPU load, free of failures. Runner check (manual
+  workflow, `scripts/manual/stress.sh`, Ubuntu 22.04, run on 2026-11-06 with a 180-minute limit): 400 repeats of
+  the four stress binaries under CPU load took 2 h 39 min and every one passed; the three full workspace runs
+  that followed under load took 4 min 22 s and passed too. No failure, so the ticket stays closed. The first
+  attempt had been cancelled by hand because its forecast did not fit the limit; the guard that now fails such a
+  run early is in `stress.sh`.
 
 - [x] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
   Cause: on Linux a forked child inherits every descriptor open at the fork until it execs, so a test that
