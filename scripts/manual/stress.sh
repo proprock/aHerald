@@ -1,19 +1,26 @@
 #!/bin/sh
-# Hunts the AH-279 flake: a test runs a freshly written executable while another test thread
-# forks, and Linux answers ETXTBSY (AH-279); or a listening socket that must look dead is copied
-# by a fork and still accepts (AH-284, `unix_ipc`). Runs the four test binaries that do this many
-# times with many threads under CPU load, then a few full runs, and stops at the first failure.
+# Repeats test binaries under CPU load and stops at the first failure, keeping that run's output.
+# Born from the fork-window flakes AH-279 and AH-284: a test runs a freshly written executable, or
+# expects a dropped listener to look dead, while another test thread forks.
 #
-#   scripts/stress-fresh-executables.sh [runs] [full-runs]     (defaults: 200 and 5)
+#   scripts/manual/stress.sh [runs] [full-runs] [test-binary ...]
+#
+# Defaults: 200 runs, 5 full runs afterwards, and the four binaries below. Name other integration
+# tests to stress those instead; a full run is `cargo test --workspace` without the timing budget.
 set -eu
 runs=${1:-200}
 full=${2:-5}
-cd "$(dirname "$0")/.."
+if [ "$#" -ge 2 ]; then shift 2; else shift "$#"; fi
+[ "$#" -gt 0 ] || set -- plugin_hook_script setup sandbox_sender unix_ipc
+cd "$(dirname "$0")/../.."
+tests=""
+for name in "$@"; do tests="$tests --test $name"; done
+count=$#
 
-binaries=$(cargo test --locked --no-run --message-format=json-render-diagnostics \
-    --test plugin_hook_script --test setup --test sandbox_sender --test unix_ipc |
+# shellcheck disable=SC2086 # `$tests` is a list of `--test NAME` words
+binaries=$(cargo test --locked --no-run --message-format=json-render-diagnostics $tests |
     sed -n 's/.*"executable":"\([^"]*\/deps\/[^"]*\)".*/\1/p')
-[ "$(printf '%s\n' "$binaries" | wc -l)" -eq 4 ] || { echo "expected four test binaries" >&2; exit 1; }
+[ "$(printf '%s\n' "$binaries" | wc -l)" -eq "$count" ] || { echo "expected $count test binaries" >&2; exit 1; }
 
 log="${TMPDIR:-/tmp}/stress-run.log"
 hogs=""
@@ -36,7 +43,7 @@ while [ "$i" -le "$runs" ]; do
     done
     i=$((i + 1))
 done
-echo "ok: $runs runs of the four test binaries under load"
+echo "ok: $runs runs of $count test binaries under load"
 
 i=1
 while [ "$i" -le "$full" ]; do

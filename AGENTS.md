@@ -151,6 +151,11 @@ cargo test --locked --workspace --doc
   `llvm-rc` stub on `PATH` (the build script only needs it to exist; clippy does not link), then
   `cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings`. That is a
   local lint run, not a Windows test run: report Windows as **compiled/tested in CI only** for tests.
+- Flaky or runner-only behaviour is checked with the manual `Manual` workflow (`.github/workflows/manual.yml`):
+  commit a script under `scripts/manual/` to a branch (no pull request, so no CI) and run
+  `gh workflow run manual.yml --ref <branch> -f script=scripts/manual/<name>.sh -f args="..."`, or pass the
+  script text with `-f inline="$(cat file.sh)"` and commit nothing. `scripts/manual/stress.sh` repeats test
+  binaries under CPU load. Pick the runner with `-f runner=` (Ubuntu, macOS, Windows).
 - Report the status per platform with exactly one of: **ran locally**, **compiled/tested in
   CI only**, **checked by hand on hardware**, **not checked**. `src/mac/` builds only on
   macOS and the Windows modules only on Windows; never describe code you could only compile
