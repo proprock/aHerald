@@ -1,0 +1,37 @@
+name: Stress
+
+# Manual: repeats the tests that run a freshly written executable (AH-279) under CPU load on
+# a Linux runner. Start it from the Actions tab or with `gh workflow run stress.yml`.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Runs of the three test binaries.
+        default: "200"
+      full:
+        description: Full test runs afterwards.
+        default: "5"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fresh_executables:
+    name: Fresh executables under load
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Run the stress script
+        env:
+          RUNS: ${{ inputs.runs }}
+          FULL: ${{ inputs.full }}
+        run: scripts/stress-fresh-executables.sh "$RUNS" "$FULL"
