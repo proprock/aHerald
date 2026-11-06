@@ -53,7 +53,7 @@ sanitized executable fixtures, including a mismatched-session response rejection
 
 - `tests/app_server.rs`: exact metadata-only request, named/unnamed results,
   response/session correlation, no resume or subscription calls.
-- `tests/session_source.rs`: immediate fallback while the resolver is blocked,
+- `tests/api/session_source.rs`: immediate fallback while the resolver is blocked,
   simultaneous session isolation, cache/refresh, normalization and unavailable titles.
 - Native card tests: asynchronous window-title update, no activation, and pixel
   preservation outside the heading area. The ignored `preview_session_heading`

@@ -49,6 +49,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   (the worker has its own, from AH-262). Evidence: fmt, clippy, workspace tests and doctests **ran locally** on
   Linux; Windows clippy lint including the test targets **ran locally**; Windows tests (`tests/resident.rs`,
   `native_overlay`) and all macOS code **compiled/tested in CI only**.
+- [x] **AH-266 (part 2) — Public-API integration tests in one binary.**
+  36 ungated integration tests that use only the library API moved to `tests/api/` (one module per former file,
+  `tests/api/main.rs` declares them): `activation`, `animation`, `audio`, `card`, `card_border`, `card_folder`,
+  `claude_desktop`, `click_target`, `codex_approval_observation`, `codex_context`, `codex_lifecycle`,
+  `config_preview`, `demo`, `installer_bridges`, `ipc`, `perf_artwork`, `perf_report`, `placement`, `presenter`,
+  `queue`, `queue_outcome`, `raw_output`, `reentry`, `resource_cache`, `session_source`,
+  `session_warning_adapters`, `statusline_launch`, `transient_names`, `tray_usage`, `usage`, `usage_compact`,
+  `usage_service`, `usage_shared`, `usage_ui`, `warning_controls`, `warning_messages`. Left alone on purpose:
+  tests that start the program or set process-wide state (the operational log, the notice sink), the `*_log`
+  tests, and OS-gated files. Only the two `include_bytes!("../fixtures/…")` paths changed. The test count is the
+  same before and after (200 listed on Linux in the 36 files and in `api`), and the binary passed 3 of 3 alone
+  and in 2 full workspace runs. Test binaries on disk: 101 files in `tests/*.rs` became 65 plus `api`.
+  `cargo clean -p aherald && cargo test --locked --workspace --no-run` on Linux: **27.3 s before, 23.5 s after**
+  (one measurement each, machine not otherwise idle). Docs commands that named the moved files now read
+  `cargo test --test api <module>::<test>`. Evidence: fmt, clippy, workspace tests and doctests, the
+  platform-flags and noisy-test contracts **ran locally** on Linux; Windows clippy lint **ran locally**;
+  Windows and macOS test runs **compiled/tested in CI only**.
 
 - [x] **AH-266 (part 1) — Windows modules into `src/windows/`; platform flags.**
   The 13 Windows-only root modules (`console_window`, `detached`, `https`, `local`, `overlay`, `pipe`,
@@ -184,7 +201,12 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   ETXTBSY), the bound is 30 s, and `parallel_fixture_copies_and_launches_never_meet_a_busy_executable` runs
   without any retry. Reproduced locally by pinning the test binary and two CPU hogs to two cores
   (`taskset -c 0,1`); after the fix 60 of 60 runs are green there. Evidence: **ran locally** (Linux): 25 of 25 runs of the binary, and
-  60 runs of the four stress binaries with 64 threads under CPU load, free of failures; runner run: see below.
+  60 runs of the four stress binaries with 64 threads under CPU load, free of failures. Runner check (manual
+  workflow, `scripts/manual/stress.sh`, Ubuntu 22.04, run on 2026-11-06 with a 180-minute limit): 400 repeats of
+  the four stress binaries under CPU load took 2 h 39 min and every one passed; the three full workspace runs
+  that followed under load took 4 min 22 s and passed too. No failure, so the ticket stays closed. The first
+  attempt had been cancelled by hand because its forecast did not fit the limit; the guard that now fails such a
+  run early is in `stress.sh`.
 
 - [x] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
   Cause: on Linux a forked child inherits every descriptor open at the fork until it execs, so a test that
