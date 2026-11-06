@@ -480,6 +480,10 @@ P2 tasks run in the listed order; AH-266 goes last.
   equal. On the next nightly run: the four noisy tests run and pass or fail on their own, not skipped.
   Acceptance: the three logs, the two `--version` lines and the nightly log are recorded in DONE.md; a
   difference opens a ticket.
+  Also from AH-253 (scripts moved to `scripts/`): `package-macos.sh`, `package-dmg.sh` and
+  `check-release-macos.sh`/`check-release-dmg.sh` were checked only with `sh -n` and by reading, so the macOS
+  packaging and DMG steps of that release candidate must pass, and the nightly run (AH-282) must pass with the
+  moved Windows and Linux scripts.
 
 - [ ] **AH-281 — Screenshots and an animation in the README.**
   Show what the program looks like: the notification cards (input required, done, error, the usage
