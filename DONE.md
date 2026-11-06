@@ -3,6 +3,25 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
+  Cause: the same fork window as AH-279, for a listening socket. The test binds a listener and drops it to
+  leave a dead resident's socket file; a child forked by another test thread between the bind and the drop
+  keeps a copy of the listener until its exec, so `create_pipe` found the "dead" socket still accepting and
+  answered "a resident is already listening". It was a test race, not a product defect (`create_pipe` is
+  right to refuse a socket that accepts). Fix: `support::without_forks` runs the bind-and-drop under the
+  exec gate of AH-279, and the child start of the lock test goes through `support::spawn`. Regression test:
+  `unix_ipc::a_stale_socket_is_replaced_while_other_threads_start_processes` (300 rounds against a forker;
+  red with a raw `Command::spawn` in 3 of 4 runs, green with the gate). The stress script and the `Stress`
+  workflow now include `unix_ipc`. The runner then showed the same window in `setup.rs` (its
+  executable copies and starts were outside the gate; its busy-launch test kept a write handle open outside it)
+  and a second cause: the one-second retry bound of `spawn_fixture` ran out while a starved thread waited
+  between two attempts on a loaded two-core runner. `setup.rs` now copies and starts under the gate, the
+  busy-launch test holds its handle inside the exclusive section (the retry logic is checked with a synthetic
+  ETXTBSY), the bound is 30 s, and `parallel_fixture_copies_and_launches_never_meet_a_busy_executable` runs
+  without any retry. Reproduced locally by pinning the test binary and two CPU hogs to two cores
+  (`taskset -c 0,1`); after the fix 60 of 60 runs are green there. Evidence: **ran locally** (Linux): 25 of 25 runs of the binary, and
+  60 runs of the four stress binaries with 64 threads under CPU load, free of failures; runner run: see below.
+
 - [x] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
   Cause: on Linux a forked child inherits every descriptor open at the fork until it execs, so a test that
   wrote a fake program and ran it (directly or through the hook script, which hides the failure) got `ETXTBSY`

@@ -132,12 +132,13 @@ fn the_instance_lock_is_released_when_the_owner_process_dies() {
     let ready = std::env::temp_dir().join(format!("{namespace}.ready"));
     let _ = std::fs::remove_file(&ready);
     let mut owner = support::OwnedChild(
-        std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "process_owner_helper", "--nocapture"])
-            .env("AHERALD_TEST_OWNER", &namespace)
-            .env("AHERALD_TEST_READY", &ready)
-            .spawn()
-            .unwrap(),
+        support::spawn(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "process_owner_helper", "--nocapture"])
+                .env("AHERALD_TEST_OWNER", &namespace)
+                .env("AHERALD_TEST_READY", &ready),
+        )
+        .unwrap(),
     );
     support::wait_until(
         Duration::from_secs(5),
@@ -188,7 +189,7 @@ fn a_stale_socket_file_is_replaced_by_the_new_owner() {
     let scope = scope("stale");
     // A dead resident leaves its socket file behind: bind one and drop the listener, which
     // closes the descriptor but does not unlink the path.
-    drop(UnixListener::bind(scope.socket_path()).unwrap());
+    support::without_forks(|| drop(UnixListener::bind(scope.socket_path()).unwrap()));
     assert!(scope.socket_path().exists());
     let _owner = scope.acquire().unwrap().unwrap();
     let (done, stop, thread) = serve(&scope, |_| status());
@@ -290,4 +291,29 @@ fn an_idle_accept_poll_returns_without_a_client() {
     let started = Instant::now();
     server.serve_once(|_| status()).unwrap();
     assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn a_stale_socket_is_replaced_while_other_threads_start_processes() {
+    // A child forked while the listener is bound keeps a copy of it until its exec, so the
+    // dead resident's socket would still accept connections and look alive.
+    let forker = std::thread::spawn(|| {
+        for _ in 0..600 {
+            support::spawn(&mut std::process::Command::new("true"))
+                .unwrap()
+                .wait()
+                .unwrap();
+        }
+    });
+    for round in 0..300 {
+        let scope = scope(&format!("stale-loop-{round}"));
+        support::without_forks(|| drop(UnixListener::bind(scope.socket_path()).unwrap()));
+        let _owner = scope.acquire().unwrap().unwrap();
+        let server = scope
+            .create_pipe()
+            .unwrap_or_else(|error| panic!("round {round}: {error}"));
+        drop(server);
+        let _ = std::fs::remove_file(scope.socket_path());
+    }
+    forker.join().unwrap();
 }

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: Runs of the three test binaries.
+        description: Runs of the four test binaries.
         default: "200"
       full:
         description: Full test runs afterwards.
