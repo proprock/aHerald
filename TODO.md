@@ -458,31 +458,15 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-249 — `[lints]` table: write the Windows SAFETY comments.**
-  Shipped on `chore/AH-249-lints-and-deny` (see DONE.md): `[workspace.lints]` with
-  `unsafe_op_in_unsafe_fn` and `clippy::undocumented_unsafe_blocks` at "warn" in both crates. Left: the Windows
-  modules `src/{resident,local,resident_overlay,tray,overlay,pipe,tray_native_tests,restart,audio_windows,
-  detached}.rs` and 19 Windows-dependent files in `tests/` carry `#![allow(clippy::undocumented_unsafe_blocks)]
-  // TODO(AH-249)`. Remove the attribute from one file at a time, write a real `// SAFETY:` comment for each
-  finding (never an empty one), and push; Windows CI is the only place to check it. Acceptance: no
-  `TODO(AH-249)` left and clippy `-D warnings` green on all three.
-
-- [ ] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
-  Move `package-*.sh`, `package-release.ps1`, `build-installer.ps1`, `check-release*.{sh,ps1}` into `scripts/`.
-  Add `scripts/version.sh` (`crate_version`, `require_tag_matches`) and `scripts/Version.ps1`, both based on
-  `cargo metadata --no-deps --format-version 1` (python3 or `ConvertFrom-Json`), so `tests/workspace.rs:26-35`'s
-  sed constraint can go. Update `ci.yml`, `release.yml`, `.github/platform-flags.sh` (one `scripts/*` rule per
-  OS suffix), `tests/ci_platform_flags.sh`, README and docs/portable.md. Keep `generate_*.rs` as Cargo examples
-  but move them to `examples/tools/` and update `[[example]]` paths.
-  Acceptance: the CI package steps and the nightly full run pass; `ls *.sh *.ps1` in the root is empty.
-
 - [ ] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
   Seen on 2026-11-05 on Linux, in full `cargo test --workspace --all-targets` runs and not in isolation:
   `tests/plugin_hook_script.rs::linux_override_passes_payload_and_suppresses_a_failing_program` and
   `::linux_portable_location_is_discovered` (the script's fake program never wrote its record file: the exec
   of a just-written script probably failed silently, which the hook script is built to hide) once; and
   `tests/setup.rs::a_transient_executable_write_handle_does_not_fail_fixture_launch` once. Each passed on an
-  immediate re-run (5 of 5, 25 of 25 in isolation); two other full runs were green. Likely cause: another
+  immediate re-run (5 of 5, 25 of 25 in isolation); two other full runs were green. Seen again in the full
+  local runs of PR #125: `codex_preserves_only_the_valid_stop_acknowledgement` once and five
+  `hook_file_location` tests (timeouts) once, each green alone. Likely cause: another
   test thread forks while a test still holds the write handle of the program it is about to start
   (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
   error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
@@ -496,6 +480,10 @@ P2 tasks run in the listed order; AH-266 goes last.
   equal. On the next nightly run: the four noisy tests run and pass or fail on their own, not skipped.
   Acceptance: the three logs, the two `--version` lines and the nightly log are recorded in DONE.md; a
   difference opens a ticket.
+  Also from AH-253 (scripts moved to `scripts/`): `package-macos.sh`, `package-dmg.sh` and
+  `check-release-macos.sh`/`check-release-dmg.sh` were checked only with `sh -n` and by reading, so the macOS
+  packaging and DMG steps of that release candidate must pass, and the nightly run (AH-282) must pass with the
+  moved Windows and Linux scripts.
 
 - [ ] **AH-281 — Screenshots and an animation in the README.**
   Show what the program looks like: the notification cards (input required, done, error, the usage
