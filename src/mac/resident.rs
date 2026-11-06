@@ -437,14 +437,10 @@ impl Ui {
                     }
                     Effect::Restart { test } => {
                         let (stop, waker) = (self.stop.clone(), self.waker.clone());
-                        crate::resident_request::restart(
-                            test,
-                            crate::restart::launch_with_test,
-                            move || {
-                                stop.store(true, Ordering::Release);
-                                waker.wake();
-                            },
-                        );
+                        crate::resident_request::restart(test, crate::restart::launch, move || {
+                            stop.store(true, Ordering::Release);
+                            waker.wake();
+                        });
                     }
                     Effect::Quit => self.stop.store(true, Ordering::Release),
                     Effect::ShowUsage { claude } => {
