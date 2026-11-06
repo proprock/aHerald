@@ -37,6 +37,16 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-259 — Shared resident state.**
+  `resident_request::Shared<T = ()>` (queue, warnings, paused, sounds, visuals, `ext: T`) with
+  `Shared::new(&Config, ext)` and one `Controls` impl replaces the three copies. Windows uses
+  `Shared<isize>` (`ext` is the raw window handle, was `window`); Linux and macOS use `Shared` and
+  `Shared::new(config, ())`. No behaviour change. New unit test: `new` follows the configured switches and
+  keeps the extra. No red phase was observed. Evidence: fmt, clippy, workspace tests (all pass except the known
+  `audio::serial` timing test, which failed once under load and passed 3 of 3 alone), the Linux extras
+  (`linux_apply --ignored`, the AH-283 test, `remote_listener` under Xephyr) **ran locally**; Windows clippy
+  lint **ran locally**, Windows tests and all macOS code **compiled/tested in CI only**.
+
 - [x] **AH-258 — Shared command effects.**
   `resident_request::apply(command, &mut impl Controls, config_path, now) -> Vec<Effect>` decides what a tray
   command does: it flips the switches (`Controls::set_switches`), the session-warning kinds, validates Apply

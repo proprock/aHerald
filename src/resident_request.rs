@@ -22,6 +22,52 @@ pub trait Controls {
     }
 }
 
+/// The state every resident shares between its event loop and its IPC listener; `ext` carries what
+/// only one platform needs (the Windows resident stores the raw handle of its window there).
+pub struct Shared<T = ()> {
+    pub queue: Queue,
+    pub warnings: crate::session_warnings::Warnings,
+    pub paused: bool,
+    pub sounds: bool,
+    pub visuals: bool,
+    pub ext: T,
+}
+
+impl<T> Shared<T> {
+    /// A resident's starting state: an empty queue, not paused, switches as configured.
+    pub fn new(config: &Config, ext: T) -> Self {
+        Self {
+            queue: Queue::new(64, config.general.deduplicate_ms),
+            warnings: Default::default(),
+            paused: false,
+            sounds: config.sounds.enabled,
+            visuals: config.notifications.enabled,
+            ext,
+        }
+    }
+}
+
+impl<T> Controls for Shared<T> {
+    fn queue(&mut self) -> &mut Queue {
+        &mut self.queue
+    }
+    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
+        &mut self.warnings
+    }
+    fn paused(&self) -> bool {
+        self.paused
+    }
+    fn sounds(&self) -> bool {
+        self.sounds
+    }
+    fn visuals(&self) -> bool {
+        self.visuals
+    }
+    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
+        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
+    }
+}
+
 /// Called by native loops even when the presentation queue is empty.
 pub fn tick(state: &mut impl Controls, settings: &Config, now: u64) {
     let paused = state.paused();
@@ -561,6 +607,19 @@ fn respond_with_focus(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_new_resident_state_follows_the_configured_switches_and_keeps_its_extra() {
+        let mut config = Config::default();
+        config.sounds.enabled = false;
+        config.notifications.enabled = true;
+        let mut shared = Shared::new(&config, 42_isize);
+        assert_eq!(shared.ext, 42);
+        assert!(!shared.paused() && !shared.sounds() && shared.visuals());
+        assert!(shared.queue().selected().is_none());
+        shared.set_switches(true, true, false);
+        assert!(shared.paused() && shared.sounds() && !shared.visuals());
+    }
+
     #[test]
     fn an_idle_resident_polls_for_usage_or_a_warning_deadline_and_for_nothing_else() {
         for codex_usage in [false, true] {
