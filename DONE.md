@@ -37,6 +37,17 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-287 — Windows and macOS prepare artwork through `ArtworkWorker`.**
+  `src/windows/resident_overlay.rs` and `src/mac/resident.rs` lost their own artwork worker threads (job and
+  result channels, `AssetCache`, the 30 ms `recv_timeout` poll) and hold an `artwork_worker::ArtworkWorker`
+  like the Linux resident; the worker blocks while idle, so the 30 ms periodic wake-up of those threads is
+  gone. Card logic is unchanged: `ART_WAIT_MS` (300 ms), resubmission on a scale change and the 16 ms timer
+  poll stay as they were. macOS wakes its loop when a result is ready; on Windows the existing timer keeps
+  polling. The worker is joined when the `Ui` is dropped. `artwork_worker` is now `pub(crate)`. No new tests
+  (the worker has its own, from AH-262). Evidence: fmt, clippy, workspace tests and doctests **ran locally** on
+  Linux; Windows clippy lint including the test targets **ran locally**; Windows tests (`tests/resident.rs`,
+  `native_overlay`) and all macOS code **compiled/tested in CI only**.
+
 - [x] **AH-266 (part 1) — Windows modules into `src/windows/`; platform flags.**
   The 13 Windows-only root modules (`console_window`, `detached`, `https`, `local`, `overlay`, `pipe`,
   `process_stats`, `resident`, `resident_overlay`, `restart`, `shell`, `tray`, `tray_native_tests`) and

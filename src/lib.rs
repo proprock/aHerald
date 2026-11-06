@@ -6,7 +6,7 @@ pub mod agent;
 pub mod animation;
 pub mod app_server;
 pub mod artwork;
-pub mod artwork_worker;
+pub(crate) mod artwork_worker;
 pub(crate) mod atomic_file;
 pub mod audio;
 pub mod bridge_setup;

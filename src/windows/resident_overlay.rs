@@ -2,6 +2,7 @@
 use crate::reentry::{Deferred, Gate};
 use crate::{
     animation::PreparedAnimation,
+    artwork_worker::ArtworkWorker,
     config::Config,
     notification::overlay::{CardText, Composition, Surface, event_card_text},
     resident::Shared,
@@ -11,7 +12,6 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
     time::Instant,
 };
@@ -37,15 +37,12 @@ fn fault(_: &std::path::Path, _: &str) -> bool {
 const ART_WAIT_MS: u64 = 300;
 /// A payload-free wake: quota data stays in the service under its own mutex.
 const USAGE_CHANGED: u32 = WM_APP + 2;
-/// Event id, the render scale the artwork was prepared at, and the artwork.
-type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
 struct Ui {
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
     config: Config,
     scale: f64,
-    jobs: Option<mpsc::SyncSender<(u64, crate::events::Event, f64)>>,
-    results: mpsc::Receiver<RenderResult>,
+    artwork: ArtworkWorker,
     composition: Option<Composition>,
     durations: Vec<u64>,
     looping: bool,
@@ -377,18 +374,13 @@ impl Ui {
             self.compose_due = true;
             // Artwork usually takes 0-130 ms; a stalled or missing worker must not hide
             // the notification, so the text card follows after the limit.
-            self.art_wait = self.jobs.as_ref().map(|_| now + ART_WAIT_MS);
+            self.art_wait = Some(now + ART_WAIT_MS);
         }
-        if self.pending
-            && self.jobs.as_ref().is_some_and(|tx| {
-                tx.try_send((entry.id, entry.event.clone(), self.scale))
-                    .is_ok()
-            })
-        {
+        if self.pending && self.artwork.submit(entry.id, &entry.event, self.scale) {
             self.pending = false;
         }
         let mut loaded = false;
-        while let Ok((id, scale, art)) = self.results.try_recv() {
+        while let Ok((id, scale, art)) = self.artwork.results.try_recv() {
             if Some(id) != self.selection {
                 continue;
             }
@@ -1099,53 +1091,7 @@ pub(super) fn run_preview(
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
     };
-    let (jobs_tx, jobs_rx) = mpsc::sync_channel::<(u64, crate::events::Event, f64)>(1);
-    let (results_tx, results_rx) = mpsc::sync_channel(1);
-    let assets = config.clone();
-    let done = stop.clone();
-    let worker = std::thread::spawn(move || {
-        let new_cache =
-            || crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
-        let mut cache = new_cache();
-        // Artwork is prepared for one render scale at a time; another monitor's DPI
-        // starts a fresh cache rather than mixing scales.
-        let mut cached_scale = 0.0;
-        while !done.load(Ordering::Acquire) {
-            match jobs_rx.recv_timeout(std::time::Duration::from_millis(30)) {
-                Ok((id, event, scale)) => {
-                    if scale != cached_scale {
-                        cache = new_cache();
-                        cached_scale = scale;
-                    }
-                    // Debug-build fault injection: artwork preparation stalls.
-                    if fault(&assets.diagnostic_directory, "slowart") {
-                        std::thread::sleep(std::time::Duration::from_millis(800));
-                    }
-                    let art =
-                        cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
-                            crate::artwork::prepared_for_event(&assets, &event, scale)
-                                .ok()
-                                .flatten()
-                        });
-                    let mut result = (id, scale, art);
-                    loop {
-                        match results_tx.try_send(result) {
-                            Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => break,
-                            Err(mpsc::TrySendError::Full(value)) => {
-                                result = value;
-                                if done.load(Ordering::Acquire) {
-                                    return;
-                                }
-                                std::thread::park_timeout(std::time::Duration::from_millis(2));
-                            }
-                        }
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => break,
-            }
-        }
-    });
+    let artwork = ArtworkWorker::spawn(&config, || {});
     let claude = claude_usage(&config);
     // With Codex usage polling on, session names share its app-server child.
     let source_labels = if config.codex.usage.enabled {
@@ -1162,8 +1108,7 @@ pub(super) fn run_preview(
             stop: stop.clone(),
             config,
             scale,
-            jobs: Some(jobs_tx),
-            results: results_rx,
+            artwork,
             composition: None,
             durations: vec![1000],
             looping: false,
@@ -1308,8 +1253,6 @@ pub(super) fn run_preview(
     let ui = ui();
     ui.audio_cancel.store(true, Ordering::Release);
     ui.tray.take();
-    ui.jobs.take();
-    let _ = worker.join();
     for job in ui.audio.drain(..) {
         let _ = job.join();
     }
@@ -1499,6 +1442,7 @@ mod usage_wake_tests {
         usage::Snapshot,
         usage_service::{Service, UsageSource},
     };
+    use std::sync::mpsc;
     use std::time::Duration;
 
     #[test]
