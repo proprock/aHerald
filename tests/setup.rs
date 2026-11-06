@@ -1129,28 +1129,32 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
 #[test]
 fn a_transient_executable_write_handle_does_not_fail_fixture_launch() {
     let app = Install::new("busy-launch");
-    let mut writer = Some(
-        std::fs::OpenOptions::new()
+    // The kernel really answers ETXTBSY while a write handle is open. The handle lives only
+    // inside the exclusive gate section, so no sibling thread's fork can copy it and keep it
+    // past the test's own release.
+    support::without_forks(|| {
+        let writer = std::fs::OpenOptions::new()
             .write(true)
             .open(&app.exe)
-            .unwrap(),
-    );
+            .unwrap();
+        let error = Command::new(&app.exe)
+            .arg("--version")
+            .spawn()
+            .expect_err("a file open for writing cannot be executed");
+        assert_eq!(error.raw_os_error(), Some(26));
+        drop(writer);
+    });
+    // The retry: the first start meets the busy error, the second one is the real start.
     let mut attempts = 0;
     let child = spawn_fixture(|| {
         attempts += 1;
-        let result = Command::new(&app.exe)
+        if attempts == 1 {
+            return Err(std::io::Error::from_raw_os_error(26));
+        }
+        Command::new(&app.exe)
             .arg("--version")
             .stdout(std::process::Stdio::piped())
-            .spawn();
-        if attempts == 1 {
-            assert_eq!(
-                result.as_ref().err().and_then(|e| e.raw_os_error()),
-                Some(26)
-            );
-            // Release the real writer after observing the kernel error.
-            drop(writer.take());
-        }
-        result
+            .spawn()
     })
     .expect("a transient ETXTBSY must not abort the fixture launch");
     let output = finish(child);
@@ -1159,8 +1163,7 @@ fn a_transient_executable_write_handle_does_not_fail_fixture_launch() {
         String::from_utf8_lossy(&output.stdout).trim(),
         aherald::version_line()
     );
-    // At least one retry: a sibling test's fork may also hold a write handle for a moment.
-    assert!(attempts >= 2, "attempts: {attempts}");
+    assert_eq!(attempts, 2);
 }
 
 #[test]
