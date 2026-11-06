@@ -6,6 +6,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// How long a test lets a program it starts (a hook, the CLI) run before it counts as hung. The bound
+/// only matters when the child hangs, so it is generous: a full test run on a loaded machine can
+/// delay a start by seconds. Tests that assert how fast something is keep their own short bound.
+pub const START_BOUND: Duration = Duration::from_secs(30);
+
 #[cfg(windows)]
 pub mod detached;
 pub mod fake_http;

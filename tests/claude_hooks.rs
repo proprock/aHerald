@@ -8,7 +8,7 @@ fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
             .args(["--config", "tests/fixtures/quiet.toml"])
             .stdin(Stdio::piped()),
         input,
-        std::time::Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap()
 }

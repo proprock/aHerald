@@ -107,7 +107,7 @@ fn hook(exe: &Path, cwd: &Path, appdata: &Path, args: &[&std::ffi::OsStr]) -> st
             .env("APPDATA", appdata)
             .stdin(Stdio::piped()),
         br#"{"hook_event_name":"Unknown"}"#,
-        std::time::Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap()
 }

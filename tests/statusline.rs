@@ -11,7 +11,7 @@ fn run(args: &[&str], input: &str) -> std::process::Output {
             .args(args)
             .stdin(Stdio::piped()),
         input.as_bytes(),
-        std::time::Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap()
 }
