@@ -61,7 +61,8 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   StatusNotifierItem `ToolTip` over D-Bus: it shows the new numbers within 500 ms. Evidence: **ran locally**
   (Linux, Xephyr nested X server and `dbus-run-session`, as Xvfb is not installed here): 5 of 5 green in 0.5 s;
   with the `on_change` wiring removed the test fails ("the tray never showed the snapshot"). A new CI step
-  runs it with `xvfb-run`; **compiled/tested in CI only** for that step.
+  runs it with `xvfb-run`: **ran in CI** (ubuntu-22.04, PR #128 run
+  https://github.com/proprock/aHerald/actions/runs/42171895666): the step is green, the test passes in 0.51 s.
 
 - [x] **AH-231 — Linux resident: no periodic wake-ups while idle (one check is left, AH-283).**
   The loop in `src/linux/resident.rs` no longer sleeps 16 ms per pass. `linux::wake::timeout(busy,
