@@ -886,22 +886,24 @@ unsafe fn tray_callback(w: &Window, hwnd: HWND, message: Deferred) {
     unsafe {
         let Some(menu) = w.with_ui(message, |ui| {
             let (codex, claude) = ui.menu_lines();
-            crate::tray::Menu::new(
-                ui.config.sounds.enabled,
-                ui.config.notifications.enabled,
-                crate::forward::enabled(),
-                ui.shared.lock().ok().is_some_and(|s| s.paused),
-                ui.shared
+            crate::tray::Menu::new(&crate::tray_menu::MenuState {
+                sound: ui.config.sounds.enabled,
+                visual: ui.config.notifications.enabled,
+                messenger: crate::forward::enabled(),
+                paused: ui.shared.lock().ok().is_some_and(|s| s.paused),
+                context: ui
+                    .shared
                     .lock()
                     .ok()
                     .is_some_and(|s| s.warnings.enabled(crate::events::Kind::ContextWarning)),
-                ui.shared
+                idle: ui
+                    .shared
                     .lock()
                     .ok()
                     .is_some_and(|s| s.warnings.enabled(crate::events::Kind::IdleWarning)),
-                codex.as_deref(),
-                claude.as_deref(),
-            )
+                codex,
+                claude,
+            })
         }) else {
             return;
         };

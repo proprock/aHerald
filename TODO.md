@@ -524,15 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-257 — Shared tray menu model.**
-  Generalize the pure `src/mac/menu.rs` into `src/tray_menu.rs`: `enum Command` (Pause, Sound, Popup,
-  Messenger, ContextWarnings, IdleWarnings, Usage, EditConfig, Apply, ApplyTest, About, Quit, …), `struct Item
-  { command, label, checked, enabled, separator_before }`, and `fn items(state: &MenuState) -> Vec<Item>`.
-  Windows (`tray.rs:9-22,207-258`) maps `Command` ↔ numeric IDs with a `match`; Linux (`linux/tray.rs:137-185`)
-  maps it to dbusmenu IDs; macOS uses it directly. Labels exist only in `tray_menu.rs`. Acceptance: the pure
-  tests (order, separators, Messenger only with a sink, checked states) run on Linux; all three CI legs pass;
-  manual check lines for each OS's tray.
-
 - [ ] **AH-258 — Shared command effects.**
   Depends on AH-257. Add `fn apply(command, &mut Shared, &Config) -> Vec<Effect>` to `src/resident_request.rs`,
   with `Effect` covering Redraw, CancelAudio, OpenConfig, Restart{test}, ShowNotice(..), Quit and the rest. The
@@ -631,3 +622,10 @@ P2 tasks run in the listed order; AH-266 goes last.
   existing sink tests pass with the default message unchanged; `docs/privacy.md` and `docs/configuration.md`
   updated; the usual checks on Linux and CI on the three platforms; one manual check on a real messenger
   (record what it showed) with `include_host = true` on each platform.
+
+- [ ] **AH-286 — Hand check of the shared tray menu on Windows and macOS.**
+  Depends on AH-257. Open the tray menu on a Windows 10/11 machine and on a Mac and compare it with the Linux
+  tray: the same entries in the same order (usage lines, Sound, Pop-up, Messenger only with a sink, Pause
+  notifications, Context warnings, Idle warnings, version, Edit configuration, Apply + Test, Apply, Exit), the
+  separators above Sound (only with usage lines), Context warnings, the version and Edit configuration, and the
+  check marks following the switches. Acceptance: one line per OS with the OS version in `DONE.md`.

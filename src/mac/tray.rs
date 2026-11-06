@@ -1,9 +1,10 @@
-//! The status item: a two-bar quota icon and the menu of `menu::items`. Main thread only.
-use super::{
-    geometry::Rect,
-    menu::{Command, Item},
+//! The status item: a two-bar quota icon and the menu of `tray_menu::items`. Main thread only.
+use super::geometry::Rect;
+use crate::{
+    config::TrayStyle,
+    tray_menu::{Command, Item},
+    tray_usage::Levels,
 };
-use crate::{config::TrayStyle, tray_usage::Levels};
 use objc2::{
     DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, rc::Retained, sel,
 };
