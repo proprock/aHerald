@@ -57,6 +57,53 @@ pub struct Response {
     pub retry_after: Option<Duration>,
 }
 
+/// Blocking GET to `https://host/path`; `headers` is CRLF-separated `Name: value` lines.
+pub fn get(
+    host: &str,
+    path: &str,
+    headers: &str,
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    get_at(true, host, 443, path, headers, timeout)
+}
+
+/// Blocking POST to `https://host/path` with `body`; `headers` as in `get`.
+pub fn post(
+    host: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    post_at(true, host, 443, path, headers, body, timeout)
+}
+
+/// `post` with an explicit scheme and port; plain HTTP exists only for loopback tests.
+pub fn post_at(
+    secure: bool,
+    host: &str,
+    port: u16,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    crate::https::request_at(Some(body), secure, host, port, path, headers, timeout)
+}
+
+/// `get` with an explicit scheme and port; plain HTTP exists only so tests can use a
+/// loopback endpoint.
+pub fn get_at(
+    secure: bool,
+    host: &str,
+    port: u16,
+    path: &str,
+    headers: &str,
+    timeout: Duration,
+) -> Result<Response, HttpError> {
+    crate::https::request_at(None, secure, host, port, path, headers, timeout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -148,6 +148,8 @@ pub mod linux;
 #[cfg(windows)]
 pub mod resident;
 
+#[cfg(test)]
+mod platform_contract;
 pub mod queue;
 mod resident_client;
 pub mod resident_request;

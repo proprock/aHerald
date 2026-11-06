@@ -7,11 +7,7 @@ use std::{
 
 const PARENT_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub fn launch() -> Result<(), String> {
-    launch_with_test(false)
-}
-
-pub fn launch_with_test(test: bool) -> Result<(), String> {
+pub fn launch(test: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate executable: {e}"))?;
     let mut args = vec![
         OsString::from("--restart-child"),

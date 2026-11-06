@@ -27,43 +27,11 @@ impl Drop for Handle {
     }
 }
 
-/// Blocking GET to `https://host/path`; `headers` is CRLF-separated `Name: value` lines.
-pub fn get(
-    host: &str,
-    path: &str,
-    headers: &str,
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    get_at(true, host, 443, path, headers, timeout)
-}
+pub use crate::http_common::{get, get_at, post, post_at};
 
-/// Blocking POST to `https://host/path` with `body`; `headers` as in `get`.
-pub fn post(
-    host: &str,
-    path: &str,
-    headers: &str,
-    body: &[u8],
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    post_at(true, host, 443, path, headers, body, timeout)
-}
-
-/// `post` with an explicit scheme and port; plain HTTP exists only for loopback tests.
-pub fn post_at(
-    secure: bool,
-    host: &str,
-    port: u16,
-    path: &str,
-    headers: &str,
-    body: &[u8],
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    request_at("POST", secure, host, port, path, headers, body, timeout)
-}
-
-/// `get` with an explicit scheme and port; plain HTTP exists only so tests can use a
-/// loopback endpoint.
-pub fn get_at(
+/// A GET when `body` is `None`, otherwise a POST of that body.
+pub(crate) fn request_at(
+    body: Option<&[u8]>,
     secure: bool,
     host: &str,
     port: u16,
@@ -71,20 +39,10 @@ pub fn get_at(
     headers: &str,
     timeout: Duration,
 ) -> Result<Response, HttpError> {
-    request_at("GET", secure, host, port, path, headers, &[], timeout)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn request_at(
-    method: &str,
-    secure: bool,
-    host: &str,
-    port: u16,
-    path: &str,
-    headers: &str,
-    body: &[u8],
-    timeout: Duration,
-) -> Result<Response, HttpError> {
+    let (method, body) = match body {
+        Some(body) => ("POST", body),
+        None => ("GET", &[][..]),
+    };
     let ms = timeout.as_millis().min(i32::MAX as u128) as i32;
     // SAFETY: every pointer passed below references live, initialized data for the duration of
     // each synchronous call, and every returned handle is owned by a `Handle` guard that is

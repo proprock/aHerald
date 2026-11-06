@@ -502,14 +502,10 @@ impl Ui {
             }
             Effect::Restart { test } => {
                 let (stop, wake) = (self.stop.clone(), self.wake.clone());
-                crate::resident_request::restart(
-                    test,
-                    crate::restart::launch_with_test,
-                    move || {
-                        stop.store(true, Ordering::Release);
-                        wake.signal();
-                    },
-                );
+                crate::resident_request::restart(test, crate::restart::launch, move || {
+                    stop.store(true, Ordering::Release);
+                    wake.signal();
+                });
             }
             Effect::OpenConfig => crate::resident_request::open_configuration(
                 self.config_path

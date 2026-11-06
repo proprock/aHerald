@@ -54,6 +54,20 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   **ran locally**; Windows tests and macOS **compiled/tested in CI only**; the look of the cards on a real
   desktop is **not checked** (AH-288).
 
+- [x] **AH-263 — Compile-time contract for platform twins.**
+  `restart::launch(test: bool)` is the only launcher on both OSes (the Unix no-argument `launch` and
+  `launch_with_test` are gone; Linux and macOS call `launch`). `shell::open` returns `Result<(), String>` on
+  Windows too. `get`, `post`, `get_at` and `post_at` live once in `http_common.rs` over the per-OS
+  `https::request_at(body: Option<&[u8]>, secure, host, port, path, headers, timeout)`; the Windows one lost its
+  `too_many_arguments` allow. `src/platform_contract.rs` (`#[cfg(test)]`) pins `restart::{launch,
+  wait_for_parent}`, `shell::{open, edit_configuration}`, `ipc::pipe::{request, request_if_running}`,
+  `local::Scope::{current, acquire, create_pipe}`, `detached::{spawn, Child::*}` and `https::request_at` with
+  `const _: fn(..) -> .. = path;`, so a drifting twin fails to compile on its own CI leg. No behaviour change
+  besides the Windows `shell::open` error type. No red phase was observed. Evidence: fmt, clippy (also with
+  `--no-default-features`), workspace tests and doctests, **ran locally** on Linux; Windows clippy lint with the
+  contract module **ran locally** (it compiles there), Windows tests and macOS code **compiled/tested in CI
+  only**. One run of the workspace tests failed `config_portable` (`hook` helper unwrap, 3 s bound) under
+  load and passed 3 of 3 alone and in the next full run; it belongs to the fork/load flake family of AH-284.
 - [x] **AH-261 — Shared usage view.**
   `tray_usage::Views` (the Codex and optional Claude `View`s plus `[codex.usage] enabled`) now decides in one
   place which agents are listed (`codex_shown`: Codex when its usage is on or Claude is absent), builds the

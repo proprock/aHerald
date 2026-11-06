@@ -524,14 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-263 — Compile-time contract for platform twins.**
-  Align the signatures: `restart::launch(test: bool)` on both (delete the unused `unix/restart.rs:10 launch()`),
-  and `shell::open -> Result<(), String>` on both. Add `src/platform_contract.rs` (`#[cfg(test)]`) that pins
-  each twin with `const _: fn(bool) -> … = crate::restart::launch;`, and the same for `pipe::request`,
-  `local::Scope`, `detached`, `https::request_at` and `shell::open`. Collapse the duplicated
-  `get/post/get_at/post_at` wrappers into `http_common.rs` over the per-OS `request_at`. Acceptance: the
-  contract module compiles in all three CI legs.
-
 - [ ] **AH-266 — Windows modules into `src/windows/`; fewer test binaries.**
   Depends on AH-257…AH-263 being merged (to avoid conflicts). `git mv` the Windows-only root modules into
   `src/windows/` (`#[path]` wiring in `lib.rs` as for `unix/`), make the 7 unused `pub mod`s `pub(crate)`, and
