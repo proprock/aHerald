@@ -8,6 +8,21 @@ aherald \- desktop notifications for coding agents
 aHerald delivers notifications for configured coding agents.
 .SH OPTIONS
 .TP
+.B --hook \fR[\fB--agent \fIclaude\fR|\fIcodex\fR]
+Read one hook payload from standard input; Codex unless \fB--agent claude\fR is given.
+.TP
+.B --notify \fIHARNESS\fB --kind \fIKIND\fR [\fB--activity\fR|\fB--ended\fR]
+Report an event of a harness without hooks (OpenCode, Pi, Goose, Crush).
+\fIKIND\fR is turn_complete, permission_required, input_required, error or interrupted.
+\fB--activity\fR reports that work resumed; \fB--ended\fR that the session ended (evidence only, never shown).
+.TP
+.B --demo \fR[\fISECONDS\fR]
+Loop a configuration preview; exit through its tray menu.
+.TP
+.B --setup --harness \fINAME\fR
+Configure the selected harnesses for this executable (a dry run unless \fB--apply\fR is given).
+Use \fB--setup-executable \fIPATH\fR to bind the hooks to another executable.
+.TP
 .B --console-setup
 Interactively select user hook integrations and usage settings.
 .TP

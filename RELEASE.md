@@ -58,8 +58,9 @@ explicit go-ahead.
 3. The workflow runs:
    - `verify_tag`: the tag is `vX.Y.Z[-pre]`, is an annotated or lightweight tag, and is
      reachable from `master`;
-   - four package jobs in parallel, each checking that the tag equals the crate version, running
-     the test suite, building, packaging, verifying a clean extraction, attesting build
+   - `package` (the reusable `package.yml`, which the nightly workflow also calls) runs four jobs in
+     parallel, each checking that the tag equals the crate version, running the test suite without
+     the noisy timing and memory checks (the nightly run keeps them), building, packaging, verifying a clean extraction, attesting build
      provenance and uploading the artifacts with `.sha256` files: Windows x64, macOS arm64,
      Linux x86-64 GNU, `aherald-ping` for Linux musl (x86_64 and aarch64, plus a container test);
    - `draft_release`: checks that every platform delivered its files and checksums, extracts the

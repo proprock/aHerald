@@ -10,8 +10,12 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-06
+
 ### Added
 - A rolling `nightly` prerelease: a green nightly run on `master` replaces it with fresh builds for every platform, and a night without changes builds nothing. See `docs/nightly.md`.
+- A webhook that answers HTTP 429 or 503 with `Retry-After` is retried after that delay (at most 30
+  seconds) instead of the fixed two seconds (AH-245).
 
 ### Changed
 - The README now shows Linux demo cards and a short animation; remaining screenshots are tracked in AH-281 in `TODO.md`.
@@ -45,10 +49,6 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   `CODEX_HOME` when they are set, like `--setup`; they used the home directory only (AH-234).
 - The Claude plugin manifest reported version 0.1.0; it now carries the version of the program, and a
   test keeps it there (AH-236).
-
-### Added
-- A webhook that answers HTTP 429 or 503 with `Retry-After` is retried after that delay (at most 30
-  seconds) instead of the fixed two seconds (AH-245).
 
 ## [0.15.0] - 2026-11-05
 
@@ -507,6 +507,7 @@ configuration work.
   by user id only; there is no logon-session equivalent.
 
 [Unreleased]: https://github.com/proprock/aHerald/compare/v0.15.0...HEAD
+[0.16.0]: https://github.com/proprock/aHerald/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/proprock/aHerald/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/proprock/aHerald/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/proprock/aHerald/compare/v0.12.0...v0.13.0

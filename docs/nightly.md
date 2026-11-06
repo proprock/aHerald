@@ -7,7 +7,7 @@ prerelease **aHerald Nightly**: <https://github.com/proprock/aHerald/releases/ta
 ## Stable or nightly
 
 - A nightly is the latest green `master`. It carries the version of `Cargo.toml`, so its files
-  are named like the stable ones (`aherald-v0.15.0-windows-x64.zip`); the release notes name the
+  are named like the stable ones (`aherald-v<version>-windows-x64.zip`); the release notes name the
   commit and the UTC build time.
 - Like the stable builds it is unsigned (the macOS app is ad-hoc signed, not notarized). It may
   break and is not meant for production. The Homebrew cask never points to it.
