@@ -41,6 +41,13 @@ pub fn id(command: crate::tray_menu::Command) -> usize {
     }
 }
 
+/// The menu command a numeric tray command stands for.
+pub fn command(number: usize) -> Option<crate::tray_menu::Command> {
+    crate::tray_menu::Command::ALL
+        .into_iter()
+        .find(|c| id(*c) == number)
+}
+
 pub struct Icon {
     data: NOTIFYICONDATAW,
     pub taskbar_created: u32,

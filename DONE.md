@@ -37,6 +37,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-258 — Shared command effects.**
+  `resident_request::apply(command, &mut impl Controls, config_path, now) -> Vec<Effect>` decides what a tray
+  command does: it flips the switches (`Controls::set_switches`), the session-warning kinds, validates Apply
+  (`apply_outcome`) and returns `Effect`s (`SwitchesChanged`, `CancelAudio`/`ResumeAudio`, `Redraw`,
+  `ToggleMessenger`, `OpenConfig`, `ShowNotice`, `Restart{test}`, `Quit`, `ShowUsage{claude}`, `ShowAbout`).
+  The Windows (`resident_overlay.rs`), Linux and macOS dispatchers now only translate their event to a
+  `Command` (Windows: `tray::command(id)`) and execute the effects; the audio flag, the configuration editor
+  thread and the restart thread are shared helpers (`apply_audio_effect`, `open_configuration`, `restart`).
+  `Shared::toggle_warning` is gone. Unit tests: switches and audio, warning kinds, plain commands, Apply with a
+  loadable and a broken configuration, the audio flag. The usage and About cards stay per platform because
+  their card state differs (AH-259 and AH-262 come next). Small differences from before: the configuration
+  editor failure is also printed to stderr on every OS, and an Apply refusal prints the notice text. No red phase
+  was observed for the new tests. Evidence: fmt, clippy, workspace tests (one timing test, `audio::serial`
+  `a_repeat_may_sound_again…`, failed once while other builds ran and passed in isolation 3 of 3), the Linux
+  extras (`linux_apply --ignored`, the AH-283 test, `remote_listener`) **ran locally**; Windows clippy lint
+  **ran locally**, Windows tests and all macOS code **compiled/tested in CI only**.
+
 - [x] **AH-257 — Shared tray menu model.**
   `src/mac/menu.rs` became `src/tray_menu.rs`: `Command`, `Item`, `MenuState` and `items(&MenuState)` are the
   only place with the entries, labels, order, separators and check marks. Windows (`tray::Menu::new(&MenuState)`,

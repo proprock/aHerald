@@ -14,6 +14,7 @@ pub trait Controls {
     fn paused(&self) -> bool;
     fn sounds(&self) -> bool;
     fn visuals(&self) -> bool;
+    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool);
     /// Called for each event the queue accepted as a new card, for the messenger sinks. It must
     /// return at once; the default hands it to the resident's sinks (`crate::forward`).
     fn forward(&mut self, event: &crate::events::Event) {
@@ -110,6 +111,132 @@ pub struct Effects {
     /// A valid event produced no card on purpose; log why (`disabled`, `duplicate`, `obsolete`)
     /// once the state lock is released.
     pub dropped: Option<&'static str>,
+}
+
+/// What the caller of [`apply`] still has to do for a tray command, on its own window system.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// A switch (sound, pop-up, pause, a warning) changed: refresh whatever shows it, such as
+    /// the configuration copy or the tray's check marks, from the state.
+    SwitchesChanged,
+    /// Muting or pausing silences what is playing.
+    CancelAudio,
+    /// Sound is on again: the next sound starts with a fresh cancel flag.
+    ResumeAudio,
+    /// The card on screen must be drawn again.
+    Redraw,
+    ToggleMessenger,
+    OpenConfig,
+    /// Apply was refused: say this on a notice card; the running resident stays.
+    ShowNotice(String),
+    /// Apply was accepted: start the replacement resident (`test` shows the test cards).
+    Restart {
+        test: bool,
+    },
+    Quit,
+    /// The usage line of Claude (`claude`) or Codex was chosen.
+    ShowUsage {
+        claude: bool,
+    },
+    ShowAbout,
+}
+
+/// What a tray command does to the resident's state, and the effects left for the window system.
+/// `now` is the resident clock in milliseconds. The state changes here; nothing else does.
+pub fn apply(
+    command: crate::tray_menu::Command,
+    state: &mut impl Controls,
+    config_path: &std::path::Path,
+    now: u64,
+) -> Vec<Effect> {
+    use crate::{events::Kind, tray_menu::Command as C};
+    match command {
+        C::Sound | C::Visual | C::Pause | C::ContextWarnings | C::IdleWarnings => {
+            let paused = state.paused();
+            state.queue().tick(now, paused);
+            let (mut paused, mut sounds, mut visuals) =
+                (state.paused(), state.sounds(), state.visuals());
+            match command {
+                C::Sound => sounds = !sounds,
+                C::Visual => visuals = !visuals,
+                C::Pause => paused = !paused,
+                _ => {
+                    let kind = if command == C::ContextWarnings {
+                        Kind::ContextWarning
+                    } else {
+                        Kind::IdleWarning
+                    };
+                    let enabled = !state.warnings().enabled(kind);
+                    state.warnings().set_enabled(kind, enabled);
+                }
+            }
+            state.set_switches(paused, sounds, visuals);
+            let audio = if !sounds || paused {
+                Effect::CancelAudio
+            } else {
+                Effect::ResumeAudio
+            };
+            vec![Effect::SwitchesChanged, audio, Effect::Redraw]
+        }
+        C::Messenger => vec![Effect::ToggleMessenger],
+        C::Config => vec![Effect::OpenConfig],
+        // A replacement that cannot load its configuration would exit silently and leave no
+        // resident: validate first and keep the running one.
+        C::Apply | C::ApplyTest => match apply_outcome(config_path) {
+            Err(error) => vec![Effect::ShowNotice(error.message())],
+            Ok(_) => vec![Effect::Restart {
+                test: command == C::ApplyTest,
+            }],
+        },
+        C::Exit => vec![Effect::Quit],
+        C::CodexSummary | C::ClaudeSummary => vec![Effect::ShowUsage {
+            claude: command == C::ClaudeSummary,
+        }],
+        C::About => vec![Effect::ShowAbout],
+    }
+}
+
+/// Carries out [`Effect::CancelAudio`] and [`Effect::ResumeAudio`] on the resident's cancel flag.
+pub fn apply_audio_effect(
+    effect: &Effect,
+    cancel: &mut std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    match effect {
+        Effect::CancelAudio => cancel.store(true, Ordering::Release),
+        Effect::ResumeAudio if cancel.load(Ordering::Acquire) => {
+            *cancel = std::sync::Arc::new(AtomicBool::new(false));
+        }
+        _ => {}
+    }
+}
+
+/// [`Effect::OpenConfig`]: the editor may block, so it runs on its own thread; a failure is said
+/// on a card because the resident has no console.
+pub fn open_configuration(path: &std::path::Path) {
+    let path = path.to_owned();
+    std::thread::spawn(move || {
+        if let Err(error) = crate::shell::edit_configuration(&path) {
+            crate::notice::post(&error);
+            eprintln!("aHerald: {error}");
+        }
+    });
+}
+
+/// [`Effect::Restart`]: starts the replacement with `launch` on its own thread and runs `stopped`
+/// once it is up; a failure is said on a card.
+pub fn restart(
+    test: bool,
+    launch: fn(bool) -> Result<(), String>,
+    stopped: impl FnOnce() + Send + 'static,
+) {
+    std::thread::spawn(move || match launch(test) {
+        Ok(()) => stopped(),
+        Err(error) => {
+            crate::notice::post(&format!("Apply failed: {error}"));
+            eprintln!("aHerald: {error}");
+        }
+    });
 }
 
 /// Failure episodes belong to one listener. Status polling does not constitute recovery.
@@ -481,6 +608,9 @@ mod tests {
         }
         fn visuals(&self) -> bool {
             self.visuals
+        }
+        fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
+            (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
         }
     }
     fn state(capacity: usize) -> State {
@@ -1131,5 +1261,116 @@ mod tests {
             0,
         );
         assert!(matches!(response, Response::Rejected));
+    }
+
+    mod tray_commands {
+        use super::*;
+        use crate::{events::Kind, tray_menu::Command};
+        use std::path::Path;
+
+        fn run(state: &mut State, command: Command) -> Vec<Effect> {
+            apply(command, state, Path::new("missing.toml"), 5)
+        }
+        fn with(paused: bool, sounds: bool, visuals: bool) -> State {
+            State {
+                paused,
+                sounds,
+                visuals,
+                ..state(4)
+            }
+        }
+
+        #[test]
+        fn each_switch_flips_alone_and_audio_follows_sound_and_pause() {
+            let mut s = with(false, true, true);
+            assert_eq!(
+                run(&mut s, Command::Sound),
+                [Effect::SwitchesChanged, Effect::CancelAudio, Effect::Redraw]
+            );
+            assert_eq!((s.paused, s.sounds, s.visuals), (false, false, true));
+            assert_eq!(run(&mut s, Command::Sound)[1], Effect::ResumeAudio);
+            assert_eq!(run(&mut s, Command::Visual)[1], Effect::ResumeAudio);
+            assert_eq!((s.paused, s.sounds, s.visuals), (false, true, false));
+            assert_eq!(run(&mut s, Command::Pause)[1], Effect::CancelAudio);
+            assert!(s.paused);
+            assert_eq!(run(&mut s, Command::Pause)[1], Effect::ResumeAudio);
+        }
+
+        #[test]
+        fn warning_switches_flip_their_kind_only() {
+            let mut s = with(false, true, true);
+            let before = s.warnings.enabled(Kind::IdleWarning);
+            run(&mut s, Command::ContextWarnings);
+            assert_eq!(s.warnings.enabled(Kind::IdleWarning), before);
+            let context = s.warnings.enabled(Kind::ContextWarning);
+            run(&mut s, Command::ContextWarnings);
+            assert_ne!(s.warnings.enabled(Kind::ContextWarning), context);
+            run(&mut s, Command::IdleWarnings);
+            assert_ne!(s.warnings.enabled(Kind::IdleWarning), before);
+        }
+
+        #[test]
+        fn plain_commands_only_ask_for_their_effect() {
+            let mut s = with(false, true, true);
+            for (command, effects) in [
+                (Command::Messenger, vec![Effect::ToggleMessenger]),
+                (Command::Config, vec![Effect::OpenConfig]),
+                (Command::Exit, vec![Effect::Quit]),
+                (Command::About, vec![Effect::ShowAbout]),
+                (
+                    Command::ClaudeSummary,
+                    vec![Effect::ShowUsage { claude: true }],
+                ),
+                (
+                    Command::CodexSummary,
+                    vec![Effect::ShowUsage { claude: false }],
+                ),
+            ] {
+                assert_eq!(run(&mut s, command), effects, "{command:?}");
+            }
+            assert_eq!((s.paused, s.sounds, s.visuals), (false, true, true));
+        }
+
+        #[test]
+        fn apply_restarts_only_with_a_loadable_configuration() {
+            let mut s = with(false, true, true);
+            let refused = run(&mut s, Command::Apply);
+            let [Effect::ShowNotice(message)] = refused.as_slice() else {
+                panic!("{refused:?}");
+            };
+            assert!(message.starts_with("Apply cancelled"), "{message}");
+            let dir = std::env::temp_dir().join(format!("aherald-apply-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("config.toml");
+            std::fs::write(&file, "").unwrap();
+            for (command, test) in [(Command::Apply, false), (Command::ApplyTest, true)] {
+                assert_eq!(apply(command, &mut s, &file, 5), [Effect::Restart { test }]);
+            }
+            std::fs::write(&file, "invalid = [").unwrap();
+            assert!(matches!(
+                apply(Command::ApplyTest, &mut s, &file, 5).as_slice(),
+                [Effect::ShowNotice(_)]
+            ));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+
+        #[test]
+        fn audio_effects_cancel_the_flag_and_renew_it_only_once_cancelled() {
+            use std::sync::{
+                Arc,
+                atomic::{AtomicBool, Ordering},
+            };
+            let mut flag = Arc::new(AtomicBool::new(false));
+            let first = flag.clone();
+            apply_audio_effect(&Effect::ResumeAudio, &mut flag);
+            assert!(
+                Arc::ptr_eq(&flag, &first),
+                "nothing cancelled, nothing renewed"
+            );
+            apply_audio_effect(&Effect::CancelAudio, &mut flag);
+            assert!(first.load(Ordering::Acquire));
+            apply_audio_effect(&Effect::ResumeAudio, &mut flag);
+            assert!(!Arc::ptr_eq(&flag, &first) && !flag.load(Ordering::Acquire));
+        }
     }
 }

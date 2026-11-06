@@ -34,12 +34,6 @@ struct Shared {
     sounds: bool,
     visuals: bool,
 }
-impl Shared {
-    fn toggle_warning(&mut self, kind: crate::events::Kind) {
-        let enabled = !self.warnings.enabled(kind);
-        self.warnings.set_enabled(kind, enabled);
-    }
-}
 impl crate::resident_request::Controls for Shared {
     fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
         &mut self.warnings
@@ -55,6 +49,9 @@ impl crate::resident_request::Controls for Shared {
     }
     fn visuals(&self) -> bool {
         self.visuals
+    }
+    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
+        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
     }
 }
 fn shared(config: &Config) -> Arc<Mutex<Shared>> {
@@ -406,112 +403,90 @@ fn present(
         }
         if let Some(tray) = &tray {
             for command in tray.commands.try_iter() {
-                use super::tray::Command;
-                match command {
-                    Command::Exit => stop.store(true, Ordering::Release),
-                    Command::CodexSummary | Command::ClaudeSummary => {
-                        let selected_claude = command == Command::ClaudeSummary;
-                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                        if guard.queue.selected().is_some_and(|entry| entry.is_usage())
-                            && !about_open
-                            && usage_claude == selected_claude
-                        {
-                            guard.queue.dismiss();
-                        } else {
-                            guard.queue.show_usage();
-                            about_open = false;
-                            usage_claude = selected_claude;
-                            usage_page = 0;
-                            if selected_claude {
-                                if let Some(service) = &claude {
+                use crate::resident_request::Effect;
+                let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let effects = {
+                    let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
+                    crate::resident_request::apply(
+                        command,
+                        &mut *guard,
+                        config_path.unwrap_or_else(|| std::path::Path::new("")),
+                        now,
+                    )
+                };
+                for effect in effects {
+                    match effect {
+                        Effect::Quit => stop.store(true, Ordering::Release),
+                        Effect::ShowUsage {
+                            claude: selected_claude,
+                        } => {
+                            let mut guard =
+                                state.lock().map_err(|_| "resident state unavailable")?;
+                            if guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                                && !about_open
+                                && usage_claude == selected_claude
+                            {
+                                guard.queue.dismiss();
+                            } else {
+                                guard.queue.show_usage();
+                                about_open = false;
+                                usage_claude = selected_claude;
+                                usage_page = 0;
+                                if selected_claude {
+                                    if let Some(service) = &claude {
+                                        service.refresh();
+                                    }
+                                } else if let Some(service) = &usage {
                                     service.refresh();
                                 }
-                            } else if let Some(service) = &usage {
-                                service.refresh();
                             }
+                            usage_drawn = None;
+                            presenter.invalidate();
                         }
-                        usage_drawn = None;
-                        presenter.invalidate();
-                    }
-                    Command::About => {
-                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                        toggle_about(&mut guard.queue, &mut about_open);
-                        usage_page = 0;
-                        usage_drawn = None;
-                        presenter.invalidate();
-                    }
-                    Command::Apply | Command::ApplyTest => {
-                        if let Err(error) = crate::resident_request::apply_outcome(
-                            config_path.expect("resident configuration path"),
-                        ) {
-                            crate::notice::post(&error.message());
-                            eprintln!("aHerald: {error}");
-                        } else {
+                        Effect::ShowAbout => {
+                            let mut guard =
+                                state.lock().map_err(|_| "resident state unavailable")?;
+                            toggle_about(&mut guard.queue, &mut about_open);
+                            usage_page = 0;
+                            usage_drawn = None;
+                            presenter.invalidate();
+                        }
+                        Effect::ShowNotice(message) => {
+                            crate::notice::post(&message);
+                            eprintln!("aHerald: {message}");
+                        }
+                        Effect::Restart { test } => {
                             let (stop, wake) = (stop.clone(), wake.clone());
-                            let test = command == Command::ApplyTest;
-                            std::thread::spawn(move || {
-                                match crate::restart::launch_with_test(test) {
-                                    Ok(()) => {
-                                        stop.store(true, Ordering::Release);
-                                        wake.signal();
-                                    }
-                                    Err(error) => {
-                                        crate::notice::post(&format!("Apply failed: {error}"));
-                                        eprintln!("aHerald: {error}");
-                                    }
-                                }
-                            });
+                            crate::resident_request::restart(
+                                test,
+                                crate::restart::launch_with_test,
+                                move || {
+                                    stop.store(true, Ordering::Release);
+                                    wake.signal();
+                                },
+                            );
                         }
-                    }
-                    Command::Config => {
-                        let path = config_path.expect("resident configuration path").to_owned();
-                        std::thread::spawn(move || {
-                            if let Err(error) = crate::shell::edit_configuration(&path) {
-                                crate::notice::post(&error);
-                                eprintln!("aHerald: {error}");
-                            }
-                        });
-                    }
-                    Command::Messenger => {
-                        crate::forward::toggle();
-                        tray.set_messenger(crate::forward::enabled());
-                    }
-                    Command::Sound
-                    | Command::Visual
-                    | Command::Pause
-                    | Command::ContextWarnings
-                    | Command::IdleWarnings => {
-                        let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        let paused = guard.paused;
-                        guard.queue.tick(now, paused);
-                        match command {
-                            Command::Sound => guard.sounds = !guard.sounds,
-                            Command::Visual => guard.visuals = !guard.visuals,
-                            Command::Pause => guard.paused = !guard.paused,
-                            Command::ContextWarnings | Command::IdleWarnings => {
-                                let kind = if command == Command::ContextWarnings {
-                                    crate::events::Kind::ContextWarning
-                                } else {
-                                    crate::events::Kind::IdleWarning
-                                };
-                                guard.toggle_warning(kind);
-                            }
-                            _ => unreachable!(),
+                        Effect::OpenConfig => crate::resident_request::open_configuration(
+                            config_path.expect("resident configuration path"),
+                        ),
+                        Effect::ToggleMessenger => {
+                            crate::forward::toggle();
+                            tray.set_messenger(crate::forward::enabled());
                         }
-                        if !guard.sounds || guard.paused {
-                            audio_cancel.store(true, Ordering::Release);
-                        } else if audio_cancel.load(Ordering::Acquire) {
-                            audio_cancel = Arc::new(AtomicBool::new(false));
+                        Effect::SwitchesChanged => {
+                            let guard = state.lock().map_err(|_| "resident state unavailable")?;
+                            tray.set_state(
+                                guard.sounds,
+                                guard.visuals,
+                                guard.paused,
+                                guard.warnings.enabled(crate::events::Kind::ContextWarning),
+                                guard.warnings.enabled(crate::events::Kind::IdleWarning),
+                            );
                         }
-                        tray.set_state(
-                            guard.sounds,
-                            guard.visuals,
-                            guard.paused,
-                            guard.warnings.enabled(crate::events::Kind::ContextWarning),
-                            guard.warnings.enabled(crate::events::Kind::IdleWarning),
-                        );
-                        presenter.invalidate();
+                        Effect::CancelAudio | Effect::ResumeAudio => {
+                            crate::resident_request::apply_audio_effect(&effect, &mut audio_cancel);
+                        }
+                        Effect::Redraw => presenter.invalidate(),
                     }
                 }
             }
@@ -1092,7 +1067,12 @@ mod tests {
             .warnings
             .context(Agent::Claude, "pending", Some(2), &config)
             .unwrap();
-        state.toggle_warning(Kind::ContextWarning);
+        crate::resident_request::apply(
+            crate::tray_menu::Command::ContextWarnings,
+            &mut *state,
+            std::path::Path::new(""),
+            0,
+        );
         assert!(state.warnings.pending().is_empty());
         assert_eq!(state.queue.items().len(), 1);
         assert!(state.warnings.enabled(Kind::IdleWarning));
@@ -1103,11 +1083,21 @@ mod tests {
         state.paused = true;
         crate::resident_request::tick(&mut *state, &config, 60_001);
         assert_eq!(state.queue.items().len(), 1);
-        state.toggle_warning(Kind::IdleWarning);
+        crate::resident_request::apply(
+            crate::tray_menu::Command::IdleWarnings,
+            &mut *state,
+            std::path::Path::new(""),
+            0,
+        );
         state.paused = false;
         crate::resident_request::tick(&mut *state, &config, 120_000);
         assert_eq!(state.queue.items().len(), 1);
-        state.toggle_warning(Kind::ContextWarning);
+        crate::resident_request::apply(
+            crate::tray_menu::Command::ContextWarnings,
+            &mut *state,
+            std::path::Path::new(""),
+            0,
+        );
         assert!(state.warnings.enabled(Kind::ContextWarning));
         assert!(!state.warnings.enabled(Kind::IdleWarning));
         let restarted = shared(&config);

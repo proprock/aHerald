@@ -716,56 +716,40 @@ impl Ui {
             }
         }
     }
-    fn command(&mut self, hwnd: HWND, command: usize) {
-        use crate::tray::*;
-        match command {
-            MESSENGER => {
-                crate::forward::toggle();
+    fn command(&mut self, hwnd: HWND, number: usize) {
+        use crate::resident_request::Effect;
+        let Some(command) = crate::tray::command(number) else {
+            return;
+        };
+        let effects = match self.shared.lock() {
+            Ok(mut state) => {
+                let now = self.now();
+                crate::resident_request::apply(command, &mut *state, &self.config_path, now)
             }
-            SOUND | VISUAL | PAUSE | CONTEXT | IDLE => {
-                if let Ok(mut state) = self.shared.lock() {
-                    let paused = state.paused;
-                    state.queue.tick(self.now(), paused);
-                    match command {
-                        SOUND => state.sounds = !state.sounds,
-                        VISUAL => state.visuals = !state.visuals,
-                        PAUSE => state.paused = !state.paused,
-                        CONTEXT | IDLE => {
-                            let kind = if command == CONTEXT {
-                                crate::events::Kind::ContextWarning
-                            } else {
-                                crate::events::Kind::IdleWarning
-                            };
-                            let enabled = !state.warnings.enabled(kind);
-                            state.warnings.set_enabled(kind, enabled);
-                        }
-                        _ => {}
-                    }
-                    self.config.sounds.enabled = state.sounds;
-                    self.config.notifications.enabled = state.visuals;
-                    if !state.sounds || state.paused {
-                        self.audio_cancel.store(true, Ordering::Release);
-                    } else if self.audio_cancel.load(Ordering::Acquire) {
-                        self.audio_cancel = Arc::new(AtomicBool::new(false));
+            Err(_) => return,
+        };
+        for effect in effects {
+            match effect {
+                Effect::SwitchesChanged => {
+                    if let Ok(state) = self.shared.lock() {
+                        self.config.sounds.enabled = state.sounds;
+                        self.config.notifications.enabled = state.visuals;
                     }
                 }
-            }
-            CONFIG => {
-                let path = self.config_path.clone();
-                std::thread::spawn(move || {
-                    if let Err(error) = crate::shell::edit_configuration(&path) {
-                        // There is no console to read stderr in: say it on a card.
-                        crate::notice::post(&error);
-                    }
-                });
-            }
-            TEST_CONFIG | RESTART => {
-                // A replacement that cannot load its configuration would exit silently
-                // and leave no resident: validate first and keep this one running.
-                if let Err(error) = crate::resident_request::apply_outcome(&self.config_path) {
+                Effect::CancelAudio | Effect::ResumeAudio => {
+                    crate::resident_request::apply_audio_effect(&effect, &mut self.audio_cancel);
+                }
+                // The next timer tick draws the card again.
+                Effect::Redraw => {}
+                Effect::ToggleMessenger => {
+                    crate::forward::toggle();
+                }
+                Effect::OpenConfig => {
+                    crate::resident_request::open_configuration(&self.config_path)
+                }
+                Effect::ShowNotice(message) => {
                     self.notice = Some(crate::usage_service::UsageNotice::Text(format!(
-                        "aHerald\n{}",
-                        error.message()
+                        "aHerald\n{message}"
                     )));
                     if let Ok(mut state) = self.shared.lock() {
                         state.queue.show_usage();
@@ -774,63 +758,57 @@ impl Ui {
                     self.usage_page = 0;
                     self.invalidate_usage();
                     self.selection = None;
-                    return;
                 }
-                let stop = self.stop.clone();
-                let window = hwnd.0 as isize;
-                let test = command == TEST_CONFIG;
-                std::thread::spawn(move || match crate::restart::launch(test) {
-                    Ok(()) => {
+                Effect::Restart { test } => {
+                    let stop = self.stop.clone();
+                    let window = hwnd.0 as isize;
+                    crate::resident_request::restart(test, crate::restart::launch, move || {
                         stop.store(true, Ordering::Release);
                         // No timer runs while idle: wake the window so it sees the stop.
                         crate::resident::wake(window);
-                    }
-                    // There is no console to read stderr in: say it on a card.
-                    Err(error) => crate::notice::post(&format!("Apply failed: {error}")),
-                });
-            }
-            SUMMARY | CLAUDE_SUMMARY => {
-                self.end_test();
-                self.notice = None;
-                let claude = command == CLAUDE_SUMMARY;
-                if let Ok(mut state) = self.shared.lock() {
-                    // The same line closes its open card; the other line switches agents.
-                    if state.queue.selected().is_some_and(|e| e.is_usage())
-                        && self.usage_claude == claude
-                    {
-                        state.queue.dismiss();
-                    } else {
-                        state.queue.show_usage();
-                        self.usage_claude = claude;
-                        self.refresh_selected();
-                    }
+                    });
                 }
-                self.usage_page = 0;
-                self.usage_text = self.card_text();
-                self.invalidate_usage();
-                self.selection = None;
-            }
-            ABOUT => {
-                self.end_test();
-                if let Ok(mut state) = self.shared.lock() {
-                    // The same item closes its open card, like a usage line.
-                    if state.queue.selected().is_some_and(|e| e.is_usage())
-                        && self.notice == Some(crate::usage_service::UsageNotice::About)
-                    {
-                        state.queue.dismiss();
-                        self.notice = None;
-                    } else {
-                        self.notice = Some(crate::usage_service::UsageNotice::About);
-                        state.queue.show_usage();
+                Effect::Quit => self.stop.store(true, Ordering::Release),
+                Effect::ShowUsage { claude } => {
+                    self.end_test();
+                    self.notice = None;
+                    if let Ok(mut state) = self.shared.lock() {
+                        // The same line closes its open card; the other line switches agents.
+                        if state.queue.selected().is_some_and(|e| e.is_usage())
+                            && self.usage_claude == claude
+                        {
+                            state.queue.dismiss();
+                        } else {
+                            state.queue.show_usage();
+                            self.usage_claude = claude;
+                            self.refresh_selected();
+                        }
                     }
+                    self.usage_page = 0;
+                    self.usage_text = self.card_text();
+                    self.invalidate_usage();
+                    self.selection = None;
                 }
-                self.usage_text = self.card_text();
-                self.usage_page = 0;
-                self.invalidate_usage();
-                self.selection = None;
+                Effect::ShowAbout => {
+                    self.end_test();
+                    if let Ok(mut state) = self.shared.lock() {
+                        // The same item closes its open card, like a usage line.
+                        if state.queue.selected().is_some_and(|e| e.is_usage())
+                            && self.notice == Some(crate::usage_service::UsageNotice::About)
+                        {
+                            state.queue.dismiss();
+                            self.notice = None;
+                        } else {
+                            self.notice = Some(crate::usage_service::UsageNotice::About);
+                            state.queue.show_usage();
+                        }
+                    }
+                    self.usage_text = self.card_text();
+                    self.usage_page = 0;
+                    self.invalidate_usage();
+                    self.selection = None;
+                }
             }
-            EXIT => self.stop.store(true, Ordering::Release),
-            _ => {}
         }
     }
 }

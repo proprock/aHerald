@@ -19,7 +19,6 @@ use crate::{
     ipc::{Response, pipe},
     local::Scope,
     queue::Queue,
-    tray_menu::Command,
 };
 use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{
@@ -54,13 +53,6 @@ struct Shared {
     visuals: bool,
 }
 
-impl Shared {
-    fn toggle_warning(&mut self, kind: crate::events::Kind) {
-        let enabled = !self.warnings.enabled(kind);
-        self.warnings.set_enabled(kind, enabled);
-    }
-}
-
 impl crate::resident_request::Controls for Shared {
     fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
         &mut self.warnings
@@ -76,6 +68,9 @@ impl crate::resident_request::Controls for Shared {
     }
     fn visuals(&self) -> bool {
         self.visuals
+    }
+    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
+        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
     }
 }
 
@@ -517,108 +512,83 @@ impl Ui {
 
     /// Runs what the menu chose. Returns whether the loop must stop.
     fn handle_commands(&mut self) {
+        use crate::resident_request::Effect;
         for command in self.tray.take_commands() {
-            match command {
-                Command::Sound | Command::Visual | Command::Pause => {
-                    let now = self.now();
-                    if let Ok(mut state) = self.shared.lock() {
-                        let paused = state.paused;
-                        state.queue.tick(now, paused);
-                        match command {
-                            Command::Sound => state.sounds = !state.sounds,
-                            Command::Visual => state.visuals = !state.visuals,
-                            _ => state.paused = !state.paused,
-                        }
-                        self.config.sounds.enabled = state.sounds;
-                        self.config.notifications.enabled = state.visuals;
-                        // Muting or pausing silences what is playing; the next sound
-                        // starts with a fresh flag.
-                        if !state.sounds || state.paused {
-                            self.audio_cancel.store(true, Ordering::Release);
-                        } else if self.audio_cancel.load(Ordering::Acquire) {
-                            self.audio_cancel = Arc::new(AtomicBool::new(false));
+            let now = self.now();
+            let effects = match self.shared.lock() {
+                Ok(mut state) => {
+                    crate::resident_request::apply(command, &mut *state, &self.config_path, now)
+                }
+                Err(_) => continue,
+            };
+            for effect in effects {
+                match effect {
+                    Effect::SwitchesChanged => {
+                        if let Ok(state) = self.shared.lock() {
+                            self.config.sounds.enabled = state.sounds;
+                            self.config.notifications.enabled = state.visuals;
                         }
                     }
-                }
-                Command::Messenger => {
+                    Effect::CancelAudio | Effect::ResumeAudio => {
+                        crate::resident_request::apply_audio_effect(
+                            &effect,
+                            &mut self.audio_cancel,
+                        );
+                    }
+                    Effect::Redraw => self.presenter.invalidate(),
                     // The menu is rebuilt on the next tick because the state is in its key.
-                    crate::forward::toggle();
-                }
-                Command::Config => {
-                    let path = self.config_path.clone();
-                    std::thread::spawn(move || {
-                        if let Err(error) = crate::shell::edit_configuration(&path) {
-                            // No console to read stderr in: say it on a card.
-                            crate::notice::post(&error);
-                        }
-                    });
-                }
-                Command::Apply | Command::ApplyTest => {
-                    // A replacement that cannot load its configuration would exit silently
-                    // and leave no resident: validate first and keep this one running.
-                    if let Err(error) = crate::resident_request::apply_outcome(&self.config_path) {
+                    Effect::ToggleMessenger => {
+                        crate::forward::toggle();
+                    }
+                    Effect::OpenConfig => {
+                        crate::resident_request::open_configuration(&self.config_path)
+                    }
+                    Effect::ShowNotice(message) => {
                         self.show_notice(crate::usage_service::UsageNotice::Text(format!(
-                            "aHerald\n{}",
-                            error.message()
+                            "aHerald\n{message}"
                         )));
-                        continue;
                     }
-                    let (stop, waker) = (self.stop.clone(), self.waker.clone());
-                    let test = command == Command::ApplyTest;
-                    std::thread::spawn(move || match crate::restart::launch_with_test(test) {
-                        Ok(()) => {
-                            stop.store(true, Ordering::Release);
-                            waker.wake();
-                        }
-                        Err(error) => crate::notice::post(&format!("Apply failed: {error}")),
-                    });
-                }
-                Command::ContextWarnings | Command::IdleWarnings => {
-                    let kind = if command == Command::ContextWarnings {
-                        crate::events::Kind::ContextWarning
-                    } else {
-                        crate::events::Kind::IdleWarning
-                    };
-                    let now = self.now();
-                    if let Ok(mut state) = self.shared.lock() {
-                        let paused = state.paused;
-                        state.queue.tick(now, paused);
-                        state.toggle_warning(kind);
+                    Effect::Restart { test } => {
+                        let (stop, waker) = (self.stop.clone(), self.waker.clone());
+                        crate::resident_request::restart(
+                            test,
+                            crate::restart::launch_with_test,
+                            move || {
+                                stop.store(true, Ordering::Release);
+                                waker.wake();
+                            },
+                        );
                     }
-                    self.presenter.invalidate();
-                }
-                Command::Exit => {
-                    self.stop.store(true, Ordering::Release);
-                }
-                Command::CodexSummary | Command::ClaudeSummary => {
-                    let claude = command == Command::ClaudeSummary;
-                    self.notice = None;
-                    if let Ok(mut state) = self.shared.lock() {
-                        // The same line closes its open card; the other line switches agents.
-                        if state.queue.selected().is_some_and(|e| e.is_usage())
-                            && self.usage_claude == claude
-                        {
-                            state.queue.dismiss();
-                        } else {
-                            state.queue.show_usage();
-                            self.usage_claude = claude;
-                            self.refresh_selected();
-                        }
-                    }
-                    self.reset_usage_card();
-                }
-                Command::About => {
-                    // The same item closes its open card, like a usage line.
-                    if self.usage_window
-                        && self.notice == Some(crate::usage_service::UsageNotice::About)
-                    {
-                        if let Ok(mut state) = self.shared.lock() {
-                            state.queue.dismiss();
-                        }
+                    Effect::Quit => self.stop.store(true, Ordering::Release),
+                    Effect::ShowUsage { claude } => {
                         self.notice = None;
+                        if let Ok(mut state) = self.shared.lock() {
+                            // The same line closes its open card; the other line switches agents.
+                            if state.queue.selected().is_some_and(|e| e.is_usage())
+                                && self.usage_claude == claude
+                            {
+                                state.queue.dismiss();
+                            } else {
+                                state.queue.show_usage();
+                                self.usage_claude = claude;
+                                self.refresh_selected();
+                            }
+                        }
                         self.reset_usage_card();
-                    } else {
-                        self.show_notice(crate::usage_service::UsageNotice::About);
+                    }
+                    Effect::ShowAbout => {
+                        // The same item closes its open card, like a usage line.
+                        if self.usage_window
+                            && self.notice == Some(crate::usage_service::UsageNotice::About)
+                        {
+                            if let Ok(mut state) = self.shared.lock() {
+                                state.queue.dismiss();
+                            }
+                            self.notice = None;
+                            self.reset_usage_card();
+                        } else {
+                            self.show_notice(crate::usage_service::UsageNotice::About);
+                        }
                     }
                 }
             }
@@ -1282,7 +1252,12 @@ mod tests {
                 .context(Agent::Codex, "first", Some(2), &config)
                 .is_some()
         );
-        state.toggle_warning(Kind::ContextWarning);
+        crate::resident_request::apply(
+            crate::tray_menu::Command::ContextWarnings,
+            &mut *state,
+            std::path::Path::new(""),
+            0,
+        );
         assert!(!state.warnings.enabled(Kind::ContextWarning));
         assert!(state.warnings.pending().is_empty());
         assert!(
@@ -1293,7 +1268,12 @@ mod tests {
             "a switched-off context warning must not be produced"
         );
         assert!(state.warnings.enabled(Kind::IdleWarning));
-        state.toggle_warning(Kind::ContextWarning);
+        crate::resident_request::apply(
+            crate::tray_menu::Command::ContextWarnings,
+            &mut *state,
+            std::path::Path::new(""),
+            0,
+        );
         assert!(state.warnings.enabled(Kind::ContextWarning));
     }
 }
