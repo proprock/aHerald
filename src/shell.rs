@@ -4,7 +4,7 @@ use windows::{
     Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
     core::{PCWSTR, w},
 };
-pub fn open(target: &std::ffi::OsStr) -> Result<(), isize> {
+pub fn open(target: &std::ffi::OsStr) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     let target: Vec<u16> = target.encode_wide().chain(Some(0)).collect();
     // SAFETY: terminated strings outlive this synchronous shell call; no parameters are interpreted as code.
@@ -19,7 +19,13 @@ pub fn open(target: &std::ffi::OsStr) -> Result<(), isize> {
         )
     }
     .0 as isize;
-    if code > 32 { Ok(()) } else { Err(code) }
+    if code > 32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "the shell refused to open the target (code {code})"
+        ))
+    }
 }
 /// Opens the configuration in the associated program, or in Notepad when the shell cannot
 /// (no program for `.toml`, a handler that is gone, or any other refusal).

@@ -348,7 +348,7 @@ fn present(
                             let (stop, wake) = (stop.clone(), wake.clone());
                             crate::resident_request::restart(
                                 test,
-                                crate::restart::launch_with_test,
+                                crate::restart::launch,
                                 move || {
                                     stop.store(true, Ordering::Release);
                                     wake.signal();

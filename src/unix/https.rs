@@ -7,55 +7,10 @@ use std::time::Duration;
 
 pub use crate::http_common::{HttpError, MAX_BODY, Response, Wiped, Zero};
 
-/// Blocking GET to `https://host/path`; `headers` is CRLF-separated `Name: value` lines.
-pub fn get(
-    host: &str,
-    path: &str,
-    headers: &str,
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    get_at(true, host, 443, path, headers, timeout)
-}
-
-/// Blocking POST to `https://host/path` with `body`; `headers` as in `get`.
-pub fn post(
-    host: &str,
-    path: &str,
-    headers: &str,
-    body: &[u8],
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    post_at(true, host, 443, path, headers, body, timeout)
-}
-
-/// `post` with an explicit scheme and port; plain HTTP exists only for loopback tests.
-pub fn post_at(
-    secure: bool,
-    host: &str,
-    port: u16,
-    path: &str,
-    headers: &str,
-    body: &[u8],
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    request_at(Some(body), secure, host, port, path, headers, timeout)
-}
-
-/// `get` with an explicit scheme and port; plain HTTP exists only so tests can use a
-/// loopback endpoint.
-pub fn get_at(
-    secure: bool,
-    host: &str,
-    port: u16,
-    path: &str,
-    headers: &str,
-    timeout: Duration,
-) -> Result<Response, HttpError> {
-    request_at(None, secure, host, port, path, headers, timeout)
-}
+pub use crate::http_common::{get, get_at, post, post_at};
 
 #[cfg(not(feature = "https-client"))]
-fn request_at(
+pub(crate) fn request_at(
     _body: Option<&[u8]>,
     _secure: bool,
     _host: &str,
@@ -69,7 +24,7 @@ fn request_at(
 
 /// A GET when `body` is `None`, otherwise a POST of that body.
 #[cfg(feature = "https-client")]
-fn request_at(
+pub(crate) fn request_at(
     body: Option<&[u8]>,
     secure: bool,
     host: &str,
