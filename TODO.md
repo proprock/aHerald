@@ -524,12 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-261 — Shared usage view.**
-  Extract `codex_shown`, the usage card text and pagination, and the `Levels::from_views` input
-  (`resident_overlay.rs:110-140,267,559`, `mac/resident.rs:365-470,752`, `linux/resident.rs:300-315`) into pure
-  functions in `tray_usage.rs`. Subscribe macOS and Linux to `Service::on_change` as Windows does. Acceptance: pure
-  tests for Codex-only, Claude-only and both; drawing code untouched.
-
 - [ ] **AH-262 — Linux resident as a `Ui` struct.**
   Depends on AH-231 and AH-258. Turn the ~25 locals of `present` (`linux/resident.rs:244-298`) into a
   `struct Ui` with `step`, `handle_*` and `draw` methods, mirroring `mac/resident.rs`. Move artwork preparation

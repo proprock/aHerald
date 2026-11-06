@@ -106,28 +106,21 @@ impl Ui {
             self.presenter.invalidate();
         }
     }
-    /// Codex usage is shown unless only Claude usage is enabled.
-    fn codex_shown(&self) -> bool {
-        self.config.codex.usage.enabled || self.claude.is_none()
+    fn usage_views(&self) -> crate::tray_usage::Views {
+        crate::tray_usage::Views::new(
+            self.usage.view(),
+            self.claude.as_ref().map(|c| c.view()),
+            self.config.codex.usage.enabled,
+        )
     }
-    fn compact(&self, separator: &str) -> String {
-        let display = self.config.codex.usage.display;
-        let mut parts = Vec::new();
-        // Alphabetical by agent name, matching the tray menu.
-        if let Some(claude) = &self.claude {
-            parts.push(claude.compact(display));
-        }
-        if self.codex_shown() {
-            parts.push(self.usage.compact(display));
-        }
-        parts.join(separator)
+    fn selected_usage(&self) -> &crate::usage_service::Service {
+        crate::tray_usage::selected(&self.usage, self.claude.as_ref(), self.usage_claude)
     }
     /// Tray menu lines; each agent's line opens only that agent's details.
-    fn menu_lines(&self) -> (Option<String>, Option<String>) {
-        let display = self.config.codex.usage.display;
-        (
-            self.codex_shown().then(|| self.usage.compact(display)),
-            self.claude.as_ref().map(|c| c.compact(display)),
+    fn menu_lines(&self) -> crate::tray_usage::Lines {
+        self.usage_views().lines(
+            self.config.codex.usage.display,
+            crate::usage_service::unix_now(),
         )
     }
     /// Details of the agent chosen from the menu.
@@ -135,17 +128,11 @@ impl Ui {
         if let Some(notice) = &self.notice {
             return notice.text();
         }
-        match &self.claude {
-            Some(claude) if self.usage_claude => claude.card_text(),
-            _ => self.usage.card_text(),
-        }
+        self.selected_usage().card_text()
     }
     /// Details are opened on demand, so ask the chosen agent for fresh data.
     fn refresh_selected(&self) {
-        match &self.claude {
-            Some(claude) if self.usage_claude => claude.refresh(),
-            _ => self.usage.refresh(),
-        }
+        self.selected_usage().refresh();
     }
     fn now(&self) -> u64 {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
@@ -271,13 +258,12 @@ impl Ui {
         let now = self.now();
         if now >= self.usage_next {
             self.usage_next = now.saturating_add(1000);
-            let tooltip = self.compact("\n");
-            let levels = crate::tray_usage::Levels::from_views(
-                &self.usage.view(),
-                self.claude.as_ref().map(|c| c.view()).as_ref(),
-                self.config.tray.graph,
-                self.config.codex.usage.display,
-            );
+            let views = self.usage_views();
+            let display = self.config.codex.usage.display;
+            let tooltip = views
+                .lines(display, crate::usage_service::unix_now())
+                .tooltip("\n");
+            let levels = views.levels(self.config.tray.graph, display);
             if let Some(tray) = &mut self.tray {
                 if tooltip != self.tooltip {
                     tray.tooltip(&tooltip);
@@ -863,7 +849,7 @@ unsafe fn tray_callback(w: &Window, hwnd: HWND, message: Deferred) {
     // SAFETY: GUI thread, per this function's contract.
     unsafe {
         let Some(menu) = w.with_ui(message, |ui| {
-            let (codex, claude) = ui.menu_lines();
+            let crate::tray_usage::Lines { codex, claude } = ui.menu_lines();
             crate::tray::Menu::new(&crate::tray_menu::MenuState {
                 sound: ui.config.sounds.enabled,
                 visual: ui.config.notifications.enabled,

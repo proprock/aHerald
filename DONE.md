@@ -37,6 +37,20 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-261 — Shared usage view.**
+  `tray_usage::Views` (the Codex and optional Claude `View`s plus `[codex.usage] enabled`) now decides in one
+  place which agents are listed (`codex_shown`: Codex when its usage is on or Claude is absent), builds the
+  tray `Lines` (`tooltip(sep)`, alphabetical) and the icon `levels`; `tray_usage::selected` picks the agent
+  whose details are open. The Windows, macOS and Linux residents use them instead of their own copies of the
+  `codex_shown`, compact-line, menu-line and `Levels::from_views` input code; the Windows and macOS card text
+  and refresh share `selected`. macOS now subscribes to `Service::on_change` as Windows and Linux do, so new
+  usage numbers refresh its tray at once. (Linux already subscribed; the ticket text was out of date.) The
+  Linux usage card keeps its own selection code for AH-262. Unit tests: Codex alone (usage on or off), Claude
+  alone, both (order), and the chosen-agent fallback. No red phase was observed. Evidence: fmt, clippy, workspace
+  tests and doctests (the known `audio::serial` timing test skipped), the Linux extras (`linux_apply
+  --ignored`, the AH-283 test, `remote_listener` under Xephyr) **ran locally**; Windows clippy lint **ran
+  locally**, Windows tests and all macOS code (including the new subscription) **compiled/tested in CI only**.
+
 - [x] **AH-260 — Shared resident runtime start and teardown.**
   `resident_runtime::start(scope, &config, path, &shared, started, wake) -> Result<Runtime, String>` installs
   the notice sink, starts forwarding and the `[remote]` listener and runs the IPC listener thread

@@ -22,6 +22,69 @@ pub fn level_rgb(remaining: Option<f64>) -> [u8; 3] {
     }
 }
 
+/// What the Codex and Claude usage services say right now, as plain data: every resident builds
+/// its tray lines and icon levels from this instead of from the services themselves.
+pub struct Views {
+    codex: View,
+    claude: Option<View>,
+    /// `[codex.usage] enabled`: Codex is listed besides Claude only when it is on.
+    codex_usage_enabled: bool,
+}
+
+/// The one-line summaries of the agents that are listed, for the tray menu and tooltip.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Lines {
+    pub codex: Option<String>,
+    pub claude: Option<String>,
+}
+
+impl Lines {
+    /// The listed lines, one per agent, alphabetical by agent name like the menu.
+    pub fn tooltip(&self, separator: &str) -> String {
+        [self.claude.as_deref(), self.codex.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(separator)
+    }
+}
+
+impl Views {
+    pub fn new(codex: View, claude: Option<View>, codex_usage_enabled: bool) -> Self {
+        Self {
+            codex,
+            claude,
+            codex_usage_enabled,
+        }
+    }
+
+    /// Codex is listed when its usage is on, or when it is the only agent there is.
+    pub fn codex_shown(&self) -> bool {
+        self.codex_usage_enabled || self.claude.is_none()
+    }
+
+    pub fn lines(&self, display: UsageDisplay, unix: i64) -> Lines {
+        Lines {
+            codex: self
+                .codex_shown()
+                .then(|| self.codex.compact(unix, display)),
+            claude: self.claude.as_ref().map(|v| v.compact(unix, display)),
+        }
+    }
+
+    pub fn levels(&self, graph: TrayGraph, display: UsageDisplay) -> Levels {
+        Levels::from_views(&self.codex, self.claude.as_ref(), graph, display)
+    }
+}
+
+/// The agent whose details are open: Claude when it was chosen and exists, otherwise Codex.
+pub fn selected<'a, T>(codex: &'a T, claude: Option<&'a T>, claude_chosen: bool) -> &'a T {
+    match claude {
+        Some(claude) if claude_chosen => claude,
+        _ => codex,
+    }
+}
+
 impl Levels {
     pub fn from_views(
         codex: &View,
@@ -168,6 +231,43 @@ impl Levels {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    fn views(codex_enabled: bool, claude: bool) -> Views {
+        let interval = Duration::from_secs(300);
+        Views::new(
+            View::new(codex_enabled, interval),
+            claude.then(|| View::for_agent(crate::agent::Agent::Claude, true, interval)),
+            codex_enabled,
+        )
+    }
+
+    #[test]
+    fn codex_alone_is_listed_even_with_its_usage_off() {
+        for enabled in [false, true] {
+            let lines = views(enabled, false).lines(UsageDisplay::Remain, 0);
+            assert!(lines.codex.is_some() && lines.claude.is_none(), "{enabled}");
+        }
+    }
+
+    #[test]
+    fn claude_alone_hides_codex_and_both_list_both_alphabetically() {
+        let only_claude = views(false, true).lines(UsageDisplay::Remain, 0);
+        assert!(only_claude.codex.is_none());
+        assert!(only_claude.claude.is_some());
+        let both = views(true, true).lines(UsageDisplay::Remain, 0);
+        let (codex, claude) = (both.codex.clone().unwrap(), both.claude.clone().unwrap());
+        assert_eq!(both.tooltip("|"), format!("{claude}|{codex}"));
+        assert_eq!(only_claude.tooltip("|"), claude);
+        assert_eq!(Lines::default().tooltip("|"), "");
+    }
+
+    #[test]
+    fn the_chosen_agent_falls_back_to_codex_when_claude_is_absent() {
+        assert_eq!(*selected(&"codex", Some(&"claude"), true), "claude");
+        assert_eq!(*selected(&"codex", Some(&"claude"), false), "codex");
+        assert_eq!(*selected(&"codex", None, true), "codex");
+    }
 
     fn levels(remaining: [Option<f64>; 2]) -> Levels {
         Levels {
