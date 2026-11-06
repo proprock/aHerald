@@ -11,6 +11,7 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- The README now shows Linux demo cards and a short animation; remaining screenshots are tracked in AH-281 in `TODO.md`.
 - Codex session name lookups are now off by default; set `[codex] session_names = true` to enable them.
   Transient cards also require `transient_names = true`. See AH-267 in `TODO.md` for remaining acceptance.
 - `--install-hooks`, `--uninstall-hooks`, `--install-statusline` and `--uninstall-statusline` now go through the
