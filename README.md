@@ -120,6 +120,7 @@ enabled = true
 [[forward.sinks]]
 type = "webhook"
 include_folder = true     # optional: add the folder name, which then goes to the third party
+include_host = true       # optional: add this computer's name (several computers, one chat)
 url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
 content_type = "application/json"
 body = '{"chat_id": "123456789", "text": "{text}"}'

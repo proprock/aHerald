@@ -89,7 +89,7 @@ fn a_card_reaches_the_program_as_arguments_and_standard_input_without_a_shell() 
     });
     assert_eq!(
         std::fs::read_to_string(&out).unwrap(),
-        format!("input_required\nTo: me\n\nClaude ({folder}): input required\n")
+        format!("input_required\nTo: me\n\n{folder}\n\nClaude: input required\n")
     );
     assert!(!marker.exists(), "a shell parsed the folder name");
     assert!(posted.lock().unwrap().is_empty());

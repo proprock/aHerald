@@ -123,7 +123,7 @@ fn the_default_body_is_the_plain_message_text_and_the_folder_is_opt_in() {
     assert!(request.to_lowercase().contains("content-type: text/plain"));
     assert_eq!(
         request.split_once("\r\n\r\n").unwrap().1,
-        "Claude (project): input required"
+        "project\n\nClaude: input required"
     );
 }
 

@@ -3,6 +3,32 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-285 — Messenger messages: an optional computer name and a header line.**
+  New per-sink switch `include_host` (default `false`). The message is now an optional header line (`host/folder`,
+  `host`, `folder`; none means none, with no blank line) and a blank line, then `Claude: turn complete`; the
+  folder no longer stands in brackets, which changes the text for users of `include_folder` (CHANGELOG
+  `Changed`). `{host}` joins `{text}`, `{kind}`, `{harness}` and `{folder}` for a webhook body and a command; `{text}`
+  now carries the two lines (a JSON body escapes them, a form body encodes them, plain text and a command
+  argument or stdin keep them). The name comes from `src/host_name.rs`: the OS computer name (`gethostname` on
+  macOS and Linux through the `libc` crate that the project already used, `COMPUTERNAME` on Windows), control
+  characters removed, at most 64 characters, no trimming or hashing; if it cannot be read or is empty, the
+  address of the interface of the default route (a UDP socket connected to a public address, no packet,
+  no DNS), IPv4 first; if there is none, no host. No new dependency. The name is read once per card and only
+  when a sink that wants the kind asked for it. `docs/privacy.md`, `docs/configuration.md`, `README.md` and
+  `config.example.toml` are updated. Tests (pure, in `src/sink.rs`, `src/host_name.rs`, `src/template.rs`,
+  `src/command_sink.rs`, `src/forward.rs`): the four header cases, an event without a folder, the 64-character cut
+  and removal of control characters, the fallback order and that the address is looked up only when the name is
+  unusable, a sink that asked and one that did not (and no read when none asks), `{host}`/`{text}` in JSON, form
+  and plain bodies, a command with the two-line text, and the default message unchanged. The sink and
+  host-name tests were written first and failed to compile for the missing functions; the template and
+  command tests were added with the code. Two integration tests (`tests/forward_webhook.rs`,
+  `tests/forward_command.rs`) expected the old bracketed folder text and now expect the new header, as the
+  ticket's contract change requires; nothing else in them changed. Evidence: **ran locally** (Linux): fmt,
+  clippy, workspace tests and doctests; the Windows clippy lint **ran locally**; Windows and macOS tests
+  **compiled/tested in CI only**; the real-messenger check on each platform is AH-291. During the full run
+  `tests/https.rs` failed two tests once and passed 3 of 3 alone and on a stash of the change (a load flake, not
+  related).
+
 - [x] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
   On 2026-11-06, an interactive Claude Code 2.1.319 session on Linux emitted
   `StopFailure` with `error = rate_limit`, matching the documented error mapping.

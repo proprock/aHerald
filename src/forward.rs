@@ -46,6 +46,7 @@ fn route(sink: &SinkConfig, env: &impl Fn(&str) -> Option<String>) -> Result<Rou
         kinds: sink.kinds.clone(),
         secrets,
         include_folder: sink.include_folder,
+        include_host: sink.include_host,
     })
 }
 
@@ -171,6 +172,18 @@ mod tests {
         assert_eq!(built.routes[0].secrets, ["12:abc", "42"]);
         assert_eq!(built.routes[0].sink.name(), "webhook");
         assert!(!built.routes[0].include_folder);
+    }
+
+    #[test]
+    fn a_sink_names_the_computer_only_with_include_host() {
+        let with = HOOK.replace(
+            "[[forward.sinks]]\n",
+            "[[forward.sinks]]\ninclude_host = true\n",
+        );
+        assert_ne!(with, HOOK, "the sample configuration changed");
+        let env = || env(&[("TOKEN", "t"), ("CHAT", "1")]);
+        assert!(!build(&forward(HOOK), env()).routes[0].include_host);
+        assert!(build(&forward(&with), env()).routes[0].include_host);
     }
 
     #[test]

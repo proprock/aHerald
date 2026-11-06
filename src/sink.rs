@@ -15,30 +15,41 @@ use std::{
 };
 
 /// What a sink may know about a card: the kind, the harness and, only when allowed, the folder
-/// name. Never a prompt, an assistant message, a path or a session name.
+/// name and the computer name. Never a prompt, an assistant message, a path or a session name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub kind: String,
     pub harness: String,
     pub folder: Option<String>,
+    pub host: Option<String>,
     pub text: String,
 }
 
 impl Message {
-    /// The message for `event`; the folder is included only when `include_folder` is set.
-    pub fn from_event(event: &Event, include_folder: bool) -> Self {
+    /// The message for `event`. The folder is included only when `include_folder` is set, the
+    /// computer name only when the caller passes one (`include_host`). When either is present the
+    /// text starts with a header line, `host/folder`, `host` or `folder`, and a blank line; with
+    /// neither it is just `Claude: turn complete`.
+    pub fn from_event(event: &Event, include_folder: bool, host: Option<&str>) -> Self {
         let kind = event.kind.name().to_owned();
         let harness = event.source.label().to_owned();
         let folder = event.folder.clone().filter(|_| include_folder);
-        let what = kind.replace('_', " ");
-        let text = match &folder {
-            Some(folder) => format!("{harness} ({folder}): {what}"),
-            None => format!("{harness}: {what}"),
+        let host = host.map(str::to_owned);
+        let line = format!("{harness}: {}", kind.replace('_', " "));
+        let header = match (&host, &folder) {
+            (Some(host), Some(folder)) => Some(format!("{host}/{folder}")),
+            (Some(only), None) | (None, Some(only)) => Some(only.clone()),
+            (None, None) => None,
+        };
+        let text = match header {
+            Some(header) => format!("{header}\n\n{line}"),
+            None => line,
         };
         Self {
             kind,
             harness,
             folder,
+            host,
             text,
         }
     }
@@ -90,6 +101,8 @@ pub struct Route {
     pub secrets: Vec<String>,
     /// Whether messages built from an event for this sink name the folder.
     pub include_folder: bool,
+    /// Whether they name this computer.
+    pub include_host: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -130,6 +143,7 @@ struct Queue {
 struct Channel {
     kinds: Vec<Kind>,
     include_folder: bool,
+    include_host: bool,
     queue: Arc<(Mutex<Queue>, Condvar)>,
     capacity: usize,
 }
@@ -137,6 +151,8 @@ struct Channel {
 pub struct Dispatcher {
     enabled: Arc<AtomicBool>,
     channels: Vec<Channel>,
+    /// Reads the computer's name; called only for a card that a sink with `include_host` wants.
+    host: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
 impl Drop for Dispatcher {
@@ -168,6 +184,7 @@ impl Dispatcher {
                 let channel = Channel {
                     kinds: route.kinds.clone(),
                     include_folder: route.include_folder,
+                    include_host: route.include_host,
                     queue: queue.clone(),
                     capacity: policy.queue.max(1),
                 };
@@ -179,7 +196,17 @@ impl Dispatcher {
         Self {
             enabled: Arc::new(AtomicBool::new(enabled)),
             channels,
+            host: Box::new(crate::host_name::local),
         }
+    }
+
+    /// Replaces how the computer's name is read (a test supplies a fixed one).
+    pub fn with_host_source(
+        mut self,
+        host: impl Fn() -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
+        self.host = Box::new(host);
+        self
     }
 
     /// Queues `message` for every sink that wants its kind, unless forwarding is off. Never
@@ -188,10 +215,19 @@ impl Dispatcher {
         self.submit_with(kind, |_| message.clone());
     }
 
-    /// `submit` for an accepted card: each sink gets the message its own `include_folder` allows.
+    /// `submit` for an accepted card: each sink gets the message its own `include_folder` and
+    /// `include_host` allow. The computer's name is read once per card, and only if a sink that
+    /// wants this kind asked for it.
     pub fn submit_event(&self, event: &Event) {
+        let host = self
+            .channels
+            .iter()
+            .any(|c| c.include_host && c.kinds.contains(&event.kind))
+            .then(|| (self.host)())
+            .flatten();
         self.submit_with(event.kind, |channel| {
-            Message::from_event(event, channel.include_folder)
+            let host = host.as_deref().filter(|_| channel.include_host);
+            Message::from_event(event, channel.include_folder, host)
         });
     }
 
@@ -273,6 +309,7 @@ mod tests {
             kind: "turn_complete".into(),
             harness: "Claude".into(),
             folder: None,
+            host: None,
             text: text.into(),
         }
     }
@@ -313,6 +350,7 @@ mod tests {
             kinds: kinds.to_vec(),
             secrets: Vec::new(),
             include_folder: false,
+            include_host: false,
         }
     }
 
@@ -424,6 +462,7 @@ mod tests {
             kinds: vec![Kind::TurnComplete],
             secrets: Vec::new(),
             include_folder: false,
+            include_host: false,
         };
         let dispatcher = Dispatcher::start(vec![route], fast(2, 1), true, quiet());
         dispatcher.submit(Kind::TurnComplete, message("in flight"));
@@ -479,6 +518,7 @@ mod tests {
             kinds: vec![Kind::Error],
             secrets: Vec::new(),
             include_folder: false,
+            include_host: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -508,6 +548,7 @@ mod tests {
             kinds: vec![Kind::Error],
             secrets: vec!["123:SECRET".into()],
             include_folder: false,
+            include_host: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -562,11 +603,12 @@ mod tests {
 
     #[test]
     fn a_message_names_the_kind_and_harness_and_leaves_the_folder_out_by_default() {
-        let message = Message::from_event(&event(Kind::TurnComplete, Some("project")), false);
+        let message = Message::from_event(&event(Kind::TurnComplete, Some("project")), false, None);
         assert_eq!(message.kind, "turn_complete");
         assert_eq!(message.harness, "Claude");
         assert_eq!(message.folder, None);
-        assert!(!message.text.contains("project"), "{}", message.text);
+        assert_eq!(message.host, None);
+        assert_eq!(message.text, "Claude: turn complete");
         assert!(
             !message.text.contains("session-secret-name"),
             "{}",
@@ -576,11 +618,87 @@ mod tests {
 
     #[test]
     fn the_folder_is_in_the_message_only_when_allowed() {
-        let message = Message::from_event(&event(Kind::InputRequired, Some("project")), true);
+        let message = Message::from_event(&event(Kind::InputRequired, Some("project")), true, None);
         assert_eq!(message.folder.as_deref(), Some("project"));
-        assert!(message.text.contains("project"), "{}", message.text);
-        let none = Message::from_event(&event(Kind::InputRequired, None), true);
+        assert_eq!(message.text, "project\n\nClaude: input required");
+        let none = Message::from_event(&event(Kind::InputRequired, None), true, None);
         assert_eq!(none.folder, None);
+        assert_eq!(none.text, "Claude: input required");
+    }
+
+    #[test]
+    fn the_header_line_is_built_from_what_is_enabled_and_known() {
+        let with = event(Kind::TurnComplete, Some("aHerald"));
+        let text = |include_folder, host| Message::from_event(&with, include_folder, host).text;
+        assert_eq!(text(false, None), "Claude: turn complete");
+        assert_eq!(
+            text(false, Some("workstation-1")),
+            "workstation-1\n\nClaude: turn complete"
+        );
+        assert_eq!(text(true, None), "aHerald\n\nClaude: turn complete");
+        assert_eq!(
+            text(true, Some("workstation-1")),
+            "workstation-1/aHerald\n\nClaude: turn complete"
+        );
+        // An event with no folder leaves it out; it is not shown empty.
+        let without = event(Kind::TurnComplete, None);
+        let both = Message::from_event(&without, true, Some("workstation-1"));
+        assert_eq!(both.text, "workstation-1\n\nClaude: turn complete");
+        assert_eq!(both.host.as_deref(), Some("workstation-1"));
+    }
+
+    #[test]
+    fn each_sink_gets_the_host_only_if_it_asked_for_it_and_nothing_is_read_otherwise() {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = reads.clone();
+        let source = move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Some("workstation-1".to_owned())
+        };
+        let (none, none_seen) = stub(0, "");
+        let dispatcher = Dispatcher::start(
+            vec![route(none, &[Kind::TurnComplete])],
+            fast(8, 1),
+            true,
+            quiet(),
+        )
+        .with_host_source(source.clone());
+        dispatcher.submit_event(&event(Kind::TurnComplete, None));
+        assert_eq!(
+            none_seen.recv_timeout(WAIT).unwrap(),
+            "Claude: turn complete"
+        );
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            0,
+            "the host was read without a sink asking"
+        );
+
+        let (with, with_seen) = stub(0, "");
+        let (without, without_seen) = stub(0, "");
+        let routes = vec![
+            Route {
+                include_host: true,
+                ..route(with, &[Kind::TurnComplete])
+            },
+            route(without, &[Kind::TurnComplete]),
+        ];
+        let dispatcher =
+            Dispatcher::start(routes, fast(8, 1), true, quiet()).with_host_source(source);
+        dispatcher.submit_event(&event(Kind::TurnComplete, None));
+        assert_eq!(
+            with_seen.recv_timeout(WAIT).unwrap(),
+            "workstation-1\n\nClaude: turn complete"
+        );
+        assert_eq!(
+            without_seen.recv_timeout(WAIT).unwrap(),
+            "Claude: turn complete"
+        );
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "one read per card, not per sink"
+        );
     }
 
     #[test]
@@ -628,6 +746,7 @@ mod tests {
             kinds: vec![Kind::Error],
             secrets: Vec::new(),
             include_folder: false,
+            include_host: false,
         };
         // A backoff far longer than the test: only the server's delay can explain a quick retry.
         let policy = Policy {

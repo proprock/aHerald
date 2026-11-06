@@ -162,6 +162,7 @@ mod tests {
             kind: "input_required".into(),
             harness: "Claude".into(),
             folder: folder.map(str::to_owned),
+            host: None,
             text: "Claude: input required".into(),
         }
     }
@@ -203,6 +204,32 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&out).unwrap(),
             "input_required|Claude: input required|body: Claude"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_two_line_text_arrives_whole_in_an_argument_and_on_standard_input() {
+        let dir = scratch("two-lines");
+        let out = dir.join("out");
+        let mut sink = sink(
+            &[
+                "sh",
+                "-c",
+                "printf '%s' \"$1\" > \"$2\"; printf '|' >> \"$2\"; cat >> \"$2\"",
+                "sh",
+                "{text}",
+                out.to_str().unwrap(),
+            ],
+            Some("{text}"),
+        );
+        let mut message = message(Some("project"));
+        message.text = "workstation-1/project\n\nClaude: input required".into();
+        sink.send(&message).unwrap();
+        let both = "workstation-1/project\n\nClaude: input required";
+        assert_eq!(
+            std::fs::read_to_string(&out).unwrap(),
+            format!("{both}|{both}")
         );
         let _ = std::fs::remove_dir_all(dir);
     }
