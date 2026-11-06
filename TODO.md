@@ -524,12 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-259 — Shared `Shared` state and constructor.**
-  Move the near-identical `Shared` struct, its `Controls` impl, `toggle_warning` and the constructor
-  (`resident.rs:23-48,133-140`, `linux/resident.rs:30-60`, `mac/resident.rs:49-81,284`) into
-  `resident_request.rs`. Platform extras (the Windows `window` handle) go into a generic `ext: T` field.
-  Acceptance: no behaviour change; all CI legs pass.
-
 - [ ] **AH-260 — Shared resident runtime start and teardown.**
   Depends on AH-259. `resident_runtime::start(config, scope, wake: impl Fn()) -> Runtime` performs
   `notice::install`, `forward::start`, `remote::start_if_enabled` and the listener thread

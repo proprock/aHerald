@@ -20,35 +20,8 @@ use crate::events::Event;
 use crate::ipc::Request;
 pub use crate::resident_client::{ensure, forward, forward_if_running};
 
-pub struct Shared {
-    pub queue: crate::queue::Queue,
-    pub warnings: crate::session_warnings::Warnings,
-    pub paused: bool,
-    pub sounds: bool,
-    pub visuals: bool,
-    /// Raw handle of the resident window (0 until created); IPC posts `WAKE` to it.
-    pub window: isize,
-}
-impl crate::resident_request::Controls for Shared {
-    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
-        &mut self.warnings
-    }
-    fn queue(&mut self) -> &mut crate::queue::Queue {
-        &mut self.queue
-    }
-    fn paused(&self) -> bool {
-        self.paused
-    }
-    fn sounds(&self) -> bool {
-        self.sounds
-    }
-    fn visuals(&self) -> bool {
-        self.visuals
-    }
-    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
-        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
-    }
-}
+/// The raw handle of the resident window (0 until created) is the extra; IPC posts `WAKE` to it.
+pub type Shared = crate::resident_request::Shared<isize>;
 /// Posted to the resident window when IPC changed the queue or requested shutdown.
 pub const WAKE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 pub(crate) fn wake(window: isize) {
@@ -70,14 +43,7 @@ mod overlay;
 /// Preview in this process without acquiring the resident mutex or exposing IPC.
 pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
     let demo = crate::demo::Demo::new(&config, pause_sec)?;
-    let shared = Arc::new(std::sync::Mutex::new(Shared {
-        queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
-        warnings: Default::default(),
-        paused: false,
-        sounds: config.sounds.enabled,
-        visuals: config.notifications.enabled,
-        window: 0,
-    }));
+    let shared = Arc::new(std::sync::Mutex::new(Shared::new(&config, 0)));
     let usage = crate::usage_service::Service::codex(
         config.codex.usage.enabled,
         Duration::from_secs(config.codex.usage.refresh_interval_sec),
@@ -133,20 +99,13 @@ fn run_with_usage_and_test(
     };
     let stop = Arc::new(AtomicBool::new(false));
     let start = Instant::now();
-    let shared = Arc::new(std::sync::Mutex::new(Shared {
-        queue: crate::queue::Queue::new(64, config.general.deduplicate_ms),
-        warnings: Default::default(),
-        paused: false,
-        sounds: config.sounds.enabled,
-        visuals: config.notifications.enabled,
-        window: 0,
-    }));
+    let shared = Arc::new(std::sync::Mutex::new(Shared::new(&config, 0)));
     // aHerald's own notices (a refused sound, unusable artwork) become cards of this resident.
     crate::notice::install(crate::resident_request::notice_sink(
         shared.clone(),
         config.clone(),
         start,
-        |state: &Shared| wake(state.window),
+        |state: &Shared| wake(state.ext),
     ));
     crate::forward::start(&config.forward);
     let remote = crate::remote::start_if_enabled(
@@ -156,7 +115,7 @@ fn run_with_usage_and_test(
             shared.clone(),
             config.clone(),
             start,
-            |state: &Shared| wake(state.window),
+            |state: &Shared| wake(state.ext),
         ),
     );
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -194,7 +153,7 @@ fn run_with_usage_and_test(
                 let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
                 let (response, effects) =
                     crate::resident_request::respond(request, &mut *state, &settings, now);
-                let window = state.window;
+                let window = state.ext;
                 drop(state);
                 if effects.quit {
                     shutdown.store(true, Ordering::Release);

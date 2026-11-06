@@ -1273,7 +1273,7 @@ pub(super) fn run_preview(
             }
         }
         if let Ok(mut state) = ui().shared.lock() {
-            state.window = hwnd.0 as isize;
+            state.ext = hwnd.0 as isize;
         }
         if let Ok(mut target) = window.usage_target.lock() {
             *target = Some(hwnd.0 as isize);
@@ -1348,7 +1348,7 @@ mod warning_deadline_tests {
             paused: false,
             sounds: false,
             visuals: false,
-            window: 0,
+            ext: 0,
         }));
         let stop = Arc::new(AtomicBool::new(false));
         let state = shared.clone();
@@ -1373,14 +1373,14 @@ mod warning_deadline_tests {
         impl Drop for Cleanup {
             fn drop(&mut self) {
                 self.1.store(true, Ordering::Release);
-                crate::resident::wake(self.0.lock().unwrap().window);
+                crate::resident::wake(self.0.lock().unwrap().ext);
                 self.2.take().unwrap().join().unwrap().unwrap();
             }
         }
         let _cleanup = Cleanup(shared.clone(), stop, Some(worker));
         let deadline = Instant::now() + Duration::from_secs(3);
         let hwnd = loop {
-            let window = shared.lock().unwrap().window;
+            let window = shared.lock().unwrap().ext;
             if window != 0 {
                 break HWND(window as *mut std::ffi::c_void);
             }
@@ -1424,7 +1424,7 @@ mod warning_deadline_tests {
             paused: false,
             sounds: false,
             visuals: false,
-            window: 0,
+            ext: 0,
         };
         // Same identity across agents must still represent independent sessions.
         let mut event = Event::demo("turn_complete").unwrap();
@@ -1468,7 +1468,7 @@ mod warning_deadline_tests {
         impl Drop for Cleanup {
             fn drop(&mut self) {
                 self.stop.store(true, Ordering::Release);
-                crate::resident::wake(self.shared.lock().unwrap().window);
+                crate::resident::wake(self.shared.lock().unwrap().ext);
                 if let Some(worker) = self.worker.take() {
                     worker.join().unwrap().unwrap();
                 }
@@ -1489,7 +1489,7 @@ mod warning_deadline_tests {
                 assert_eq!(entry.event.source, Source::CodexHook);
                 assert_eq!(entry.event.session_id.as_deref(), Some("shared-id"));
                 assert!(!state.warnings.has_deadline());
-                let hwnd = HWND(state.window as *mut std::ffi::c_void);
+                let hwnd = HWND(state.ext as *mut std::ffi::c_void);
                 // SAFETY: querying visibility does not mutate or own the window.
                 assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
                 break;
@@ -1541,7 +1541,7 @@ mod usage_wake_tests {
             paused: false,
             sounds: false,
             visuals: false,
-            window: 0,
+            ext: 0,
         }));
         let stop = Arc::new(AtomicBool::new(false));
         let (release, input) = mpsc::sync_channel(1);
@@ -1566,7 +1566,7 @@ mod usage_wake_tests {
         impl Drop for Cleanup {
             fn drop(&mut self) {
                 self.1.store(true, Ordering::Release);
-                crate::resident::wake(self.0.lock().unwrap().window);
+                crate::resident::wake(self.0.lock().unwrap().ext);
                 if let Some(worker) = self.2.take() {
                     worker.join().unwrap().unwrap();
                 }
@@ -1575,7 +1575,7 @@ mod usage_wake_tests {
         let _cleanup = Cleanup(shared.clone(), stop, Some(worker));
         let deadline = Instant::now() + Duration::from_secs(3);
         let hwnd = loop {
-            let window = shared.lock().unwrap().window;
+            let window = shared.lock().unwrap().ext;
             if window != 0 {
                 break HWND(window as *mut std::ffi::c_void);
             }

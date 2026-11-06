@@ -27,41 +27,9 @@ use x11rb::protocol::Event as XEvent;
 
 pub use crate::resident_client::{ensure, forward, forward_if_running};
 
-struct Shared {
-    queue: Queue,
-    warnings: crate::session_warnings::Warnings,
-    paused: bool,
-    sounds: bool,
-    visuals: bool,
-}
-impl crate::resident_request::Controls for Shared {
-    fn warnings(&mut self) -> &mut crate::session_warnings::Warnings {
-        &mut self.warnings
-    }
-    fn queue(&mut self) -> &mut Queue {
-        &mut self.queue
-    }
-    fn paused(&self) -> bool {
-        self.paused
-    }
-    fn sounds(&self) -> bool {
-        self.sounds
-    }
-    fn visuals(&self) -> bool {
-        self.visuals
-    }
-    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
-        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
-    }
-}
+type Shared = crate::resident_request::Shared;
 fn shared(config: &Config) -> Arc<Mutex<Shared>> {
-    Arc::new(Mutex::new(Shared {
-        queue: Queue::new(64, config.general.deduplicate_ms),
-        warnings: Default::default(),
-        paused: false,
-        sounds: config.sounds.enabled,
-        visuals: config.notifications.enabled,
-    }))
+    Arc::new(Mutex::new(Shared::new(config, ())))
 }
 
 /// About is the usage card's text in its reserved slot; the same item closes it.
