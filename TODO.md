@@ -473,6 +473,9 @@ P2 tasks run in the listed order; AH-266 goes last.
   them (PNG or WebP, short GIF or WebM/MP4 loop for the card animation, each under ~1 MB), give each an
   `alt` text, and link them from `README.md` next to the feature list. Acceptance: README renders the images
   on GitHub in light and dark themes; no image holds private data; sizes are listed in the PR.
+  Partial 2026-11-06: Linux demo cards (turn complete, input required, error, context warning)
+  and an animated demo are in the README, captured on an isolated Xvfb display with demo data.
+  Left: tray icon with tooltip and menu, Windows images, and GitHub light/dark rendering acceptance.
 
 - [ ] **AH-282 — Rolling nightly prerelease.**
   Extend `nightly.yml` so that a green nightly run publishes the release `nightly` and replaces the

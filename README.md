@@ -50,6 +50,19 @@ and keeps a queue so nothing is lost while you are away.
   and never logged, no tokens read except the two opt-in usage features. Everything aHerald reads or
   sends, and how to turn it off: [privacy](docs/privacy.md). See [limits](#-limits).
 
+## Preview
+
+These Linux screenshots show sample cards from the built-in demo. Context and idle warnings
+are optional; the example warning uses a simulated context threshold.
+
+| Turn complete | Input required |
+| --- | --- |
+| ![Linux demo card saying turn complete](docs/images/linux-turn-complete.png) | ![Linux demo card asking for input](docs/images/linux-input-required.png) |
+| Agent error | Context warning |
+| ![Linux demo card reporting an agent error](docs/images/linux-agent-error.png) | ![Linux demo card warning that the Codex context exceeded its threshold](docs/images/linux-context-warning.png) |
+
+![Linux demo showing a completed turn followed by a permission request](docs/images/linux-card-demo.gif)
+
 ## Install
 
 | OS | Get it |
