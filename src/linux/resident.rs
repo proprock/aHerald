@@ -169,6 +169,7 @@ pub fn run_after_apply(
     let startup = ready_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
+    let usage = Usage::for_resident(&config);
     let result = match startup {
         Ok(()) => present(
             window,
@@ -181,6 +182,7 @@ pub fn run_after_apply(
             },
             if test { Preview::Test } else { Preview::None },
             Some(path),
+            usage,
         ),
         Err(e) => Err(e),
     };
@@ -196,6 +198,7 @@ pub fn run_after_apply(
 pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {
     let demo = crate::demo::Demo::new(&config, pause_sec)?;
     let state = shared(&config);
+    let usage = Usage::for_resident(&config);
     present(
         x11::Window::new()?,
         config,
@@ -203,6 +206,7 @@ pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), Strin
         Loop::standalone()?,
         Preview::Demo(demo),
         Some(path),
+        usage,
     )
 }
 
@@ -230,6 +234,7 @@ pub fn show_transient(event: &Event, config: &Config) -> Result<(), String> {
         Loop::standalone()?,
         Preview::None,
         None,
+        Usage::none(),
     )
 }
 
@@ -279,6 +284,38 @@ enum Preview {
     Test,
 }
 
+/// The usage services behind the tray's numbers. `present` takes them as a parameter so a test
+/// can hand it services fed by a stub source.
+struct Usage {
+    codex: Option<Arc<crate::usage_service::Service>>,
+    claude: Option<Arc<crate::usage_service::Service>>,
+}
+impl Usage {
+    /// No numbers: a one-card notice has no tray.
+    fn none() -> Self {
+        Self {
+            codex: None,
+            claude: None,
+        }
+    }
+    /// The resident's own services: Codex always, Claude only when its usage is enabled.
+    fn for_resident(config: &Config) -> Self {
+        Self {
+            codex: Some(Arc::new(crate::usage_service::Service::codex(
+                config.codex.usage.enabled,
+                Duration::from_secs(config.codex.usage.refresh_interval_sec),
+            ))),
+            claude: config.claude.usage.enabled.then(|| {
+                Arc::new(crate::usage_service::Service::claude(
+                    true,
+                    Duration::from_secs(config.claude.usage.refresh_interval_sec),
+                    config.claude.usage.source,
+                ))
+            }),
+        }
+    }
+}
+
 fn present(
     window: x11::Window,
     config: Config,
@@ -286,6 +323,7 @@ fn present(
     run: Loop,
     preview: Preview,
     config_path: Option<&Path>,
+    usage: Usage,
 ) -> Result<(), String> {
     let Loop { stop, start, wake } = run;
     let mut carousel =
@@ -309,21 +347,10 @@ fn present(
         tray.set_messenger(crate::forward::enabled());
         tray
     });
-    let usage = config_path.map(|_| {
-        crate::usage_service::Service::codex(
-            config.codex.usage.enabled,
-            Duration::from_secs(config.codex.usage.refresh_interval_sec),
-        )
-    });
-    let claude = config_path
-        .filter(|_| config.claude.usage.enabled)
-        .map(|_| {
-            crate::usage_service::Service::claude(
-                true,
-                Duration::from_secs(config.claude.usage.refresh_interval_sec),
-                config.claude.usage.source,
-            )
-        });
+    let Usage {
+        codex: usage,
+        claude,
+    } = usage;
     // New usage numbers refresh the tray at once instead of at the next beat of the loop.
     let usage_changed = Arc::new(AtomicBool::new(false));
     for service in usage.iter().chain(claude.iter()) {
@@ -922,6 +949,129 @@ fn present(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A usage source whose only read waits for the snapshot the test sends, so the test
+    /// decides the moment of publication.
+    struct Gate(mpsc::Receiver<crate::usage::Snapshot>);
+    impl crate::usage_service::UsageSource for Gate {
+        fn read(
+            &mut self,
+            _now: Duration,
+        ) -> Result<crate::usage::Snapshot, crate::app_server::Error> {
+            self.0
+                .recv_timeout(Duration::from_secs(30))
+                .map_err(|_| crate::app_server::Error::Timeout)
+        }
+    }
+
+    /// The tooltip text of the StatusNotifierItem that the resident's tray serves on the
+    /// session bus, as a host would read it; `None` while it is not there.
+    fn tray_description(bus: &zbus::blocking::Connection) -> Option<String> {
+        use zbus::names::InterfaceName;
+        type ToolTip = (String, Vec<(i32, i32, Vec<u8>)>, String, String);
+        let own = bus.unique_name().map(|name| name.to_string());
+        let names = zbus::blocking::fdo::DBusProxy::new(bus)
+            .ok()?
+            .list_names()
+            .ok()?;
+        names
+            .into_iter()
+            .filter(|name| name.starts_with(':') && Some(name.as_str()) != own.as_deref())
+            .find_map(|name| {
+                let properties = zbus::blocking::fdo::PropertiesProxy::builder(bus)
+                    .destination(name.to_string())
+                    .ok()?
+                    .path("/StatusNotifierItem")
+                    .ok()?
+                    .build()
+                    .ok()?;
+                let value = properties
+                    .get(
+                        InterfaceName::try_from("org.kde.StatusNotifierItem").ok()?,
+                        "ToolTip",
+                    )
+                    .ok()?;
+                ToolTip::try_from(value).ok().map(|tip| tip.3)
+            })
+    }
+
+    /// Run with `xvfb-run -a dbus-run-session -- env AH283_ISOLATED=1 cargo test --locked --lib
+    /// a_changed_usage_snapshot -- --ignored`. The usage worker publishes once, while the
+    /// loop is idle (no card, no animation, no polling): the tray must show it within 500 ms.
+    #[test]
+    #[ignore = "requires an isolated X11 display and private D-Bus session"]
+    fn a_changed_usage_snapshot_reaches_the_tray_within_one_wake_up() {
+        assert_eq!(
+            std::env::var("AH283_ISOLATED").as_deref(),
+            Ok("1"),
+            "use a private bus and display"
+        );
+        let (publish, gate) = mpsc::channel();
+        let service = Arc::new(crate::usage_service::Service::spawn_source(
+            crate::agent::Agent::Codex,
+            true,
+            Duration::from_secs(3600),
+            Arc::new(AtomicBool::new(false)),
+            move || Gate(gate),
+        ));
+        let config = Config::default();
+        let state = shared(&config);
+        let run = Loop::standalone().unwrap();
+        let (stop, wake) = (run.stop.clone(), run.wake.clone());
+        let usage = Usage {
+            codex: Some(service.clone()),
+            claude: None,
+        };
+        let resident = std::thread::spawn(move || {
+            present(
+                x11::Window::new().unwrap(),
+                config,
+                state,
+                run,
+                Preview::None,
+                Some(Path::new("usage-wake-test.toml")),
+                usage,
+            )
+        });
+        let bus = zbus::blocking::Connection::session().unwrap();
+        let wait_for = |wanted: &dyn Fn(&str) -> bool, limit: Duration| {
+            let deadline = Instant::now() + limit;
+            loop {
+                match tray_description(&bus) {
+                    Some(text) if wanted(&text) => return Some(Instant::now()),
+                    _ if Instant::now() >= deadline => return None,
+                    _ => std::thread::sleep(Duration::from_millis(5)),
+                }
+            }
+        };
+        wait_for(&|_| true, Duration::from_secs(10)).expect("the tray did not appear");
+        // Let the loop go idle: it has drawn its first tray state and now blocks until woken.
+        std::thread::sleep(Duration::from_millis(500));
+        let bucket = crate::usage::Bucket {
+            primary: Some(crate::usage::Window {
+                used_percent: Some(30.0),
+                window_duration_mins: Some(300),
+                resets_at: None,
+            }),
+            ..Default::default()
+        };
+        let snapshot = crate::usage::Snapshot::single("codex", bucket).unwrap();
+        let published = Instant::now();
+        publish.send(snapshot).unwrap();
+        let shown = wait_for(&|text| text.contains("70%"), Duration::from_secs(5));
+        stop.store(true, Ordering::Release);
+        wake.signal();
+        let result = resident.join().unwrap();
+        drop(publish);
+        drop(service);
+        result.unwrap();
+        let shown = shown.expect("the tray never showed the snapshot");
+        assert!(
+            shown.duration_since(published) < Duration::from_millis(500),
+            "the tray took {:?}",
+            shown.duration_since(published)
+        );
+    }
 
     #[test]
     fn warning_switches_keep_queued_cards_clear_pending_and_reset_on_restart() {
