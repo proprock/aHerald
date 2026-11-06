@@ -229,7 +229,16 @@ fn a_freshly_written_program_runs_while_other_threads_start_processes() {
             })
         })
         .collect();
+    // Starts of other programs in the same process (as the `support` self-tests make) must go
+    // through the same gate.
+    let forker = std::thread::spawn(|| {
+        for _ in 0..400 {
+            let mut child = support::spawn(&mut Command::new("true")).unwrap();
+            child.wait().unwrap();
+        }
+    });
     for worker in workers {
         worker.join().unwrap();
     }
+    forker.join().unwrap();
 }

@@ -114,6 +114,14 @@ pub fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+/// Start `command` while no executable is being written (see [`write_executable`]). Use it for
+/// every start in a test crate that writes executables, so no fork of a sibling thread can hold
+/// a write descriptor of the file another test is about to run.
+pub fn spawn(command: &mut Command) -> std::io::Result<Child> {
+    let _gate = EXEC_GATE.read().unwrap_or_else(|e| e.into_inner());
+    command.spawn()
+}
+
 /// [`run_bounded`] with a generous 30 s deadline for ordinary short CLI runs; panics with the
 /// diagnostic on timeout.
 pub fn output(command: &mut Command) -> Output {
@@ -134,10 +142,7 @@ pub fn run_bounded_with_input(
     // sibling thread's fork; Linux reports ETXTBSY until that child execs. Retry briefly.
     let mut attempts = 0;
     let child = loop {
-        let spawned = {
-            let _gate = EXEC_GATE.read().unwrap_or_else(|e| e.into_inner());
-            command.spawn()
-        };
+        let spawned = { spawn(command) };
         match spawned {
             Ok(child) => break child,
             Err(error) if error.raw_os_error() == Some(26) && attempts < 100 => {
@@ -329,7 +334,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_owned_child_is_killed_and_reaped_on_drop_even_when_the_test_panics() {
-        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let child = spawn(Command::new("sleep").arg("30")).unwrap();
         let pid = child.id();
         let result = std::panic::catch_unwind(move || {
             let _owned = OwnedChild(child);
@@ -344,11 +349,13 @@ mod tests {
     #[cfg(unix)]
     fn process_exists(pid: u32) -> bool {
         // `kill -0` succeeds only while the process (or an unreaped zombie) exists.
-        Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+        spawn(
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(Stdio::null()),
+        )
+        .and_then(|mut child| child.wait())
+        .is_ok_and(|status| status.success())
     }
 
     #[test]
