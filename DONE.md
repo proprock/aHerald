@@ -33,10 +33,8 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   gate: 1 of 3 and 1 of 6 runs). `scripts/manual/stress.sh` and the manual `manual.yml` workflow
   repeat the three test binaries under CPU load, then full runs. The unrelated `unix_ipc` flake seen on the
   way is AH-284. Evidence: **ran locally** (Linux, 12 cores): 14 of 14 full runs under load free of these
-  failures; **ran on a runner** (ubuntu-22.04): `Stress` found the two gaps (run 42173466223 was a missing
-  `libpulse`, 42174428185 failed at run 8 of 200 and 42174711662 at run 208 of 300, both from the
-  `support` self-tests' ungated starts) and then, on the fixed branch, run
-  https://github.com/proprock/aHerald/actions/runs/42176183970 passed: 600 runs of `plugin_hook_script`,
+  failures; **ran on a runner** (ubuntu-22.04): `Stress` found the two gaps (a missing `libpulse` on the bare runner; a failure at run 8 of 200 and another at run 208 of 300, both from the
+  `support` self-tests' ungated starts) and then, on the fixed branch the run (2026-11-06) passed: 600 runs of `plugin_hook_script`,
   `setup` and `sandbox_sender` with 64 threads under load and 5 full runs. Windows and macOS: the gate
   compiles on them (the helper is `cfg(unix)`); not affected.
 
@@ -80,8 +78,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   StatusNotifierItem `ToolTip` over D-Bus: it shows the new numbers within 500 ms. Evidence: **ran locally**
   (Linux, Xephyr nested X server and `dbus-run-session`, as Xvfb is not installed here): 5 of 5 green in 0.5 s;
   with the `on_change` wiring removed the test fails ("the tray never showed the snapshot"). A new CI step
-  runs it with `xvfb-run`: **ran in CI** (ubuntu-22.04, PR #128 run
-  https://github.com/proprock/aHerald/actions/runs/42171895666): the step is green, the test passes in 0.51 s.
+  runs it with `xvfb-run`: **ran in CI** (ubuntu-22.04, PR #128, 2026-11-06): the step is green, the test passes in 0.51 s.
 
 - [x] **AH-231 — Linux resident: no periodic wake-ups while idle (one check is left, AH-283).**
   The loop in `src/linux/resident.rs` no longer sleeps 16 ms per pass. `linux::wake::timeout(busy,
