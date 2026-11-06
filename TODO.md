@@ -591,13 +591,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   separators above Sound (only with usage lines), Context warnings, the version and Edit configuration, and the
   check marks following the switches. Acceptance: one line per OS with the OS version in `DONE.md`.
 
-- [ ] **AH-287 — Windows and macOS prepare artwork through `ArtworkWorker`.**
-  Depends on AH-262. `src/windows/resident_overlay.rs` and `src/mac/resident.rs` each carry their own copy of the
-  artwork worker thread (job and result channels, `AssetCache`, a 30 ms `recv_timeout` poll). Replace both with
-  `artwork_worker::ArtworkWorker`, which blocks while idle (no periodic wake-up) and wakes the loop when a result
-  is ready. Acceptance: the copies are gone, the card still waits at most `ART_WAIT_MS` for artwork, the Windows
-  and macOS resident tests pass in CI.
-
 - [ ] **AH-288 — Hand check of Linux card artwork and the usage card after the `Ui` refactor.**
   Depends on AH-262. On a Linux desktop (X11 or XWayland) show a Codex or Claude card with artwork, one without,
   and the usage card (menu item, wheel paging, About): the card appears within a moment of its artwork (at most

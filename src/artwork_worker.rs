@@ -17,8 +17,13 @@ pub struct ArtworkWorker {
 }
 
 impl ArtworkWorker {
-    /// `notify` runs on the worker thread after each result is queued.
-    pub fn spawn(config: &Config, notify: impl Fn() + Send + 'static) -> Self {
+    /// `notify` runs on the worker thread after each result is queued; `before` runs just before
+    /// each job is prepared (a debug build's fault injection stalls here).
+    pub fn spawn(
+        config: &Config,
+        before: impl Fn() + Send + 'static,
+        notify: impl Fn() + Send + 'static,
+    ) -> Self {
         let (jobs, requests) = mpsc::sync_channel::<(u64, Event, f64)>(1);
         let (sender, results) = mpsc::channel();
         let config = config.clone();
@@ -34,6 +39,7 @@ impl ArtworkWorker {
                     cache = new_cache();
                     cached_scale = scale;
                 }
+                before();
                 let art = cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
                     crate::artwork::prepared_for_event(&config, &event, scale)
                         .ok()
@@ -81,9 +87,13 @@ mod tests {
     fn a_submitted_card_comes_back_with_its_id_and_scale_and_wakes_the_loop() {
         let woken = Arc::new(AtomicUsize::new(0));
         let counter = woken.clone();
-        let worker = ArtworkWorker::spawn(&Config::default(), move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        });
+        let worker = ArtworkWorker::spawn(
+            &Config::default(),
+            || {},
+            move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        );
         let event = Event::demo("turn_complete").unwrap();
         assert!(worker.submit(7, &event, 1.5));
         let (id, scale, _art) = worker
@@ -100,10 +110,27 @@ mod tests {
     }
 
     #[test]
+    fn the_before_hook_runs_ahead_of_each_job_and_can_stall_it() {
+        let worker = ArtworkWorker::spawn(
+            &Config::default(),
+            || std::thread::sleep(Duration::from_millis(150)),
+            || {},
+        );
+        let event = Event::demo("turn_complete").unwrap();
+        let sent = std::time::Instant::now();
+        assert!(worker.submit(1, &event, 1.0));
+        worker
+            .results
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap();
+        assert!(sent.elapsed() >= Duration::from_millis(150));
+    }
+
+    #[test]
     fn dropping_the_worker_ends_its_thread_while_idle_and_busy() {
-        let worker = ArtworkWorker::spawn(&Config::default(), || {});
+        let worker = ArtworkWorker::spawn(&Config::default(), || {}, || {});
         drop(worker);
-        let busy = ArtworkWorker::spawn(&Config::default(), || {});
+        let busy = ArtworkWorker::spawn(&Config::default(), || {}, || {});
         let event = Event::demo("turn_complete").unwrap();
         busy.submit(1, &event, 1.0);
         // The result is never read; the drop must still return.

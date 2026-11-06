@@ -347,7 +347,7 @@ impl Ui {
         } else {
             crate::session_source::Service::codex()
         };
-        let artwork = ArtworkWorker::spawn(&config, {
+        let artwork = ArtworkWorker::spawn(&config, || {}, {
             let wake = wake.clone();
             move || wake.signal()
         });

@@ -37,6 +37,18 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-287 — Windows and macOS prepare artwork through `ArtworkWorker`.**
+  `src/windows/resident_overlay.rs` and `src/mac/resident.rs` lost their own artwork worker threads (job and
+  result channels, `AssetCache`, the 30 ms `recv_timeout` poll) and hold an `artwork_worker::ArtworkWorker`
+  like the Linux resident; the worker blocks while idle, so the 30 ms periodic wake-up of those threads is
+  gone. Card logic is unchanged: `ART_WAIT_MS` (300 ms), resubmission on a scale change and the 16 ms timer
+  poll stay as they were. macOS wakes its loop when a result is ready; on Windows the existing timer keeps
+  polling. The worker is joined when the `Ui` is dropped. The Windows debug-build fault injection that stalls artwork (`slowart`, used by
+  `tests/resident_render_faults.rs`) moved into the worker's `before` hook; the first version of this change
+  dropped it by mistake and the Windows CI run caught it. `artwork_worker` is now `pub(crate)`. No new tests
+  (the worker has its own, from AH-262). Evidence: fmt, clippy, workspace tests and doctests **ran locally** on
+  Linux; Windows clippy lint including the test targets **ran locally**; Windows tests (`tests/resident.rs`,
+  `native_overlay`) and all macOS code **compiled/tested in CI only**.
 - [x] **AH-266 (part 2) — Public-API integration tests in one binary.**
   36 ungated integration tests that use only the library API moved to `tests/api/` (one module per former file,
   `tests/api/main.rs` declares them): `activation`, `animation`, `audio`, `card`, `card_border`, `card_folder`,

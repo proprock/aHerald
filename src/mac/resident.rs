@@ -12,6 +12,7 @@ use super::{
 };
 use crate::{
     animation::PreparedAnimation,
+    artwork_worker::ArtworkWorker,
     card::Card,
     card_paint::{CardText, event_card_text},
     config::Config,
@@ -28,7 +29,6 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
     time::{Duration, Instant},
 };
@@ -183,17 +183,13 @@ fn new_shared(config: &Config) -> Arc<Mutex<Shared>> {
     Arc::new(Mutex::new(Shared::new(config, ())))
 }
 
-/// Event id, the render scale the artwork was prepared at, and the artwork.
-type RenderResult = (u64, f64, Option<Arc<PreparedAnimation>>);
-
 struct Ui {
     shared: Arc<Mutex<Shared>>,
     config: Config,
     start: Instant,
     panel: Panel,
     mtm: MainThreadMarker,
-    jobs: Option<mpsc::SyncSender<(u64, Event, f64)>>,
-    results: mpsc::Receiver<RenderResult>,
+    artwork: ArtworkWorker,
     scale: f64,
     composition: Option<Composition>,
     selection: Option<u64>,
@@ -816,18 +812,13 @@ impl Ui {
             self.compose_due = true;
             // Artwork usually takes 0-130 ms; a stalled or missing worker must not hide
             // the notification, so the text card follows after the limit.
-            self.art_wait = self.jobs.as_ref().map(|_| now + ART_WAIT_MS);
+            self.art_wait = Some(now + ART_WAIT_MS);
         }
-        if self.pending
-            && self.jobs.as_ref().is_some_and(|tx| {
-                tx.try_send((entry.id, entry.event.clone(), self.scale))
-                    .is_ok()
-            })
-        {
+        if self.pending && self.artwork.submit(entry.id, &entry.event, self.scale) {
             self.pending = false;
         }
         let mut loaded = false;
-        while let Ok((id, scale, art)) = self.results.try_recv() {
+        while let Ok((id, scale, art)) = self.artwork.results.try_recv() {
             if Some(id) != self.selection {
                 continue;
             }
@@ -964,47 +955,9 @@ fn present(
     app.finishLaunching();
     waker.set(app.clone());
 
-    let (jobs_tx, jobs_rx) = mpsc::sync_channel::<(u64, Event, f64)>(1);
-    let (results_tx, results_rx) = mpsc::sync_channel(1);
-    let assets = config.clone();
-    let done = stop.clone();
-    let worker = std::thread::spawn(move || {
-        let new_cache =
-            || crate::resource_cache::AssetCache::new(16, crate::animation::MAX_BYTES as usize);
-        let mut cache = new_cache();
-        // Artwork is prepared for one render scale at a time.
-        let mut cached_scale = 0.0;
-        while !done.load(Ordering::Acquire) {
-            match jobs_rx.recv_timeout(Duration::from_millis(30)) {
-                Ok((id, event, scale)) => {
-                    if scale != cached_scale {
-                        cache = new_cache();
-                        cached_scale = scale;
-                    }
-                    let art =
-                        cache.get_or_load((event.source.agent_key(), event.kind.name()), || {
-                            crate::artwork::prepared_for_event(&assets, &event, scale)
-                                .ok()
-                                .flatten()
-                        });
-                    let mut result = (id, scale, art);
-                    loop {
-                        match results_tx.try_send(result) {
-                            Ok(()) | Err(mpsc::TrySendError::Disconnected(_)) => break,
-                            Err(mpsc::TrySendError::Full(value)) => {
-                                result = value;
-                                if done.load(Ordering::Acquire) {
-                                    return;
-                                }
-                                std::thread::park_timeout(Duration::from_millis(2));
-                            }
-                        }
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-                Err(_) => break,
-            }
-        }
+    let artwork = ArtworkWorker::spawn(&config, || {}, {
+        let waker = waker.clone();
+        move || waker.wake()
     });
 
     let usage_enabled = config.codex.usage.enabled;
@@ -1035,8 +988,7 @@ fn present(
             start,
             panel,
             mtm,
-            jobs: Some(jobs_tx),
-            results: results_rx,
+            artwork,
             scale: config.notifications.scale,
             composition: None,
             selection: None,
@@ -1113,14 +1065,12 @@ fn present(
             ui.handle_scrolls();
             ui.handle_commands();
         }
-        ui.jobs.take();
         ui.audio_cancel.store(true, Ordering::Release);
         for job in ui.audio.drain(..) {
             let _ = job.join();
         }
     });
     stop.store(true, Ordering::Release);
-    let _ = worker.join();
     result
 }
 
