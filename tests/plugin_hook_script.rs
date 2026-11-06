@@ -3,7 +3,6 @@
 mod support;
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -19,15 +18,13 @@ fn fake_app(root: &Path, record: &Path) -> PathBuf {
     let app = root.join("aHerald.app");
     let exe = app.join("Contents/MacOS/aherald");
     fs::create_dir_all(exe.parent().unwrap()).unwrap();
-    fs::write(
+    support::write_executable(
         &exe,
         format!(
             "#!/bin/sh\necho \"$@\" > '{0}'\ncat >> '{0}'\nexit 0\n",
             record.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     app
 }
 
@@ -108,16 +105,14 @@ fn linux_override_passes_payload_and_suppresses_a_failing_program() {
     let record = dir.join("record");
     let exe = dir.join("path with spaces/aherald");
     fs::create_dir_all(exe.parent().unwrap()).unwrap();
-    fs::write(
+    support::write_executable(
         &exe,
         format!(
             "#!/bin/sh\necho \"$@\" > '{}'\ncat >> '{}'\necho noisy\necho error >&2\nexit 7\n",
             record.display(),
             record.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let out = run(
         "claude",
         "payload",
@@ -136,16 +131,14 @@ fn linux_portable_location_is_discovered() {
     let record = dir.join("record");
     let exe = dir.join(".local/share/aHerald/aherald");
     fs::create_dir_all(exe.parent().unwrap()).unwrap();
-    fs::write(
+    support::write_executable(
         &exe,
         format!(
             "#!/bin/sh\necho \"$@\" > '{}'\ncat >> '{}'\n",
             record.display(),
             record.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let out = run("codex", "payload", &[("HOME", &dir)]);
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
     assert_eq!(
@@ -177,8 +170,7 @@ fn a_missing_explicit_binary_does_not_run_a_different_installation() {
 fn codex_preserves_only_the_valid_stop_acknowledgement() {
     let dir = scratch("codex-reply");
     let exe = dir.join("aherald");
-    fs::write(&exe, "#!/bin/sh\ncat >/dev/null\nprintf '{}\\n'\n").unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    support::write_executable(&exe, "#!/bin/sh\ncat >/dev/null\nprintf '{}\\n'\n");
     let out = run("codex", "payload", &[("AHERALD_PATH", &exe)]);
     assert!(out.status.success() && out.stderr.is_empty());
     assert_eq!(out.stdout, b"{}\n");
@@ -191,16 +183,14 @@ fn linux_path_is_used_when_no_override_or_portable_binary_exists() {
     let bin = dir.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let exe = bin.join("aherald");
-    fs::write(
+    support::write_executable(
         &exe,
         format!(
             "#!/bin/sh\necho \"$@\" > '{}'\ncat >> '{}'\n",
             record.display(),
             record.display()
         ),
-    )
-    .unwrap();
-    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let path = PathBuf::from(format!("{}:/usr/bin:/bin", bin.display()));
     let out = run("claude", "payload", &[("HOME", &dir), ("PATH", &path)]);
     assert!(out.status.success() && out.stdout.is_empty() && out.stderr.is_empty());
@@ -208,4 +198,38 @@ fn linux_path_is_used_when_no_override_or_portable_binary_exists() {
         fs::read_to_string(&record).unwrap(),
         "--hook --agent claude --resident\npayload"
     );
+}
+
+#[test]
+fn a_freshly_written_program_runs_while_other_threads_start_processes() {
+    // Linux refuses to exec a file while a sibling's forked child still holds its write
+    // descriptor; the script hides that failure, so the record would simply never appear.
+    let dir = scratch("fresh-program");
+    let workers: Vec<_> = (0..16)
+        .map(|worker| {
+            let root = dir.join(format!("worker-{worker}"));
+            std::thread::spawn(move || {
+                fs::create_dir_all(&root).unwrap();
+                for round in 0..40 {
+                    let record = root.join(format!("record-{round}"));
+                    let exe = root.join(format!("aherald-{round}"));
+                    support::write_executable(
+                        &exe,
+                        format!(
+                            "#!/bin/sh\ncat >/dev/null\necho ran > '{}'\n",
+                            record.display()
+                        ),
+                    );
+                    run("claude", "payload", &[("AHERALD_PATH", &exe)]);
+                    assert!(
+                        record.exists(),
+                        "worker {worker} round {round}: the program did not run"
+                    );
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
 }

@@ -470,7 +470,15 @@ P2 tasks run in the listed order; AH-266 goes last.
   test thread forks while a test still holds the write handle of the program it is about to start
   (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
   error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
-  runs in a row without these failures on a Linux runner. Not related to AH-243 or any change of that PR.
+  runs in a row without these failures on a Linux runner. Status 2026-11-06: fix in place (`support::write_executable`
+  gate, `attempts >= 2`); 14 of 14 loaded full runs were free of these failures, the 50-run check is left. Not related to AH-243 or any change of that PR.
+
+- [ ] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
+  Seen once on 2026-11-06 in 1 of 15 full loaded local runs (12 CPU hogs): `create_pipe` returned "a resident
+  is already listening" at `tests/unix_ipc.rs:45` although the test only dropped a bound listener. Green in the
+  other 14 runs. Work: reproduce in isolation under load, find who accepts the connection (namespace/socket path
+  reuse, a leftover from a previous run, or a real race in `src/unix/local.rs` `create_pipe`), fix the cause with
+  a regression test. Acceptance: 50 loaded runs of the test binary without the failure.
 
 - [ ] **AH-280 — Release-candidate checks left from AH-251 and AH-252.**
   The pull request runs of AH-251 and AH-252 are verified (see DONE.md); what only a release or the nightly

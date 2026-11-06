@@ -95,6 +95,25 @@ pub fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, S
     run_bounded_with_input(command, &[], timeout)
 }
 
+/// Orders the writing of an executable against every child start made through this module.
+/// A forked child inherits each descriptor open at the fork until it execs, and Linux refuses
+/// to exec a file (`ETXTBSY`) while any copy of its write descriptor lives, even one held by a
+/// sibling test's child. Writers take it exclusively for the open-write-close window; starts
+/// share it, so no start can overlap a window. The `ETXTBSY` of a program run by a script is
+/// invisible to the test, which is why the retry in [`run_bounded_with_input`] is not enough.
+static EXEC_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// Write `contents` to `path` and make it executable, such that running it at once cannot fail
+/// with `ETXTBSY` because of a start made through [`run_bounded_with_input`] or [`output`] in
+/// another thread of this test process.
+#[cfg(unix)]
+pub fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
+    use std::os::unix::fs::PermissionsExt;
+    let _gate = EXEC_GATE.write().unwrap_or_else(|e| e.into_inner());
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 /// [`run_bounded`] with a generous 30 s deadline for ordinary short CLI runs; panics with the
 /// diagnostic on timeout.
 pub fn output(command: &mut Command) -> Output {
@@ -115,7 +134,11 @@ pub fn run_bounded_with_input(
     // sibling thread's fork; Linux reports ETXTBSY until that child execs. Retry briefly.
     let mut attempts = 0;
     let child = loop {
-        match command.spawn() {
+        let spawned = {
+            let _gate = EXEC_GATE.read().unwrap_or_else(|e| e.into_inner());
+            command.spawn()
+        };
+        match spawned {
             Ok(child) => break child,
             Err(error) if error.raw_os_error() == Some(26) && attempts < 100 => {
                 attempts += 1;
