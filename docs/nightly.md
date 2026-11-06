@@ -25,6 +25,13 @@ release builds nothing: the full CI, packaging and publication are skipped (the 
 short, and its summary says "No change since <sha>"). The compiler canary and the dependency audit
 still run, since a new compiler or advisory needs no commit.
 
+## Where to see it
+
+The release is a prerelease, so the repository's front page ("Releases") keeps showing the latest
+stable one. Each publication is also recorded as a deployment of the environment `nightly`: it is
+listed under "Deployments" in the sidebar, with the link to the release, and the environment page
+keeps the history of builds with their commits. The environment has no protection rules.
+
 ## Retention and failures
 
 There is one release. Each successful run moves the `nightly` tag to the new commit, replaces

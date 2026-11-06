@@ -113,6 +113,11 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+    # Makes every publication show up under "Deployments" of the repository, with a link to the
+    # release. No protection rules: a rule that needs approval would stop every night.
+    environment:
+      name: nightly
+      url: https://github.com/proprock/aHerald/releases/tag/nightly
     # One publication at a time; a later run waits for the earlier one instead of cancelling it half way.
     concurrency:
       group: nightly-publish
