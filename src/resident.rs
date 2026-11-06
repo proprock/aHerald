@@ -45,6 +45,9 @@ impl crate::resident_request::Controls for Shared {
     fn visuals(&self) -> bool {
         self.visuals
     }
+    fn set_switches(&mut self, paused: bool, sounds: bool, visuals: bool) {
+        (self.paused, self.sounds, self.visuals) = (paused, sounds, visuals);
+    }
 }
 /// Posted to the resident window when IPC changed the queue or requested shutdown.
 pub const WAKE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;

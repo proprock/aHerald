@@ -524,13 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-258 — Shared command effects.**
-  Depends on AH-257. Add `fn apply(command, &mut Shared, &Config) -> Vec<Effect>` to `src/resident_request.rs`,
-  with `Effect` covering Redraw, CancelAudio, OpenConfig, Restart{test}, ShowNotice(..), Quit and the rest. The
-  three dispatchers (`resident_overlay.rs:707-826`, `linux/resident.rs:~300-420`, `mac/resident.rs:517-628`)
-  only translate a platform event to `Command` and execute the `Effect`s. AH-233's `apply_outcome` becomes part
-  of it. Acceptance: unit tests for each command's effects; the existing tray tests pass on all OS.
-
 - [ ] **AH-259 — Shared `Shared` state and constructor.**
   Move the near-identical `Shared` struct, its `Controls` impl, `toggle_warning` and the constructor
   (`resident.rs:23-48,133-140`, `linux/resident.rs:30-60`, `mac/resident.rs:49-81,284`) into
