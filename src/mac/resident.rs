@@ -955,7 +955,7 @@ fn present(
     app.finishLaunching();
     waker.set(app.clone());
 
-    let artwork = ArtworkWorker::spawn(&config, {
+    let artwork = ArtworkWorker::spawn(&config, || {}, {
         let waker = waker.clone();
         move || waker.wake()
     });

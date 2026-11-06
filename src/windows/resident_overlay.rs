@@ -1091,7 +1091,19 @@ pub(super) fn run_preview(
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         config.notifications.scale
     };
-    let artwork = ArtworkWorker::spawn(&config, || {});
+    let artwork = ArtworkWorker::spawn(
+        &config,
+        {
+            let directory = config.diagnostic_directory.clone();
+            // Debug-build fault injection: artwork preparation stalls.
+            move || {
+                if fault(&directory, "slowart") {
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                }
+            }
+        },
+        || {},
+    );
     let claude = claude_usage(&config);
     // With Codex usage polling on, session names share its app-server child.
     let source_labels = if config.codex.usage.enabled {
