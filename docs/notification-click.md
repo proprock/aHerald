@@ -61,7 +61,7 @@ CLI: 0.164.0-alpha.11.1. This integration is a shell URI interface, not an
 app-server method, and does not resume or send messages to the chat.
 The ordinary suite uses a fake activation boundary and needs no installed Codex.
 An ignored interactive test can be run with a real AHERALD_TEST_THREAD environment
-variable: `cargo test --test activation manual_agent_click_preview -- --ignored
+variable: `cargo test --test api activation::manual_agent_click_preview -- --ignored
 --nocapture`. It expires after three minutes. A real absent-application/fallback
 failure is simulated in tests; no Codex installation or protocol registration is
 removed by the test suite. Windows focus restrictions can prevent foreground

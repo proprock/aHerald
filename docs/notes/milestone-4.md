@@ -150,7 +150,7 @@ Verification on 2026-10-25, Windows 11 Pro 22621:
   handshake passed in the sandbox with safe usage unavailability. The same
   read-only test outside the sandbox in the user's profile returned one bucket.
   It prints only a bucket count or sanitized error; no credentials/account data.
-- `cargo test --test usage_ui preview_usage_details -- --ignored --nocapture`:
+- `cargo test --test api usage_ui::preview_usage_details -- --ignored --nocapture`:
   visually inspected synthetic two-bucket usage, primary/secondary percentages,
   credit values, unknown fields and the repeated DST hour's two different UTC
   offsets. Final inspection used the system GUI font; no clipped text was seen.

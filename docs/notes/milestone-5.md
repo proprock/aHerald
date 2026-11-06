@@ -189,7 +189,7 @@ AH-022 at the user's request; no portable ZIP has been produced in this slice.
 
 ## Routine artwork performance check
 
-Run `cargo test --test perf_artwork -- --nocapture` for a short, headless
+Run `cargo test --test api perf_artwork:: -- --nocapture` for a short, headless
 warm-file-cache check. It calls the real `artwork::prepare_at` path (metadata and
 PNG reads, decode, frame extraction, resize and premultiplication), with a frozen
 copy of the four original eight-frame 64x64 builtins in
