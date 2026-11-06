@@ -12,7 +12,14 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   exec gate of AH-279, and the child start of the lock test goes through `support::spawn`. Regression test:
   `unix_ipc::a_stale_socket_is_replaced_while_other_threads_start_processes` (300 rounds against a forker;
   red with a raw `Command::spawn` in 3 of 4 runs, green with the gate). The stress script and the `Stress`
-  workflow now include `unix_ipc`. Evidence: **ran locally** (Linux): 25 of 25 runs of the binary, and
+  workflow now include `unix_ipc`. The runner then showed the same window in `setup.rs` (its
+  executable copies and starts were outside the gate; its busy-launch test kept a write handle open outside it)
+  and a second cause: the one-second retry bound of `spawn_fixture` ran out while a starved thread waited
+  between two attempts on a loaded two-core runner. `setup.rs` now copies and starts under the gate, the
+  busy-launch test holds its handle inside the exclusive section (the retry logic is checked with a synthetic
+  ETXTBSY), the bound is 30 s, and `parallel_fixture_copies_and_launches_never_meet_a_busy_executable` runs
+  without any retry. Reproduced locally by pinning the test binary and two CPU hogs to two cores
+  (`taskset -c 0,1`); after the fix 60 of 60 runs are green there. Evidence: **ran locally** (Linux): 25 of 25 runs of the binary, and
   60 runs of the four stress binaries with 64 threads under CPU load, free of failures; runner run: see below.
 
 - [x] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**

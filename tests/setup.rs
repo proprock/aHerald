@@ -639,8 +639,11 @@ impl BoundedOutput for Command {
 fn spawn_fixture(
     spawn: impl FnMut() -> std::io::Result<std::process::Child>,
 ) -> std::io::Result<std::process::Child> {
+    // Only a bound on how long a busy executable is retried, like the 30 s of `finish`: on a
+    // loaded two-core runner a thread can wait over a second between two attempts, and the
+    // retry runs only after ETXTBSY, so a longer bound costs nothing when all is well.
     spawn_fixture_until(
-        std::time::Instant::now() + std::time::Duration::from_secs(1),
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
         spawn,
     )
 }
