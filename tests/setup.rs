@@ -24,7 +24,7 @@ impl Install {
         } else {
             "aherald"
         });
-        std::fs::copy(env!("CARGO_BIN_EXE_aherald"), &exe).unwrap();
+        support::without_forks(|| std::fs::copy(env!("CARGO_BIN_EXE_aherald"), &exe).unwrap());
         Self { root, exe }
     }
     fn run(&self, args: &[&str]) -> Output {
@@ -302,7 +302,7 @@ fn setup_after_a_move_replaces_only_the_receipts_saved_bindings() {
     let moved = app
         .root
         .join(if cfg!(windows) { "moved.exe" } else { "moved" });
-    std::fs::copy(&app.exe, &moved).unwrap();
+    support::without_forks(|| std::fs::copy(&app.exe, &moved).unwrap());
     let out = Command::new(&moved)
         .args([
             "--setup",
@@ -560,7 +560,7 @@ fn app_bundle_setup_keeps_the_receipt_outside_signed_contents() {
         .join("aHerald.app/Contents/MacOS")
         .join(app.exe.file_name().unwrap());
     std::fs::create_dir_all(bundle_exe.parent().unwrap()).unwrap();
-    std::fs::copy(&app.exe, &bundle_exe).unwrap();
+    support::without_forks(|| std::fs::copy(&app.exe, &bundle_exe).unwrap());
     let out = Command::new(&bundle_exe)
         .args(["--setup", "--harness", "claude", "--apply"])
         .env("HOME", &app.root)
@@ -596,7 +596,7 @@ fn an_older_app_bundle_cannot_uninstall_another_installations_saved_bindings() {
             .join("Contents/MacOS")
             .join(app.exe.file_name().unwrap());
         std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
-        std::fs::copy(&app.exe, &exe).unwrap();
+        support::without_forks(|| std::fs::copy(&app.exe, &exe).unwrap());
         let out = Command::new(&exe)
             .args(["--setup", "--harness", "claude", "--apply"])
             .env("HOME", &app.root)
@@ -650,7 +650,7 @@ fn spawn_fixture_until(
     mut spawn: impl FnMut() -> std::io::Result<std::process::Child>,
 ) -> std::io::Result<std::process::Child> {
     loop {
-        match spawn() {
+        match support::while_starting(&mut spawn) {
             // Linux rejects exec while any writable handle remains open. Parallel
             // fixture copies and process launches can briefly overlap those handles.
             Err(error)
@@ -1287,4 +1287,31 @@ fn a_failed_receipt_write_restores_hooks_config_and_the_users_status_line() {
         config_before
     );
     assert!(!app.file("codex").exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn parallel_fixture_copies_and_launches_never_meet_a_busy_executable() {
+    // No retry at all: a copy made while sibling threads start processes must be runnable at
+    // once, because the gate keeps their forks away from the copy's write handle.
+    let workers: Vec<_> = (0..12)
+        .map(|worker| {
+            std::thread::spawn(move || {
+                for round in 0..25 {
+                    let app = Install::new(&format!("busy-{worker}-{round}"));
+                    let child = spawn_fixture_until(std::time::Instant::now(), || {
+                        Command::new(&app.exe)
+                            .arg("--version")
+                            .stdout(std::process::Stdio::piped())
+                            .spawn()
+                    })
+                    .unwrap_or_else(|error| panic!("worker {worker} round {round}: {error}"));
+                    assert!(finish(child).status.success());
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
 }

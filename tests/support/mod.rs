@@ -128,8 +128,13 @@ pub fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
 /// every start in a test crate that writes executables, so no fork of a sibling thread can hold
 /// a write descriptor of the file another test is about to run.
 pub fn spawn(command: &mut Command) -> std::io::Result<Child> {
+    while_starting(|| command.spawn())
+}
+
+/// Run `start`, which forks a process, such that it overlaps no [`without_forks`] section.
+pub fn while_starting<T>(start: impl FnOnce() -> T) -> T {
     let _gate = EXEC_GATE.read().unwrap_or_else(|e| e.into_inner());
-    command.spawn()
+    start()
 }
 
 /// [`run_bounded`] with a generous 30 s deadline for ordinary short CLI runs; panics with the
