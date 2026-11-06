@@ -524,12 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-262 — Linux resident as a `Ui` struct.**
-  Depends on AH-231 and AH-258. Turn the ~25 locals of `present` (`linux/resident.rs:244-298`) into a
-  `struct Ui` with `step`, `handle_*` and `draw` methods, mirroring `mac/resident.rs`. Move artwork preparation
-  to a worker thread like Windows and macOS (`resident_overlay.rs:1122-1160`). Acceptance: the xvfb tests pass;
-  no function in the file exceeds ~150 lines.
-
 - [ ] **AH-263 — Compile-time contract for platform twins.**
   Align the signatures: `restart::launch(test: bool)` on both (delete the unused `unix/restart.rs:10 launch()`),
   and `shell::open -> Result<(), String>` on both. Add `src/platform_contract.rs` (`#[cfg(test)]`) that pins
@@ -603,3 +597,16 @@ P2 tasks run in the listed order; AH-266 goes last.
   notifications, Context warnings, Idle warnings, version, Edit configuration, Apply + Test, Apply, Exit), the
   separators above Sound (only with usage lines), Context warnings, the version and Edit configuration, and the
   check marks following the switches. Acceptance: one line per OS with the OS version in `DONE.md`.
+
+- [ ] **AH-287 — Windows and macOS prepare artwork through `ArtworkWorker`.**
+  Depends on AH-262. `src/resident_overlay.rs` and `src/mac/resident.rs` each carry their own copy of the
+  artwork worker thread (job and result channels, `AssetCache`, a 30 ms `recv_timeout` poll). Replace both with
+  `artwork_worker::ArtworkWorker`, which blocks while idle (no periodic wake-up) and wakes the loop when a result
+  is ready. Acceptance: the copies are gone, the card still waits at most `ART_WAIT_MS` for artwork, the Windows
+  and macOS resident tests pass in CI.
+
+- [ ] **AH-288 — Hand check of Linux card artwork and the usage card after the `Ui` refactor.**
+  Depends on AH-262. On a Linux desktop (X11 or XWayland) show a Codex or Claude card with artwork, one without,
+  and the usage card (menu item, wheel paging, About): the card appears within a moment of its artwork (at most
+  300 ms late), animates, fades out, and a second monitor or a scale change redraws it. Acceptance: one line with
+  the distribution and session type in `DONE.md`.

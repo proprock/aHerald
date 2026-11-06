@@ -102,6 +102,7 @@ mod build_stamp_tests {
 
 pub mod animation;
 pub mod artwork;
+pub mod artwork_worker;
 pub(crate) mod atomic_file;
 pub mod audio;
 #[cfg(windows)]

@@ -4,12 +4,14 @@ use super::{
     surface::{Composition, Surface},
     x11,
 };
+use crate::placement::Area;
 use crate::{
-    card::Card, card_paint::event_card_text, card_surface::CardSurface, config::Config,
-    events::Event, ipc::pipe, local::Scope, queue::Queue,
+    artwork_worker::ArtworkWorker, card::Card, card_paint::event_card_text,
+    card_surface::CardSurface, config::Config, events::Event, ipc::pipe, local::Scope,
+    queue::Queue,
 };
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -201,6 +203,85 @@ impl Usage {
     }
 }
 
+fn lock(state: &Mutex<Shared>) -> Result<std::sync::MutexGuard<'_, Shared>, String> {
+    state
+        .lock()
+        .map_err(|_| "resident state unavailable".to_owned())
+}
+
+/// How long a new card waits for its artwork before the text card is drawn without it. Artwork
+/// usually takes 0-130 ms; a stalled worker must not hide the notification.
+const ART_WAIT_MS: u64 = 300;
+
+/// What the usage card was last drawn from, so it is redrawn only when one of these changes.
+type UsageKey = (String, usize, usize, usize, u64, Area);
+/// The text of the event card on screen: heading, position, total and age.
+type CardKey = (crate::card::Heading, usize, usize, String);
+
+/// The monitor a card is drawn for, its scale there and where the pointer is.
+struct Target<'a> {
+    monitor: &'a x11::Monitor,
+    scale: f64,
+    pointer: (i32, i32),
+}
+
+/// What one pass of the loop reads from the shared queue.
+struct Tick {
+    entry: Option<crate::queue::Entry>,
+    index: usize,
+    count: usize,
+    paused: bool,
+    visuals: bool,
+    fresh: Vec<crate::queue::Entry>,
+    sounds: bool,
+}
+
+/// The resident's (or a one-card notice's) window loop and everything it keeps between passes.
+struct Ui {
+    window: x11::Window,
+    config: Config,
+    state: Arc<Mutex<Shared>>,
+    stop: Arc<AtomicBool>,
+    start: Instant,
+    wake: Arc<pipe::StopEvent>,
+    config_path: Option<PathBuf>,
+    /// A one-card notice: no tray, no sound queue, ends with its card.
+    transient: bool,
+    tray: Option<super::tray::Tray>,
+    usage: Option<Arc<crate::usage_service::Service>>,
+    claude: Option<Arc<crate::usage_service::Service>>,
+    /// Set when a usage service has new numbers, so the tray refreshes at once.
+    usage_changed: Arc<AtomicBool>,
+    usage_update: u64,
+    labels: crate::session_source::Service,
+    carousel: Option<crate::demo::Carousel>,
+    demo: Option<crate::demo::Demo>,
+    test_sound: Option<u64>,
+    usage_claude: bool,
+    about_open: bool,
+    usage_page: usize,
+    usage_drawn: Option<UsageKey>,
+    composition: Option<Composition>,
+    /// The card, scale and monitor the composition and artwork belong to.
+    key: Option<(u64, u64, Area)>,
+    shown_card: Option<CardKey>,
+    artwork: ArtworkWorker,
+    art: Option<Arc<crate::animation::PreparedAnimation>>,
+    /// The artwork of the current card still has to be handed to the worker.
+    art_pending: bool,
+    /// Until when the text card waits for the artwork.
+    art_wait: Option<u64>,
+    presenter: crate::presenter::Presenter,
+    layout: Option<input::Layout>,
+    window_size: (f64, f64),
+    displayed: bool,
+    animation_start: u64,
+    monitor_watch: crate::notice::MonitorWatch,
+    activation: crate::activation::Worker,
+    audio_cancel: Arc<AtomicBool>,
+    audio_jobs: Vec<std::thread::JoinHandle<()>>,
+}
+
 fn present(
     window: x11::Window,
     config: Config,
@@ -210,604 +291,831 @@ fn present(
     config_path: Option<&Path>,
     usage: Usage,
 ) -> Result<(), String> {
-    let Loop { stop, start, wake } = run;
-    let mut carousel =
-        matches!(preview, Preview::Test).then(|| crate::demo::Carousel::new(&config));
-    let mut demo = match preview {
-        Preview::Demo(demo) => Some(demo),
-        _ => None,
-    };
-    let mut test_sound = None;
-    let transient = config_path.is_none();
-    let tray = config_path.map(|_| {
-        let tray = super::tray::Tray::start(
-            config.sounds.enabled,
-            config.notifications.enabled,
-            false,
-            {
-                let wake = wake.clone();
-                move || wake.signal()
-            },
-        );
-        tray.set_messenger(crate::forward::enabled());
-        tray
-    });
-    let Usage {
-        codex: usage,
-        claude,
-    } = usage;
-    // New usage numbers refresh the tray at once instead of at the next beat of the loop.
-    let usage_changed = Arc::new(AtomicBool::new(false));
-    for service in usage.iter().chain(claude.iter()) {
-        let (changed, wake) = (usage_changed.clone(), wake.clone());
-        service.on_change(move || {
-            changed.store(true, Ordering::Release);
-            wake.signal();
-        });
-    }
-    let mut labels = if transient {
-        crate::session_source::Service::transient_codex(config.codex.transient_names)
-    } else if config.codex.usage.enabled {
-        crate::session_source::Service::shared(
-            usage.as_ref().expect("resident usage service").names(),
-        )
-    } else {
-        crate::session_source::Service::codex()
-    };
-    let mut usage_claude = false;
-    let mut about_open = false;
-    let mut usage_page = 0usize;
-    let mut usage_drawn = None;
-    let mut usage_update = 0u64;
-    let mut composition: Option<Composition> = None;
-    let mut key = None;
-    let mut shown_card = None;
-    let mut presenter = crate::presenter::Presenter::default();
-    let mut layout: Option<input::Layout> = None;
-    let mut window_size = (0.0, 0.0);
-    let mut displayed = false;
-    let mut animation_start = 0;
-    let mut monitor_watch = crate::notice::MonitorWatch::new();
-    let mut activation = crate::activation::Worker::default();
-    let mut audio_cancel = Arc::new(AtomicBool::new(false));
-    let mut audio_jobs: Vec<std::thread::JoinHandle<()>> = Vec::new();
-    while !stop.load(Ordering::Acquire) {
-        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        if now >= usage_update || usage_changed.swap(false, Ordering::AcqRel) {
-            usage_update = now.saturating_add(1000);
-            if let (Some(tray), Some(codex)) = (&tray, &usage) {
-                let display = config.codex.usage.display;
-                let views = crate::tray_usage::Views::new(
-                    codex.view(),
-                    claude.as_ref().map(|service| service.view()),
-                    config.codex.usage.enabled,
-                );
-                let crate::tray_usage::Lines {
-                    codex: codex_line,
-                    claude: claude_line,
-                } = views.lines(display, crate::usage_service::unix_now());
-                let levels = views.levels(config.tray.graph, display);
-                tray.set_usage(codex_line, claude_line, &levels)?;
-            }
-        }
-        if let Some(tray) = &tray {
-            for command in tray.commands.try_iter() {
-                use crate::resident_request::Effect;
-                let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let effects = {
-                    let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                    crate::resident_request::apply(
-                        command,
-                        &mut *guard,
-                        config_path.unwrap_or_else(|| std::path::Path::new("")),
-                        now,
-                    )
-                };
-                for effect in effects {
-                    match effect {
-                        Effect::Quit => stop.store(true, Ordering::Release),
-                        Effect::ShowUsage {
-                            claude: selected_claude,
-                        } => {
-                            let mut guard =
-                                state.lock().map_err(|_| "resident state unavailable")?;
-                            if guard.queue.selected().is_some_and(|entry| entry.is_usage())
-                                && !about_open
-                                && usage_claude == selected_claude
-                            {
-                                guard.queue.dismiss();
-                            } else {
-                                guard.queue.show_usage();
-                                about_open = false;
-                                usage_claude = selected_claude;
-                                usage_page = 0;
-                                if selected_claude {
-                                    if let Some(service) = &claude {
-                                        service.refresh();
-                                    }
-                                } else if let Some(service) = &usage {
-                                    service.refresh();
-                                }
-                            }
-                            usage_drawn = None;
-                            presenter.invalidate();
-                        }
-                        Effect::ShowAbout => {
-                            let mut guard =
-                                state.lock().map_err(|_| "resident state unavailable")?;
-                            toggle_about(&mut guard.queue, &mut about_open);
-                            usage_page = 0;
-                            usage_drawn = None;
-                            presenter.invalidate();
-                        }
-                        Effect::ShowNotice(message) => {
-                            crate::notice::post(&message);
-                            eprintln!("aHerald: {message}");
-                        }
-                        Effect::Restart { test } => {
-                            let (stop, wake) = (stop.clone(), wake.clone());
-                            crate::resident_request::restart(
-                                test,
-                                crate::restart::launch_with_test,
-                                move || {
-                                    stop.store(true, Ordering::Release);
-                                    wake.signal();
-                                },
-                            );
-                        }
-                        Effect::OpenConfig => crate::resident_request::open_configuration(
-                            config_path.expect("resident configuration path"),
-                        ),
-                        Effect::ToggleMessenger => {
-                            crate::forward::toggle();
-                            tray.set_messenger(crate::forward::enabled());
-                        }
-                        Effect::SwitchesChanged => {
-                            let guard = state.lock().map_err(|_| "resident state unavailable")?;
-                            tray.set_state(
-                                guard.sounds,
-                                guard.visuals,
-                                guard.paused,
-                                guard.warnings.enabled(crate::events::Kind::ContextWarning),
-                                guard.warnings.enabled(crate::events::Kind::IdleWarning),
-                            );
-                        }
-                        Effect::CancelAudio | Effect::ResumeAudio => {
-                            crate::resident_request::apply_audio_effect(&effect, &mut audio_cancel);
-                        }
-                        Effect::Redraw => presenter.invalidate(),
-                    }
-                }
-            }
-        }
-        while let Some(event) = window.poll()? {
-            if let XEvent::ButtonPress(event) = event
-                && let Some(layout) = layout
-            {
-                let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-                let point = input::to_pixels(
-                    (f64::from(event.event_x), f64::from(event.event_y)),
-                    window_size,
-                    &layout,
-                );
-                if let Some(cards) = &mut carousel {
-                    let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    let mut controls = Card::new("", cards.index(), cards.len(), false);
-                    controls.text_left = Some(layout.text_left);
-                    let action = match event.detail {
-                        4 => Some(crate::card::Action::Previous),
-                        5 => Some(crate::card::Action::Next),
-                        1 => controls
-                            .hit_test(layout.width, layout.height, layout.scale, point.0, point.1)
-                            .or_else(|| {
-                                controls
-                                    .body_hit_test(
-                                        layout.width,
-                                        layout.height,
-                                        layout.scale,
-                                        point.0,
-                                        point.1,
-                                    )
-                                    .then_some(crate::card::Action::Next)
-                            }),
-                        _ => None,
-                    };
-                    match action {
-                        Some(crate::card::Action::Previous) => cards.navigate(-1, now),
-                        Some(crate::card::Action::Next) => cards.navigate(1, now),
-                        Some(crate::card::Action::Dismiss) => {
-                            carousel = None;
-                            audio_cancel.store(true, Ordering::Release);
-                            audio_cancel = Arc::new(AtomicBool::new(false));
-                        }
-                        None => {}
-                    }
-                    presenter.invalidate();
-                    continue;
-                }
-                if event.detail == 1 {
-                    let is_usage = guard.queue.selected().is_some_and(|entry| entry.is_usage());
-                    let body = !is_usage
-                        && input::on_body(
-                            &guard.queue,
-                            config.notifications.click_to_dismiss,
-                            &layout,
-                            point,
-                        );
-                    if body {
-                        super::activation::note_click(event.time);
-                    }
-                    if let Some(selected) = guard.queue.selected() {
-                        let directory = config_path
-                            .and_then(Path::parent)
-                            .unwrap_or_else(|| Path::new("."));
-                        activation.submit(
-                            &selected.event,
-                            config.notifications.activate_agent_on_click,
-                            body,
-                            directory,
-                            config.general.logging,
-                        );
-                    }
-                }
-                let dismiss = config.notifications.click_to_dismiss
-                    || guard.queue.selected().is_some_and(|entry| entry.is_usage());
-                if event.detail == 1 && input::click(&mut guard.queue, dismiss, &layout, point) {
-                    presenter.invalidate();
-                } else if event.detail == 4
-                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
-                {
-                    usage_page = usage_page.saturating_sub(1);
-                    usage_drawn = None;
-                } else if event.detail == 5
-                    && guard.queue.selected().is_some_and(|entry| entry.is_usage())
-                {
-                    usage_page = usage_page.saturating_add(1);
-                    usage_drawn = None;
-                } else if event.detail == 4 {
-                    guard.queue.next(-1);
-                    presenter.invalidate();
-                } else if event.detail == 5 {
-                    guard.queue.next(1);
-                    presenter.invalidate();
-                }
-            } else if matches!(event, XEvent::Expose(_)) {
-                presenter.invalidate();
-            }
-        }
-        let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        audio_jobs.retain(|job| !job.is_finished());
-        let (mut entry, mut index, mut count, paused, visuals, mut fresh, sounds) = {
-            let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
-            let paused = guard.paused;
-            if let Some(demo) = &mut demo {
-                demo.tick(now, paused, &mut guard.queue);
-            }
-            crate::resident_request::tick(&mut *guard, &config, now);
-            guard.queue.tick(now, paused);
-            let room = crate::presenter::sound_slots(audio_jobs.len());
-            let fresh = if !transient && !paused {
-                guard.queue.take_unannounced(room)
-            } else {
-                Vec::new()
-            };
-            (
-                guard.queue.selected().cloned(),
-                guard.queue.selected_index(),
-                guard.queue.visible_count(),
-                paused,
-                guard.visuals,
-                fresh,
-                guard.sounds,
-            )
+    Ui::new(window, config, state, run, preview, config_path, usage).run()
+}
+
+impl Ui {
+    fn new(
+        window: x11::Window,
+        config: Config,
+        state: Arc<Mutex<Shared>>,
+        run: Loop,
+        preview: Preview,
+        config_path: Option<&Path>,
+        usage: Usage,
+    ) -> Self {
+        let Loop { stop, start, wake } = run;
+        let carousel =
+            matches!(preview, Preview::Test).then(|| crate::demo::Carousel::new(&config));
+        let demo = match preview {
+            Preview::Demo(demo) => Some(demo),
+            _ => None,
         };
-        if carousel.is_some() && entry.is_some() {
-            carousel = None;
-            audio_cancel.store(true, Ordering::Release);
-            audio_cancel = Arc::new(AtomicBool::new(false));
+        let transient = config_path.is_none();
+        let tray = config_path.map(|_| {
+            let tray = super::tray::Tray::start(
+                config.sounds.enabled,
+                config.notifications.enabled,
+                false,
+                {
+                    let wake = wake.clone();
+                    move || wake.signal()
+                },
+            );
+            tray.set_messenger(crate::forward::enabled());
+            tray
+        });
+        let Usage {
+            codex: usage,
+            claude,
+        } = usage;
+        // New usage numbers refresh the tray at once instead of at the next beat of the loop.
+        let usage_changed = Arc::new(AtomicBool::new(false));
+        for service in usage.iter().chain(claude.iter()) {
+            let (changed, wake) = (usage_changed.clone(), wake.clone());
+            service.on_change(move || {
+                changed.store(true, Ordering::Release);
+                wake.signal();
+            });
         }
-        if let Some(cards) = &mut carousel {
-            cards.tick(now, paused);
-            let selected = cards.selected().clone();
-            if test_sound != Some(selected.id) && !paused {
-                audio_cancel.store(true, Ordering::Release);
-                audio_cancel = Arc::new(AtomicBool::new(false));
-                fresh = vec![selected.clone()];
-                test_sound = Some(selected.id);
-            }
-            entry = Some(selected);
-            index = cards.index();
-            count = cards.len();
-        }
-        let mut audio_config = config.clone();
-        audio_config.sounds.enabled = sounds;
-        for fresh in fresh {
-            if !fresh.outputs.sound {
-                continue;
-            }
-            if let Some(job) =
-                crate::audio::start_controlled(&fresh.event, &audio_config, audio_cancel.clone())
-            {
-                audio_jobs.push(job);
-            }
-        }
-        if transient && entry.is_none() {
-            break;
-        }
-        if let Some(entry) =
-            entry.filter(|entry| !paused && (carousel.is_some() || visuals || entry.is_usage()))
-        {
-            let monitors = window.monitors()?;
-            monitor_watch.check(config.notifications.monitor, monitors.len());
-            let pointer = window.pointer()?;
-            let monitor = x11::select_monitor(
-                &monitors,
-                config.notifications.monitor,
-                config.notifications.position,
-                pointer,
+        let labels = if transient {
+            crate::session_source::Service::transient_codex(config.codex.transient_names)
+        } else if config.codex.usage.enabled {
+            crate::session_source::Service::shared(
+                usage.as_ref().expect("resident usage service").names(),
             )
-            .ok_or("X11: no monitor")?;
-            let scale = config.notifications.scale * monitor.scale;
-            if entry.is_usage() {
-                let text = if about_open {
-                    crate::about_card_text()
-                } else {
-                    if usage_claude {
-                        claude.as_ref().map(|service| service.card_text())
-                    } else {
-                        usage.as_ref().map(|service| service.card_text())
-                    }
-                    .unwrap_or_else(|| "Usage unavailable".into())
-                };
-                let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
-                let pages = crate::usage_service::card_pages(body);
-                usage_page = usage_page.min(pages.len() - 1);
-                let usage_key = (
-                    text.clone(),
-                    usage_page,
-                    index,
-                    count,
-                    scale.to_bits(),
-                    monitor.area,
-                );
-                if usage_drawn.as_ref() != Some(&usage_key) {
-                    let title = if pages.len() > 1 {
-                        format!("{title}  ({}/{})", usage_page + 1, pages.len())
-                    } else {
-                        title.to_owned()
-                    };
-                    let controls = Card::new(
-                        crate::card::Heading::from_summary(&title),
-                        index,
-                        count,
-                        true,
-                    );
-                    let width = (760.0 * scale) as i32;
-                    let height =
-                        ((114.0 + 24.0 * pages[usage_page].lines().count() as f64) * scale) as i32;
-                    let surface = Surface::card(
-                        width,
-                        height,
-                        scale,
-                        (22.0 * scale) as i32,
-                        crate::card_paint::CardText {
-                            heading: &controls.heading,
-                            label: &pages[usage_page],
-                            body: true,
-                            index,
-                            count,
-                            dismiss_button: false,
-                            age: None,
-                            color: crate::config::Color([80, 165, 250]),
-                            background_color: config.usage_background_color(),
-                            border: config.usage_border_color(),
-                        },
-                    )?;
-                    let (x, y, w, h) = crate::placement::layout_rendered(
-                        monitor.area,
-                        (width, height),
-                        scale,
-                        config.notifications.position,
-                        pointer,
-                    );
-                    let resized;
-                    let pixels = if (w, h) == (width, height) {
-                        surface.pixels()
-                    } else {
-                        let image = image::RgbaImage::from_raw(
-                            width as u32,
-                            height as u32,
-                            surface.pixels().to_vec(),
-                        )
-                        .ok_or("invalid usage card pixels")?;
-                        resized = image::imageops::resize(
-                            &image,
-                            w as u32,
-                            h as u32,
-                            image::imageops::FilterType::Triangle,
-                        )
-                        .into_raw();
-                        &resized
-                    };
-                    window.show(
-                        x,
-                        y,
-                        u16::try_from(w).map_err(|_| "usage card too wide")?,
-                        u16::try_from(h).map_err(|_| "usage card too tall")?,
-                        pixels,
-                        255,
-                    )?;
-                    layout = Some(input::Layout {
-                        width,
-                        height,
-                        scale,
-                        text_left: (22.0 * scale) as i32,
-                    });
-                    window_size = (f64::from(w), f64::from(h));
-                    displayed = true;
-                    usage_drawn = Some(usage_key);
-                    key = None;
-                    presenter.invalidate();
-                }
-                block(&window, &wake, &stop, true, false)?;
-                continue;
+        } else {
+            crate::session_source::Service::codex()
+        };
+        let artwork = ArtworkWorker::spawn(&config, {
+            let wake = wake.clone();
+            move || wake.signal()
+        });
+        Self {
+            window,
+            config,
+            state,
+            stop,
+            start,
+            wake,
+            config_path: config_path.map(Path::to_owned),
+            transient,
+            tray,
+            usage,
+            claude,
+            usage_changed,
+            usage_update: 0,
+            labels,
+            carousel,
+            demo,
+            test_sound: None,
+            usage_claude: false,
+            about_open: false,
+            usage_page: 0,
+            usage_drawn: None,
+            composition: None,
+            key: None,
+            shown_card: None,
+            artwork,
+            art: None,
+            art_pending: false,
+            art_wait: None,
+            presenter: crate::presenter::Presenter::default(),
+            layout: None,
+            window_size: (0.0, 0.0),
+            displayed: false,
+            animation_start: 0,
+            monitor_watch: crate::notice::MonitorWatch::new(),
+            activation: crate::activation::Worker::default(),
+            audio_cancel: Arc::new(AtomicBool::new(false)),
+            audio_jobs: Vec::new(),
+        }
+    }
+
+    fn now(&self) -> u64 {
+        self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
+
+    /// Silences what is playing; the next sound starts with a fresh flag.
+    fn cancel_sound(&mut self) {
+        self.audio_cancel.store(true, Ordering::Release);
+        self.audio_cancel = Arc::new(AtomicBool::new(false));
+    }
+
+    fn run(&mut self) -> Result<(), String> {
+        while !self.stop.load(Ordering::Acquire) {
+            let now = self.now();
+            self.refresh_usage_tray(now)?;
+            self.handle_commands()?;
+            self.handle_pointer()?;
+            let now = self.now();
+            let mut tick = self.read_queue(now)?;
+            self.advance_carousel(&mut tick, now);
+            self.start_sounds(std::mem::take(&mut tick.fresh), tick.sounds);
+            if self.transient && tick.entry.is_none() {
+                break;
             }
-            usage_drawn = None;
-            let heading = if let Some(cards) = &carousel {
-                crate::card::Heading::new(
-                    if entry.event.source.agent().is_some() {
-                        entry.event.source.label()
-                    } else {
-                        "aHerald"
-                    },
-                    Some("[Test]"),
-                    cards.disabled().then_some("Disabled in config"),
-                )
-            } else {
-                labels.label(&entry.event)
-            };
-            let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
-            let controls = Card::new(
-                heading,
+            let Tick {
+                entry,
                 index,
                 count,
-                carousel.is_none() && config.notifications.click_to_dismiss,
-            );
-            let card_key = (controls.heading.clone(), index, count, age);
-            let new_key = (entry.id, scale.to_bits(), monitor.area);
-            if key != Some(new_key) {
-                let art = crate::artwork::prepared_for_event(&config, &entry.event, scale)
-                    .ok()
-                    .flatten()
-                    .map(Arc::new);
-                let text_width = Surface::event_text_width(&entry.event, scale)?;
-                composition = Some(Composition::compose_with_text_width(
-                    scale,
-                    art,
-                    text_width,
-                    |w, h, left| {
-                        Surface::card(
-                            w,
-                            h,
-                            scale,
-                            left,
-                            event_card_text(&config, &entry.event, &controls, Some(&card_key.3)),
-                        )
-                    },
-                )?);
-                key = Some(new_key);
-                shown_card = Some(card_key.clone());
-                animation_start = now;
-                presenter.invalidate();
-            } else if shown_card.as_ref() != Some(&card_key) {
-                if let Some(c) = composition.as_mut() {
-                    c.update_card(|w, h, left| {
-                        Surface::card(
-                            w,
-                            h,
-                            scale,
-                            left,
-                            event_card_text(&config, &entry.event, &controls, Some(&card_key.3)),
-                        )
-                    })?;
+                paused,
+                visuals,
+                ..
+            } = tick;
+            let usage_card = match entry
+                .filter(|e| !paused && (self.carousel.is_some() || visuals || e.is_usage()))
+            {
+                Some(entry) => self.draw(&entry, index, count, now)?,
+                None => {
+                    self.hide_window()?;
+                    false
                 }
-                shown_card = Some(card_key);
-                presenter.invalidate();
-            }
-            let c = composition.as_mut().ok_or("missing composed card")?;
-            if let Some(shown) = presenter.next(&crate::presenter::Input {
-                entry: &entry,
-                durations: &c.durations,
-                looping: c.looping,
-                animation_ms: now.saturating_sub(animation_start),
-                fade_in_ms: if carousel.is_some() {
-                    0
-                } else {
-                    config.notifications.fade_in_ms
-                },
-                fade_out_ms: if carousel.is_some() {
-                    0
-                } else {
-                    config.notifications.fade_out_ms
-                },
-            }) {
-                let (x, y, w, h) = crate::placement::layout_rendered(
-                    monitor.area,
-                    c.size(),
-                    scale,
-                    config.notifications.position,
-                    pointer,
-                );
-                let text_left = c.text_left;
-                let surface = c.render(shown.frame, shown.seconds, scale)?;
-                let (source_w, source_h) = (surface.width(), surface.height());
-                let resized;
-                let pixels = if (w, h) == (source_w, source_h) {
-                    surface.pixels()
-                } else {
-                    let image = image::RgbaImage::from_raw(
-                        source_w as u32,
-                        source_h as u32,
-                        surface.pixels().to_vec(),
-                    )
-                    .ok_or("invalid card pixels")?;
-                    resized = image::imageops::resize(
-                        &image,
-                        w as u32,
-                        h as u32,
-                        image::imageops::FilterType::Triangle,
-                    )
-                    .into_raw();
-                    &resized
-                };
-                window.show(
-                    x,
-                    y,
-                    u16::try_from(w).map_err(|_| "card too wide")?,
-                    u16::try_from(h).map_err(|_| "card too tall")?,
-                    pixels,
-                    shown.alpha,
-                )?;
-                layout = Some(input::Layout {
-                    width: source_w,
-                    height: source_h,
-                    scale,
-                    text_left,
-                });
-                window_size = (f64::from(w), f64::from(h));
-                displayed = true;
-            }
-        } else {
-            if displayed {
-                window.hide()?;
-                displayed = false;
-            }
-            key = None;
-            usage_drawn = None;
-            composition = None;
-            layout = None;
-            presenter.invalidate();
+            };
+            self.wait(usage_card)?;
         }
+        self.audio_cancel.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    /// Sends the tray the current usage lines and icon levels once a second, or at once when a
+    /// service says its numbers changed.
+    fn refresh_usage_tray(&mut self, now: u64) -> Result<(), String> {
+        if now < self.usage_update && !self.usage_changed.swap(false, Ordering::AcqRel) {
+            return Ok(());
+        }
+        self.usage_update = now.saturating_add(1000);
+        if let (Some(tray), Some(codex)) = (&self.tray, &self.usage) {
+            let display = self.config.codex.usage.display;
+            let views = crate::tray_usage::Views::new(
+                codex.view(),
+                self.claude.as_ref().map(|service| service.view()),
+                self.config.codex.usage.enabled,
+            );
+            let crate::tray_usage::Lines {
+                codex: codex_line,
+                claude: claude_line,
+            } = views.lines(display, crate::usage_service::unix_now());
+            let levels = views.levels(self.config.tray.graph, display);
+            tray.set_usage(codex_line, claude_line, &levels)?;
+        }
+        Ok(())
+    }
+
+    /// Carries out what the tray menu asked for.
+    fn handle_commands(&mut self) -> Result<(), String> {
+        let Some(tray) = &self.tray else {
+            return Ok(());
+        };
+        let commands: Vec<_> = tray.commands.try_iter().collect();
+        for command in commands {
+            let now = self.now();
+            let path = self.config_path.clone().unwrap_or_default();
+            let effects = {
+                let mut guard = lock(&self.state)?;
+                crate::resident_request::apply(command, &mut *guard, &path, now)
+            };
+            for effect in effects {
+                self.execute(effect)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn execute(&mut self, effect: crate::resident_request::Effect) -> Result<(), String> {
+        use crate::resident_request::Effect;
+        match effect {
+            Effect::Quit => self.stop.store(true, Ordering::Release),
+            Effect::ShowUsage { claude } => self.toggle_usage_card(claude)?,
+            Effect::ShowAbout => {
+                {
+                    let mut guard = lock(&self.state)?;
+                    toggle_about(&mut guard.queue, &mut self.about_open);
+                }
+                self.usage_page = 0;
+                self.usage_drawn = None;
+                self.presenter.invalidate();
+            }
+            Effect::ShowNotice(message) => {
+                crate::notice::post(&message);
+                eprintln!("aHerald: {message}");
+            }
+            Effect::Restart { test } => {
+                let (stop, wake) = (self.stop.clone(), self.wake.clone());
+                crate::resident_request::restart(
+                    test,
+                    crate::restart::launch_with_test,
+                    move || {
+                        stop.store(true, Ordering::Release);
+                        wake.signal();
+                    },
+                );
+            }
+            Effect::OpenConfig => crate::resident_request::open_configuration(
+                self.config_path
+                    .as_deref()
+                    .expect("resident configuration path"),
+            ),
+            Effect::ToggleMessenger => {
+                crate::forward::toggle();
+                if let Some(tray) = &self.tray {
+                    tray.set_messenger(crate::forward::enabled());
+                }
+            }
+            Effect::SwitchesChanged => {
+                let guard = lock(&self.state)?;
+                if let Some(tray) = &self.tray {
+                    tray.set_state(
+                        guard.sounds,
+                        guard.visuals,
+                        guard.paused,
+                        guard.warnings.enabled(crate::events::Kind::ContextWarning),
+                        guard.warnings.enabled(crate::events::Kind::IdleWarning),
+                    );
+                }
+            }
+            Effect::CancelAudio | Effect::ResumeAudio => {
+                crate::resident_request::apply_audio_effect(&effect, &mut self.audio_cancel);
+            }
+            Effect::Redraw => self.presenter.invalidate(),
+        }
+        Ok(())
+    }
+
+    /// The same menu item opens the usage card of an agent and closes it again.
+    fn toggle_usage_card(&mut self, claude: bool) -> Result<(), String> {
+        {
+            let mut guard = lock(&self.state)?;
+            if guard.queue.selected().is_some_and(|entry| entry.is_usage())
+                && !self.about_open
+                && self.usage_claude == claude
+            {
+                guard.queue.dismiss();
+            } else {
+                guard.queue.show_usage();
+                self.about_open = false;
+                self.usage_claude = claude;
+                self.usage_page = 0;
+                let service = if claude { &self.claude } else { &self.usage };
+                if let Some(service) = service {
+                    service.refresh();
+                }
+            }
+        }
+        self.usage_drawn = None;
+        self.presenter.invalidate();
+        Ok(())
+    }
+
+    fn handle_pointer(&mut self) -> Result<(), String> {
+        while let Some(event) = self.window.poll()? {
+            if let XEvent::ButtonPress(event) = event
+                && let Some(layout) = self.layout
+            {
+                let point = input::to_pixels(
+                    (f64::from(event.event_x), f64::from(event.event_y)),
+                    self.window_size,
+                    &layout,
+                );
+                if self.carousel.is_some() {
+                    self.press_carousel(event.detail, &layout, point);
+                } else {
+                    self.press_card(&event, &layout, point)?;
+                }
+            } else if matches!(event, XEvent::Expose(_)) {
+                self.presenter.invalidate();
+            }
+        }
+        Ok(())
+    }
+
+    /// A click or the wheel on the Apply + Test samples.
+    fn press_carousel(&mut self, button: u8, layout: &input::Layout, point: (i32, i32)) {
+        let now = self.now();
+        let Some(cards) = &mut self.carousel else {
+            return;
+        };
+        let mut controls = Card::new("", cards.index(), cards.len(), false);
+        controls.text_left = Some(layout.text_left);
+        let hit = |controls: &Card| {
+            controls
+                .hit_test(layout.width, layout.height, layout.scale, point.0, point.1)
+                .or_else(|| {
+                    controls
+                        .body_hit_test(layout.width, layout.height, layout.scale, point.0, point.1)
+                        .then_some(crate::card::Action::Next)
+                })
+        };
+        let action = match button {
+            4 => Some(crate::card::Action::Previous),
+            5 => Some(crate::card::Action::Next),
+            1 => hit(&controls),
+            _ => None,
+        };
+        match action {
+            Some(crate::card::Action::Previous) => cards.navigate(-1, now),
+            Some(crate::card::Action::Next) => cards.navigate(1, now),
+            Some(crate::card::Action::Dismiss) => {
+                self.carousel = None;
+                self.cancel_sound();
+            }
+            None => {}
+        }
+        self.presenter.invalidate();
+    }
+
+    /// A click or the wheel on the card in the queue (or on the usage card).
+    fn press_card(
+        &mut self,
+        event: &x11rb::protocol::xproto::ButtonPressEvent,
+        layout: &input::Layout,
+        point: (i32, i32),
+    ) -> Result<(), String> {
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| "resident state unavailable")?;
+        let on_usage = guard.queue.selected().is_some_and(|entry| entry.is_usage());
+        if event.detail == 1 {
+            let body = !on_usage
+                && input::on_body(
+                    &guard.queue,
+                    self.config.notifications.click_to_dismiss,
+                    layout,
+                    point,
+                );
+            if body {
+                super::activation::note_click(event.time);
+            }
+            if let Some(selected) = guard.queue.selected() {
+                let directory = self
+                    .config_path
+                    .as_deref()
+                    .and_then(Path::parent)
+                    .unwrap_or_else(|| Path::new("."));
+                self.activation.submit(
+                    &selected.event,
+                    self.config.notifications.activate_agent_on_click,
+                    body,
+                    directory,
+                    self.config.general.logging,
+                );
+            }
+        }
+        let dismiss = self.config.notifications.click_to_dismiss || on_usage;
+        if event.detail == 1 && input::click(&mut guard.queue, dismiss, layout, point) {
+            self.presenter.invalidate();
+        } else if event.detail == 4 && on_usage {
+            self.usage_page = self.usage_page.saturating_sub(1);
+            self.usage_drawn = None;
+        } else if event.detail == 5 && on_usage {
+            self.usage_page = self.usage_page.saturating_add(1);
+            self.usage_drawn = None;
+        } else if event.detail == 4 {
+            guard.queue.next(-1);
+            self.presenter.invalidate();
+        } else if event.detail == 5 {
+            guard.queue.next(1);
+            self.presenter.invalidate();
+        }
+        Ok(())
+    }
+
+    /// Advances the queue and the demo, and reads what the window and the sounds need.
+    fn read_queue(&mut self, now: u64) -> Result<Tick, String> {
+        self.audio_jobs.retain(|job| !job.is_finished());
+        let room = crate::presenter::sound_slots(self.audio_jobs.len());
+        let mut guard = self
+            .state
+            .lock()
+            .map_err(|_| "resident state unavailable")?;
+        let paused = guard.paused;
+        if let Some(demo) = &mut self.demo {
+            demo.tick(now, paused, &mut guard.queue);
+        }
+        crate::resident_request::tick(&mut *guard, &self.config, now);
+        guard.queue.tick(now, paused);
+        let fresh = if !self.transient && !paused {
+            guard.queue.take_unannounced(room)
+        } else {
+            Vec::new()
+        };
+        Ok(Tick {
+            entry: guard.queue.selected().cloned(),
+            index: guard.queue.selected_index(),
+            count: guard.queue.visible_count(),
+            paused,
+            visuals: guard.visuals,
+            fresh,
+            sounds: guard.sounds,
+        })
+    }
+
+    /// The Apply + Test samples replace the queue's card until a real card arrives or they are
+    /// dismissed; each sample sounds once.
+    fn advance_carousel(&mut self, tick: &mut Tick, now: u64) {
+        if self.carousel.is_some() && tick.entry.is_some() {
+            self.carousel = None;
+            self.cancel_sound();
+        }
+        let Some(cards) = &mut self.carousel else {
+            return;
+        };
+        cards.tick(now, tick.paused);
+        let selected = cards.selected().clone();
+        tick.index = cards.index();
+        tick.count = cards.len();
+        if self.test_sound != Some(selected.id) && !tick.paused {
+            self.test_sound = Some(selected.id);
+            tick.fresh = vec![selected.clone()];
+            self.cancel_sound();
+        }
+        tick.entry = Some(selected);
+    }
+
+    fn start_sounds(&mut self, fresh: Vec<crate::queue::Entry>, sounds: bool) {
+        let mut audio_config = self.config.clone();
+        audio_config.sounds.enabled = sounds;
+        for fresh in fresh.into_iter().filter(|f| f.outputs.sound) {
+            if let Some(job) = crate::audio::start_controlled(
+                &fresh.event,
+                &audio_config,
+                self.audio_cancel.clone(),
+            ) {
+                self.audio_jobs.push(job);
+            }
+        }
+    }
+
+    fn hide_window(&mut self) -> Result<(), String> {
+        if self.displayed {
+            self.window.hide()?;
+            self.displayed = false;
+        }
+        self.key = None;
+        self.usage_drawn = None;
+        self.composition = None;
+        self.layout = None;
+        self.art_wait = None;
+        self.presenter.invalidate();
+        Ok(())
+    }
+
+    /// Draws the card chosen by the queue; true when that was the usage card.
+    fn draw(
+        &mut self,
+        entry: &crate::queue::Entry,
+        index: usize,
+        count: usize,
+        now: u64,
+    ) -> Result<bool, String> {
+        let monitors = self.window.monitors()?;
+        self.monitor_watch
+            .check(self.config.notifications.monitor, monitors.len());
+        let pointer = self.window.pointer()?;
+        let monitor = x11::select_monitor(
+            &monitors,
+            self.config.notifications.monitor,
+            self.config.notifications.position,
+            pointer,
+        )
+        .ok_or("X11: no monitor")?;
+        let scale = self.config.notifications.scale * monitor.scale;
+        if entry.is_usage() {
+            let target = Target {
+                monitor: &monitor,
+                scale,
+                pointer,
+            };
+            self.draw_usage(index, count, &target)?;
+            return Ok(true);
+        }
+        self.usage_drawn = None;
+        let target = Target {
+            monitor: &monitor,
+            scale,
+            pointer,
+        };
+        self.draw_event(entry, index, count, now, &target)?;
+        Ok(false)
+    }
+
+    fn usage_text(&self) -> String {
+        if self.about_open {
+            return crate::about_card_text();
+        }
+        let service = if self.usage_claude {
+            &self.claude
+        } else {
+            &self.usage
+        };
+        service
+            .as_ref()
+            .map(|service| service.card_text())
+            .unwrap_or_else(|| "Usage unavailable".into())
+    }
+
+    fn draw_usage(&mut self, index: usize, count: usize, target: &Target) -> Result<(), String> {
+        let Target {
+            monitor,
+            scale,
+            pointer,
+        } = *target;
+        let text = self.usage_text();
+        let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
+        let pages = crate::usage_service::card_pages(body);
+        self.usage_page = self.usage_page.min(pages.len() - 1);
+        let page = self.usage_page;
+        let usage_key = (
+            text.clone(),
+            page,
+            index,
+            count,
+            scale.to_bits(),
+            monitor.area,
+        );
+        if self.usage_drawn.as_ref() == Some(&usage_key) {
+            return Ok(());
+        }
+        let title = if pages.len() > 1 {
+            format!("{title}  ({}/{})", page + 1, pages.len())
+        } else {
+            title.to_owned()
+        };
+        let controls = Card::new(
+            crate::card::Heading::from_summary(&title),
+            index,
+            count,
+            true,
+        );
+        let width = (760.0 * scale) as i32;
+        let height = ((114.0 + 24.0 * pages[page].lines().count() as f64) * scale) as i32;
+        let text_left = (22.0 * scale) as i32;
+        let surface = Surface::card(
+            width,
+            height,
+            scale,
+            text_left,
+            crate::card_paint::CardText {
+                heading: &controls.heading,
+                label: &pages[page],
+                body: true,
+                index,
+                count,
+                dismiss_button: false,
+                age: None,
+                color: crate::config::Color([80, 165, 250]),
+                background_color: self.config.usage_background_color(),
+                border: self.config.usage_border_color(),
+            },
+        )?;
+        let place = crate::placement::layout_rendered(
+            monitor.area,
+            (width, height),
+            scale,
+            self.config.notifications.position,
+            pointer,
+        );
+        show_scaled(&self.window, &surface, place, 255, "usage card")?;
+        self.layout = Some(input::Layout {
+            width,
+            height,
+            scale,
+            text_left,
+        });
+        self.window_size = (f64::from(place.2), f64::from(place.3));
+        self.displayed = true;
+        self.usage_drawn = Some(usage_key);
+        self.key = None;
+        self.presenter.invalidate();
+        Ok(())
+    }
+
+    /// Starts over for a new card, scale or monitor: the artwork is asked for again and the text
+    /// card waits a moment for it.
+    fn begin_card(&mut self, key: (u64, u64, Area), now: u64) {
+        self.key = Some(key);
+        self.art = None;
+        self.art_pending = true;
+        self.composition = None;
+        self.shown_card = None;
+        self.animation_start = now;
+        self.art_wait = Some(now + ART_WAIT_MS);
+        self.presenter.invalidate();
+    }
+
+    /// Hands the card's artwork job to the worker and takes what it has finished; true while the
+    /// card should keep waiting for it.
+    fn poll_artwork(&mut self, entry: &crate::queue::Entry, scale: f64, now: u64) -> bool {
+        if self.art_pending && self.artwork.submit(entry.id, &entry.event, scale) {
+            self.art_pending = false;
+        }
+        while let Ok((id, prepared_at, art)) = self.artwork.results.try_recv() {
+            if id != entry.id {
+                continue;
+            }
+            if prepared_at == scale {
+                self.art = art;
+                // A card already drawn without artwork is composed again with it.
+                self.composition = None;
+                self.art_wait = None;
+            } else {
+                // Prepared for a display the card has since left: ask again.
+                self.art_pending = true;
+            }
+        }
+        if self.art_wait.is_some_and(|deadline| now >= deadline) {
+            self.art_wait = None;
+        }
+        self.art_wait.is_some()
+    }
+
+    fn draw_event(
+        &mut self,
+        entry: &crate::queue::Entry,
+        index: usize,
+        count: usize,
+        now: u64,
+        target: &Target,
+    ) -> Result<(), String> {
+        let Target {
+            monitor,
+            scale,
+            pointer,
+        } = *target;
+        let new_key = (entry.id, scale.to_bits(), monitor.area);
+        if self.key != Some(new_key) {
+            self.begin_card(new_key, now);
+        }
+        if self.poll_artwork(entry, scale, now) {
+            return Ok(());
+        }
+        self.compose(entry, index, count, now, scale)?;
+        let config = &self.config;
+        let c = self.composition.as_mut().ok_or("missing composed card")?;
+        let in_test = self.carousel.is_some();
+        let Some(shown) = self.presenter.next(&crate::presenter::Input {
+            entry,
+            durations: &c.durations,
+            looping: c.looping,
+            animation_ms: now.saturating_sub(self.animation_start),
+            fade_in_ms: if in_test {
+                0
+            } else {
+                config.notifications.fade_in_ms
+            },
+            fade_out_ms: if in_test {
+                0
+            } else {
+                config.notifications.fade_out_ms
+            },
+        }) else {
+            return Ok(());
+        };
+        let place = crate::placement::layout_rendered(
+            monitor.area,
+            c.size(),
+            scale,
+            config.notifications.position,
+            pointer,
+        );
+        let text_left = c.text_left;
+        let surface = c.render(shown.frame, shown.seconds, scale)?;
+        show_scaled(&self.window, surface, place, shown.alpha, "card")?;
+        self.layout = Some(input::Layout {
+            width: surface.width(),
+            height: surface.height(),
+            scale,
+            text_left,
+        });
+        self.window_size = (f64::from(place.2), f64::from(place.3));
+        self.displayed = true;
+        Ok(())
+    }
+
+    /// Composes the card (heading, text and artwork), or only refreshes its text when that is all
+    /// that changed.
+    fn compose(
+        &mut self,
+        entry: &crate::queue::Entry,
+        index: usize,
+        count: usize,
+        now: u64,
+        scale: f64,
+    ) -> Result<(), String> {
+        let heading = if let Some(cards) = &self.carousel {
+            crate::card::Heading::new(
+                if entry.event.source.agent().is_some() {
+                    entry.event.source.label()
+                } else {
+                    "aHerald"
+                },
+                Some("[Test]"),
+                cards.disabled().then_some("Disabled in config"),
+            )
+        } else {
+            self.labels.label(&entry.event)
+        };
+        let age = crate::card::age_text(now.saturating_sub(entry.arrived_ms));
+        let controls = Card::new(
+            heading,
+            index,
+            count,
+            self.carousel.is_none() && self.config.notifications.click_to_dismiss,
+        );
+        let card_key = (controls.heading.clone(), index, count, age);
+        let config = &self.config;
+        let paint = |w, h, left| {
+            Surface::card(
+                w,
+                h,
+                scale,
+                left,
+                event_card_text(config, &entry.event, &controls, Some(&card_key.3)),
+            )
+        };
+        if self.composition.is_none() {
+            let text_width = Surface::event_text_width(&entry.event, scale)?;
+            self.composition = Some(Composition::compose_with_text_width(
+                scale,
+                self.art.clone(),
+                text_width,
+                paint,
+            )?);
+            self.presenter.invalidate();
+        } else if self.shown_card.as_ref() != Some(&card_key) {
+            if let Some(c) = self.composition.as_mut() {
+                c.update_card(paint)?;
+            }
+            self.presenter.invalidate();
+        } else {
+            return Ok(());
+        }
+        self.shown_card = Some(card_key);
+        Ok(())
+    }
+
+    /// Ends one pass: waits for an X11 event, a signal from `wake`, or the timeout.
+    fn wait(&self, usage_card: bool) -> Result<(), String> {
         // A frame while something is shown or queued; otherwise until work arrives, with a slow
         // beat only if usage polling or a session-warning deadline keeps the tray fresh.
-        let busy = displayed
-            || carousel.is_some()
-            || demo.is_some()
-            || !audio_jobs.is_empty()
-            || state
+        let busy = usage_card
+            || self.displayed
+            || self.carousel.is_some()
+            || self.demo.is_some()
+            || self.art_wait.is_some()
+            || !self.audio_jobs.is_empty()
+            || self
+                .state
                 .lock()
                 .map_or(true, |guard| !guard.queue.items().is_empty());
-        let housekeeping = crate::resident_request::idle_poll_needed(
-            usage.is_some() && config.codex.usage.enabled,
-            claude.is_some(),
-            state
-                .lock()
-                .is_ok_and(|guard| guard.warnings.has_deadline()),
-        );
-        block(&window, &wake, &stop, busy, housekeeping)?;
+        let housekeeping = !usage_card
+            && crate::resident_request::idle_poll_needed(
+                self.usage.is_some() && self.config.codex.usage.enabled,
+                self.claude.is_some(),
+                self.state
+                    .lock()
+                    .is_ok_and(|guard| guard.warnings.has_deadline()),
+            );
+        block(&self.window, &self.wake, &self.stop, busy, housekeeping)
     }
-    audio_cancel.store(true, Ordering::Release);
-    Ok(())
+}
+
+/// Shows `surface` in the window at `place` (x, y, width, height), scaled when the monitor's
+/// placement asks for another size than the surface was drawn at.
+fn show_scaled(
+    window: &x11::Window,
+    surface: &Surface,
+    place: (i32, i32, i32, i32),
+    alpha: u8,
+    what: &str,
+) -> Result<(), String> {
+    let (x, y, w, h) = place;
+    let (source_w, source_h) = (surface.width(), surface.height());
+    let resized;
+    let pixels = if (w, h) == (source_w, source_h) {
+        surface.pixels()
+    } else {
+        let image =
+            image::RgbaImage::from_raw(source_w as u32, source_h as u32, surface.pixels().to_vec())
+                .ok_or_else(|| format!("invalid {what} pixels"))?;
+        resized = image::imageops::resize(
+            &image,
+            w as u32,
+            h as u32,
+            image::imageops::FilterType::Triangle,
+        )
+        .into_raw();
+        &resized
+    };
+    window.show(
+        x,
+        y,
+        u16::try_from(w).map_err(|_| format!("{what} too wide"))?,
+        u16::try_from(h).map_err(|_| format!("{what} too tall"))?,
+        pixels,
+        alpha,
+    )
 }
 
 #[cfg(test)]

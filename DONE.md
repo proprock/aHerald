@@ -37,6 +37,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-262 — Linux resident as a `Ui` struct.**
+  The ~600-line `present` of `src/linux/resident.rs` is now `struct Ui` with `new`, `run` and small methods:
+  `refresh_usage_tray`, `handle_commands`/`execute`/`toggle_usage_card`, `handle_pointer` (`press_carousel`,
+  `press_card`), `read_queue`, `advance_carousel`, `start_sounds`, `draw` (`draw_usage`, `draw_event`,
+  `compose`, `poll_artwork`, `begin_card`), `hide_window`, `wait`, plus the shared `show_scaled`; `present` is
+  a one-line wrapper so callers and tests are unchanged. The longest method is 95 lines. Artwork is prepared on
+  a worker thread (new `artwork_worker::ArtworkWorker`: bounded job channel, result channel, `AssetCache`,
+  blocks while idle and signals the loop's wake event, joins on drop); a new card waits at most 300 ms for its
+  artwork before the text card is drawn, and artwork that arrives later recomposes the card, as on macOS.
+  Unlike the Windows and macOS copies of that worker, it has no 30 ms poll, so the idle resident still does not
+  wake up (AH-231). The Windows and macOS copies move to it in AH-287. Unit tests: the worker returns the
+  card id and scale, wakes the loop, and ends on drop when idle or busy. No red phase was observed. Evidence:
+  fmt, clippy, workspace tests and doctests (the known `audio::serial` timing test skipped), `linux_apply
+  --ignored` (6 of 6), the AH-283 test and `remote_listener` under Xephyr **ran locally**; Windows clippy lint
+  **ran locally**; Windows tests and macOS **compiled/tested in CI only**; the look of the cards on a real
+  desktop is **not checked** (AH-288).
+
 - [x] **AH-261 — Shared usage view.**
   `tray_usage::Views` (the Codex and optional Claude `View`s plus `[codex.usage] enabled`) now decides in one
   place which agents are listed (`codex_shown`: Codex when its usage is on or Claude is absent), builds the
