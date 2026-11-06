@@ -30,6 +30,21 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   MSRV on three OSes and Format all green. Windows tests themselves ran only in CI; macOS was not
   affected by the change beyond compiling.
 
+- [x] **AH-283 — Linux: a changed usage snapshot reaches the tray within one wake-up (test).**
+  Left from AH-231. `present` wires `Service::on_change` to the loop's wake signal and a flag that forces the
+  next tray refresh, but no test shows it. `present` builds the Codex and Claude services itself, so first let
+  a test inject them (a parameter or an `on_change`-capable stub `UsageSource`, as Windows does with
+  `run_with_usage`, `src/resident.rs`). Acceptance: with polling off and an idle loop, publishing a changed
+  snapshot updates the tray levels within 500 ms (xvfb or Xephyr test), and removing the `on_change` wiring
+  fails it.
+  Done 2026-11-06: `present` takes its usage services as a `Usage` parameter (`Usage::for_resident` builds the
+  real ones; `Usage::none` for a one-card notice). The test `linux::resident::tests::a_changed_usage_snapshot_reaches_the_tray_within_one_wake_up`
+  feeds a gated stub `UsageSource`, lets the loop go idle, publishes one snapshot and reads the tray's
+  StatusNotifierItem `ToolTip` over D-Bus: it shows the new numbers within 500 ms. Evidence: **ran locally**
+  (Linux, Xephyr nested X server and `dbus-run-session`, as Xvfb is not installed here): 5 of 5 green in 0.5 s;
+  with the `on_change` wiring removed the test fails ("the tray never showed the snapshot"). A new CI step
+  runs it with `xvfb-run`; **compiled/tested in CI only** for that step.
+
 - [x] **AH-231 — Linux resident: no periodic wake-ups while idle (one check is left, AH-283).**
   The loop in `src/linux/resident.rs` no longer sleeps 16 ms per pass. `linux::wake::timeout(busy,
   housekeeping)` gives a frame (16 ms) while something is shown, queued, animating or playing, the one-second

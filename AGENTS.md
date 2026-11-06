@@ -144,7 +144,8 @@ cargo test --locked --workspace --doc
 ```
 
 - Linux extras: `xvfb-run -a cargo test --locked --test remote_listener` and
-  `xvfb-run -a dbus-run-session -- env AH113_ISOLATED=1 cargo test --locked --test linux_apply -- --ignored --test-threads=1`.
+  `xvfb-run -a dbus-run-session -- env AH113_ISOLATED=1 cargo test --locked --test linux_apply -- --ignored --test-threads=1`` and
+  `xvfb-run -a dbus-run-session -- env AH283_ISOLATED=1 cargo test --locked --lib a_changed_usage_snapshot -- --ignored`.
 - Windows extras: `cargo build --release --target x86_64-pc-windows-msvc` and `./scripts/check-release.ps1`.
 - Windows code can be linted from Linux: `rustup target add x86_64-pc-windows-msvc`, put an executable
   `llvm-rc` stub on `PATH` (the build script only needs it to exist; clippy does not link), then

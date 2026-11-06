@@ -242,6 +242,13 @@ jobs:
           dbus-run-session -- env AH113_ISOLATED=1
           cargo test --locked --test linux_apply -- --ignored --test-threads=1
 
+      - name: Test Linux usage wake-up
+        if: runner.os == 'Linux'
+        run: >-
+          xvfb-run -a -s '-screen 0 1280x1024x24'
+          dbus-run-session -- env AH283_ISOLATED=1
+          cargo test --locked --lib a_changed_usage_snapshot -- --ignored
+
       # The package and installer checks below run when the change can affect a package (see
       # packaging_for in .github/platform-flags.sh) and in every nightly run.
       - name: Verify the isolated macOS app lifecycle

@@ -536,14 +536,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
 
-- [ ] **AH-283 — Linux: a changed usage snapshot reaches the tray within one wake-up (test).**
-  Left from AH-231. `present` wires `Service::on_change` to the loop's wake signal and a flag that forces the
-  next tray refresh, but no test shows it. `present` builds the Codex and Claude services itself, so first let
-  a test inject them (a parameter or an `on_change`-capable stub `UsageSource`, as Windows does with
-  `run_with_usage`, `src/resident.rs`). Acceptance: with polling off and an idle loop, publishing a changed
-  snapshot updates the tray levels within 500 ms (xvfb or Xephyr test), and removing the `on_change` wiring
-  fails it.
-
 ### P2 — structural refactoring of the residents (in this order)
 
 - [ ] **AH-257 — Shared tray menu model.**
