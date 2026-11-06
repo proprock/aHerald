@@ -7,6 +7,10 @@
 #
 # Defaults: 200 runs, 5 full runs afterwards, and the four binaries below. Name other integration
 # tests to stress those instead; a full run is `cargo test --workspace` without the timing budget.
+#
+# When MANUAL_MINUTES (the workflow's time limit) is set, the script forecasts its total time once
+# 10% of the repeats are done, and again after the first full run. A forecast above 90% of the
+# limit stops the run at once with the minutes it needs, instead of being cancelled near the end.
 set -eu
 runs=${1:-200}
 full=${2:-5}
@@ -41,7 +45,22 @@ progress() {
     echo "$label $done_count/$total, $(clock "$elapsed")/$(clock "$forecast"), $(clock $((forecast - elapsed))) left"
 }
 
+# guard SPENT_SO_FAR FORECAST_REST: fail early when the whole run cannot fit the time limit.
+script_began=$(date +%s)
+guard() {
+    [ -n "${MANUAL_MINUTES:-}" ] || return 0
+    projected=$(($1 + $2))
+    limit=$((MANUAL_MINUTES * 60))
+    [ "$projected" -le $((limit * 9 / 10)) ] && return 0
+    need=$(((projected * 10 / 9 + 59) / 60))
+    msg="forecast $(clock "$projected") exceeds 90% of the ${MANUAL_MINUTES} minute limit; set minutes to at least $need, or fewer runs"
+    echo "::error::$msg" >&2
+    echo "STOPPED EARLY: $msg" >&2
+    exit 1
+}
+
 started=$(date +%s)
+check_at=$(((runs + 9) / 10))
 i=1
 while [ "$i" -le "$runs" ]; do
     for binary in $binaries; do
@@ -54,6 +73,10 @@ while [ "$i" -le "$runs" ]; do
     done
     if [ "$i" -eq 1 ] || [ $((i % 10)) -eq 0 ] || [ "$i" -eq "$runs" ]; then
         progress run "$i" "$runs" "$started"
+    fi
+    if [ "$i" -eq "$check_at" ]; then
+        spent=$(($(date +%s) - started))
+        guard "$(($(date +%s) - script_began))" "$((spent * (runs - i) / i))"
     fi
     i=$((i + 1))
 done
@@ -70,6 +93,9 @@ while [ "$i" -le "$full" ]; do
         exit 1
     }
     progress full "$i" "$full" "$started"
+    if [ "$i" -eq 1 ] && [ "$full" -gt 1 ]; then
+        guard "$(($(date +%s) - script_began))" "$((($(date +%s) - started) * (full - 1)))"
+    fi
     i=$((i + 1))
 done
 echo "ok: $full full runs under load"
