@@ -5,7 +5,7 @@
 **A native desktop notification companion for AI coding agents.**
 Know the moment your agent finishes, fails, or needs you, without watching the terminal.
 
-[![CI](https://github.com/proprock/aHerald/actions/workflows/ci.yml/badge.svg)](https://github.com/proprock/aHerald/actions/workflows/ci.yml)
+[![CI](https://github.com/proprock/aHerald/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/proprock/aHerald/actions/workflows/ci.yml)
 [![Nightly](https://github.com/proprock/aHerald/actions/workflows/nightly.yml/badge.svg?branch=master)](https://github.com/proprock/aHerald/actions/workflows/nightly.yml)
 [![Release](https://img.shields.io/github/v/release/proprock/aHerald?sort=semver)](https://github.com/proprock/aHerald/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
