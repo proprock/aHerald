@@ -1,0 +1,151 @@
+name: Manual
+
+# Runs any script on a runner without the full CI: for stress runs, bisecting a flake, trying a
+# command on another OS. Nothing here builds or tests by itself; the script decides. Start it
+# from the Actions tab or from a terminal:
+#
+#   gh workflow run manual.yml --ref <branch> -f script=scripts/manual/stress.sh -f args="100 0 setup"
+#   gh workflow run manual.yml --ref <branch> -f inline="$(cat my-check.sh)" -f runner=macos-15
+#
+# `script` is a file under scripts/manual/ on the chosen ref, so a check can be committed to a
+# branch (no pull request, so no CI) and run at once. `inline` is the text of a script and needs
+# no commit at all; it wins when both are given. The workflow file must exist on the default
+# branch to be started, and a branch then runs its own copy of it. Results: the run log, a
+# summary with the end of the output, and the full output as an artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: Script under scripts/manual/ on the chosen ref (for example scripts/manual/stress.sh).
+        default: ""
+      inline:
+        description: Text of a script to run instead of a file (bash). Wins over "script".
+        default: ""
+      args:
+        description: Arguments for the script, split on spaces.
+        default: ""
+      runner:
+        description: Runner image.
+        type: choice
+        default: ubuntu-22.04
+        options:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - macos-15
+          - windows-latest
+      packages:
+        description: Linux only, apt packages to install (space separated).
+        default: libpulse0 xauth dbus
+      xvfb:
+        description: Linux only, run the script under xvfb-run (installs xvfb).
+        type: boolean
+        default: true
+      node:
+        description: Install Node.js 22 (the bridge tests need it).
+        type: boolean
+        default: false
+      minutes:
+        description: Time limit of the run, in minutes.
+        type: number
+        default: 60
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run:
+    name: Run on ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ fromJSON(inputs.minutes) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      # Inputs reach shell code only through the environment, never through ${{ }} in a script.
+      - name: Choose the script
+        id: script
+        env:
+          SCRIPT: ${{ inputs.script }}
+          INLINE: ${{ inputs.inline }}
+        run: |
+          set -eu
+          file="$RUNNER_TEMP/manual-script.sh"
+          if [ -n "$INLINE" ]; then
+            printf '%s\n' "$INLINE" >"$file"
+          elif [ -n "$SCRIPT" ]; then
+            case "$SCRIPT" in
+              scripts/manual/*.sh) ;;
+              *) echo "::error::script must be a .sh file under scripts/manual/"; exit 1 ;;
+            esac
+            case "$SCRIPT" in
+              *..*) echo "::error::script must not contain '..'"; exit 1 ;;
+            esac
+            [ -f "$SCRIPT" ] || { echo "::error::$SCRIPT does not exist on this ref"; exit 1; }
+            cp "$SCRIPT" "$file"
+          else
+            echo "::error::give either script or inline"; exit 1
+          fi
+          echo "file=$file" >>"$GITHUB_OUTPUT"
+
+      - name: Install system packages
+        if: runner.os == 'Linux'
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          XVFB: ${{ inputs.xvfb }}
+        run: |
+          set -eu
+          case "$PACKAGES" in
+            *[!a-z0-9.+:\ -]*) echo "::error::invalid package list"; exit 1 ;;
+          esac
+          [ "$XVFB" != true ] || PACKAGES="$PACKAGES xvfb"
+          sudo apt-get update
+          # shellcheck disable=SC2086 # a list of package names
+          sudo apt-get install -y $PACKAGES
+
+      - name: Install Node.js
+        if: inputs.node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Run the script
+        env:
+          FILE: ${{ steps.script.outputs.file }}
+          ARGS: ${{ inputs.args }}
+          XVFB: ${{ inputs.xvfb }}
+        run: |
+          set -u -o pipefail
+          set -f # the arguments are split on spaces, never expanded as patterns
+          log="$RUNNER_TEMP/manual.log"
+          status=0
+          if [ "$RUNNER_OS" = Linux ] && [ "$XVFB" = true ]; then
+            # shellcheck disable=SC2086
+            xvfb-run -a -s '-screen 0 1280x1024x24' bash "$FILE" $ARGS 2>&1 | tee "$log" || status=$?
+          else
+            # shellcheck disable=SC2086
+            bash "$FILE" $ARGS 2>&1 | tee "$log" || status=$?
+          fi
+          {
+            echo "### Manual run: exit status $status"
+            echo '```'
+            tail -n 60 "$log"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Keep the output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manual-output
+          path: ${{ runner.temp }}/manual.log
+          if-no-files-found: ignore

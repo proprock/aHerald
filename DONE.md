@@ -30,7 +30,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   it); the plugin and sandbox-sender tests write their fake programs with it, the `support` self-tests start
   `sleep` and `kill` through it, and `setup.rs` no longer asserts an exact retry count. Regression test:
   `plugin_hook_script::a_freshly_written_program_runs_while_other_threads_start_processes` (red without the
-  gate: 1 of 3 and 1 of 6 runs). `scripts/stress-fresh-executables.sh` and the manual `Stress` workflow
+  gate: 1 of 3 and 1 of 6 runs). `scripts/manual/stress.sh` and the manual `manual.yml` workflow
   repeat the three test binaries under CPU load, then full runs. The unrelated `unix_ipc` flake seen on the
   way is AH-284. Evidence: **ran locally** (Linux, 12 cores): 14 of 14 full runs under load free of these
   failures; **ran on a runner** (ubuntu-22.04): `Stress` found the two gaps (run 42173466223 was a missing
