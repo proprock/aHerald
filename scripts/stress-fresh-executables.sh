@@ -14,6 +14,7 @@ binaries=$(cargo test --locked --no-run --message-format=json-render-diagnostics
     sed -n 's/.*"executable":"\([^"]*\/deps\/[^"]*\)".*/\1/p')
 [ "$(printf '%s\n' "$binaries" | wc -l)" -eq 3 ] || { echo "expected three test binaries" >&2; exit 1; }
 
+log="${TMPDIR:-/tmp}/stress-run.log"
 hogs=""
 cleanup() { [ -z "$hogs" ] || kill $hogs 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
@@ -25,9 +26,10 @@ done
 i=1
 while [ "$i" -le "$runs" ]; do
     for binary in $binaries; do
-        "$binary" --test-threads=64 >/dev/null 2>&1 || {
+        # Keep the output of the failing run itself: a rerun usually passes.
+        "$binary" --test-threads=64 >"$log" 2>&1 || {
             echo "FAILED: run $i of $runs: $binary" >&2
-            "$binary" --test-threads=64 2>&1 | tail -30 >&2 || true
+            grep -E '^test .* FAILED|panicked at|^---- ' -A6 "$log" | head -60 >&2 || true
             exit 1
         }
     done
