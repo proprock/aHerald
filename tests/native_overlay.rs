@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use aherald::{
     events::Event,
@@ -78,6 +77,8 @@ fn demo_window(preview: bool) {
     };
     let deadline = Instant::now() + Duration::from_secs(5);
     while search.window.is_invalid() && Instant::now() < deadline {
+        // SAFETY: `find` matches the callback signature and `search` outlives the synchronous
+        // enumeration whose address is passed as `LPARAM`.
         unsafe {
             let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut Search as isize));
         }
@@ -90,6 +91,8 @@ fn demo_window(preview: bool) {
     assert!(!search.window.is_invalid(), "demo did not show a card");
     if preview {
         // Expose only this test window to desktop capture's taskbar inventory.
+        // SAFETY: `search.window` is the demo window found above, owned by the demo process; the
+        // calls change only its style and visibility.
         unsafe {
             let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
             SetWindowLongPtrW(
@@ -104,11 +107,14 @@ fn demo_window(preview: bool) {
         let mut seen = std::collections::BTreeSet::new();
         while Instant::now() < deadline && demo.0.try_wait().unwrap().is_none() {
             let mut title = [0u16; 256];
+            // SAFETY: `search.window` is the demo window found above and `title` is a live buffer
+            // whose length the call receives.
             let length = unsafe { GetWindowTextW(search.window, &mut title) };
             let title = String::from_utf16_lossy(&title[..length as usize]);
             if !title.is_empty() {
                 seen.insert(title);
             }
+            // SAFETY: `search.window` is the demo window found above.
             if seen.len() >= 6 && !unsafe { IsWindowVisible(search.window).as_bool() } {
                 break;
             }
@@ -118,6 +124,8 @@ fn demo_window(preview: bool) {
             return;
         }
     }
+    // SAFETY: `search.window` is the demo window found above; the calls only read or change its own
+    // style.
     unsafe {
         let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;
         let required = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
@@ -139,6 +147,7 @@ fn demo_window(preview: bool) {
         support::output(std::process::Command::new(env!("CARGO_BIN_EXE_aherald")).arg("--status"));
     let status: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_ne!(status["pid"].as_u64(), Some(demo.0.id() as u64));
+    // SAFETY: `search.window` is the demo window found above; posting WM_CLOSE passes plain values.
     unsafe {
         PostMessageW(Some(search.window), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
     }
@@ -179,12 +188,16 @@ fn preview_placement() {
     };
     let deadline = Instant::now() + Duration::from_secs(3);
     while search.window.is_invalid() && Instant::now() < deadline {
+        // SAFETY: `find` matches the callback signature and `search` outlives the synchronous
+        // enumeration whose address is passed as `LPARAM`.
         unsafe {
             let _ = EnumWindows(Some(find), LPARAM(&mut search as *mut _ as isize));
         }
         std::thread::yield_now();
     }
     assert!(!search.window.is_invalid());
+    // SAFETY: `search.window` is the preview window found above; the calls change only its style
+    // and visibility.
     unsafe {
         // Only the preview gets a taskbar entry so desktop inspection can find it.
         let style = GetWindowLongPtrW(search.window, GWL_EXSTYLE) as u32;

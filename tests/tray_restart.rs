@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use aherald::{
     ipc::{Request, Response, pipe},
@@ -13,6 +12,8 @@ fn window(pid: u32) -> HWND {
         hwnd: HWND,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Find` that the caller
+        // keeps alive for the whole synchronous enumeration.
         unsafe {
             let f = &mut *(p.0 as *mut Find);
             let mut pid = 0;
@@ -30,6 +31,8 @@ fn window(pid: u32) -> HWND {
         pid,
         hwnd: HWND::default(),
     };
+    // SAFETY: `find` matches the callback signature and `f` outlives the synchronous enumeration
+    // whose address is passed as `LPARAM`.
     unsafe {
         EnumWindows(Some(find), LPARAM(&mut f as *mut _ as isize)).unwrap();
     }
@@ -102,6 +105,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
         format!("[notifications]\nenabled={real}\n[sounds]\nenabled=true"),
     )
     .unwrap();
+    // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
     unsafe {
         PostMessageW(
             Some(hwnd),
@@ -152,10 +156,13 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
         let hwnd = loop {
             let h = window(new);
             let mut text = [0u16; 200];
+            // SAFETY: `h` is the window found above and `text` is a live buffer whose length the
+            // call receives.
             let n = unsafe { GetWindowTextW(h, &mut text) };
             let text = String::from_utf16_lossy(&text[..n as usize]);
             if text.contains("[Test]")
                 && text.ends_with("[1/7]")
+                // SAFETY: `h` is the window found above.
                 && unsafe { IsWindowVisible(h) }.as_bool()
             {
                 break h;
@@ -166,11 +173,14 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             );
             std::thread::yield_now();
         };
+        // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
         unsafe {
             PostMessageW(Some(hwnd), WM_KEYDOWN, WPARAM(0x25), LPARAM(0)).unwrap();
         }
         loop {
             let mut text = [0u16; 200];
+            // SAFETY: `hwnd` is the resident window found above and `text` is a live buffer whose
+            // length the call receives.
             let n = unsafe { GetWindowTextW(hwnd, &mut text) };
             if String::from_utf16_lossy(&text[..n as usize]).ends_with("[7/7]") {
                 break;
@@ -182,11 +192,14 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             std::thread::yield_now();
         }
         // Clicking the body advances, while the explicit Dismiss button closes.
+        // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
         unsafe {
             PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), LPARAM((20 << 16) | 20)).unwrap();
         }
         loop {
             let mut text = [0u16; 200];
+            // SAFETY: `hwnd` is the resident window found above and `text` is a live buffer whose
+            // length the call receives.
             let n = unsafe { GetWindowTextW(hwnd, &mut text) };
             if String::from_utf16_lossy(&text[..n as usize]).ends_with("[1/7]") {
                 break;
@@ -196,6 +209,8 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
         }
         if preview {
             // Expose only this owned fixture window to the desktop capture inventory.
+            // SAFETY: `hwnd` is the resident window found above; the calls change only its own
+            // style and visibility.
             unsafe {
                 let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
                 SetWindowLongPtrW(
@@ -207,6 +222,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
             let until = Instant::now() + Duration::from_secs(90);
+            // SAFETY: `hwnd` is the resident window found above.
             while Instant::now() < until && unsafe { IsWindowVisible(hwnd) }.as_bool() {
                 std::thread::park_timeout(Duration::from_millis(100));
             }
@@ -221,6 +237,8 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             ));
             loop {
                 let mut text = [0u16; 200];
+                // SAFETY: `hwnd` is the resident window found above and `text` is a live buffer
+                // whose length the call receives.
                 let n = unsafe { GetWindowTextW(hwnd, &mut text) };
                 let text = String::from_utf16_lossy(&text[..n as usize]);
                 if text.contains("Real notification") && !text.contains("[Test]") {
@@ -237,11 +255,15 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             );
             return;
         }
+        // SAFETY: `hwnd` is the resident window found above.
         if unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            // SAFETY: `hwnd` is the resident window found above; posting WM_CLOSE passes plain
+            // values.
             unsafe {
                 PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)).unwrap();
             }
         }
+        // SAFETY: `hwnd` is the resident window found above.
         while unsafe { IsWindowVisible(hwnd) }.as_bool() {
             assert!(
                 Instant::now() < deadline,
@@ -253,6 +275,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             matches!(pipe::request(&scope, &Request::Status, Duration::from_secs(1)).unwrap(), Response::Status {pid, queued:0, ..} if pid == new)
         );
         // Ordinary Apply after Apply + Test must not inherit the one-shot test flag.
+        // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
         unsafe {
             PostMessageW(
                 Some(hwnd),
@@ -277,6 +300,7 @@ fn apply_restarts_preview(test: bool, real: bool, preview: bool) {
             let h = window(newest);
             if !h.is_invalid() {
                 assert!(
+                    // SAFETY: `h` is the window found above.
                     !unsafe { IsWindowVisible(h) }.as_bool(),
                     "ordinary Apply retained test mode"
                 );
@@ -341,6 +365,7 @@ fn invalid_apply_keeps_running(test: bool) {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     };
+    // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
     let restart = || unsafe {
         PostMessageW(
             Some(hwnd),
@@ -358,6 +383,7 @@ fn invalid_apply_keeps_running(test: bool) {
     restart();
     // The error card is shown even though event visuals are disabled.
     let deadline = Instant::now() + Duration::from_secs(2);
+    // SAFETY: `hwnd` is the resident window found above.
     while !unsafe { IsWindowVisible(hwnd) }.as_bool() {
         assert!(Instant::now() < deadline, "restart error was not shown");
         std::thread::yield_now();

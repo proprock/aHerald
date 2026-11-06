@@ -1,5 +1,4 @@
 //! Detached children inherit only their explicitly listed transfer handles.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{
     ffi::OsStr,
     fs::File,
@@ -210,6 +209,8 @@ pub(crate) fn spawn(executable: &Path, args: &[&OsStr], transfer: bool) -> Resul
     drop(attrs);
     // SAFETY: successful CreateProcessW transfers two fresh handles to this caller.
     let process = unsafe { OwnedHandle::from_raw_handle(info.hProcess.0) };
+    // SAFETY: as above, the second handle of the same successful CreateProcessW is owned by nobody
+    // else.
     let _thread = unsafe { OwnedHandle::from_raw_handle(info.hThread.0) };
     let (stdin, stdout) = if let Some(((child_input, input), (output, child_output))) = channels {
         drop((child_input, child_output));

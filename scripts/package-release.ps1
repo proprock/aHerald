@@ -1,17 +1,18 @@
 param(
-    [string]$Executable = (Join-Path $PSScriptRoot 'target/x86_64-pc-windows-msvc/release/aherald.exe'),
+    [string]$Executable = (Join-Path (Split-Path -Parent $PSScriptRoot) 'target/x86_64-pc-windows-msvc/release/aherald.exe'),
     [string]$Companion = (Join-Path (Split-Path -Parent $Executable) 'aherald-cli.exe'),
-    [string]$OutDir = (Join-Path $PSScriptRoot 'dist'),
+    [string]$OutDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist'),
     [string]$Tag
 )
 # Builds the portable archive and proves that a clean extraction runs. The release workflow
 # calls this script, so a local run and the published archive are made the same way.
 $ErrorActionPreference = 'Stop'
-$cargo = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Cargo.toml')
-$version = ($cargo | Where-Object { $_ -match '^version\s*=\s*"([^"]+)"' } | Select-Object -First 1) -replace '^version\s*=\s*"([^"]+)".*', '$1'
-if (-not $version) { throw 'Cannot read the crate version from Cargo.toml' }
+$repo = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Version.ps1')
+Push-Location $repo
+try { $version = Get-CrateVersion } finally { Pop-Location }
 if (-not $Tag) { $Tag = "v$version" }
-if ($Tag -ne "v$version") { throw "Tag $Tag does not match Cargo.toml version $version" }
+Assert-TagMatches $Tag $version
 if (-not (Test-Path -LiteralPath $Executable)) { throw "Build the release executable first: $Executable" }
 if (-not (Test-Path -LiteralPath $Companion)) { throw "Build the console companion first: $Companion" }
 
@@ -24,14 +25,14 @@ New-Item -ItemType Directory -Path $root | Out-Null
 Copy-Item -LiteralPath $Executable -Destination $root
 Copy-Item -LiteralPath $Companion -Destination $root
 foreach ($file in 'config.example.toml', 'LICENSE', 'README.md', 'CHANGELOG.md') {
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $root
+    Copy-Item -LiteralPath (Join-Path $repo $file) -Destination $root
 }
 foreach ($dir in 'assets', 'examples', 'docs') {
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $dir) -Destination $root -Recurse
+    Copy-Item -LiteralPath (Join-Path $repo $dir) -Destination $root -Recurse
 }
 # Engineering notes are project history, not user documentation.
 Remove-Item -LiteralPath (Join-Path $root 'docs/notes') -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'docs/portable.md') -Destination (Join-Path $root 'START-HERE.md')
+Copy-Item -LiteralPath (Join-Path $repo 'docs/portable.md') -Destination (Join-Path $root 'START-HERE.md')
 
 # Metadata: what this archive is and the hash of every file in it (the manifest lists itself last).
 $files = Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object FullName

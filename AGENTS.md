@@ -145,7 +145,11 @@ cargo test --locked --workspace --doc
 
 - Linux extras: `xvfb-run -a cargo test --locked --test remote_listener` and
   `xvfb-run -a dbus-run-session -- env AH113_ISOLATED=1 cargo test --locked --test linux_apply -- --ignored --test-threads=1`.
-- Windows extras: `cargo build --release --target x86_64-pc-windows-msvc` and `./check-release.ps1`.
+- Windows extras: `cargo build --release --target x86_64-pc-windows-msvc` and `./scripts/check-release.ps1`.
+- Windows code can be linted from Linux: `rustup target add x86_64-pc-windows-msvc`, put an executable
+  `llvm-rc` stub on `PATH` (the build script only needs it to exist; clippy does not link), then
+  `cargo clippy --locked --target x86_64-pc-windows-msvc --all-targets -- -D warnings`. That is a
+  local lint run, not a Windows test run: report Windows as **compiled/tested in CI only** for tests.
 - Report the status per platform with exactly one of: **ran locally**, **compiled/tested in
   CI only**, **checked by hand on hardware**, **not checked**. `src/mac/` builds only on
   macOS and the Windows modules only on Windows; never describe code you could only compile
@@ -160,10 +164,10 @@ cargo test --locked --workspace --doc
   static CRT; IPC is a named pipe limited to the current user and logon session, remote
   clients rejected; the installer delegates all JSON editing to `aherald.exe --setup`;
   `aherald-cli.exe` is the console companion, hooks call `aherald.exe`.
-- **macOS** (`src/mac/`, `package-macos.sh`, `package-dmg.sh`, `check-release-*.sh`): AppKit on
+- **macOS** (`src/mac/`, `scripts/package-macos.sh`, `scripts/package-dmg.sh`, `check-release-*.sh`): AppKit on
   the main thread only; the bundle is ad-hoc signed, not notarized; writable data lives
   outside the bundle; Keychain access only as recorded in `docs/privacy.md`.
-- **Linux** (`src/linux/`, `src/unix/`, `package-deb.sh`, `package-linux.sh`): X11/XWayland
+- **Linux** (`src/linux/`, `src/unix/`, `scripts/package-deb.sh`, `scripts/package-linux.sh`): X11/XWayland
   only; the tray needs a StatusNotifierItem host (AppIndicator on GNOME); IPC is a unix
   socket in a private per-user directory; the `.deb` targets glibc 2.35 (Ubuntu 22.04).
 - `src/unix/` and `src/mac/input.rs` compile on both macOS and Linux.

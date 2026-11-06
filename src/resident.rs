@@ -1,5 +1,4 @@
 //! Resident lifecycle; IPC never waits for notification presentation.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use crate::{
     config::Config,
     ipc::{Response, pipe},
@@ -276,6 +275,7 @@ mod usage_tests {
         config.notifications.enabled = false;
         let (thread_tx, thread_rx) = mpsc::sync_channel(1);
         let worker = std::thread::spawn(move || {
+            // SAFETY: GetCurrentThreadId takes no arguments and reads no memory.
             thread_tx.send(unsafe { GetCurrentThreadId() }).unwrap();
             run_with_usage(thread_scope, config, Path::new("usage-test.toml"), || {
                 service
@@ -298,6 +298,8 @@ mod usage_tests {
                 window: HWND,
             }
             unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
+                // SAFETY: EnumThreadWindows passes a valid `hwnd`; `param` is the address of the
+                // `Search` that `window_for` keeps alive for the whole synchronous enumeration.
                 unsafe {
                     let search = &mut *(param.0 as *mut Search<'_>);
                     let mut text = [0u16; 128];
@@ -312,6 +314,8 @@ mod usage_tests {
                 class,
                 window: HWND::default(),
             };
+            // SAFETY: `find` matches the callback signature and `search` outlives the synchronous
+            // enumeration whose address is passed as `param`.
             unsafe {
                 let _ = EnumThreadWindows(
                     thread_id,
@@ -331,6 +335,8 @@ mod usage_tests {
             assert!(Instant::now() < deadline);
         }
         let overlay = window_for(thread_id, "aHerald.Resident");
+        // SAFETY: `overlay` is the resident window found above; the GUI thread handles the message
+        // while this thread waits.
         unsafe {
             SendMessageW(
                 overlay,
@@ -339,6 +345,7 @@ mod usage_tests {
                 Some(LPARAM(0)),
             );
         }
+        // SAFETY: `overlay` is the resident window found above.
         unsafe {
             assert!(
                 IsWindowVisible(overlay).as_bool(),
@@ -384,6 +391,8 @@ mod usage_tests {
         ));
         cleanup.1.take().unwrap().join().unwrap().unwrap();
         assert!(
+            // SAFETY: IsWindow only asks whether the handle is still a window; `overlay` may be
+            // stale, which it reports.
             !unsafe { IsWindow(Some(overlay)) }.as_bool(),
             "quit must close usage details"
         );
@@ -421,9 +430,12 @@ mod usage_preview {
         }
         let scope = Scope::current(&format!("usage-preview-{}", std::process::id())).unwrap();
         let stop_scope = scope.clone();
+        // SAFETY: GetCurrentThreadId takes no arguments and reads no memory.
         let thread_id = unsafe { GetCurrentThreadId() };
         let opener = std::thread::spawn(move || {
             unsafe extern "system" fn find(hwnd: HWND, p: LPARAM) -> windows::core::BOOL {
+                // SAFETY: EnumThreadWindows passes a valid `hwnd`; `p` is the address of the `HWND`
+                // that the loop below keeps alive for the whole synchronous enumeration.
                 unsafe {
                     let mut c = [0u16; 64];
                     let n = GetClassNameW(hwnd, &mut c);
@@ -436,6 +448,8 @@ mod usage_preview {
             let deadline = Instant::now() + Duration::from_secs(5);
             loop {
                 let mut hwnd = HWND::default();
+                // SAFETY: `find` matches the callback signature and `hwnd` outlives the synchronous
+                // enumeration whose address is passed as `LPARAM`.
                 unsafe {
                     let _ = EnumThreadWindows(
                         thread_id,
@@ -444,6 +458,8 @@ mod usage_preview {
                     );
                 }
                 if !hwnd.is_invalid() {
+                    // SAFETY: `hwnd` is the resident window found above; the calls change its
+                    // extended style and send it a command, which its GUI thread handles.
                     unsafe {
                         let style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
                         SetWindowLongW(
@@ -516,6 +532,8 @@ mod idle_tests {
     }
     fn resident_window(thread_id: u32) -> HWND {
         unsafe extern "system" fn find(hwnd: HWND, param: LPARAM) -> windows::core::BOOL {
+            // SAFETY: EnumThreadWindows passes a valid `hwnd`; `param` is the address of the `HWND`
+            // that `resident_window` keeps alive for the whole synchronous enumeration.
             unsafe {
                 let mut text = [0u16; 64];
                 let n = GetClassNameW(hwnd, &mut text);
@@ -526,6 +544,8 @@ mod idle_tests {
             }
         }
         let mut window = HWND::default();
+        // SAFETY: `find` matches the callback signature and `window` outlives the synchronous
+        // enumeration whose address is passed as `LPARAM`.
         unsafe {
             let _ = EnumThreadWindows(
                 thread_id,
@@ -543,6 +563,7 @@ mod idle_tests {
         config.sounds.enabled = false;
         let (thread_tx, thread_rx) = mpsc::sync_channel(1);
         let worker = std::thread::spawn(move || {
+            // SAFETY: GetCurrentThreadId takes no arguments and reads no memory.
             thread_tx.send(unsafe { GetCurrentThreadId() }).unwrap();
             run_with_usage(thread_scope, config, Path::new("idle-test.toml"), || {
                 crate::usage_service::Service::codex(false, Duration::from_secs(300))
@@ -560,6 +581,8 @@ mod idle_tests {
             assert!(Instant::now() < deadline, "resident did not start");
         };
         let hook =
+            // SAFETY: `count` is a hook procedure of the right type in this module, and `thread_id`
+            // is the resident thread running in this test.
             unsafe { SetWindowsHookExW(WH_GETMESSAGE, Some(count), None, thread_id) }.unwrap();
         // Let startup settle, then observe a quiet period.
         std::thread::sleep(Duration::from_millis(200));
@@ -578,6 +601,7 @@ mod idle_tests {
             Response::Accepted
         ));
         let shown = Instant::now();
+        // SAFETY: `window` is the resident window found above.
         while !unsafe { IsWindowVisible(window) }.as_bool() {
             assert!(
                 shown.elapsed() < Duration::from_secs(1),
@@ -585,6 +609,7 @@ mod idle_tests {
             );
             std::thread::yield_now();
         }
+        // SAFETY: `hook` is the handle SetWindowsHookExW returned above and is unhooked once.
         unsafe {
             let _ = UnhookWindowsHookEx(hook);
         }

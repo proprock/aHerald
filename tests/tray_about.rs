@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use aherald::{ipc::Response, local::Scope};
 use std::time::{Duration, Instant};
@@ -11,6 +10,8 @@ fn resident_window(pid: u32) -> HWND {
         hwnd: HWND,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Find` that the caller
+        // keeps alive for the whole synchronous enumeration.
         unsafe {
             let f = &mut *(p.0 as *mut Find);
             let mut pid = 0;
@@ -28,6 +29,8 @@ fn resident_window(pid: u32) -> HWND {
         pid,
         hwnd: HWND::default(),
     };
+    // SAFETY: `find` matches the callback signature and `f` outlives the synchronous enumeration
+    // whose address is passed as `LPARAM`.
     unsafe {
         EnumWindows(Some(find), LPARAM(&mut f as *mut _ as isize)).unwrap();
     }
@@ -69,6 +72,7 @@ fn the_about_item_shows_a_card_even_with_event_visuals_off_and_a_second_choice_c
         hwnd = resident_window(pid);
         !hwnd.is_invalid()
     });
+    // SAFETY: `hwnd` is the resident window found above; posting a message passes plain values.
     let choose_about = || unsafe {
         PostMessageW(
             Some(hwnd),
@@ -78,17 +82,21 @@ fn the_about_item_shows_a_card_even_with_event_visuals_off_and_a_second_choice_c
         )
         .unwrap();
     };
+    // SAFETY: `hwnd` is the resident window found above.
     assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool());
     choose_about();
     wait_until("the About card", || {
+        // SAFETY: `hwnd` is the resident window found above.
         unsafe { IsWindowVisible(hwnd) }.as_bool()
     });
     let mut bounds = RECT::default();
+    // SAFETY: `hwnd` is the resident window found above and `bounds` is a live RECT.
     unsafe { GetWindowRect(hwnd, &mut bounds).unwrap() };
     // A usage-style card is wide and tall enough for its body.
     assert!(bounds.right - bounds.left > 500, "{bounds:?}");
     choose_about();
     wait_until("the About card to close", || {
+        // SAFETY: `hwnd` is the resident window found above.
         !unsafe { IsWindowVisible(hwnd) }.as_bool()
     });
 }

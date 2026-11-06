@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use std::{sync::mpsc, time::Duration};
 use windows::{
@@ -52,6 +51,8 @@ impl Window {
             if let Ok(delay) = hidden.recv_timeout(Duration::from_secs(3)) {
                 // Deliberate delayed effect: prove the wait tolerates asynchronous hiding.
                 std::thread::sleep(delay);
+                // SAFETY: `window.0` is the fixture window created on this thread and kept alive
+                // until `finish` arrives.
                 unsafe {
                     let _ = ShowWindow(window.0, SW_HIDE);
                 }
@@ -80,9 +81,11 @@ impl Drop for Window {
 #[test]
 fn hidden_wait_accepts_a_delayed_native_visibility_change() {
     let window = Window::new();
+    // SAFETY: `window.hwnd` is the fixture window, alive until `window` is dropped.
     assert!(unsafe { IsWindowVisible(window.hwnd) }.as_bool());
     window.hide.send(Duration::from_millis(100)).unwrap();
     support::window::wait_hidden(window.hwnd, Duration::from_secs(2)).unwrap();
+    // SAFETY: `window.hwnd` is the fixture window, alive until `window` is dropped.
     assert!(!unsafe { IsWindowVisible(window.hwnd) }.as_bool());
 }
 

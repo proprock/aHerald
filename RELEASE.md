@@ -36,12 +36,12 @@ explicit go-ahead.
   and 150% scale, the tray menu, a hook round trip from a real agent. Record what was checked
   by hand and on which OS version; say "not checked" for the rest.
 - Optional packaging preview on the host OS (artifacts land in `dist/`):
-  - Windows: `cargo build --release --target x86_64-pc-windows-msvc`, `./check-release.ps1`,
-    `./package-release.ps1`, `./build-installer.ps1` (needs Inno Setup and `llvm-readobj`).
+  - Windows: `cargo build --release --target x86_64-pc-windows-msvc`, `./scripts/check-release.ps1`,
+    `./scripts/package-release.ps1`, `./scripts/build-installer.ps1` (needs Inno Setup and `llvm-readobj`).
   - macOS: `cargo build --release --target aarch64-apple-darwin`,
-    `./package-macos.sh target/aarch64-apple-darwin/release/aherald`, `./package-dmg.sh`.
-  - Linux: `cargo build --release`, `./package-linux.sh target/release/aherald`,
-    `sh ./package-deb.sh target/release/aherald`.
+    `./scripts/package-macos.sh target/aarch64-apple-darwin/release/aherald`, `./scripts/package-dmg.sh`.
+  - Linux: `cargo build --release`, `./scripts/package-linux.sh target/release/aherald`,
+    `sh ./scripts/package-deb.sh target/release/aherald`.
 
 ## 3. Tag and publish
 

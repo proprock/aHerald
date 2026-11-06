@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 mod support;
 use aherald::{
     ipc::{Request, Response, pipe},
@@ -34,6 +33,8 @@ fn manual_resident_has_one_notification_window() {
         cards: usize,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Found` that the caller
+        // keeps alive for the whole synchronous enumeration.
         unsafe {
             let state = &mut *(p.0 as *mut Found);
             let mut pid = 0;
@@ -57,6 +58,8 @@ fn manual_resident_has_one_notification_window() {
         }
     }
     let mut found = Found { pid, cards: 0 };
+    // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+    // enumeration whose address is passed as `LPARAM`.
     unsafe {
         EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
     }
@@ -92,6 +95,8 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         window: HWND,
     }
     unsafe extern "system" fn find(h: HWND, p: LPARAM) -> windows::core::BOOL {
+        // SAFETY: EnumWindows passes a valid `h`; `p` is the address of the `Found` that the caller
+        // keeps alive for the whole synchronous enumeration.
         unsafe {
             let state = &mut *(p.0 as *mut Found);
             let mut pid = 0;
@@ -112,6 +117,8 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
             pid,
             window: HWND::default(),
         };
+        // SAFETY: `find` matches the callback signature and `found` outlives the synchronous
+        // enumeration whose address is passed as `LPARAM`.
         unsafe {
             EnumWindows(Some(find), LPARAM(&mut found as *mut _ as isize)).unwrap();
         }
@@ -128,6 +135,7 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         ..Default::default()
     };
     let deadline = Instant::now() + Duration::from_secs(3);
+    // SAFETY: `identity` is a live NOTIFYICONIDENTIFIER describing the icon under test.
     while unsafe { Shell_NotifyIconGetRect(&identity) }.is_err() {
         assert!(
             Instant::now() < deadline,
@@ -141,6 +149,9 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         uID: 1,
         ..Default::default()
     };
+    // SAFETY: `data` and `identity` are live structures describing the icon under test, `hwnd` is
+    // the resident window found above, and the message id comes from RegisterWindowMessageW with a
+    // literal string.
     unsafe {
         assert!(Shell_NotifyIconW(NIM_DELETE, &data).as_bool());
         assert!(Shell_NotifyIconGetRect(&identity).is_err());
@@ -148,6 +159,7 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         SendMessageW(hwnd, message, None, None);
     }
     let deadline = Instant::now() + Duration::from_secs(3);
+    // SAFETY: `identity` is a live NOTIFYICONIDENTIFIER describing the icon under test.
     while unsafe { Shell_NotifyIconGetRect(&identity) }.is_err() {
         assert!(
             Instant::now() < deadline,
@@ -161,5 +173,6 @@ fn explorer_notification_recreates_deleted_icon_and_quit_removes_it() {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
+    // SAFETY: `identity` is a live NOTIFYICONIDENTIFIER describing the icon under test.
     assert!(unsafe { Shell_NotifyIconGetRect(&identity) }.is_err());
 }

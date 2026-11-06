@@ -2,7 +2,7 @@ param([Parameter(Mandatory)][string]$Installer)
 # Black-box installer acceptance. Requires the separately compiled test AppId.
 $ErrorActionPreference = 'Stop'
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
-if ([IO.Path]::GetFileName($Installer) -notlike '*-setup-test.exe') { throw 'Use build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest' }
+if ([IO.Path]::GetFileName($Installer) -notlike '*-setup-test.exe') { throw 'Use scripts/build-installer.ps1 -InstallerAppId aHerald.Native.InstallerTest' }
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('aherald-installer-test-' + [guid]::NewGuid().ToString('N'))
 $appDir = Join-Path $testRoot 'App'
 $codexDir = Join-Path $testRoot 'Codex'

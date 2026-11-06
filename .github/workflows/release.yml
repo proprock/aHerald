@@ -74,10 +74,8 @@ jobs:
       - name: Verify the tag matches the crate version
         shell: pwsh
         run: |
-          $version = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages | Where-Object name -eq 'aherald').version
-          if ("$env:RELEASE_TAG" -ne "v$version") {
-            throw "Tag $env:RELEASE_TAG does not match Cargo.toml version $version"
-          }
+          . ./scripts/Version.ps1
+          Assert-TagMatches "$env:RELEASE_TAG" (Get-CrateVersion)
 
       # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
       - name: Test
@@ -96,23 +94,23 @@ jobs:
 
       - name: Check the executable is portable
         shell: pwsh
-        run: ./check-release.ps1
+        run: ./scripts/check-release.ps1
 
       - name: Assemble the portable archive and verify a clean extraction runs
         shell: pwsh
-        run: ./package-release.ps1 -Tag $env:RELEASE_TAG
+        run: ./scripts/package-release.ps1 -Tag $env:RELEASE_TAG
 
       - name: Install the signed Inno Setup compiler
         uses: ./.github/actions/install-inno-setup
 
       - name: Build the per-user Windows installer
         shell: pwsh
-        run: ./build-installer.ps1 -Tag $env:RELEASE_TAG
+        run: ./scripts/build-installer.ps1 -Tag $env:RELEASE_TAG
 
       - name: Verify isolated installer lifecycle
         shell: pwsh
         run: |
-          ./build-installer.ps1 -Tag $env:RELEASE_TAG -InstallerAppId aHerald.Native.InstallerTest
+          ./scripts/build-installer.ps1 -Tag $env:RELEASE_TAG -InstallerAppId aHerald.Native.InstallerTest
           ./tests/installer_windows.ps1 -Installer "dist/aherald-$env:RELEASE_TAG-windows-x64-setup-test.exe"
 
       - name: Attest the build provenance
@@ -155,8 +153,8 @@ jobs:
 
       - name: Verify the tag matches the crate version
         run: |
-          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p for p in json.load(sys.stdin)["packages"] if p["name"] == "aherald")["version"])')"
-          test "$RELEASE_TAG" = "v$version" || { echo "Tag $RELEASE_TAG does not match Cargo.toml version $version" >&2; exit 1; }
+          . ./scripts/version.sh
+          require_tag_matches "$RELEASE_TAG" "$(crate_version)"
 
       # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
       - name: Test
@@ -174,10 +172,10 @@ jobs:
         run: cargo build --locked --release --target aarch64-apple-darwin
 
       - name: Assemble the app archive and verify a clean extraction runs
-        run: ./package-macos.sh target/aarch64-apple-darwin/release/aherald "$RELEASE_TAG"
+        run: ./scripts/package-macos.sh target/aarch64-apple-darwin/release/aherald "$RELEASE_TAG"
 
       - name: Build the disk image and verify its layout, signature and isolated lifecycle
-        run: ./package-dmg.sh "$RELEASE_TAG"
+        run: ./scripts/package-dmg.sh "$RELEASE_TAG"
 
       - name: Attest the build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -229,10 +227,10 @@ jobs:
           python3 tests/console_setup_linux.py target/release/aherald
 
       - name: Assemble and verify archive
-        run: ./package-linux.sh target/release/aherald "$RELEASE_TAG"
+        run: ./scripts/package-linux.sh target/release/aherald "$RELEASE_TAG"
 
       - name: Assemble and verify Debian package
-        run: sh ./package-deb.sh target/release/aherald "$RELEASE_TAG"
+        run: sh ./scripts/package-deb.sh target/release/aherald "$RELEASE_TAG"
 
       - name: Verify isolated Debian lifecycle
         run: sh ./tests/linux_deb_lifecycle.sh "dist/aherald-$RELEASE_TAG-linux-x86_64-gnu.deb"
@@ -289,8 +287,8 @@ jobs:
 
       - name: Verify they are static and name the files
         run: |
-          sh ./package-ping.sh x86_64 "$RELEASE_TAG"
-          sh ./package-ping.sh aarch64 "$RELEASE_TAG"
+          sh ./scripts/package-ping.sh x86_64 "$RELEASE_TAG"
+          sh ./scripts/package-ping.sh aarch64 "$RELEASE_TAG"
 
       - name: Run the x86_64 build in a container against a host listener
         env:

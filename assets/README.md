@@ -2,7 +2,7 @@
 
 All PNG artwork, animation metadata and PCM WAV tones in this directory were
 created specifically for aHerald, from the deterministic Rust generator
-`examples/generate_assets.rs`. They contain no third-party artwork or recordings.
+`examples/tools/generate_assets.rs`. They contain no third-party artwork or recordings.
 They are distributed under the repository MIT license; see ../LICENSE.
 
 Regenerate with `cargo run --example generate_assets`. Each event has eight

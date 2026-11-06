@@ -1,4 +1,3 @@
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use super::Wave;
 use crate::local::Handle;
 use std::{
@@ -13,6 +12,8 @@ use windows::{
 struct Guard(Handle);
 impl Drop for Guard {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the mutex handle this guard acquired and still owns; releasing it
+        // takes only the handle.
         unsafe {
             let _ = ReleaseMutex(self.0.0);
         }
@@ -221,6 +222,8 @@ mod tests {
         let signal = std::sync::Arc::new(std::sync::Barrier::new(2));
         let (flag, ready) = (cancel.clone(), signal.clone());
         let worker = std::thread::spawn(move || {
+            // SAFETY: CreateEventW with no security attributes and no name takes no pointers; the
+            // handle it returns is owned by `Handle`.
             let event = Handle(unsafe { CreateEventW(None, false, false, None) }.unwrap());
             ready.wait();
             assert!(!wait(event.0, 60000, &flag).unwrap());

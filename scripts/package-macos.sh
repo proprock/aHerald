@@ -1,15 +1,16 @@
 #!/bin/sh
 # Builds aHerald.app (Apple Silicon) and the release archive, then proves that a clean
-# extraction runs. Usage: ./package-macos.sh [path/to/aherald] [tag]
+# extraction runs. Usage: ./scripts/package-macos.sh [path/to/aherald] [tag]
 # Build first: cargo build --release --target aarch64-apple-darwin
 set -eu
-cd "$(dirname "$0")"
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/.."
+. "$here/version.sh"
 
 executable=${1:-target/aarch64-apple-darwin/release/aherald}
-version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)
-[ -n "$version" ] || { echo "Cannot read the crate version from Cargo.toml" >&2; exit 1; }
+version=$(crate_version)
 tag=${2:-v$version}
-[ "$tag" = "v$version" ] || { echo "Tag $tag does not match Cargo.toml version $version" >&2; exit 1; }
+require_tag_matches "$tag" "$version"
 [ -f "$executable" ] || { echo "Build the release executable first: $executable" >&2; exit 1; }
 
 name=aherald-$tag-macos-arm64
@@ -61,4 +62,4 @@ cp docs/portable-macos.md "$root/START-HERE.md"
 
 (cd "$out" && ditto -c -k --keepParent "$name" "$name.zip" && shasum -a 256 "$name.zip" > "$name.zip.sha256")
 echo "Built $out/$name.zip"
-./check-release-macos.sh "$out/$name.zip" "$version"
+"$here/check-release-macos.sh" "$out/$name.zip" "$version"

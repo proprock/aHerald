@@ -1,5 +1,4 @@
 #![cfg(windows)]
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::{
     events::Event,
     process::{Child, deliver},
@@ -75,11 +74,15 @@ fn detached_child_does_not_inherit_unrelated_hook_collector_handles() {
     };
     // A shell/.NET hook launcher may own additional inheritable output handles.
     let (mut read, mut write) = (HANDLE::default(), HANDLE::default());
+    // SAFETY: `read` and `write` are live out-parameters; no security attributes are passed.
     unsafe {
         CreatePipe(&mut read, &mut write, None, 0).unwrap();
     }
+    // SAFETY: CreatePipe succeeded, so `read` is a new handle owned by nobody else.
     let reader = unsafe { OwnedHandle::from_raw_handle(read.0) };
+    // SAFETY: CreatePipe succeeded, so `write` is a new handle owned by nobody else.
     let writer = unsafe { OwnedHandle::from_raw_handle(write.0) };
+    // SAFETY: `write` is the pipe handle created above and still open.
     unsafe {
         SetHandleInformation(write, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT).unwrap();
     }

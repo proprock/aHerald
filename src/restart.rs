@@ -1,5 +1,4 @@
 //! A detached replacement waits for the old process, including all worker cleanup.
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of this Windows module.
 use std::{
     ffi::{OsStr, OsString},
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
@@ -49,8 +48,11 @@ pub fn wait_for_parent(pid: u32) -> Result<(), String> {
     // SAFETY: only synchronization rights are requested, and OwnedHandle closes the result.
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }
         .map_err(|e| format!("cannot wait for previous aHerald process: {e}"))?;
+    // SAFETY: OpenProcess succeeded, so `handle` is a new handle owned by nobody else; OwnedHandle
+    // closes it.
     let handle = unsafe { OwnedHandle::from_raw_handle(handle.0) };
     crate::process::acknowledge()?;
+    // SAFETY: `handle` is the open process handle held above and stays open for the whole wait.
     match unsafe { WaitForSingleObject(HANDLE(handle.as_raw_handle()), 30_000) } {
         WAIT_OBJECT_0 => Ok(()),
         _ => Err("previous aHerald process did not exit within 30 seconds".into()),

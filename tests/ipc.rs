@@ -1,4 +1,3 @@
-#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249): write the SAFETY comments of these Windows test helpers.
 use aherald::ipc;
 #[test]
 fn frames_round_trip_and_reject_invalid_length_version_and_json() {
@@ -75,6 +74,8 @@ fn pipe_recovers_after_stalled_disconnected_and_malformed_clients() {
     ] {
         let deadline = Instant::now() + Duration::from_secs(2);
         let handle = loop {
+            // SAFETY: `name` is a NUL-terminated wide string that outlives the call; the other
+            // arguments are plain flags with no security attributes or template.
             if let Ok(h) = unsafe {
                 CreateFileW(
                     PCWSTR(name.as_ptr()),
@@ -92,6 +93,7 @@ fn pipe_recovers_after_stalled_disconnected_and_malformed_clients() {
             std::thread::yield_now();
         };
         if let Some(bytes) = bytes {
+            // SAFETY: `handle` is the pipe opened above and `bytes` outlives the synchronous write.
             unsafe {
                 let mut n = 0;
                 WriteFile(handle, Some(&bytes), Some(&mut n), None).unwrap();
@@ -101,10 +103,13 @@ fn pipe_recovers_after_stalled_disconnected_and_malformed_clients() {
             let mut count = 0;
             let before = Instant::now();
             assert!(
+                // SAFETY: `handle` is the pipe opened above and `response` and `count` are live
+                // buffers for the synchronous read.
                 unsafe { ReadFile(handle, Some(&mut response), Some(&mut count), None) }.is_err()
             );
             assert!(before.elapsed() < Duration::from_secs(1));
         }
+        // SAFETY: `handle` is the pipe opened above and is closed once, here.
         unsafe {
             CloseHandle(handle).unwrap();
         }
