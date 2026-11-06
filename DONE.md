@@ -37,6 +37,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-260 — Shared resident runtime start and teardown.**
+  `resident_runtime::start(scope, &config, path, &shared, started, wake) -> Result<Runtime, String>` installs
+  the notice sink, starts forwarding and the `[remote]` listener and runs the IPC listener thread
+  (`serve_until`, `respond`, diagnostics, `perf::tick`); `wake` receives the locked state. Dropping the
+  `Runtime` tears everything down in one order (notice, remote, forwarding, stop flag, stop event, join), also
+  after a failed start. The Windows, Linux and macOS residents lost their ~100-line copies and call it; the
+  window loops take `Runtime::stop_flag()`. Differences from before: Linux and macOS now run `perf::tick` in
+  the listener (Linux logs perf samples, as the ticket asked); the Windows resource snapshot stays Windows-only
+  (`process_stats` reads Win32); a failed listener start now also clears the notice sink and stops forwarding
+  on Windows and macOS; Linux wakes its loop only when the response asks for it, like the other two. Unit
+  tests (`resident_runtime`): a request over the pipe reaches the state and wakes the loop, a quit sets the
+  stop flag and a dropped runtime closes the pipe. No red phase was observed. Evidence: fmt, clippy,
+  workspace tests and doctests (the known `audio::serial` timing test skipped in the run; it failed once under
+  load earlier), the Linux extras (`linux_apply --ignored`, the AH-283 test, `remote_listener` under Xephyr)
+  **ran locally**; Windows clippy lint **ran locally**, Windows tests (`tests/resident.rs`) and all macOS code
+  (`tests/mac_resident.rs`) **compiled/tested in CI only**.
+
 - [x] **AH-259 — Shared resident state.**
   `resident_request::Shared<T = ()>` (queue, warnings, paused, sounds, visuals, `ext: T`) with
   `Shared::new(&Config, ext)` and one `Controls` impl replaces the three copies. Windows uses

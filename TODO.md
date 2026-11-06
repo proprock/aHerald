@@ -524,13 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-260 — Shared resident runtime start and teardown.**
-  Depends on AH-259. `resident_runtime::start(config, scope, wake: impl Fn()) -> Runtime` performs
-  `notice::install`, `forward::start`, `remote::start_if_enabled` and the listener thread
-  (`serve_until`→`respond`→`diagnostics.record`, including `perf::tick`, made available to every OS). `Drop` tears
-  down in the existing order. Replace the three ~100-line copies. Acceptance: `tests/resident.rs`,
-  `tests/mac_resident.rs`, `tests/remote_listener.rs` (xvfb) and `linux_apply` pass; Linux now logs perf ticks.
-
 - [ ] **AH-261 — Shared usage view.**
   Extract `codex_shown`, the usage card text and pagination, and the `Levels::from_views` input
   (`resident_overlay.rs:110-140,267,559`, `mac/resident.rs:365-470,752`, `linux/resident.rs:300-315`) into pure
