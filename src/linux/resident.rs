@@ -5,27 +5,24 @@ use super::{
     x11,
 };
 use crate::{
-    card::Card,
-    card_paint::event_card_text,
-    card_surface::CardSurface,
-    config::Config,
-    events::Event,
-    ipc::{Response, pipe},
-    local::Scope,
-    queue::Queue,
+    card::Card, card_paint::event_card_text, card_surface::CardSurface, config::Config,
+    events::Event, ipc::pipe, local::Scope, queue::Queue,
 };
 use std::{
     path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
     time::{Duration, Instant},
 };
 use x11rb::protocol::Event as XEvent;
 
+#[cfg(test)]
+use crate::ipc::Response;
 pub use crate::resident_client::{ensure, forward, forward_if_running};
+#[cfg(test)]
+use std::sync::mpsc;
 
 type Shared = crate::resident_request::Shared;
 fn shared(config: &Config) -> Arc<Mutex<Shared>> {
@@ -59,105 +56,28 @@ pub fn run_after_apply(
     // Open the display before reporting the listener ready.
     let window = x11::Window::new()?;
     let state = shared(&config);
-    let stop = Arc::new(AtomicBool::new(false));
     let started = Instant::now();
     // Whatever changes the state the loop reads signals this, so the loop can sleep until then.
     let wake = Arc::new(pipe::StopEvent::new()?);
-    crate::notice::install(crate::resident_request::notice_sink(
-        state.clone(),
-        config.clone(),
-        started,
-        {
-            let wake = wake.clone();
-            move |_: &Shared| wake.signal()
-        },
-    ));
-    crate::forward::start(&config.forward);
-    let remote = crate::remote::start_if_enabled(
-        &config,
-        path,
-        crate::resident_request::remote_deliver(state.clone(), config.clone(), started, {
-            let wake = wake.clone();
-            move |_: &Shared| wake.signal()
-        }),
-    );
-    let stop_event = Arc::new(pipe::StopEvent::new()?);
-    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let listener = {
-        let (state, stop, stop_event, settings, wake) = (
-            state.clone(),
-            stop.clone(),
-            stop_event.clone(),
-            config.clone(),
-            wake.clone(),
-        );
-        let directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-        std::thread::spawn(move || {
-            use crate::operational_log::{Record, init, log};
-            init(&directory, settings.general.logging);
-            let server = match scope.create_pipe() {
-                Ok(server) => server,
-                Err(e) => {
-                    let _ = ready_tx.send(Err(e));
-                    return;
-                }
-            };
-            let _ = ready_tx.send(Ok(()));
-            log(Record::Started);
-            let mut diagnostics = crate::resident_request::Diagnostics::default();
-            let mut ipc_failing = false;
-            while !stop.load(Ordering::Acquire) {
-                let result = server.serve_until(&stop_event, |request| {
-                    let Ok(mut state) = state.lock() else {
-                        return Response::Rejected;
-                    };
-                    let now = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    let (response, effects) =
-                        crate::resident_request::respond(request, &mut *state, &settings, now);
-                    drop(state);
-                    if effects.quit {
-                        stop.store(true, Ordering::Release);
-                    }
-                    // A request may have queued a card, a warning or a stop.
-                    wake.signal();
-                    diagnostics.record(&response, effects);
-                    response
-                });
-                if result.is_err() && !ipc_failing {
-                    log(Record::IpcFailure);
-                }
-                ipc_failing = result.is_err();
-            }
-            log(Record::Stopped);
-        })
-    };
-    let startup = ready_rx
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
+    let runtime = crate::resident_runtime::start(scope, &config, path, &state, started, {
+        let wake = wake.clone();
+        move |_: &Shared| wake.signal()
+    })?;
     let usage = Usage::for_resident(&config);
-    let result = match startup {
-        Ok(()) => present(
-            window,
-            config,
-            state,
-            Loop {
-                stop: stop.clone(),
-                start: started,
-                wake: wake.clone(),
-            },
-            if test { Preview::Test } else { Preview::None },
-            Some(path),
-            usage,
-        ),
-        Err(e) => Err(e),
-    };
-    crate::notice::clear();
-    drop(remote);
-    crate::forward::stop();
-    stop.store(true, Ordering::Release);
-    stop_event.signal();
-    let _ = listener.join();
-    result
+    // Dropping `runtime` afterwards stops the listener and the sinks.
+    present(
+        window,
+        config,
+        state,
+        Loop {
+            stop: runtime.stop_flag(),
+            start: started,
+            wake,
+        },
+        if test { Preview::Test } else { Preview::None },
+        Some(path),
+        usage,
+    )
 }
 
 pub fn run_demo(config: Config, path: &Path, pause_sec: u64) -> Result<(), String> {

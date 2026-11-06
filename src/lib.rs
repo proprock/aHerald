@@ -150,6 +150,7 @@ pub mod resident;
 pub mod queue;
 mod resident_client;
 pub mod resident_request;
+pub mod resident_runtime;
 
 #[cfg(windows)]
 pub mod restart;

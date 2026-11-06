@@ -16,7 +16,6 @@ use crate::{
     card_paint::{CardText, event_card_text},
     config::Config,
     events::Event,
-    ipc::{Response, pipe},
     local::Scope,
 };
 use objc2::{MainThreadMarker, rc::Retained};
@@ -161,92 +160,23 @@ pub fn run_after_apply(
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
-    let stop = Arc::new(AtomicBool::new(false));
     let start = Instant::now();
     let shared = new_shared(&config);
     let waker = Arc::new(Waker(Mutex::new(None)));
-    // aHerald's own notices (a refused sound, unusable artwork) become cards of this resident.
-    {
+    let runtime = crate::resident_runtime::start(scope, &config, path, &shared, start, {
         let waker = waker.clone();
-        crate::notice::install(crate::resident_request::notice_sink(
-            shared.clone(),
-            config.clone(),
-            start,
-            move |_: &Shared| waker.wake(),
-        ));
-    }
-    crate::forward::start(&config.forward);
-    let remote = crate::remote::start_if_enabled(
-        &config,
+        move |_: &Shared| waker.wake()
+    })?;
+    // Dropping `runtime` afterwards stops the listener and the sinks.
+    present(
+        config,
+        shared,
+        runtime.stop_flag(),
+        start,
+        waker,
         path,
-        crate::resident_request::remote_deliver(shared.clone(), config.clone(), start, {
-            let waker = waker.clone();
-            move |_: &Shared| waker.wake()
-        }),
-    );
-    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let stop_event = Arc::new(pipe::StopEvent::new()?);
-    let listener = {
-        let (state, shutdown, waker) = (shared.clone(), stop.clone(), waker.clone());
-        let (listener_stop, settings) = (stop_event.clone(), config.clone());
-        let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-        std::thread::spawn(move || {
-            use crate::operational_log::{Record, init, log};
-            init(&log_directory, settings.general.logging);
-            let server = match scope.create_pipe() {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = ready_tx.send(Err(e));
-                    return;
-                }
-            };
-            let _ = ready_tx.send(Ok(()));
-            log(Record::Started);
-            let mut diagnostics = crate::resident_request::Diagnostics::default();
-            let mut ipc_failing = false;
-            while !shutdown.load(Ordering::Acquire) {
-                let result = server.serve_until(&listener_stop, |request| {
-                    let Ok(mut state) = state.lock() else {
-                        return Response::Rejected;
-                    };
-                    let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                    let (response, effects) =
-                        crate::resident_request::respond(request, &mut *state, &settings, now);
-                    drop(state);
-                    if effects.quit {
-                        shutdown.store(true, Ordering::Release);
-                    }
-                    if effects.wake {
-                        waker.wake();
-                    }
-                    diagnostics.record(&response, effects);
-                    response
-                });
-                if result.is_err() && !ipc_failing {
-                    log(Record::IpcFailure);
-                }
-                ipc_failing = result.is_err();
-            }
-            log(Record::Stopped);
-        })
-    };
-    let startup = ready_rx
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
-    if let Err(error) = startup {
-        stop.store(true, Ordering::Release);
-        stop_event.signal();
-        let _ = listener.join();
-        return Err(error);
-    }
-    let result = present(config, shared, stop.clone(), start, waker, path, preview);
-    crate::notice::clear();
-    drop(remote);
-    crate::forward::stop();
-    stop.store(true, Ordering::Release);
-    stop_event.signal();
-    let _ = listener.join();
-    result
+        preview,
+    )
 }
 
 fn new_shared(config: &Config) -> Arc<Mutex<Shared>> {

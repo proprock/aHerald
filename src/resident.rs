@@ -1,24 +1,18 @@
 //! Resident lifecycle; IPC never waits for notification presentation.
-use crate::{
-    config::Config,
-    ipc::{Response, pipe},
-    local::Scope,
-};
+use crate::{config::Config, local::Scope};
 use std::{
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
 #[cfg(test)]
 use crate::events::Event;
 #[cfg(test)]
-use crate::ipc::Request;
+use crate::ipc::{Request, Response, pipe};
 pub use crate::resident_client::{ensure, forward, forward_if_running};
+#[cfg(test)]
+use std::sync::{atomic::Ordering, mpsc};
 
 /// The raw handle of the resident window (0 until created) is the extra; IPC posts `WAKE` to it.
 pub type Shared = crate::resident_request::Shared<isize>;
@@ -97,105 +91,22 @@ fn run_with_usage_and_test(
     let Some(_owner) = scope.acquire()? else {
         return Ok(());
     };
-    let stop = Arc::new(AtomicBool::new(false));
     let start = Instant::now();
     let shared = Arc::new(std::sync::Mutex::new(Shared::new(&config, 0)));
-    // aHerald's own notices (a refused sound, unusable artwork) become cards of this resident.
-    crate::notice::install(crate::resident_request::notice_sink(
-        shared.clone(),
-        config.clone(),
-        start,
-        |state: &Shared| wake(state.ext),
-    ));
-    crate::forward::start(&config.forward);
-    let remote = crate::remote::start_if_enabled(
-        &config,
-        path,
-        crate::resident_request::remote_deliver(
-            shared.clone(),
-            config.clone(),
-            start,
-            |state: &Shared| wake(state.ext),
-        ),
-    );
-    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let state = shared.clone();
-    let shutdown = stop.clone();
-    let stop_event = Arc::new(pipe::StopEvent::new()?);
-    let listener_stop = stop_event.clone();
-    let settings = config.clone();
-    let log_directory = path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
-    let listener = std::thread::spawn(move || {
-        use crate::operational_log::{Record, init, log};
-        init(&log_directory, settings.general.logging);
-        let server = match scope.create_pipe() {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = ready_tx.send(Err(e));
-                return;
-            }
-        };
-        let _ = ready_tx.send(Ok(()));
-        log(Record::Started);
-        let mut diagnostics = crate::resident_request::Diagnostics::default();
-        let mut ipc_failing = false;
-        let mut snapshot_clock = crate::perf::Every::new(Duration::from_secs(60));
-        while !shutdown.load(Ordering::Acquire) {
-            crate::perf::tick();
-            if snapshot_clock.due(std::time::Instant::now()) {
-                crate::process_stats::log_snapshot();
-            }
-            let result = server.serve_until(&listener_stop, |request| {
-                let _timer = crate::perf::span(crate::perf::Span::IpcHandle);
-                let Ok(mut state) = state.lock() else {
-                    return Response::Rejected;
-                };
-                let now = start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let (response, effects) =
-                    crate::resident_request::respond(request, &mut *state, &settings, now);
-                let window = state.ext;
-                drop(state);
-                if effects.quit {
-                    shutdown.store(true, Ordering::Release);
-                }
-                if effects.wake {
-                    wake(window);
-                }
-                diagnostics.record(&response, effects);
-                response
-            });
-            if result.is_err() && !ipc_failing {
-                log(Record::IpcFailure);
-            }
-            ipc_failing = result.is_err();
-        }
-        log(Record::Stopped);
-    });
-    let startup = ready_rx
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap_or_else(|_| Err("resident listener startup deadline exceeded".into()));
-    if let Err(error) = startup {
-        stop.store(true, Ordering::Release);
-        stop_event.signal();
-        let _ = listener.join();
-        return Err(error);
-    }
-    let result = overlay::run(
+    let runtime =
+        crate::resident_runtime::start(scope, &config, path, &shared, start, |state: &Shared| {
+            wake(state.ext)
+        })?;
+    // Dropping `runtime` afterwards stops the listener and the sinks.
+    overlay::run(
         config,
         shared,
-        stop.clone(),
+        runtime.stop_flag(),
         start,
         path.to_owned(),
         usage(),
         test,
-    );
-    crate::notice::clear();
-    drop(remote);
-    crate::forward::stop();
-    stop.store(true, Ordering::Release);
-    stop_event.signal();
-    let _ = listener.join();
-    result
+    )
 }
 
 #[cfg(test)]
