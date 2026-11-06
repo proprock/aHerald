@@ -187,9 +187,8 @@ jobs:
       - name: Upload the assets and remove the ones of the previous build
         run: |
           gh release upload "$TAG_NAME" assets/* --clobber
-          new=$(cd assets && ls | sort)
+          find assets -maxdepth 1 -type f -printf '%f\n' | sort > expected.txt
           gh release view "$TAG_NAME" --json assets --jq '.assets[].name' | sort > present.txt
-          printf '%s\n' "$new" > expected.txt
           comm -13 expected.txt present.txt | while IFS= read -r name; do
             gh release delete-asset "$TAG_NAME" "$name" --yes
           done
