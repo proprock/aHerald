@@ -524,14 +524,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-266 — Merge the public-API integration tests into one binary.**
-  The `src/windows/` move, the grouped `lib.rs` declarations, `pub(crate)` for the modules nothing outside the
-  crate uses and the platform-flags self-check are done (see `DONE.md`, AH-266 part 1). What is left: merge the
-  ~45 public-API-only integration tests into `tests/api/main.rs` (one module per former file) so `cargo test
-  --no-run` links fewer binaries. Compare `cargo test --locked --workspace --no-run` after `cargo clean -p
-  aherald` with the 27.3 s recorded on Linux before part 1 (the move itself changes nothing for it). Acceptance:
-  both times recorded, all CI legs and the nightly run pass, no test lost (count of tests equal before and after).
-
 ## Milestone 13 — Messenger notifications (2026-11-06)
 
 - [ ] **AH-285 — Messenger messages: an optional computer name and a header line.**

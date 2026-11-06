@@ -17,7 +17,7 @@ fn permission_modes_preserve_unresolved_notifications_and_silent_replies() {
         Some("future-mode"),
     ] {
         let mut payload: serde_json::Value =
-            serde_json::from_slice(include_bytes!("fixtures/permission-request.json")).unwrap();
+            serde_json::from_slice(include_bytes!("../fixtures/permission-request.json")).unwrap();
         if let Some(mode) = mode {
             payload["permission_mode"] = mode.into();
         } else {

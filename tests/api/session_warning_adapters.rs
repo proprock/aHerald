@@ -3,7 +3,7 @@ use aherald::{agent::Agent, events::Kind};
 #[test]
 fn matching_release_user_submission_fixture_is_activity_not_completion() {
     let event = Agent::Codex
-        .parse_hook(include_bytes!("fixtures/codex-user-prompt-submit.json"))
+        .parse_hook(include_bytes!("../fixtures/codex-user-prompt-submit.json"))
         .unwrap()
         .unwrap();
     assert!(event.activity);
@@ -38,7 +38,7 @@ fn activity_hooks_keep_only_identity_and_never_reply_or_end_a_turn() {
 #[test]
 fn codex_end_is_evidence_only_and_subagent_identity_is_preserved() {
     let end = Agent::Codex
-        .parse_hook(include_bytes!("fixtures/codex-session-end.json"))
+        .parse_hook(include_bytes!("../fixtures/codex-session-end.json"))
         .unwrap()
         .unwrap();
     assert!(end.ended);
