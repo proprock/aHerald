@@ -7,10 +7,10 @@ name: Nightly
 # pull request unannounced; it shows up here instead.
 on:
   schedule:
-    # 05:37 UTC is 06:37 in CET and 07:37 in CEST (cron has no time zone, so the local time shifts by
-    # an hour with the clock change), ready by the morning. A minute that is not on the hour or half
-    # hour avoids the busiest scheduler slots.
-    - cron: "37 5 * * *"
+    # 04:37 UTC is 05:37 in CET and 06:37 in CEST (cron has no time zone, so the local time shifts by
+    # an hour with the clock change); it never lands later than 06:37 locally, so the result is ready
+    # by the morning. A minute that is not on the hour or half hour avoids the busiest scheduler slots.
+    - cron: "37 4 * * *"
   workflow_dispatch:
 
 permissions:

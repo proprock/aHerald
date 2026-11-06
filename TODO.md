@@ -479,7 +479,7 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 - [ ] **AH-282 — Rolling nightly prerelease.**
   Status: items 1-7 are implemented (`package.yml` shared by `release.yml` and `nightly.yml`, the publish job,
-  the idle-night check, `docs/nightly.md`, the cron moved to `37 5 * * *` UTC = 06:37 CET). `actionlint` and
+  the idle-night check, `docs/nightly.md`, the cron moved to `37 4 * * *` UTC = 05:37 CET, 06:37 CEST). `actionlint` and
   `zizmor` are clean. Left: the runner acceptance below (a manual run on a branch, then one on `master` with
   the owner's go-ahead, a second run, a forced package failure, an idle scheduled night, and the stable
   `release.yml` on the next release candidate).

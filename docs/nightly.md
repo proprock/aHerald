@@ -16,7 +16,7 @@ prerelease **aHerald Nightly**: <https://github.com/proprock/aHerald/releases/ta
 
 ## Schedule and manual runs
 
-The cron is `37 5 * * *` UTC (06:37 in CET, 07:37 in CEST). Run it by hand with
+The cron is `37 4 * * *` UTC (05:37 in CET, 06:37 in CEST; never later than 06:37 local). Run it by hand with
 `gh workflow run nightly.yml`. A manual run on `master` publishes too; on another branch it builds
 the packages but publishes nothing.
 
