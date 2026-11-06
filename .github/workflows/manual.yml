@@ -88,7 +88,8 @@ jobs:
               *..*) echo "::error::script must not contain '..'"; exit 1 ;;
             esac
             [ -f "$SCRIPT" ] || { echo "::error::$SCRIPT does not exist on this ref"; exit 1; }
-            cp "$SCRIPT" "$file"
+            # Run it where it is: scripts find the repository relative to their own path.
+            file="$SCRIPT"
           else
             echo "::error::give either script or inline"; exit 1
           fi
