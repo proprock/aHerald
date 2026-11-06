@@ -277,15 +277,16 @@ fn present(
             usage_update = now.saturating_add(1000);
             if let (Some(tray), Some(codex)) = (&tray, &usage) {
                 let display = config.codex.usage.display;
-                let codex_line = (config.codex.usage.enabled || claude.is_none())
-                    .then(|| codex.compact(display));
-                let claude_line = claude.as_ref().map(|service| service.compact(display));
-                let levels = crate::tray_usage::Levels::from_views(
-                    &codex.view(),
-                    claude.as_ref().map(|service| service.view()).as_ref(),
-                    config.tray.graph,
-                    display,
+                let views = crate::tray_usage::Views::new(
+                    codex.view(),
+                    claude.as_ref().map(|service| service.view()),
+                    config.codex.usage.enabled,
                 );
+                let crate::tray_usage::Lines {
+                    codex: codex_line,
+                    claude: claude_line,
+                } = views.lines(display, crate::usage_service::unix_now());
+                let levels = views.levels(config.tray.graph, display);
                 tray.set_usage(codex_line, claude_line, &levels)?;
             }
         }

@@ -220,6 +220,9 @@ struct Ui {
     /// Which agent the usage card describes: Claude when true, otherwise Codex.
     usage_claude: bool,
     usage_next: u64,
+    /// Set from the usage services' threads when new numbers arrived; the tray then refreshes at
+    /// once instead of at the next beat of the loop.
+    usage_changed: Arc<AtomicBool>,
     /// What the menu was last built from, so it is rebuilt only when that changes.
     menu_key: Option<MenuKey>,
     tooltip: String,
@@ -270,14 +273,14 @@ impl Ui {
             })
             .unwrap_or((false, false, false, true, true));
         let display = self.config.codex.usage.display;
-        let codex = self.codex_shown().then(|| self.usage.compact(display));
-        let claude = self.claude.as_ref().map(|c| c.compact(display));
-        // Alphabetical by agent name, matching the menu.
-        let tooltip: Vec<&str> = [claude.as_deref(), codex.as_deref()]
-            .into_iter()
-            .flatten()
-            .collect();
-        let tooltip = tooltip.join("\n");
+        let views = crate::tray_usage::Views::new(
+            self.usage.view(),
+            self.claude.as_ref().map(|c| c.view()),
+            self.config.codex.usage.enabled,
+        );
+        let lines = views.lines(display, crate::usage_service::unix_now());
+        let tooltip = lines.tooltip("\n");
+        let crate::tray_usage::Lines { codex, claude } = lines;
         let messenger = crate::forward::enabled();
         let key = (
             (sound, visual, paused, context, idle),
@@ -302,18 +305,13 @@ impl Ui {
                 }));
             self.menu_key = Some(key);
         }
-        if now >= self.usage_next {
+        if now >= self.usage_next || self.usage_changed.swap(false, Ordering::AcqRel) {
             self.usage_next = now.saturating_add(1000);
             if tooltip != self.tooltip {
                 self.tray.set_tooltip(&tooltip);
                 self.tooltip = tooltip;
             }
-            let levels = crate::tray_usage::Levels::from_views(
-                &self.usage.view(),
-                self.claude.as_ref().map(|c| c.view()).as_ref(),
-                self.config.tray.graph,
-                display,
-            );
+            let levels = views.levels(self.config.tray.graph, display);
             crate::notice::report_changed(
                 &mut self.tray_failure,
                 self.tray.set_levels(levels, self.config.tray.style),
@@ -321,17 +319,13 @@ impl Ui {
         }
     }
 
-    /// Codex is listed when its usage is on, or when it is the only agent there is.
-    fn codex_shown(&self) -> bool {
-        self.config.codex.usage.enabled || self.claude.is_none()
+    fn selected_usage(&self) -> &crate::usage_service::Service {
+        crate::tray_usage::selected(&self.usage, self.claude.as_ref(), self.usage_claude)
     }
 
     /// Asks the agent whose details are open for fresh data.
     fn refresh_selected(&self) {
-        match &self.claude {
-            Some(claude) if self.usage_claude => claude.refresh(),
-            _ => self.usage.refresh(),
-        }
+        self.selected_usage().refresh();
     }
 
     /// Opens the usage card with `notice` instead of the quota details.
@@ -355,10 +349,7 @@ impl Ui {
         self.notice
             .as_ref()
             .map(crate::usage_service::UsageNotice::text)
-            .unwrap_or_else(|| match &self.claude {
-                Some(claude) if self.usage_claude => claude.card_text(),
-                _ => self.usage.card_text(),
-            })
+            .unwrap_or_else(|| self.selected_usage().card_text())
     }
 
     /// The usage card's text, page, size or place changed: redraw it from scratch.
@@ -1035,6 +1026,14 @@ fn present(
         )
     });
     let result = Panel::new(mtm).map(|panel| {
+        let usage_changed = Arc::new(AtomicBool::new(false));
+        for service in std::iter::once(&usage).chain(claude.iter()) {
+            let (changed, waker) = (usage_changed.clone(), waker.clone());
+            service.on_change(move || {
+                changed.store(true, Ordering::Release);
+                waker.wake();
+            });
+        }
         let mut ui = Ui {
             shared,
             start,
@@ -1068,6 +1067,7 @@ fn present(
             claude,
             usage_claude: false,
             usage_next: 0,
+            usage_changed,
             menu_key: None,
             tooltip: String::new(),
             tray_failure: None,
