@@ -469,9 +469,12 @@ P2 tasks run in the listed order; AH-266 goes last.
   `hook_file_location` tests (timeouts) once, each green alone. Likely cause: another
   test thread forks while a test still holds the write handle of the program it is about to start
   (`ETXTBSY`). Work: reproduce under load (for example `--test-threads` high with a CPU hog), confirm the
-  error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: 50 full
-  runs in a row without these failures on a Linux runner. Status 2026-11-06: fix in place (`support::write_executable`
-  gate, `attempts >= 2`); 14 of 14 loaded full runs were free of these failures, the 50-run check is left. Not related to AH-243 or any change of that PR.
+  error, and make the helpers close the file and retry the spawn like `spawn_fixture` does. Acceptance: the
+  manual `Stress` workflow (`.github/workflows/stress.yml`, `scripts/stress-fresh-executables.sh`: 200 runs of
+  `plugin_hook_script`, `setup` and `sandbox_sender` with 64 threads under CPU load, then 5 full runs) is green
+  on a Linux runner; record the run in DONE.md. Status 2026-11-06: fix in place (`support::write_executable`
+  gate, `attempts >= 2`); 14 of 14 loaded full runs were free of these failures locally; the runner check is left.
+  Not related to AH-243 or any change of that PR.
 
 - [ ] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
   Seen once on 2026-11-06 in 1 of 15 full loaded local runs (12 CPU hogs): `create_pipe` returned "a resident
