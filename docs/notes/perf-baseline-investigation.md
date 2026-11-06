@@ -92,7 +92,7 @@ measurements, not a measurement of the complete release notification latency.
 
 ## Code explanation
 
-- src/resident_overlay.rs, Ui::refresh_scale: effective scale = configured scale *
+- src/windows/resident_overlay.rs, Ui::refresh_scale: effective scale = configured scale *
   monitor DPI scale. The artwork worker receives that effective value.
 - src/placement.rs, target: monitor DPI scale = max(dx, 96) / 96.
 - src/animation.rs, scaled: nearest interpolation calls imageops::resize.

@@ -78,7 +78,7 @@ criteria live in `TODO.md`; finished work in `DONE.md`; the release procedure in
   in the same pull request, or the pull request opens a `TODO.md` ticket for each platform it
   leaves out.
 - Logic the residents share goes into a platform-independent module with pure tests first;
-  do not copy it between `src/resident_overlay.rs`, `src/mac/` and `src/linux/`. When you touch
+  do not copy it between `src/windows/resident_overlay.rs`, `src/mac/` and `src/linux/`. When you touch
   one resident, check the same path in the other two for drift.
 
 ## Reuse before writing
@@ -166,7 +166,7 @@ cargo test --locked --workspace --doc
 
 ## Platform notes
 
-- **Windows** (`src/` root modules gated `cfg(windows)`, `*.ps1`, `installer/`): MSVC with a
+- **Windows** (`src/windows/`, `*.ps1`, `installer/`): MSVC with a
   static CRT; IPC is a named pipe limited to the current user and logon session, remote
   clients rejected; the installer delegates all JSON editing to `aherald.exe --setup`;
   `aherald-cli.exe` is the console companion, hooks call `aherald.exe`.

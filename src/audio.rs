@@ -248,7 +248,7 @@ pub fn selected<'a>(config: &'a Config, event: &Event) -> Option<&'a Path> {
         .flatten()
 }
 #[cfg(windows)]
-#[path = "audio_windows.rs"]
+#[path = "windows/audio.rs"]
 mod native;
 
 #[cfg(target_os = "linux")]

@@ -1,42 +1,137 @@
 //! Native notification engine and its independently testable domain logic.
 
+// Platform independent.
 pub mod activation;
 pub mod agent;
+pub mod animation;
 pub mod app_server;
+pub mod artwork;
+pub mod artwork_worker;
+pub(crate) mod atomic_file;
+pub mod audio;
 pub mod bridge_setup;
 pub mod card;
 pub mod card_paint;
 pub mod card_surface;
 pub mod claude_usage;
 pub mod cli;
+pub mod codex_context;
 mod codex_install;
-pub mod command_sink;
+pub(crate) mod command_sink;
 pub mod config;
 mod default_config;
 pub mod demo;
+pub mod events;
 pub mod focus;
 pub mod forward;
+pub mod hook_setup;
 mod http_common;
-#[cfg(windows)]
-pub mod https;
-#[cfg(unix)]
-#[path = "unix/https.rs"]
-pub mod https;
+pub mod ipc;
+pub mod notice;
+pub mod notification;
+pub mod operational_log;
+pub mod paths;
+pub mod perf;
+pub mod perf_report;
+pub mod pet;
+pub mod placement;
+#[cfg(test)]
+mod platform_contract;
+pub mod presenter;
+pub mod process;
+pub mod queue;
+pub(crate) mod quote;
+pub mod reentry;
+pub mod remote;
+mod resident_client;
+pub mod resident_request;
+pub(crate) mod resident_runtime;
+pub mod resource_cache;
 pub mod session_source;
+pub mod session_warnings;
 pub mod setup;
 pub mod setup_selection;
 pub mod sink;
 pub mod statusline;
 pub mod statusline_format;
 pub mod statusline_launch;
-pub mod template;
+pub(crate) mod template;
 pub(crate) mod time;
+pub mod tray_menu;
+pub mod tray_usage;
 pub mod usage;
 pub mod usage_service;
-pub mod webhook;
+pub(crate) mod webhook;
+
+// One module per OS with the same interface (`src/windows/`, `src/unix/`); `platform_contract`
+// pins their signatures.
+#[cfg(windows)]
+#[path = "windows/detached.rs"]
+mod detached;
+#[cfg(unix)]
+#[path = "unix/detached.rs"]
+mod detached;
+#[cfg(windows)]
+#[path = "windows/https.rs"]
+pub mod https;
+#[cfg(unix)]
+#[path = "unix/https.rs"]
+pub mod https;
+#[cfg(windows)]
+#[path = "windows/local.rs"]
+pub mod local;
+#[cfg(unix)]
+#[path = "unix/local.rs"]
+pub mod local;
+#[cfg(windows)]
+#[path = "windows/restart.rs"]
+pub mod restart;
+#[cfg(unix)]
+#[path = "unix/restart.rs"]
+pub mod restart;
+#[cfg(windows)]
+#[path = "windows/shell.rs"]
+pub(crate) mod shell;
+#[cfg(unix)]
+#[path = "unix/shell.rs"]
+pub(crate) mod shell;
+
+// Gated to the OSes that need them.
+#[cfg(windows)]
+#[path = "windows/console_window.rs"]
+pub mod console_window;
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod mac;
+#[cfg(windows)]
+#[path = "windows/process_stats.rs"]
+pub mod process_stats;
+#[cfg(windows)]
+#[path = "windows/resident.rs"]
+pub mod resident;
+#[cfg(windows)]
+#[path = "windows/tray.rs"]
+pub mod tray;
+#[cfg(not(windows))]
+mod unsupported;
 #[cfg(unix)]
 #[path = "unix/zone.rs"]
 pub(crate) mod zone;
+
+// The resident and the console window are the current OS's own.
+#[cfg(target_os = "linux")]
+pub use linux::console_window;
+#[cfg(target_os = "linux")]
+pub use linux::resident;
+#[cfg(target_os = "macos")]
+pub use mac::console_window;
+#[cfg(target_os = "macos")]
+pub use mac::resident;
+#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
+pub use unsupported::console_window;
+#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
+pub use unsupported::resident;
 
 pub const NAME: &str = "aHerald";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -99,91 +194,3 @@ mod build_stamp_tests {
         assert!(build_age_text().ends_with(" ago") || build_age_text().ends_with("just now"));
     }
 }
-
-pub mod animation;
-pub mod artwork;
-pub mod artwork_worker;
-pub(crate) mod atomic_file;
-pub mod audio;
-#[cfg(windows)]
-pub mod console_window;
-#[cfg(windows)]
-mod detached;
-#[cfg(unix)]
-#[path = "unix/detached.rs"]
-mod detached;
-pub mod events;
-pub mod hook_setup;
-pub mod notice;
-pub mod notification;
-pub mod operational_log;
-pub mod paths;
-pub mod perf;
-pub mod perf_report;
-pub mod pet;
-pub mod placement;
-pub mod presenter;
-pub mod process;
-#[cfg(windows)]
-pub mod process_stats;
-pub(crate) mod quote;
-pub mod reentry;
-pub mod remote;
-pub mod resource_cache;
-
-#[cfg(windows)]
-pub mod local;
-#[cfg(unix)]
-#[path = "unix/local.rs"]
-pub mod local;
-
-pub mod ipc;
-
-#[cfg(target_os = "macos")]
-pub mod mac;
-
-#[cfg(target_os = "linux")]
-pub mod linux;
-
-#[cfg(windows)]
-pub mod resident;
-
-#[cfg(test)]
-mod platform_contract;
-pub mod queue;
-mod resident_client;
-pub mod resident_request;
-pub mod resident_runtime;
-
-#[cfg(windows)]
-pub mod restart;
-#[cfg(unix)]
-#[path = "unix/restart.rs"]
-pub mod restart;
-#[cfg(windows)]
-pub mod shell;
-#[cfg(unix)]
-#[path = "unix/shell.rs"]
-pub mod shell;
-#[cfg(windows)]
-pub mod tray;
-
-pub mod tray_menu;
-pub mod tray_usage;
-
-#[cfg(not(windows))]
-mod unsupported;
-#[cfg(target_os = "linux")]
-pub use linux::console_window;
-#[cfg(target_os = "linux")]
-pub use linux::resident;
-#[cfg(target_os = "macos")]
-pub use mac::console_window;
-#[cfg(target_os = "macos")]
-pub use mac::resident;
-#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
-pub use unsupported::console_window;
-#[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
-pub use unsupported::resident;
-pub mod codex_context;
-pub mod session_warnings;
