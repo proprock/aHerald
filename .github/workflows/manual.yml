@@ -22,7 +22,9 @@ on:
         description: Text of a script to run instead of a file (bash). Wins over "script".
         default: ""
       args:
-        description: Arguments for the script, split on spaces.
+        description: >-
+          Arguments for the script, split on spaces. For scripts/manual/stress.sh:
+          RUNS FULL-RUNS [TEST ...], for example "400 0 setup unix_ipc" (defaults 200, 5 and four tests).
         default: ""
       runner:
         description: Runner image.
@@ -45,9 +47,9 @@ on:
         type: boolean
         default: false
       minutes:
-        description: Time limit of the run, in minutes.
+        description: Time limit of the run, in minutes (a stress run of 400 repeats takes over an hour).
         type: number
-        default: 60
+        default: 120
 
 permissions:
   contents: read
