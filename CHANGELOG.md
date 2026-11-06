@@ -10,6 +10,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-06
+
 ### Added
 - A rolling `nightly` prerelease: a green nightly run on `master` replaces it with fresh builds for every platform, and a night without changes builds nothing. See `docs/nightly.md`.
 - A webhook that answers HTTP 429 or 503 with `Retry-After` is retried after that delay (at most 30
@@ -505,6 +507,7 @@ configuration work.
   by user id only; there is no logon-session equivalent.
 
 [Unreleased]: https://github.com/proprock/aHerald/compare/v0.15.0...HEAD
+[0.16.0]: https://github.com/proprock/aHerald/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/proprock/aHerald/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/proprock/aHerald/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/proprock/aHerald/compare/v0.12.0...v0.13.0
