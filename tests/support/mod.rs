@@ -103,15 +103,25 @@ pub fn run_bounded(command: &mut Command, timeout: Duration) -> Result<Output, S
 /// invisible to the test, which is why the retry in [`run_bounded_with_input`] is not enough.
 static EXEC_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
+/// Run `action` while no process start made through [`spawn`] (or this module's runners) is in
+/// progress. Use it around the whole life of a descriptor whose copy in a forked child would
+/// change the outcome: the write handle of a program about to run (`ETXTBSY`) or a listening
+/// socket that must look dead (a connect would still succeed).
+pub fn without_forks<T>(action: impl FnOnce() -> T) -> T {
+    let _gate = EXEC_GATE.write().unwrap_or_else(|e| e.into_inner());
+    action()
+}
+
 /// Write `contents` to `path` and make it executable, such that running it at once cannot fail
 /// with `ETXTBSY` because of a start made through [`run_bounded_with_input`] or [`output`] in
 /// another thread of this test process.
 #[cfg(unix)]
 pub fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
     use std::os::unix::fs::PermissionsExt;
-    let _gate = EXEC_GATE.write().unwrap_or_else(|e| e.into_inner());
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    without_forks(|| {
+        std::fs::write(path, contents).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
 }
 
 /// Start `command` while no executable is being written (see [`write_executable`]). Use it for

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Hunts the AH-279 flake: a test runs a freshly written executable while another test thread
-# forks, and Linux answers ETXTBSY. Runs the three test binaries that start such programs many
+# forks, and Linux answers ETXTBSY (AH-279); or a listening socket that must look dead is copied
+# by a fork and still accepts (AH-284, `unix_ipc`). Runs the four test binaries that do this many
 # times with many threads under CPU load, then a few full runs, and stops at the first failure.
 #
 #   scripts/stress-fresh-executables.sh [runs] [full-runs]     (defaults: 200 and 5)
@@ -10,9 +11,9 @@ full=${2:-5}
 cd "$(dirname "$0")/.."
 
 binaries=$(cargo test --locked --no-run --message-format=json-render-diagnostics \
-    --test plugin_hook_script --test setup --test sandbox_sender |
+    --test plugin_hook_script --test setup --test sandbox_sender --test unix_ipc |
     sed -n 's/.*"executable":"\([^"]*\/deps\/[^"]*\)".*/\1/p')
-[ "$(printf '%s\n' "$binaries" | wc -l)" -eq 3 ] || { echo "expected three test binaries" >&2; exit 1; }
+[ "$(printf '%s\n' "$binaries" | wc -l)" -eq 4 ] || { echo "expected four test binaries" >&2; exit 1; }
 
 log="${TMPDIR:-/tmp}/stress-run.log"
 hogs=""
@@ -35,7 +36,7 @@ while [ "$i" -le "$runs" ]; do
     done
     i=$((i + 1))
 done
-echo "ok: $runs runs of the three test binaries under load"
+echo "ok: $runs runs of the four test binaries under load"
 
 i=1
 while [ "$i" -le "$full" ]; do

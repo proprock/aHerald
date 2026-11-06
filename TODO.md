@@ -458,13 +458,6 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P1 — consistency, CI and the release pipeline
 
-- [ ] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
-  Seen once on 2026-11-06 in 1 of 15 full loaded local runs (12 CPU hogs): `create_pipe` returned "a resident
-  is already listening" at `tests/unix_ipc.rs:45` although the test only dropped a bound listener. Green in the
-  other 14 runs. Work: reproduce in isolation under load, find who accepts the connection (namespace/socket path
-  reuse, a leftover from a previous run, or a real race in `src/unix/local.rs` `create_pipe`), fix the cause with
-  a regression test. Acceptance: 50 loaded runs of the test binary without the failure.
-
 - [ ] **AH-280 — Release-candidate checks left from AH-251 and AH-252.**
   The pull request runs of AH-251 and AH-252 are verified (see DONE.md); what only a release or the nightly
   run can show is left. On the next release candidate: the `Skipping: ...` line, with the four test names, in
