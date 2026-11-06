@@ -3,6 +3,24 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-279 — Flaky tests that run a freshly written executable, under a loaded test run.**
+  Cause: on Linux a forked child inherits every descriptor open at the fork until it execs, so a test that
+  wrote a fake program and ran it (directly or through the hook script, which hides the failure) got `ETXTBSY`
+  when a sibling thread forked in that window. Fix: `tests/support` orders the write against every process
+  start with one `RwLock` (`write_executable` takes it exclusively, `spawn` and `run_bounded_with_input` share
+  it); the plugin and sandbox-sender tests write their fake programs with it, the `support` self-tests start
+  `sleep` and `kill` through it, and `setup.rs` no longer asserts an exact retry count. Regression test:
+  `plugin_hook_script::a_freshly_written_program_runs_while_other_threads_start_processes` (red without the
+  gate: 1 of 3 and 1 of 6 runs). `scripts/stress-fresh-executables.sh` and the manual `Stress` workflow
+  repeat the three test binaries under CPU load, then full runs. The unrelated `unix_ipc` flake seen on the
+  way is AH-284. Evidence: **ran locally** (Linux, 12 cores): 14 of 14 full runs under load free of these
+  failures; **ran on a runner** (ubuntu-22.04): `Stress` found the two gaps (run 42173466223 was a missing
+  `libpulse`, 42174428185 failed at run 8 of 200 and 42174711662 at run 208 of 300, both from the
+  `support` self-tests' ungated starts) and then, on the fixed branch, run
+  https://github.com/proprock/aHerald/actions/runs/42176183970 passed: 600 runs of `plugin_hook_script`,
+  `setup` and `sandbox_sender` with 64 threads under load and 5 full runs. Windows and macOS: the gate
+  compiles on them (the helper is `cfg(unix)`); not affected.
+
 - [x] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
   Done in PR #125 (2026-11-06). `package-*.sh`, `check-release*.sh`, `package-release.ps1`,
   `build-installer.ps1` and `check-release.ps1` live in `scripts/`; `scripts/version.sh` (`crate_version`,
