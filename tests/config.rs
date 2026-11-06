@@ -1,6 +1,6 @@
 mod support;
 use aherald::{
-    cli::Cli,
+    cli::{Cli, Operation},
     config::{Config, Interpolation, LogLevel, Mode, Monitor, Position, TrayStyle},
     events::Kind,
 };
@@ -324,7 +324,7 @@ fn explicit_operations_are_unambiguous() {
         assert!(Cli::parse(args(&input)).is_err(), "{input:?}");
     }
     let cli = Cli::parse(args(&["--hook", "--transient", "--config", "demo.toml"])).unwrap();
-    assert_eq!(cli.operation.as_deref(), Some("hook"));
+    assert_eq!(cli.operation, Some(Operation::Hook));
     assert_eq!(cli.mode, Some(Mode::Transient));
     assert_eq!(cli.config, Some(PathBuf::from("demo.toml")));
 }
@@ -368,7 +368,7 @@ fn a_missing_default_configuration_creates_its_folder() {
 fn hook_setup_operations_take_an_agent_and_an_optional_file_and_apply() {
     use aherald::agent::Agent;
     let cli = Cli::parse(args(&["--install-hooks", "claude"])).unwrap();
-    assert_eq!(cli.operation.as_deref(), Some("install-hooks"));
+    assert_eq!(cli.operation, Some(Operation::InstallHooks));
     assert_eq!(
         (cli.hooks_agent, cli.apply, cli.hooks_file),
         (Some(Agent::Claude), false, None)
@@ -381,7 +381,7 @@ fn hook_setup_operations_take_an_agent_and_an_optional_file_and_apply() {
         "h.json",
     ]))
     .unwrap();
-    assert_eq!(cli.operation.as_deref(), Some("uninstall-hooks"));
+    assert_eq!(cli.operation, Some(Operation::UninstallHooks));
     assert_eq!(
         (cli.hooks_agent, cli.apply, cli.hooks_file),
         (Some(Agent::Codex), true, Some(PathBuf::from("h.json")))
@@ -426,8 +426,8 @@ fn the_claude_quota_source_defaults_to_auto_and_accepts_the_three_values() {
 fn statusline_takes_an_optional_command_and_no_mode() {
     let cli = Cli::parse(args(&["--statusline"])).unwrap();
     assert_eq!(
-        (cli.operation.as_deref(), cli.then),
-        (Some("statusline"), None)
+        (cli.operation, cli.then),
+        (Some(Operation::Statusline), None)
     );
     let cli = Cli::parse(args(&["--statusline", "--then", "~/bar.sh --x"])).unwrap();
     assert_eq!(cli.then.as_deref(), Some("~/bar.sh --x"));
@@ -445,9 +445,12 @@ fn statusline_takes_an_optional_command_and_no_mode() {
 
 #[test]
 fn statusline_setup_operations_share_apply_and_file_options() {
-    for op in ["--install-statusline", "--uninstall-statusline"] {
+    for (op, operation) in [
+        ("--install-statusline", Operation::InstallStatusline),
+        ("--uninstall-statusline", Operation::UninstallStatusline),
+    ] {
         let cli = Cli::parse(args(&[op, "--apply", "--hooks-file", "s.json"])).unwrap();
-        assert_eq!(cli.operation.as_deref(), Some(&op[2..]));
+        assert_eq!(cli.operation, Some(operation));
         assert!(cli.apply && cli.hooks_file.is_some());
         assert!(Cli::parse(args(&[op, "--resident"])).is_err());
         assert!(Cli::parse(args(&[op, "--then", "x"])).is_err());
