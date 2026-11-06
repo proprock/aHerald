@@ -10,6 +10,9 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Added
+- A rolling `nightly` prerelease: a green nightly run on `master` replaces it with fresh builds for every platform, and a night without changes builds nothing. See `docs/nightly.md`.
+
 ### Changed
 - The README now shows Linux demo cards and a short animation; remaining screenshots are tracked in AH-281 in `TODO.md`.
 - Codex session name lookups are now off by default; set `[codex] session_names = true` to enable them.

@@ -7,8 +7,10 @@ name: Nightly
 # pull request unannounced; it shows up here instead.
 on:
   schedule:
-    # 05:30 UTC is 06:30 in CET and 07:30 in CEST, so the result is ready by the morning.
-    - cron: "30 5 * * *"
+    # 05:37 UTC is 06:37 in CET and 07:37 in CEST (cron has no time zone, so the local time shifts by
+    # an hour with the clock change), ready by the morning. A minute that is not on the hour or half
+    # hour avoids the busiest scheduler slots.
+    - cron: "37 5 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,11 +20,194 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # A scheduled night with no change on master since the commit of the current `nightly` release
+  # builds nothing: the full CI, the packages and the publication are skipped, while the compiler
+  # canary and the dependency audit below still run, since a new compiler or a new advisory needs
+  # no commit. A manual run always builds. A missing, unreadable or unfinished release counts as
+  # changed, so a failing check never skips a build.
+  changes:
+    name: Changes since the last nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.idle.outputs.build }}
+      tag: ${{ steps.idle.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Compare master with the commit of the published nightly
+        id: idle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          . ./scripts/version.sh
+          echo "tag=v$(crate_version)" >> "$GITHUB_OUTPUT"
+          build=true
+          if [ "$EVENT" = schedule ]; then
+            # The notes end with the commit of the last finished publication (publish job below).
+            built=$(gh release view nightly --json body --jq .body 2>/dev/null \
+              | grep -Eo 'commit/[0-9a-f]{40}' | head -n 1 | cut -d/ -f2) || built=
+            if [ -n "$built" ] && [ "$built" = "$SHA" ]; then
+              build=false
+              echo "No change since ${SHA}: the nightly build and publication are skipped." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   full_ci:
     name: Full CI
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       full: true
+
+  # The advisories published since the last run. On a busy night the full CI runs the same check.
+  audit_idle:
+    name: Dependency audit (no change)
+    needs: changes
+    if: needs.changes.outputs.build != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          command-arguments: advisories licenses bans sources
+
+  # The release builds of the commit, as a release would make them; the full CI above already ran
+  # the tests on it. Also runs on a branch by hand, to try the packaging; only master publishes.
+  package:
+    name: Package
+    needs: [changes, full_ci]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ github.sha }}
+      tag: ${{ needs.changes.outputs.tag }}
+      run_tests: false
+
+  # Replaces the one `nightly` prerelease with this build. Not a stable release: it touches only
+  # the tag and the release named `nightly`, never a `v*` tag or a regular release.
+  publish:
+    name: Publish the rolling prerelease
+    needs: [changes, full_ci, package]
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    # One publication at a time; a later run waits for the earlier one instead of cancelling it half way.
+    concurrency:
+      group: nightly-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      TAG_NAME: nightly
+    steps:
+      # One step per artifact: a new artifact name never reaches the release by accident.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-x64
+          path: assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-arm64
+          path: assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-x86_64-gnu
+          path: assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aherald-ping-linux-musl
+          path: assets
+
+      # (a) Everything is prepared and checked before anything public changes.
+      - name: Check the assets and write SHA256SUMS
+        run: |
+          for pattern in '*.zip' '*-setup.exe' '*.dmg' '*.tar.gz' '*.deb' 'aherald-ping-*-x86_64-musl' 'aherald-ping-*-aarch64-musl'; do
+            compgen -G "assets/$pattern" > /dev/null || { echo "No $pattern among the assets." >&2; exit 1; }
+          done
+          for file in assets/*; do
+            case "$file" in *.sha256) continue ;; esac
+            test -s "$file" || { echo "$file is empty." >&2; exit 1; }
+            test -s "$file.sha256" || { echo "No checksum for $file." >&2; exit 1; }
+          done
+          # The Windows checksum files end their lines with CRLF.
+          (cd assets && for sum in *.sha256; do tr -d '\r' < "$sum"; done > SHA256SUMS && sha256sum --check --strict SHA256SUMS)
+          ls -l assets
+
+      - name: Check that only the nightly prerelease is touched
+        run: |
+          [ "$TAG_NAME" = nightly ] || { echo "Refusing to touch $TAG_NAME." >&2; exit 1; }
+          if release=$(gh release view "$TAG_NAME" --json isPrerelease,isDraft --jq '"\(.isPrerelease) \(.isDraft)"' 2>/dev/null); then
+            [ "$release" = "true false" ] || { echo "The release $TAG_NAME is not a published prerelease ($release); leaving it alone." >&2; exit 1; }
+          fi
+
+      # (b) The tag moves to the built commit and (c) the assets are replaced. A tag move and an
+      # upload are not one operation: until the upload ends, the tag may point at the new commit
+      # while the assets are still the old ones. The notes say "in progress" for that time, and
+      # name the commit only at the end, so a run that dies half way leaves a release that the next
+      # run rebuilds. Recovery: run this workflow again.
+      - name: Mark the release as being updated and move the tag
+        run: |
+          date_utc=$(date -u '+%Y-%m-%d %H:%M UTC')
+          printf 'Update in progress since %s. If this stays, the last run failed: run the Nightly workflow again.\n' "$date_utc" > notes.md
+          if gh release view "$TAG_NAME" > /dev/null 2>&1; then
+            gh release edit "$TAG_NAME" --notes-file notes.md --prerelease --latest=false --title 'aHerald Nightly'
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" > /dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$SHA" -F force=true > /dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$SHA" > /dev/null
+          fi
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .object.sha)" = "$SHA"
+          gh release view "$TAG_NAME" > /dev/null 2>&1 \
+            || gh release create "$TAG_NAME" --verify-tag --prerelease --latest=false --title 'aHerald Nightly' --notes-file notes.md
+
+      - name: Upload the assets and remove the ones of the previous build
+        run: |
+          gh release upload "$TAG_NAME" assets/* --clobber
+          new=$(cd assets && ls | sort)
+          gh release view "$TAG_NAME" --json assets --jq '.assets[].name' | sort > present.txt
+          printf '%s\n' "$new" > expected.txt
+          comm -13 expected.txt present.txt | while IFS= read -r name; do
+            gh release delete-asset "$TAG_NAME" "$name" --yes
+          done
+
+      # (d) The asset list is read back, and only then do the notes name the commit.
+      - name: Verify the release and write the final notes
+        run: |
+          gh release view "$TAG_NAME" --json assets --jq '.assets[] | "\(.name) \(.size)"' | sort > published.txt
+          (cd assets && for file in *; do printf '%s %s\n' "$file" "$(wc -c < "$file" | tr -d ' ')"; done) | sort > local.txt
+          diff local.txt published.txt || { echo "The published assets differ from the built ones; run the workflow again." >&2; exit 1; }
+          {
+            printf 'Rolling build of master, replaced by every successful nightly run. Not a stable release: unsigned, it may break, not for production.\n\n'
+            printf 'Built %s from commit https://github.com/%s/commit/%s\n' "$(date -u '+%Y-%m-%d %H:%M UTC')" "$GH_REPO" "$SHA"
+          } > notes.md
+          gh release edit "$TAG_NAME" --notes-file notes.md --prerelease --latest=false --title 'aHerald Nightly'
+          {
+            echo "Published the nightly prerelease for ${SHA}."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # The newest stable compiler and its lints. A failure means the pinned toolchain in
   # .github/actions/setup-rust needs a deliberate upgrade.

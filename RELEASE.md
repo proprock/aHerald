@@ -31,7 +31,8 @@ explicit go-ahead.
 
 - Run the checks from `AGENTS.md` "Verification and reporting" on the machine you have.
   Platforms you cannot run locally are covered by CI on the pull request and by the
-  latest nightly run on `master`: check that the most recent nightly is green.
+  latest nightly run on `master`: check that the most recent nightly is green. The same nightly run publishes the rolling `nightly` prerelease (`docs/nightly.md`); a stable release is
+  built by `release.yml` through the same `package.yml` workflow.
 - Run the manual checks the release notes claim, per platform you changed: a card at 100%
   and 150% scale, the tray menu, a hook round trip from a real agent. Record what was checked
   by hand and on which OS version; say "not checked" for the rest.
