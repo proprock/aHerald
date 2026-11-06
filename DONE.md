@@ -3,6 +3,14 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
+  On 2026-11-06, an interactive Claude Code 2.1.319 session on Linux emitted
+  `StopFailure` with `error = rate_limit`, matching the documented error mapping.
+  The observed field names are recorded in `docs/claude-hooks.md`; the raw payload
+  was deleted. The user also reported an earlier `Claude (aHerald): error` Telegram
+  notification from that session; its payload was not captured. Capture was checked
+  locally; resolving an existing pending card was not checked live in this observation.
+
 - [x] **AH-264 — CLI operations as an enum.**
   `Cli.operation` is now `Option<Operation>`; `Cli::parse` also parses the internal child modes
   (`--restart-child [PID] [--test-after-apply]`, `--resident-child SCOPE --config PATH`,

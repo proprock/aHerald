@@ -4,7 +4,12 @@ Source: <https://code.claude.com/docs/en/hooks> (read 2026-10-25). Live captures
 (interactive Claude Code): `PermissionRequest`, `Notification` with `notification_type =
 permission_prompt` and `Stop` carried `hook_event_name` and `session_id` and no turn id, as
 documented. `idle_prompt` arrived about a minute after `Stop` and showed a bogus input-required card
-for an idle session (AH-074), so it is ignored; `StopFailure` is still unobserved; verify against your installed version.
+for an idle session (AH-074), so it is ignored. On 2026-11-06, an interactive Claude Code
+2.1.319 session on Linux emitted `StopFailure` with `error = rate_limit`. The captured event
+contained `hook_event_name`, `session_id`, `error`, `cwd`, `effort`, `last_assistant_message`,
+`prompt_id`, `scratchpad_dir` and `transcript_path`. Only field names and the error category
+were retained; the raw payload was deleted. An earlier error from the same session reached
+Telegram as `Claude (aHerald): error`, but its payload was not captured.
 `PermissionRequest` and the `permission_prompt` notification arrived 6 s apart for one prompt.
 
 ## Setup with a command
@@ -76,7 +81,8 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 ## Limitations
 
-- Claude events carry no turn id, so correlation is per `session_id`: `Stop`/`StopFailure`
+- Correlation is per `session_id`; the observed `StopFailure` also carried `prompt_id`,
+  which is not used for correlation. `Stop`/`StopFailure`
   resolves that session's pending permission/input cards (never another session's or
   Codex's, and even when those events are disabled), and a repeated pending event of one
   session joins that session's unresolved card at any delay (covers the
