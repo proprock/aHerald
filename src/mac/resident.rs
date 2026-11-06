@@ -6,7 +6,6 @@
 use super::{
     geometry::{self, Frame},
     input,
-    menu::{self, Command},
     panel::{self, Panel},
     surface::{Composition, Surface},
     tray::Tray,
@@ -20,6 +19,7 @@ use crate::{
     ipc::{Response, pipe},
     local::Scope,
     queue::Queue,
+    tray_menu::Command,
 };
 use objc2::{MainThreadMarker, rc::Retained};
 use objc2_app_kit::{
@@ -398,16 +398,17 @@ impl Ui {
             ),
         );
         if self.menu_key.as_ref() != Some(&key) {
-            self.tray.set_menu(&menu::items(
-                sound,
-                visual,
-                messenger,
-                paused,
-                context,
-                idle,
-                codex.as_deref(),
-                claude.as_deref(),
-            ));
+            self.tray
+                .set_menu(&crate::tray_menu::items(&crate::tray_menu::MenuState {
+                    sound,
+                    visual,
+                    messenger,
+                    paused,
+                    context,
+                    idle,
+                    codex: codex.clone(),
+                    claude: claude.clone(),
+                }));
             self.menu_key = Some(key);
         }
         if now >= self.usage_next {

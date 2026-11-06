@@ -21,6 +21,26 @@ pub const MESSENGER: usize = 211;
 pub const CONFIG: usize = 204;
 pub const EXIT: usize = 205;
 
+/// The numeric command of a menu entry, as `TrackPopupMenu` returns it.
+pub fn id(command: crate::tray_menu::Command) -> usize {
+    use crate::tray_menu::Command as C;
+    match command {
+        C::CodexSummary => SUMMARY,
+        C::ClaudeSummary => CLAUDE_SUMMARY,
+        C::Apply => RESTART,
+        C::About => ABOUT,
+        C::ContextWarnings => CONTEXT,
+        C::IdleWarnings => IDLE,
+        C::ApplyTest => TEST_CONFIG,
+        C::Sound => SOUND,
+        C::Visual => VISUAL,
+        C::Pause => PAUSE,
+        C::Messenger => MESSENGER,
+        C::Config => CONFIG,
+        C::Exit => EXIT,
+    }
+}
+
 pub struct Icon {
     data: NOTIFYICONDATAW,
     pub taskbar_created: u32,
@@ -206,58 +226,30 @@ impl Drop for Menu {
     }
 }
 impl Menu {
-    /// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
-    /// `messenger` is the state of the messenger switch, or `None` when no sink is configured.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        sound: bool,
-        visual: bool,
-        messenger: Option<bool>,
-        paused: bool,
-        context: bool,
-        idle: bool,
-        codex: Option<&str>,
-        claude: Option<&str>,
-    ) -> Result<Self, String> {
+    /// Builds the popup menu from the shared description of `tray_menu::items`.
+    pub fn new(state: &crate::tray_menu::MenuState) -> Result<Self, String> {
         // SAFETY: CreatePopupMenu takes no arguments; the menu it returns is owned by `Menu`, which
         // destroys it.
         let menu = Self(unsafe { CreatePopupMenu() }.map_err(|_| "cannot create tray menu")?);
-        // Alphabetical by agent name.
-        let usage = [(CLAUDE_SUMMARY, claude), (SUMMARY, codex)]
-            .into_iter()
-            .filter_map(|(id, text)| text.map(|text| (id, text, false)));
-        let version = format!("aHerald v{}", crate::VERSION);
-        let has_usage = codex.is_some() || claude.is_some();
-        let items = [
-            (SOUND, "Sound", sound),
-            (VISUAL, "Pop-up", visual),
-            (MESSENGER, "Messenger", messenger.unwrap_or(false)),
-            (PAUSE, "Pause notifications", paused),
-            (CONTEXT, "Context warnings", context),
-            (IDLE, "Idle warnings", idle),
-            (ABOUT, version.as_str(), false),
-            (CONFIG, "Edit configuration", false),
-            (TEST_CONFIG, "Apply + Test", false),
-            (RESTART, "Apply", false),
-            (EXIT, "Exit", false),
-        ];
-        let items = items
-            .into_iter()
-            .filter(|(id, ..)| *id != MESSENGER || messenger.is_some());
-        for (id, label, checked) in usage.chain(items) {
-            if id == ABOUT || id == CONFIG || id == CONTEXT || (id == SOUND && has_usage) {
+        for item in crate::tray_menu::items(state) {
+            if item.separator_before {
                 // SAFETY: menu is owned; separators have no command or label.
                 unsafe { AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()) }
                     .map_err(|_| "cannot add tray menu separator")?;
             }
-            let wide: Vec<u16> = label.encode_utf16().chain(Some(0)).collect();
+            let wide: Vec<u16> = item.label.encode_utf16().chain(Some(0)).collect();
             // SAFETY: `menu.0` is the menu created above and `wide` is a NUL-terminated UTF-16
             // string that lives past the call, which copies it.
             unsafe {
                 AppendMenuW(
                     menu.0,
-                    MF_STRING | if checked { MF_CHECKED } else { MF_UNCHECKED },
-                    id,
+                    MF_STRING
+                        | if item.checked {
+                            MF_CHECKED
+                        } else {
+                            MF_UNCHECKED
+                        },
+                    id(item.command),
                     PCWSTR(wide.as_ptr()),
                 )
             }
@@ -289,9 +281,32 @@ impl Menu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A menu for [sound, visual, messenger, paused, context, idle] and the usage lines.
+    #[allow(clippy::too_many_arguments)]
+    fn menu_of(
+        sound: bool,
+        visual: bool,
+        messenger: Option<bool>,
+        paused: bool,
+        context: bool,
+        idle: bool,
+        codex: Option<&str>,
+        claude: Option<&str>,
+    ) -> Result<Menu, String> {
+        Menu::new(&crate::tray_menu::MenuState {
+            sound,
+            visual,
+            messenger,
+            paused,
+            context,
+            idle,
+            codex: codex.map(str::to_owned),
+            claude: claude.map(str::to_owned),
+        })
+    }
     #[test]
     fn native_menu_exposes_all_actions_and_current_checkmarks() {
-        let menu = Menu::new(
+        let menu = menu_of(
             false,
             true,
             None,
@@ -355,7 +370,7 @@ mod tests {
 
     #[test]
     fn the_messenger_switch_sits_among_the_notification_switches_and_only_when_configured() {
-        let absent = Menu::new(true, true, None, false, true, true, None, None).unwrap();
+        let absent = menu_of(true, true, None, false, true, true, None, None).unwrap();
         // SAFETY: `absent.0` is the menu created above and lives to the end of the test; the calls
         // only query it.
         unsafe {
@@ -366,7 +381,7 @@ mod tests {
             );
         }
         for on in [false, true] {
-            let menu = Menu::new(true, true, Some(on), false, true, true, None, None).unwrap();
+            let menu = menu_of(true, true, Some(on), false, true, true, None, None).unwrap();
             // SAFETY: `menu.0` is the menu created just above and lives to the end of the loop
             // body; the calls only query it.
             unsafe {
@@ -387,7 +402,7 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents() {
-        let menu = Menu::new(true, true, None, false, true, true, None, Some("Claude")).unwrap();
+        let menu = menu_of(true, true, None, false, true, true, None, Some("Claude")).unwrap();
         // SAFETY: `menu.0` is the menu created above and lives to the end of the test; the calls
         // only query it.
         unsafe {
@@ -398,12 +413,12 @@ mod tests {
                 "no Codex line when Codex usage is hidden"
             );
         }
-        let menu = Menu::new(true, true, None, false, true, true, Some("Codex"), None).unwrap();
+        let menu = menu_of(true, true, None, false, true, true, Some("Codex"), None).unwrap();
         // SAFETY: `menu.0` is the menu created above; the call only queries it.
         unsafe {
             assert_eq!(GetMenuItemCount(Some(menu.0)), 15);
         }
-        let menu = Menu::new(
+        let menu = menu_of(
             true,
             true,
             None,
@@ -429,7 +444,7 @@ mod tests {
             (None, Some("Claude"), 1),
             (Some("Codex"), Some("Claude"), 2),
         ] {
-            let menu = Menu::new(true, true, None, false, true, true, codex, claude).unwrap();
+            let menu = menu_of(true, true, None, false, true, true, codex, claude).unwrap();
             // SAFETY: `menu.0` is the menu created just above and lives to the end of the loop
             // body; the calls only query it.
             unsafe {

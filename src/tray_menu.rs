@@ -1,6 +1,6 @@
-//! What the status item's menu lists. Pure: the AppKit side only turns these entries into
-//! `NSMenuItem`s, so order, labels and check marks are the same contract as the Windows
-//! tray menu (`tray.rs`).
+//! What the tray menu lists, the same on every system. Pure: each platform only turns these
+//! entries into its own menu (Win32 `AppendMenuW`, dbusmenu, `NSMenuItem`) and maps a chosen
+//! entry back to a `Command`, so order, labels, separators and check marks live here only.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -57,22 +57,35 @@ pub struct Item {
     pub separator_before: bool,
 }
 
-/// `codex` and `claude` are the usage lines of the enabled agents; each opens its own details.
-/// `messenger` is the state of the messenger switch, or `None` when no sink is configured (the
-/// item is then not listed), as on the Windows tray.
-#[allow(clippy::too_many_arguments)]
-pub fn items(
-    sound: bool,
-    visual: bool,
-    messenger: Option<bool>,
-    paused: bool,
-    context: bool,
-    idle: bool,
-    codex: Option<&str>,
-    claude: Option<&str>,
-) -> Vec<Item> {
+/// What the menu shows: the switches, and the usage lines of the enabled agents (each opens its
+/// own details). `messenger` is the state of the messenger switch, or `None` when no sink is
+/// configured (the item is then not listed).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuState {
+    pub sound: bool,
+    pub visual: bool,
+    pub messenger: Option<bool>,
+    pub paused: bool,
+    pub context: bool,
+    pub idle: bool,
+    pub codex: Option<String>,
+    pub claude: Option<String>,
+}
+
+pub fn items(state: &MenuState) -> Vec<Item> {
+    let MenuState {
+        sound,
+        visual,
+        messenger,
+        paused,
+        context,
+        idle,
+        ref codex,
+        ref claude,
+    } = *state;
+    let (codex, claude) = (codex.as_deref(), claude.as_deref());
     let version = format!("aHerald v{}", crate::VERSION);
-    // Alphabetical by agent name, as on Windows.
+    // Alphabetical by agent name.
     let usage = [
         (Command::ClaudeSummary, claude),
         (Command::CodexSummary, codex),
@@ -80,7 +93,7 @@ pub fn items(
     .into_iter()
     .filter_map(|(command, text)| text.map(|text| (command, text.to_owned(), false)));
     let has_usage = codex.is_some() || claude.is_some();
-    // The order and the separators of the Windows tray menu (`tray.rs`).
+    // Usage lines, the output switches, the warning switches, then the version and the commands.
     let rest = [
         (Command::Sound, "Sound".to_owned(), sound),
         (Command::Visual, "Pop-up".to_owned(), visual),
@@ -122,6 +135,25 @@ pub fn items(
 mod tests {
     use super::*;
 
+    /// `items` for [sound, visual, paused, context, idle] and the optional lines.
+    fn menu(
+        switches: [bool; 5],
+        messenger: Option<bool>,
+        codex: Option<&str>,
+        claude: Option<&str>,
+    ) -> Vec<Item> {
+        let [sound, visual, paused, context, idle] = switches;
+        items(&MenuState {
+            sound,
+            visual,
+            messenger,
+            paused,
+            context,
+            idle,
+            codex: codex.map(str::to_owned),
+            claude: claude.map(str::to_owned),
+        })
+    }
     fn commands(items: &[Item]) -> Vec<Command> {
         items.iter().map(|i| i.command).collect()
     }
@@ -131,13 +163,9 @@ mod tests {
 
     #[test]
     fn the_menu_lists_every_action_with_the_current_check_marks() {
-        let list = items(
-            false,
-            true,
+        let list = menu(
+            [false, true, true, true, false],
             None,
-            true,
-            true,
-            false,
             Some("Codex usage (unavailable)"),
             Some("Claude remain: 5h 80%"),
         );
@@ -176,17 +204,18 @@ mod tests {
 
     #[test]
     fn usage_lines_appear_only_for_enabled_agents_claude_first() {
-        let none = items(true, true, None, false, false, false, None, None);
+        let none = menu([true, true, false, false, false], None, None, None);
         assert_eq!(none.len(), 10);
-        let claude = items(true, true, None, false, false, false, None, Some("Claude"));
-        assert!(!commands(&claude).contains(&Command::CodexSummary));
-        let both = items(
-            true,
-            true,
+        let claude = menu(
+            [true, true, false, false, false],
             None,
-            false,
-            false,
-            false,
+            None,
+            Some("Claude"),
+        );
+        assert!(!commands(&claude).contains(&Command::CodexSummary));
+        let both = menu(
+            [true, true, false, false, false],
+            None,
             Some("Codex"),
             Some("Claude"),
         );
@@ -210,7 +239,7 @@ mod tests {
             (None, Some("a")),
             (Some("c"), Some("a")),
         ] {
-            let list = items(true, true, None, false, false, false, codex, claude);
+            let list = menu([true, true, false, false, false], None, codex, claude);
             let has_usage = codex.is_some() || claude.is_some();
             let separated: Vec<Command> = list
                 .iter()
@@ -249,10 +278,10 @@ mod tests {
     /// Windows order: Sound, Pop-up, Messenger, Pause. The item exists only when a sink runs.
     #[test]
     fn the_messenger_switch_follows_pop_up_and_only_when_configured() {
-        let absent = items(true, true, None, false, false, false, None, None);
+        let absent = menu([true, true, false, false, false], None, None, None);
         assert!(!commands(&absent).contains(&Command::Messenger));
         for state in [false, true] {
-            let list = items(true, true, Some(state), false, false, false, None, None);
+            let list = menu([true, true, false, false, false], Some(state), None, None);
             let order = commands(&list);
             let at = order.iter().position(|c| *c == Command::Messenger).unwrap();
             assert_eq!(order[at - 1], Command::Visual);

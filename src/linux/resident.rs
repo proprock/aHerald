@@ -409,8 +409,8 @@ fn present(
                 use super::tray::Command;
                 match command {
                     Command::Exit => stop.store(true, Ordering::Release),
-                    Command::CodexUsage | Command::ClaudeUsage => {
-                        let selected_claude = command == Command::ClaudeUsage;
+                    Command::CodexSummary | Command::ClaudeSummary => {
+                        let selected_claude = command == Command::ClaudeSummary;
                         let mut guard = state.lock().map_err(|_| "resident state unavailable")?;
                         if guard.queue.selected().is_some_and(|entry| entry.is_usage())
                             && !about_open

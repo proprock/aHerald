@@ -1,6 +1,7 @@
 //! Run with a private D-Bus session and an isolated X11/XWayland display.
 #![cfg(target_os = "linux")]
 mod support;
+use aherald::tray_menu::Command as MenuCommand;
 use aherald::{
     events::Event,
     ipc::{Request, Response, pipe},
@@ -398,7 +399,14 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
         let old = f.start();
         f.wait(|| window(&conn, root).is_some(), "resident window");
         std::fs::write(&f.config, "[not valid").unwrap();
-        f.menu(old, if test { 15 } else { 14 });
+        f.menu(
+            old,
+            if test {
+                id(MenuCommand::ApplyTest)
+            } else {
+                id(MenuCommand::Apply)
+            },
+        );
         f.wait(
             || {
                 f.status()
@@ -407,7 +415,14 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
             "invalid config notice on original resident",
         );
         f.valid(false);
-        f.menu(old, if test { 15 } else { 14 });
+        f.menu(
+            old,
+            if test {
+                id(MenuCommand::ApplyTest)
+            } else {
+                id(MenuCommand::Apply)
+            },
+        );
         let new = f.replacement(old, false);
         let mut win = 0;
         f.wait(
@@ -440,7 +455,7 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
         let geo = conn.get_geometry(win).unwrap().reply().unwrap();
         click(&conn, root, win, 130, geo.height as i16 - 22, 1);
         f.wait(|| !shown(&conn, win), "dismissed preview");
-        f.menu(new, 15);
+        f.menu(new, id(MenuCommand::ApplyTest));
         let latest = f.replacement(new, false);
         f.wait(
             || window(&conn, root).is_some_and(|w| shown(&conn, w)),
@@ -472,7 +487,7 @@ fn linux_apply_validates_replaces_and_controls_the_preview() {
             !shown(&conn, win),
             "preview must not resume after the event"
         );
-        f.menu(latest, 14);
+        f.menu(latest, id(MenuCommand::Apply));
         f.replacement(latest, false);
         f.wait(
             || window(&conn, root).is_some(),
@@ -619,13 +634,13 @@ fn linux_context_adapters_reach_cards_and_the_tray_switch() {
             "context warning dismissed",
         );
     }
-    f.menu(pid, 12);
-    f.wait_toggle(pid, 12, false);
+    f.menu(pid, id(MenuCommand::ContextWarnings));
+    f.wait_toggle(pid, id(MenuCommand::ContextWarnings), false);
     send(true, "codex-disabled");
     send(false, "claude-disabled");
     assert!(f.status().is_some_and(|(_, queued, _)| queued == 0));
-    f.menu(pid, 12);
-    f.wait_toggle(pid, 12, true);
+    f.menu(pid, id(MenuCommand::ContextWarnings));
+    f.wait_toggle(pid, id(MenuCommand::ContextWarnings), true);
     send(true, "codex-enabled");
     f.wait(
         || f.status().is_some_and(|(_, queued, _)| queued == 1) && shown(&conn, win),
@@ -685,10 +700,10 @@ fn linux_idle_warnings_reach_cards_and_clear_on_activity() {
         || f.status().is_some_and(|(_, queued, _)| queued == 0) && !shown(&conn, win),
         "Claude idle warning cleared on activity",
     );
-    f.menu(pid, 13);
-    f.wait_toggle(pid, 13, false);
-    f.menu(pid, 13);
-    f.wait_toggle(pid, 13, true);
+    f.menu(pid, id(MenuCommand::IdleWarnings));
+    f.wait_toggle(pid, id(MenuCommand::IdleWarnings), false);
+    f.menu(pid, id(MenuCommand::IdleWarnings));
+    f.wait_toggle(pid, id(MenuCommand::IdleWarnings), true);
 }
 
 #[test]
@@ -729,4 +744,9 @@ fn fixture_removes_files_after_resident_startup_failure() {
     assert!(failed.status().is_none());
     drop(failed);
     assert!(!root.exists());
+}
+
+/// The dbusmenu id of a menu command: the shared menu's tag.
+fn id(command: MenuCommand) -> i32 {
+    command.tag() as i32
 }

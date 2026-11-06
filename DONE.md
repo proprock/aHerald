@@ -37,6 +37,17 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-257 — Shared tray menu model.**
+  `src/mac/menu.rs` became `src/tray_menu.rs`: `Command`, `Item`, `MenuState` and `items(&MenuState)` are the
+  only place with the entries, labels, order, separators and check marks. Windows (`tray::Menu::new(&MenuState)`,
+  `tray::id(Command)` maps to the existing numeric IDs), Linux (dbusmenu ids are the command tags, a separator is
+  100 plus the tag of the entry below it; the Linux-only `Command` enum is gone) and macOS use it; the Win32 menu
+  literals, the dbusmenu id table and the 8-argument `items` are removed. The pure tests moved with the module
+  (order, separators, Messenger only with a sink, check marks, tags) and the Linux tray tests and
+  `tests/linux_apply.rs` address entries through the tags. Evidence: fmt, clippy, workspace tests and the Linux
+  extras (`linux_apply --ignored`, the AH-283 test) **ran locally** (Linux); Windows clippy lint **ran locally**,
+  Windows tests and all macOS code **compiled/tested in CI only**; the hand check on both is AH-286.
+
 - [x] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
   Cause: the same fork window as AH-279, for a listening socket. The test binds a listener and drops it to
   leave a dead resident's socket file; a child forked by another test thread between the bind and the drop

@@ -164,6 +164,7 @@ pub mod shell;
 #[cfg(windows)]
 pub mod tray;
 
+pub mod tray_menu;
 pub mod tray_usage;
 
 #[cfg(not(windows))]

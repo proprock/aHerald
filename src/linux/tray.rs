@@ -7,30 +7,13 @@ use zbus::{
 
 pub const MENU_PATH: &str = "/MenuBar";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Command {
-    Sound,
-    Visual,
-    Messenger,
-    Pause,
-    ContextWarnings,
-    IdleWarnings,
-    Config,
-    Apply,
-    ApplyTest,
-    About,
-    CodexUsage,
-    ClaudeUsage,
-    Exit,
-}
+pub use crate::tray_menu::Command;
+use crate::tray_menu::{self, MenuState};
 
 #[derive(Clone, Default, PartialEq)]
 struct TrayState {
-    toggles: [bool; 5],
-    /// The messenger switch; `None` when no sink is configured, so the item is not listed.
-    messenger: Option<bool>,
-    codex: Option<String>,
-    claude: Option<String>,
+    /// What the menu lists; its messenger switch is `None` when no sink is configured.
+    menu: MenuState,
     icon: Vec<u8>,
     revision: u32,
 }
@@ -52,9 +35,9 @@ fn update_usage(
         .iter()
         .flat_map(|p| [p[3], p[2], p[1], p[0]])
         .collect::<Vec<_>>();
-    if state.codex != codex || state.claude != claude || state.icon != icon {
-        state.codex = codex;
-        state.claude = claude;
+    if state.menu.codex != codex || state.menu.claude != claude || state.icon != icon {
+        state.menu.codex = codex;
+        state.menu.claude = claude;
         state.icon = icon;
         state.revision = state.revision.wrapping_add(1);
     }
@@ -98,7 +81,7 @@ impl Item {
     #[zbus(property)]
     fn tool_tip(&self) -> ToolTip {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let description = [state.claude.as_deref(), state.codex.as_deref()]
+        let description = [state.menu.claude.as_deref(), state.menu.codex.as_deref()]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>()
@@ -121,11 +104,30 @@ impl Item {
 
 type Props = HashMap<String, OwnedValue>;
 type Layout = (i32, Props, Vec<OwnedValue>);
-// Match the Windows menu, with the first separator only when usage is shown.
-const MESSENGER: i32 = 18;
-const MENU_ITEMS: [i32; 17] = [
-    10, 11, 8, 1, 2, MESSENGER, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7,
-];
+/// A dbusmenu entry: the command's tag is its id, and a separator takes 100 plus the tag of the
+/// entry it precedes.
+enum Entry {
+    Separator(i32),
+    Item(i32, tray_menu::Item),
+}
+impl Entry {
+    fn id(&self) -> i32 {
+        match self {
+            Self::Separator(id) | Self::Item(id, _) => *id,
+        }
+    }
+}
+fn entries(menu: &MenuState) -> Vec<Entry> {
+    let mut list = Vec::new();
+    for item in tray_menu::items(menu) {
+        let id = item.command.tag() as i32;
+        if item.separator_before {
+            list.push(Entry::Separator(100 + id));
+        }
+        list.push(Entry::Item(id, item));
+    }
+    list
+}
 
 pub struct Menu {
     pub sender: Sender<Command>,
@@ -139,47 +141,33 @@ fn label(value: &str) -> OwnedValue {
 }
 fn properties(id: i32, state: &TrayState) -> Props {
     let mut p = Props::new();
-    let name = match id {
-        1 => "Sound",
-        2 => "Pop-up",
-        3 => "Pause notifications",
-        MESSENGER => "Messenger",
-        4 => "Edit configuration",
-        7 => "Exit",
-        10 => state.claude.as_deref().unwrap_or(""),
-        11 => state.codex.as_deref().unwrap_or(""),
-        12 => "Context warnings",
-        13 => "Idle warnings",
-        14 => "Apply",
-        15 => "Apply + Test",
-        _ => "",
-    };
-    let version = format!("aHerald v{}", crate::VERSION);
-    let name = if id == 6 { version.as_str() } else { name };
     if id == 0 {
         p.insert("children-display".into(), label("submenu"));
-    } else if id == 8 || id == 9 || id == 16 || id == 17 {
-        p.insert("type".into(), label("separator"));
-    } else {
-        p.insert("label".into(), label(name));
+        return p;
     }
-    if id == MESSENGER {
-        p.insert("toggle-type".into(), label("checkmark"));
-        p.insert(
-            "toggle-state".into(),
-            OwnedValue::from(i32::from(state.messenger.unwrap_or(false))),
-        );
-    }
-    if let Some(index) = match id {
-        1..=3 => Some((id - 1) as usize),
-        12..=13 => Some((id - 9) as usize),
-        _ => None,
-    } {
-        p.insert("toggle-type".into(), label("checkmark"));
-        p.insert(
-            "toggle-state".into(),
-            OwnedValue::from(i32::from(state.toggles[index])),
-        );
+    match entries(&state.menu).into_iter().find(|e| e.id() == id) {
+        Some(Entry::Separator(_)) => {
+            p.insert("type".into(), label("separator"));
+        }
+        Some(Entry::Item(_, item)) => {
+            p.insert("label".into(), label(&item.label));
+            if matches!(
+                item.command,
+                Command::Sound
+                    | Command::Visual
+                    | Command::Messenger
+                    | Command::Pause
+                    | Command::ContextWarnings
+                    | Command::IdleWarnings
+            ) {
+                p.insert("toggle-type".into(), label("checkmark"));
+                p.insert(
+                    "toggle-state".into(),
+                    OwnedValue::from(i32::from(item.checked)),
+                );
+            }
+        }
+        None => {}
     }
     p
 }
@@ -205,16 +193,10 @@ impl Menu {
     ) -> (u32, Layout) {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let children = if parent_id == 0 && recursion_depth != 0 {
-            MENU_ITEMS
+            entries(&state.menu)
                 .into_iter()
-                .filter(|id| match *id {
-                    10 => state.claude.is_some(),
-                    11 => state.codex.is_some(),
-                    8 => state.claude.is_some() || state.codex.is_some(),
-                    MESSENGER => state.messenger.is_some(),
-                    _ => true,
-                })
-                .map(|id| {
+                .map(|entry| {
+                    let id = entry.id();
                     OwnedValue::try_from(Value::from((
                         id,
                         properties(id, &state),
@@ -238,7 +220,7 @@ impl Menu {
     ) -> Vec<(i32, Props)> {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
         ids.into_iter()
-            .filter(|id| MENU_ITEMS.contains(id) || *id == 0)
+            .filter(|id| *id == 0 || entries(&state.menu).iter().any(|e| e.id() == *id))
             .map(|id| (id, properties(id, &state)))
             .collect()
     }
@@ -252,21 +234,8 @@ impl Menu {
         if event_id != "clicked" {
             return;
         }
-        let command = match id {
-            1 => Command::Sound,
-            2 => Command::Visual,
-            MESSENGER => Command::Messenger,
-            3 => Command::Pause,
-            4 => Command::Config,
-            6 => Command::About,
-            7 => Command::Exit,
-            10 => Command::ClaudeUsage,
-            11 => Command::CodexUsage,
-            12 => Command::ContextWarnings,
-            13 => Command::IdleWarnings,
-            14 => Command::Apply,
-            15 => Command::ApplyTest,
-            _ => return,
+        let Some(command) = Command::from_tag(id as isize) else {
+            return;
         };
         let _ = self.sender.send(command);
         (self.wake)();
@@ -292,7 +261,14 @@ impl Tray {
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         let state = std::sync::Arc::new(std::sync::Mutex::new(TrayState {
-            toggles: [sound, visual, paused, true, true],
+            menu: MenuState {
+                sound,
+                visual,
+                paused,
+                context: true,
+                idle: true,
+                ..MenuState::default()
+            },
             ..TrayState::default()
         }));
         let menu_state = state.clone();
@@ -312,17 +288,24 @@ impl Tray {
     }
     pub fn set_state(&self, sound: bool, visual: bool, paused: bool, context: bool, idle: bool) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let toggles = [sound, visual, paused, context, idle];
-        if state.toggles != toggles {
-            state.toggles = toggles;
+        let menu = MenuState {
+            sound,
+            visual,
+            paused,
+            context,
+            idle,
+            ..state.menu.clone()
+        };
+        if state.menu != menu {
+            state.menu = menu;
             state.revision = state.revision.wrapping_add(1);
         }
     }
     /// The state of the messenger switch, or `None` when no sink runs (the item is then hidden).
     pub fn set_messenger(&self, messenger: Option<bool>) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.messenger != messenger {
-            state.messenger = messenger;
+        if state.menu.messenger != messenger {
+            state.menu.messenger = messenger;
             state.revision = state.revision.wrapping_add(1);
         }
     }
@@ -441,70 +424,73 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    /// Windows order: Sound, Pop-up, Messenger, Pause. The item exists only when a sink runs.
+    fn menu_of(state: TrayState) -> (Menu, std::sync::mpsc::Receiver<Command>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let menu = Menu {
+            sender,
+            wake: Arc::new(|| {}),
+            state: Arc::new(std::sync::Mutex::new(state)),
+        };
+        (menu, receiver)
+    }
+    fn tag(command: Command) -> i32 {
+        command.tag() as i32
+    }
+    fn child_ids(menu: &Menu) -> Vec<i32> {
+        let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
+        children
+            .into_iter()
+            .map(|child| <(i32, Props, Vec<OwnedValue>)>::try_from(child).unwrap().0)
+            .collect()
+    }
+    fn text(state: &TrayState, id: i32, key: &str) -> OwnedValue {
+        properties(id, state).remove(key).unwrap()
+    }
+
+    /// The messenger item exists only when a sink runs, right after Pop-up.
     #[test]
     fn the_messenger_switch_sits_after_pop_up_and_only_when_configured() {
-        let ids = |messenger| {
-            let state = Arc::new(std::sync::Mutex::new(TrayState {
+        let with = |messenger| TrayState {
+            menu: MenuState {
                 messenger,
-                ..TrayState::default()
-            }));
-            let (sender, _receiver) = std::sync::mpsc::channel();
-            let menu = Menu {
-                sender,
-                wake: std::sync::Arc::new(|| {}),
-                state,
-            };
-            let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
-            children
-                .into_iter()
-                .map(|child| {
-                    let (id, ..) = <(i32, Props, Vec<OwnedValue>)>::try_from(child).unwrap();
-                    id
-                })
-                .collect::<Vec<_>>()
+                ..MenuState::default()
+            },
+            ..TrayState::default()
         };
-        assert!(!ids(None).contains(&MESSENGER));
-        let listed = ids(Some(false));
+        let m = tag(Command::Messenger);
+        assert!(!child_ids(&menu_of(with(None)).0).contains(&m));
+        let listed = child_ids(&menu_of(with(Some(false))).0);
         let position = |id| listed.iter().position(|i| *i == id).unwrap();
-        assert_eq!(position(MESSENGER), position(2) + 1);
-        assert_eq!(position(3), position(MESSENGER) + 1);
+        assert_eq!(position(m), position(tag(Command::Visual)) + 1);
+        assert_eq!(position(tag(Command::Pause)), position(m) + 1);
         for (messenger, expected) in [(Some(false), 0), (Some(true), 1)] {
-            let state = TrayState {
-                messenger,
-                ..TrayState::default()
-            };
+            let state = with(messenger);
             assert_eq!(
-                String::try_from(properties(MESSENGER, &state).remove("label").unwrap()).unwrap(),
+                String::try_from(text(&state, m, "label")).unwrap(),
                 "Messenger"
             );
             assert_eq!(
-                i32::try_from(
-                    properties(MESSENGER, &state)
-                        .remove("toggle-state")
-                        .unwrap()
-                )
-                .unwrap(),
+                i32::try_from(text(&state, m, "toggle-state")).unwrap(),
                 expected
             );
         }
         let (sender, receiver) = std::sync::mpsc::channel();
-        let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let woken = Arc::new(AtomicUsize::new(0));
         let count = woken.clone();
         let menu = Menu {
             sender,
             wake: Arc::new(move || {
-                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                count.fetch_add(1, Ordering::SeqCst);
             }),
             state: Arc::new(std::sync::Mutex::new(TrayState::default())),
         };
-        menu.event(MESSENGER, "clicked", Value::from(0i32), 0);
+        menu.event(m, "clicked", Value::from(0i32), 0);
         assert_eq!(receiver.try_recv().unwrap(), Command::Messenger);
         // The resident's loop sleeps until woken, so a queued command must wake it, once.
-        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(woken.load(Ordering::SeqCst), 1);
         // An event that is not a command wakes nothing.
-        menu.event(2, "hovered", Value::from(0i32), 0);
-        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 1);
+        menu.event(tag(Command::Visual), "hovered", Value::from(0i32), 0);
+        assert_eq!(woken.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -523,85 +509,69 @@ mod tests {
     #[test]
     fn menu_exposes_toggle_state_and_dispatches_only_clicks() {
         let initial = TrayState {
-            toggles: [true, false, true, true, false],
-            codex: Some("Codex remain: 5h 80%".into()),
-            claude: Some("Claude remain: 5h 50%".into()),
+            menu: MenuState {
+                sound: true,
+                visual: false,
+                paused: true,
+                context: true,
+                idle: false,
+                codex: Some("Codex remain: 5h 80%".into()),
+                claude: Some("Claude remain: 5h 50%".into()),
+                ..MenuState::default()
+            },
             ..TrayState::default()
         };
-        let state = Arc::new(std::sync::Mutex::new(initial.clone()));
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let menu = Menu {
-            sender,
-            wake: std::sync::Arc::new(|| {}),
-            state,
-        };
-        let (_, (_, _, children)) = menu.get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 16);
-        assert_eq!(
-            MENU_ITEMS,
-            [
-                10, 11, 8, 1, 2, MESSENGER, 3, 9, 12, 13, 16, 6, 17, 4, 15, 14, 7
-            ]
-        );
-        for separator in [8, 9, 16, 17] {
-            let value = properties(separator, &initial).remove("type").unwrap();
-            assert_eq!(String::try_from(value).unwrap(), "separator");
+        let (menu, receiver) = menu_of(initial.clone());
+        let ids = child_ids(&menu);
+        // Two usage lines, a separator, the items, and the separators of the shared menu.
+        assert_eq!(ids.len(), 16);
+        for separator in [
+            Command::Sound,
+            Command::ContextWarnings,
+            Command::About,
+            Command::Config,
+        ] {
+            let id = 100 + tag(separator);
+            assert!(ids.contains(&id), "{separator:?}");
+            assert_eq!(
+                String::try_from(text(&initial, id, "type")).unwrap(),
+                "separator"
+            );
         }
+        let state_of = |c| i32::try_from(text(&initial, tag(c), "toggle-state")).unwrap();
+        assert_eq!(state_of(Command::Sound), 1);
+        assert_eq!(state_of(Command::Visual), 0);
+        assert_eq!(state_of(Command::ContextWarnings), 1);
+        assert_eq!(state_of(Command::IdleWarnings), 0);
         assert_eq!(
-            i32::try_from(properties(1, &initial).remove("toggle-state").unwrap()).unwrap(),
-            1
-        );
-        assert_eq!(
-            i32::try_from(properties(2, &initial).remove("toggle-state").unwrap()).unwrap(),
-            0
-        );
-        assert_eq!(
-            String::try_from(properties(10, &initial).remove("label").unwrap()).unwrap(),
+            String::try_from(text(&initial, tag(Command::ClaudeSummary), "label")).unwrap(),
             "Claude remain: 5h 50%"
         );
         assert_eq!(
-            String::try_from(properties(11, &initial).remove("label").unwrap()).unwrap(),
+            String::try_from(text(&initial, tag(Command::CodexSummary), "label")).unwrap(),
             "Codex remain: 5h 80%"
         );
-        menu.event(10, "clicked", Value::from(0i32), 0);
-        assert_eq!(receiver.try_recv().unwrap(), Command::ClaudeUsage);
-        menu.event(11, "clicked", Value::from(0i32), 0);
-        assert_eq!(receiver.try_recv().unwrap(), Command::CodexUsage);
-        for (id, name, command) in [
-            (14, "Apply", Command::Apply),
-            (15, "Apply + Test", Command::ApplyTest),
+        for command in Command::ALL {
+            menu.event(tag(command), "clicked", Value::from(0i32), 0);
+            assert_eq!(receiver.try_recv().unwrap(), command);
+        }
+        for (command, name) in [
+            (Command::Apply, "Apply"),
+            (Command::ApplyTest, "Apply + Test"),
         ] {
             assert_eq!(
-                String::try_from(properties(id, &initial).remove("label").unwrap()).unwrap(),
+                String::try_from(text(&initial, tag(command), "label")).unwrap(),
                 name
             );
+        }
+        // Separators and unknown ids are not commands, and hovering is not a click.
+        for id in [100 + tag(Command::Sound), 0, 99] {
             menu.event(id, "clicked", Value::from(0i32), 0);
-            assert_eq!(receiver.try_recv().unwrap(), command);
         }
-        let empty = Arc::new(std::sync::Mutex::new(TrayState::default()));
-        let (sender, _) = std::sync::mpsc::channel();
-        let (_, (_, _, children)) = Menu {
-            sender,
-            wake: Arc::new(|| {}),
-            state: empty,
-        }
-        .get_layout(0, -1, vec![]);
-        assert_eq!(children.len(), 13); // no usage lines and no leading separator
-        menu.event(2, "hovered", Value::from(0i32), 0);
+        menu.event(tag(Command::Visual), "hovered", Value::from(0i32), 0);
         assert!(receiver.try_recv().is_err());
-        menu.event(2, "clicked", Value::from(0i32), 0);
-        assert_eq!(receiver.try_recv().unwrap(), Command::Visual);
-        for (id, expected, command) in [
-            (12, 1, Command::ContextWarnings),
-            (13, 0, Command::IdleWarnings),
-        ] {
-            assert_eq!(
-                i32::try_from(properties(id, &initial).remove("toggle-state").unwrap()).unwrap(),
-                expected
-            );
-            menu.event(id, "clicked", Value::from(0i32), 0);
-            assert_eq!(receiver.try_recv().unwrap(), command);
-        }
+        let (empty, _) = menu_of(TrayState::default());
+        assert_eq!(child_ids(&empty).len(), 13); // no usage lines and no leading separator
     }
 
     #[test]
@@ -655,7 +625,11 @@ mod tests {
         tray.set_state(true, true, false, false, true);
         {
             let state = tray.state.lock().unwrap();
-            assert_eq!(state.toggles, [true, true, false, false, true]);
+            assert_eq!(
+                (state.menu.sound, state.menu.visual, state.menu.paused),
+                (true, true, false)
+            );
+            assert_eq!((state.menu.context, state.menu.idle), (false, true));
             assert_eq!(state.revision, 1);
         }
         tray.set_state(true, true, false, false, true);
