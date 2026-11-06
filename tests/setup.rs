@@ -1159,7 +1159,8 @@ fn a_transient_executable_write_handle_does_not_fail_fixture_launch() {
         String::from_utf8_lossy(&output.stdout).trim(),
         aherald::version_line()
     );
-    assert_eq!(attempts, 2);
+    // At least one retry: a sibling test's fork may also hold a write handle for a moment.
+    assert!(attempts >= 2, "attempts: {attempts}");
 }
 
 #[test]

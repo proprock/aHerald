@@ -10,7 +10,6 @@ use aherald::{
 use std::{
     fs,
     net::TcpListener,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -213,12 +212,10 @@ fn an_explicit_endpoint_never_runs_a_local_program() {
     let dir = support::TempDir::new("sandbox-sender-local");
     let marker = dir.join("ran");
     let program = dir.join("aherald");
-    fs::write(
+    support::write_executable(
         &program,
         format!("#!/bin/sh\ncat >/dev/null\ntouch '{}'\n", marker.display()),
-    )
-    .unwrap();
-    fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let host = host();
     let script = SCRIPTS[1];
     let (output, _) = run(
