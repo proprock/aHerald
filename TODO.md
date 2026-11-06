@@ -516,8 +516,19 @@ P2 tasks run in the listed order; AH-266 goes last.
      of `nightly.yml`) and how to run it by hand (`gh workflow run nightly.yml`); retention (one release, old
      assets replaced); what a failed night means (the previous nightly stays, the failed run is the signal).
      `CHANGELOG.md` `[Unreleased]` gets a line.
+  7. **Idle nights.** Today `nightly.yml` has no such guard: it runs the full CI every night, also when
+     `master` has not moved since the last green run. Add a first job `changes` (`schedule` only; a manual
+     `workflow_dispatch` always runs everything) that reads the commit the current `nightly` release was
+     built from (its `target_commitish`, or the SHA in its notes) and compares it with `github.sha`. When they
+     are equal, `full_ci`, the package jobs and the publish job are skipped (`if:` on the job output) and the
+     run summary says "no change since <sha>". Keep the `stable_canary` clippy job and the dependency audit
+     running on an idle night: they exist to catch a new compiler or a new advisory with no commit at all. A
+     missing release (the first night) or an unreadable one counts as changed, so a failure of the check
+     never skips a build. Record in the notes how a skipped night looks in the run list (green, short) so it
+     is not mistaken for a failure.
   Acceptance: `actionlint` and `zizmor` clean; a `workflow_dispatch` run on a branch other than `master`
-  does not publish; one manual run on `master` (with the owner's go-ahead, since it creates the release)
+  does not publish; a scheduled run on a `master` that has not moved since the nightly's commit skips
+  the build and publish jobs but still runs the canary and the audit; one manual run on `master` (with the owner's go-ahead, since it creates the release)
   publishes all assets with a matching `SHA256SUMS`, and the tag points to the built commit; a second run
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
