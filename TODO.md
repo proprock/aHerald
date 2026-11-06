@@ -533,6 +533,21 @@ P2 tasks run in the listed order; AH-266 goes last.
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
 
+- [ ] **AH-289 — Program starts in tests have a 3 s bound that a loaded full run can exceed.**
+  Seen twice in a full workspace run on a busy 12-core Linux machine: `config_portable` once and
+  `hook_log::a_hook_input_that_is_not_json_or_is_too_large_is_logged_by_code_only` once failed on
+  `run_bounded_with_input(..., Duration::from_secs(3))` and passed alone 3 of 3. About 45 call sites in
+  `tests/*.rs` pass `from_secs(3)` (`resident`, `hooks`, `tray`, `process_wait`, `native_overlay`, `window_wait`,
+  `hook_log`, ...). Depends on nothing. Do first: reproduce under load (`scripts/manual/stress.sh` with
+  `hook_log` and `config_portable` added, or `taskset -c 0,1` with two CPU hogs) and record the failure rate
+  before changing anything. Then give the bound one name in `tests/support` (a constant for "start a program
+  and wait for it", generous, e.g. 30 s, since the bound only matters when the child hangs) and use it at the
+  call sites that start a program; keep short bounds where the test asserts on speed. Check that the failing
+  starts go through `support::spawn`/`without_forks` where a fork window can matter (AH-279, AH-284).
+  Acceptance: the stress run on the loaded runner shows no failure of these two tests in the number of
+  repeats recorded before; a hung child still fails the test within the new bound (a self-test in
+  `tests/support`); no assertion about speed was loosened.
+
 ### P2 — structural refactoring of the residents (in this order)
 
 ## Milestone 13 — Messenger notifications (2026-11-06)
