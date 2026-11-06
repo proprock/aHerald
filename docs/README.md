@@ -32,6 +32,7 @@ User guides, grouped by task. Start with the guide for your platform; the
 ## Project
 
 - [Privacy register](privacy.md)
+- [Nightly build](nightly.md): the rolling prerelease of `master`
 - [Windows application icon](app-icon.md)
 - [Engineering notes](https://github.com/proprock/aHerald/tree/master/docs/notes): investigations,
   spikes, milestone and per-ticket acceptance records, and design plans. They are history, kept in
