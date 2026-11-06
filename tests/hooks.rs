@@ -11,7 +11,7 @@ fn invoke(input: &[u8]) -> std::process::Output {
             .args(["--hook", "--config", "tests/fixtures/quiet.toml"])
             .stdin(Stdio::piped()),
         input,
-        Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap()
 }
@@ -93,7 +93,7 @@ fn stop_response_survives_invalid_configuration() {
             .arg(&path)
             .stdin(Stdio::piped()),
         include_bytes!("fixtures/stop.json"),
-        Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap();
     std::fs::remove_file(path).unwrap();
@@ -129,7 +129,7 @@ fn powershell_gui_invocation_collects_hook_responses_with_quoted_paths() {
                 .args(["-NoProfile", "-NonInteractive", "-Command", &command])
                 .stdin(Stdio::piped()),
             input,
-            Duration::from_secs(3),
+            support::START_BOUND,
         )
         .unwrap();
         assert!(

@@ -3,7 +3,7 @@ mod support;
 use std::{
     mem::size_of,
     process::{Command, Stdio},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use windows::Win32::{
     Foundation::*,
@@ -73,7 +73,7 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
                 .unwrap();
             let mut owned = support::detached::Residents::new(scope);
             owned.retain(parent).unwrap();
-            let output = support::capture_bounded(hook, fixture, Duration::from_secs(3)).unwrap();
+            let output = support::capture_bounded(hook, fixture, support::START_BOUND).unwrap();
             let hook_return_ms = start.elapsed().as_millis();
             assert!(hook_return_ms < 3000);
             assert!(output.status.success());

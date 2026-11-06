@@ -65,7 +65,7 @@ fn exited_child_with_inherited_output_cannot_extend_the_deadline() {
 #[test]
 fn delayed_large_output_is_drained_from_both_pipes() {
     let root = support::TempDir::new("large-output");
-    let out = support::run_bounded(&mut command("large", &root), Duration::from_secs(3)).unwrap();
+    let out = support::run_bounded(&mut command("large", &root), support::START_BOUND).unwrap();
     assert!(out.status.success());
     assert!(
         out.stdout

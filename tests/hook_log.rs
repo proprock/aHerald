@@ -28,7 +28,7 @@ fn invoke(directory: &Path, agent: Option<&str>, input: &[u8]) -> std::process::
             .arg(directory.join("config.toml"))
             .stdin(Stdio::piped()),
         input,
-        std::time::Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap()
 }
@@ -79,7 +79,7 @@ fn a_hook_that_cannot_reach_or_start_the_resident_logs_a_fixed_code() {
             .env("XDG_RUNTIME_DIR", &runtime)
             .stdin(Stdio::piped()),
         include_bytes!("fixtures/stop.json"),
-        std::time::Duration::from_secs(3),
+        support::START_BOUND,
     )
     .unwrap();
     assert!(result.status.success());

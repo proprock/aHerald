@@ -549,6 +549,13 @@ P2 tasks run in the listed order; AH-266 goes last.
   the evidence; the threshold is not loosened without a measured baseline.
 
 - [ ] **AH-289 — Program starts in tests have a 3 s bound that a loaded full run can exceed.**
+  Status (2026-11-06): the bound is now `support::START_BOUND` (30 s), used by the 11 calls that run a
+  program under `run_bounded*`/`capture_bounded` (`hook_log`, `config_portable`, `hooks`, `claude_hooks`,
+  `external_notify`, `statusline`, `hook_lifecycle`, `process_wait`); `wait_until` polls and the speed
+  assertions keep 3 s. The failure was not reproduced before the change: on Linux with 4 to 24 CPU hogs
+  pinned to 2 to 4 cores, 0 of 155 runs of six of these binaries and 0 failures in 3 full workspace runs
+  (noisy tests skipped) failed. So the change is not proven to be the fix. Left: watch the CI and nightly runs;
+  close when a week of runs shows no start-bound failure, or reopen with the exact message if one appears.
   Seen twice in a full workspace run on a busy 12-core Linux machine: `config_portable` once and
   `hook_log::a_hook_input_that_is_not_json_or_is_too_large_is_logged_by_code_only` once failed on
   `run_bounded_with_input(..., Duration::from_secs(3))` and passed alone 3 of 3. About 45 call sites in
