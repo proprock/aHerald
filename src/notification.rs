@@ -1,7 +1,7 @@
 use crate::{config::Config, events::Event};
 
 #[cfg(windows)]
-#[path = "overlay.rs"]
+#[path = "windows/overlay.rs"]
 pub(crate) mod overlay;
 /// A failed interactive startup has no resident sink. Show only its diagnostic card (`text`,
 /// from `notice::startup_failure_text` or `run_failure_text`), without a display-child

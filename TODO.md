@@ -82,7 +82,7 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
 
 - [ ] **AH-221 — Flaky native memory-growth test on the Windows runner.**
   `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
-  (src/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
+  (src/windows/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
   (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
   the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
   it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
@@ -248,7 +248,7 @@ shared development-profile and artwork performance changes need no separate port
 - [ ] **AH-267 — Codex session names off by default (`[codex] session_names`).**
   Today the resident always asks the user's own `codex app-server` for the thread name of every
   Codex card (`session_source::Service::codex()` or `::shared(usage.names())`, chosen in
-  `src/resident_overlay.rs:1171-1175`, `src/mac/resident.rs:1192-1196` and
+  `src/windows/resident_overlay.rs:1171-1175`, `src/mac/resident.rs:1192-1196` and
   `src/linux/resident.rs:273-281`). Only transient mode has a switch (`[codex] transient_names`,
   default false). Agreed 2026-11-05: add `[codex] session_names` (default **false**), the one switch
   for Codex name lookups.
@@ -454,7 +454,7 @@ P2 tasks run in the listed order; AH-266 goes last.
   Left: (1) a manual check on a Mac with only `[claude.usage] enabled = true`: the tray icon and tooltip
   update while idle (record the macOS version); (2) the better variant: subscribe the macOS resident to
   `usage.on_change` / `claude.on_change` with the existing `Waker` (as Windows does at
-  `src/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
+  `src/windows/resident_overlay.rs:1298-1300`) so the 1 s wake-up can go. Then move this task to DONE.md.
 
 ### P1 — consistency, CI and the release pipeline
 
@@ -524,15 +524,13 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ### P2 — structural refactoring of the residents (in this order)
 
-- [ ] **AH-266 — Windows modules into `src/windows/`; fewer test binaries.**
-  Depends on AH-257…AH-263 being merged (to avoid conflicts). `git mv` the Windows-only root modules into
-  `src/windows/` (`#[path]` wiring in `lib.rs` as for `unix/`), make the 7 unused `pub mod`s `pub(crate)`, and
-  group the `lib.rs` declarations. Merge the ~45 public-API-only integration tests into `tests/api/main.rs`
-  (one module per former file). Simplify `.github/platform-flags.sh` to `src/windows/*`, `src/linux/*`,
-  `src/mac/*`, `src/unix/*` and add a self-check to `tests/ci_platform_flags.sh`: every `tests/*.rs` with a file-level `#![cfg(windows)]`
-  (or unix, linux, macos) classifies to exactly that platform, and vice versa.
-  Acceptance: measure `cargo test --no-run` wall time on Linux before and after (record both); all CI legs and
-  the nightly run pass.
+- [ ] **AH-266 — Merge the public-API integration tests into one binary.**
+  The `src/windows/` move, the grouped `lib.rs` declarations, `pub(crate)` for the modules nothing outside the
+  crate uses and the platform-flags self-check are done (see `DONE.md`, AH-266 part 1). What is left: merge the
+  ~45 public-API-only integration tests into `tests/api/main.rs` (one module per former file) so `cargo test
+  --no-run` links fewer binaries. Compare `cargo test --locked --workspace --no-run` after `cargo clean -p
+  aherald` with the 27.3 s recorded on Linux before part 1 (the move itself changes nothing for it). Acceptance:
+  both times recorded, all CI legs and the nightly run pass, no test lost (count of tests equal before and after).
 
 ## Milestone 13 — Messenger notifications (2026-11-06)
 
@@ -591,7 +589,7 @@ P2 tasks run in the listed order; AH-266 goes last.
   check marks following the switches. Acceptance: one line per OS with the OS version in `DONE.md`.
 
 - [ ] **AH-287 — Windows and macOS prepare artwork through `ArtworkWorker`.**
-  Depends on AH-262. `src/resident_overlay.rs` and `src/mac/resident.rs` each carry their own copy of the
+  Depends on AH-262. `src/windows/resident_overlay.rs` and `src/mac/resident.rs` each carry their own copy of the
   artwork worker thread (job and result channels, `AssetCache`, a 30 ms `recv_timeout` poll). Replace both with
   `artwork_worker::ArtworkWorker`, which blocks while idle (no periodic wake-up) and wakes the loop when a result
   is ready. Acceptance: the copies are gone, the card still waits at most `ART_WAIT_MS` for artwork, the Windows

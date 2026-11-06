@@ -89,7 +89,7 @@ pub enum Response {
     },
 }
 #[cfg(windows)]
-#[path = "pipe.rs"]
+#[path = "windows/pipe.rs"]
 pub mod pipe;
 #[cfg(unix)]
 #[path = "unix/pipe.rs"]

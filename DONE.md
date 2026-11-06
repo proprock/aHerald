@@ -37,6 +37,23 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `the_status_line_wraps_…`. No separate red phase was observed for them.
   Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
 
+- [x] **AH-266 (part 1) — Windows modules into `src/windows/`; platform flags.**
+  The 13 Windows-only root modules (`console_window`, `detached`, `https`, `local`, `overlay`, `pipe`,
+  `process_stats`, `resident`, `resident_overlay`, `restart`, `shell`, `tray`, `tray_native_tests`) and
+  `audio_windows` (now `windows/audio.rs`) moved with `git mv` to `src/windows/`, wired by `#[path]` like
+  `src/unix/`. `lib.rs` declares the platform-independent modules alphabetically, then the OS twins side by
+  side (Windows first), then the OS-only modules, then the `pub use` of the current OS's resident. `artwork_worker`
+  stays public until AH-287; `command_sink`, `resident_runtime`, `template`, `webhook` and `shell` became
+  `pub(crate)` (no target outside the crate uses them; compiled for all targets on Linux and for Windows with the
+  lint; the Windows-only and macOS modules were left alone because Linux cannot show their users).
+  `.github/platform-flags.sh` maps `src/windows/*`, `src/unix/*`, `src/linux/*`, `src/mac/*` by directory, and
+  `tests/ci_platform_flags.sh` now checks every `tests/*.rs` against its own file-level `#![cfg]` and that the
+  script names no missing test file; that found `tests/aherald_cli.rs` (Windows only) and
+  `tests/forward_command.rs` and `tests/remote_listener.rs` (Unix only), which selected every platform, and the
+  gate `not(windows)` the check had to learn. Evidence: fmt, clippy, workspace tests and doctests, the
+  platform-flags contract **ran locally** on Linux; Windows clippy lint **ran locally**; Windows tests and macOS
+  **compiled/tested in CI only**. The test-merge part stays open as AH-266.
+
 - [x] **AH-262 — Linux resident as a `Ui` struct.**
   The ~600-line `present` of `src/linux/resident.rs` is now `struct Ui` with `new`, `run` and small methods:
   `refresh_usage_tray`, `handle_commands`/`execute`/`toggle_usage_card`, `handle_pointer` (`press_carousel`,
