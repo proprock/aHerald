@@ -1321,3 +1321,187 @@ fn parallel_fixture_copies_and_launches_never_meet_a_busy_executable() {
         worker.join().unwrap();
     }
 }
+
+/// The hook entries of one event, whatever group they sit in.
+fn handlers(settings: &Value, event: &str) -> Vec<Value> {
+    settings["hooks"][event]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group["hooks"].as_array().cloned().unwrap_or_default())
+        .collect()
+}
+
+#[test]
+fn hooks_of_one_harness_are_installed_and_removed_through_the_receipt() {
+    let app = Install::new("one-harness");
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--harness",
+        "codex",
+        "--apply",
+    ]);
+    app.ok(&["--uninstall-hooks", "codex", "--apply"]);
+    assert!(!app.file("codex").exists() || handlers(&app.read("codex"), "Stop").is_empty());
+    let claude = app.read("claude");
+    assert_eq!(handlers(&claude, "Stop").len(), 1, "Claude keeps its hook");
+    assert_eq!(handlers(&claude, "Stop")[0]["command"], json!(app.exe));
+    // The receipt still knows Claude, so a full unsetup finds and removes it.
+    app.ok(&["--unsetup", "--apply"]);
+    assert!(handlers(&app.read("claude"), "Stop").is_empty());
+    // And a single harness can come back without touching the other.
+    app.ok(&["--install-hooks", "codex", "--apply"]);
+    assert_eq!(handlers(&app.read("codex"), "Stop").len(), 1);
+    assert!(handlers(&app.read("claude"), "Stop").is_empty());
+}
+
+#[test]
+fn hooks_default_to_the_agents_own_directory_and_take_a_relative_file() {
+    let app = Install::new("hook-file");
+    app.ok(&["--install-hooks", "claude", "--apply"]);
+    assert_eq!(handlers(&app.read("claude"), "Stop").len(), 1);
+    assert!(
+        !app.file("codex").exists(),
+        "the other harness stays untouched"
+    );
+    let output = Command::new(&app.exe)
+        .current_dir(&app.root)
+        .args([
+            "--install-hooks",
+            "codex",
+            "--apply",
+            "--hooks-file",
+            "relative.json",
+        ])
+        .env("CODEX_HOME", app.root.join("codex"))
+        .env("CLAUDE_CONFIG_DIR", app.root.join("claude"))
+        .bounded_output();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(app.root.join("relative.json").is_file());
+    assert!(!app.file("codex").exists());
+}
+
+#[test]
+fn an_entry_of_the_old_install_command_is_replaced_once_and_removed_cleanly() {
+    let app = Install::new("migration");
+    let old = |command: &str| {
+        json!({"hooks": {"Stop": [{"hooks": [
+            {"type":"command", "command": command, "timeout":3},
+            {"type":"command", "command": "echo mine"}
+        ]}]}})
+    };
+    let own = aherald::hook_setup::command_for(&app.exe, aherald::agent::Agent::Claude, false);
+    let other = "'/opt/other-aherald/aherald' --hook --agent claude --resident";
+    for command in [own.as_str(), other] {
+        std::fs::create_dir_all(app.file("claude").parent().unwrap()).unwrap();
+        std::fs::write(app.file("claude"), old(command).to_string()).unwrap();
+        app.ok(&["--install-hooks", "claude", "--apply"]);
+        let stop = handlers(&app.read("claude"), "Stop");
+        assert_eq!(
+            stop.len(),
+            2,
+            "{command}: replaced, not duplicated: {stop:?}"
+        );
+        assert!(
+            stop.iter()
+                .any(|h| h["command"] == json!(app.exe) && h["args"].is_array())
+        );
+        assert!(stop.iter().any(|h| h["command"] == "echo mine"));
+    }
+    // An old entry of this executable has no receipt record but is still removed.
+    std::fs::write(app.file("claude"), old(&own).to_string()).unwrap();
+    std::fs::remove_file(app.exe.with_file_name("aherald-setup.json")).ok();
+    app.ok(&["--uninstall-hooks", "claude", "--apply"]);
+    let stop = handlers(&app.read("claude"), "Stop");
+    assert_eq!(stop.len(), 1, "{stop:?}");
+    assert_eq!(stop[0]["command"], "echo mine");
+    // The same removal leaves another installation's old entry alone.
+    std::fs::write(app.file("claude"), old(other).to_string()).unwrap();
+    app.ok(&["--uninstall-hooks", "claude", "--apply"]);
+    assert_eq!(handlers(&app.read("claude"), "Stop").len(), 2);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn a_status_line_of_the_old_install_command_keeps_the_users_own_command() {
+    let app = Install::new("old-statusline");
+    let file = app.file("claude");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let base = aherald::hook_setup::statusline_command(&app.exe);
+    let wrapped = json!({"statusLine": {"type":"command", "command": format!("{base} --then '~/bar.sh --x'"), "padding": 1}});
+    std::fs::write(&file, wrapped.to_string()).unwrap();
+    app.ok(&["--install-statusline", "--apply"]);
+    let line = app.read("claude")["statusLine"].clone();
+    assert!(
+        line["command"].as_str().unwrap().contains("~/bar.sh --x"),
+        "{line}"
+    );
+    app.ok(&["--uninstall-statusline", "--apply"]);
+    assert_eq!(
+        app.read("claude")["statusLine"],
+        json!({"type":"command", "command": "~/bar.sh --x", "padding": 1})
+    );
+}
+
+#[test]
+fn a_dry_run_changes_nothing_and_an_applied_install_is_repeatable() {
+    let app = Install::new("hooks-dry");
+    let file = app.root.join("custom.json");
+    std::fs::write(&file, r#"{"theme":"dark"}"#).unwrap();
+    let hooks = |extra: &[&str]| {
+        let mut args = vec![
+            "--install-hooks",
+            "claude",
+            "--hooks-file",
+            file.to_str().unwrap(),
+        ];
+        args.extend_from_slice(extra);
+        String::from_utf8_lossy(&app.ok(&args).stdout).into_owned()
+    };
+    assert!(hooks(&[]).contains("Dry run"));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        r#"{"theme":"dark"}"#
+    );
+    assert!(
+        !app.root.join("aherald-setup.json").exists(),
+        "a dry run writes no receipt"
+    );
+    hooks(&["--apply"]);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("\"theme\"") && text.contains("\"--hook\""),
+        "{text}"
+    );
+    assert!(hooks(&["--apply"]).contains("Nothing to change"));
+}
+
+#[cfg(not(windows))]
+#[test]
+fn the_status_line_wraps_an_existing_command_and_restores_it_exactly() {
+    let app = Install::new("statusline-wrap");
+    let file = app.root.join("settings.json");
+    let original = r#"{"statusLine":{"type":"command","command":"my-bar --x"},"theme":"dark"}"#;
+    std::fs::write(&file, original).unwrap();
+    let run = |op: &str, extra: &[&str]| {
+        let mut args = vec![op, "--hooks-file", file.to_str().unwrap()];
+        args.extend_from_slice(extra);
+        String::from_utf8_lossy(&app.ok(&args).stdout).into_owned()
+    };
+    assert!(run("--install-statusline", &[]).contains("Dry run"));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+    run("--install-statusline", &["--apply"]);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("--statusline --then 'my-bar --x'"), "{text}");
+    run("--uninstall-statusline", &["--apply"]);
+    assert_eq!(
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&file).unwrap()).unwrap(),
+        serde_json::from_str::<Value>(original).unwrap()
+    );
+}

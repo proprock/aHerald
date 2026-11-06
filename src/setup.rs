@@ -174,23 +174,19 @@ fn commit_changes(changes: &[Change]) -> Result<(), String> {
     Ok(())
 }
 
-/// `--install-statusline` and `--uninstall-statusline` on Windows: the status line wrapper
-/// alone, without hooks. The user's own command lives in the same setup receipt as for
-/// `--setup` (AH-211), so the receipt, not the command line, is how it is found and restored.
-/// A later `--setup` that does not want the wrapper removes it, as it does its own.
-pub fn run_statusline_only(
-    exe: &Path,
-    selected: Option<&Path>,
-    remove: bool,
-    apply: bool,
-) -> Result<String, String> {
-    if !exe.is_absolute() {
-        return Err("setup executable path must be absolute".into());
-    }
-    let receipt_file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
+/// The setup receipt as read from disk (or a new empty one) with its location and exact text,
+/// which the later write compares against.
+struct Loaded {
+    file: PathBuf,
+    before: Option<String>,
+    receipt: Receipt,
+}
+
+fn load_receipt(exe: &Path) -> Result<Loaded, String> {
+    let file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
         .join("aherald-setup.json");
-    let receipt_before = read(&receipt_file)?;
-    let previous: Receipt = match receipt_before.as_deref() {
+    let before = read(&file)?;
+    let receipt: Receipt = match before.as_deref() {
         Some(text) => serde_json::from_str(text)
             .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?,
         None => Receipt {
@@ -201,9 +197,75 @@ pub fn run_statusline_only(
             statusline: None,
         },
     };
-    if previous.version != 1 {
+    if receipt.version != 1 {
         return Err("unsupported aHerald setup receipt version".into());
     }
+    Ok(Loaded {
+        file,
+        before,
+        receipt,
+    })
+}
+
+/// Queues the receipt write, unless it is unchanged or an uninstall never had a receipt.
+fn push_receipt(
+    changes: &mut Vec<Change>,
+    file: PathBuf,
+    before: Option<String>,
+    new: &Receipt,
+    remove: bool,
+) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(new).map_err(|_| "cannot encode setup receipt")? + "\n";
+    if (!remove || before.is_some()) && before.as_deref() != Some(&text) {
+        changes.push(Change {
+            file,
+            before,
+            after: text,
+            remove: false,
+        });
+    }
+    Ok(())
+}
+
+/// Dry-run report or committed write, shared by the narrow operations.
+fn finish(
+    changes: &[Change],
+    apply: bool,
+    mut report: String,
+    done: &str,
+) -> Result<String, String> {
+    if changes.is_empty() {
+        report.push_str("Nothing to change.\n");
+        return Ok(report);
+    }
+    if !apply {
+        report
+            .push_str("Dry run: nothing was written. Run again with --apply to write the files.\n");
+        return Ok(report);
+    }
+    commit_changes(changes)?;
+    report.push_str(done);
+    Ok(report)
+}
+
+/// `--install-statusline` and `--uninstall-statusline`: the status line wrapper alone, without
+/// hooks. The user's own command lives in the same setup receipt as for `--setup` (AH-211), so
+/// the receipt, not the command line, is how it is found and restored. A later `--setup` that
+/// does not want the wrapper removes it, as it does its own.
+pub fn run_statusline_only(
+    exe: &Path,
+    selected: Option<&Path>,
+    remove: bool,
+    apply: bool,
+) -> Result<String, String> {
+    if !exe.is_absolute() {
+        return Err("setup executable path must be absolute".into());
+    }
+    let Loaded {
+        file: receipt_file,
+        before: receipt_before,
+        receipt: previous,
+    } = load_receipt(exe)?;
     if previous.executable != exe {
         return Err(
             "another executable owns this setup receipt; run it from that installation".into(),
@@ -222,6 +284,10 @@ pub fn run_statusline_only(
         statusline: previous_statusline,
         ..
     } = previous;
+    let previous_statusline = match previous_statusline {
+        Some(binding) => Some(binding),
+        None => legacy_statusline(exe, &file)?,
+    };
     let mut changes = Vec::new();
     let mut report = String::new();
     let statusline = statusline_plan(
@@ -231,36 +297,20 @@ pub fn run_statusline_only(
         &mut changes,
         &mut report,
     )?;
-    let receipt = serde_json::to_string_pretty(&Receipt {
+    let receipt = Receipt {
         version: 1,
         executable: exe.to_path_buf(),
         bindings,
         bridges,
         statusline,
-    })
-    .map_err(|_| "cannot encode setup receipt")?
-        + "\n";
-    // No receipt is created for an uninstall that has never been installed.
-    if (!remove || receipt_before.is_some()) && receipt_before.as_deref() != Some(&receipt) {
-        changes.push(Change {
-            file: receipt_file,
-            before: receipt_before,
-            after: receipt,
-            remove: false,
-        });
-    }
-    if changes.is_empty() {
-        report.push_str("Nothing to change.\n");
-        return Ok(report);
-    }
-    if !apply {
-        report
-            .push_str("Dry run: nothing was written. Run again with --apply to write the files.\n");
-        return Ok(report);
-    }
-    commit_changes(&changes)?;
-    report.push_str("Done. Changed existing files were backed up as *.aherald-backup.\n");
-    Ok(report)
+    };
+    push_receipt(&mut changes, receipt_file, receipt_before, &receipt, remove)?;
+    finish(
+        &changes,
+        apply,
+        report,
+        "Done. Changed existing files were backed up as *.aherald-backup.\n",
+    )
 }
 
 /// Whether two paths name the same executable. The relay script starts `aherald.exe` through
@@ -521,10 +571,21 @@ fn read(file: &Path) -> Result<Option<String>, String> {
     }
 }
 
+/// An entry of the pre-receipt `--install-hooks`: a shell string that runs some aHerald with
+/// `--hook`. Only an explicit `--install-hooks` adopts it (AH-265).
+fn legacy_shell_entry(hook: &Value) -> bool {
+    hook.get("args").is_none()
+        && hook["command"].as_str().is_some_and(|command| {
+            let command = command.to_ascii_lowercase();
+            command.contains("aherald") && command.contains("--hook")
+        })
+}
+
 fn add_plan(
     binding: &Binding,
     exe: &Path,
     action: Action,
+    adopt_legacy: bool,
     changes: &mut Vec<Change>,
     report: &mut String,
 ) -> Result<(), String> {
@@ -542,11 +603,9 @@ fn add_plan(
         text,
         changes: descriptions,
     } = hook_setup::plan_handler(existing, agent, &binding.handler, action, |h| {
-        if action == Action::Install {
-            same_execution(h, &binding.handler) || generated_handler(h, exe, agent)
-        } else {
-            same_execution(h, &binding.handler)
-        }
+        same_execution(h, &binding.handler)
+            || generated_handler(h, exe, agent)
+            || (adopt_legacy && action == Action::Install && legacy_shell_entry(h))
     })
     .map_err(|e| format!("{}: {e}", binding.file.display()))?;
     report.push_str(&format!("{}: {}\n", agent.label(), binding.file.display()));
@@ -983,6 +1042,145 @@ fn quote_windows_argument(text: &str) -> String {
     quoted
 }
 
+/// `--install-hooks AGENT` and `--uninstall-hooks AGENT`: the hooks of one harness through the
+/// setup backend (receipt, exact matching, rollback, exec form), leaving the other harnesses,
+/// the bridges and the status line as `--setup` recorded them. `selected` overrides the file.
+/// Entries of the older shell-string form are adopted on install and removed on uninstall when
+/// they name this executable.
+pub fn run_hooks_only(
+    exe: &Path,
+    agent: Agent,
+    selected: Option<&Path>,
+    remove: bool,
+    apply: bool,
+) -> Result<String, String> {
+    if !exe.is_absolute() {
+        return Err("setup executable path must be absolute".into());
+    }
+    let Loaded {
+        file: receipt_file,
+        before: receipt_before,
+        receipt: previous,
+    } = load_receipt(exe)?;
+    if previous.executable != exe {
+        return Err(
+            "another executable owns this setup receipt; run it from that installation".into(),
+        );
+    }
+    let file = match selected {
+        Some(file) => file.to_path_buf(),
+        None => file_for(agent)?,
+    };
+    if !file.is_absolute() {
+        return Err("hook file path must be absolute".into());
+    }
+    let wanted = Binding {
+        agent: agent.key().into(),
+        file,
+        handler: handler(exe, agent),
+    };
+    let Receipt {
+        bindings,
+        bridges,
+        statusline,
+        ..
+    } = previous;
+    let (earlier, others): (Vec<_>, Vec<_>) =
+        bindings.into_iter().partition(|b| b.agent == agent.key());
+    let (mut changes, mut report) = (Vec::new(), String::new());
+    for old in earlier
+        .iter()
+        .filter(|b| remove || b.file != wanted.file || !same_execution(&b.handler, &wanted.handler))
+    {
+        add_plan(
+            old,
+            exe,
+            Action::Uninstall,
+            false,
+            &mut changes,
+            &mut report,
+        )?;
+    }
+    // With no record (or another file) the entries of this executable are still found by shape.
+    if remove && !earlier.iter().any(|b| b.file == wanted.file) {
+        add_plan(
+            &wanted,
+            exe,
+            Action::Uninstall,
+            false,
+            &mut changes,
+            &mut report,
+        )?;
+    }
+    let mut bindings = others;
+    if !remove {
+        add_plan(
+            &wanted,
+            exe,
+            Action::Install,
+            true,
+            &mut changes,
+            &mut report,
+        )?;
+        bindings.push(wanted);
+    }
+    let receipt = Receipt {
+        version: 1,
+        executable: exe.to_path_buf(),
+        bindings,
+        bridges,
+        statusline,
+    };
+    push_receipt(&mut changes, receipt_file, receipt_before, &receipt, remove)?;
+    let mut done =
+        String::from("Done. Changed existing files were backed up as *.aherald-backup.\n");
+    if !remove && agent == Agent::Codex {
+        done.push_str("Start a new Codex session, open /hooks and trust the aHerald hooks.\n");
+    }
+    finish(&changes, apply, report, &done)
+}
+
+/// A wrapper that the pre-receipt `--install-statusline` wrote (`'<exe>' --statusline [--then
+/// '<original>']`) has no receipt entry; the binding it would have had is rebuilt from the
+/// file so the user's own command is kept and restored.
+#[cfg(not(windows))]
+fn legacy_statusline(exe: &Path, file: &Path) -> Result<Option<StatusLineBinding>, String> {
+    let Some(text) = read(file)? else {
+        return Ok(None);
+    };
+    let Ok(root) = serde_json::from_str::<Value>(&text) else {
+        return Ok(None);
+    };
+    let installed = root["statusLine"].clone();
+    let Some(command) = installed["command"].as_str() else {
+        return Ok(None);
+    };
+    let base = hook_setup::statusline_command(exe);
+    if command != base && !command.starts_with(&format!("{base} --then ")) {
+        return Ok(None);
+    }
+    let original = match hook_setup::wrapped(command) {
+        Some(Some(inner)) => {
+            let mut value = installed.clone();
+            value["command"] = inner.into();
+            Some(value)
+        }
+        Some(None) => None,
+        None => return Ok(None),
+    };
+    Ok(Some(StatusLineBinding {
+        file: file.to_path_buf(),
+        installed,
+        original,
+        script: None,
+    }))
+}
+
+#[cfg(windows)]
+fn legacy_statusline(_: &Path, _: &Path) -> Result<Option<StatusLineBinding>, String> {
+    Ok(None)
+}
+
 /// Preflight every selected file before writing. The receipt records paths and exact
 /// execution definitions so uninstall does not depend on today's environment or PATH.
 pub fn run(exe: &Path, harnesses: &[Agent], remove: bool, apply: bool) -> Result<String, String> {
@@ -1000,23 +1198,11 @@ pub fn run_with_options(
     if !exe.is_absolute() {
         return Err("setup executable path must be absolute".into());
     }
-    let receipt_file = crate::paths::receipt_dir_with(exe, |key| std::env::var_os(key))?
-        .join("aherald-setup.json");
-    let receipt_before = read(&receipt_file)?;
-    let previous: Receipt = match receipt_before.as_deref() {
-        Some(text) => serde_json::from_str(text)
-            .map_err(|_| "invalid aHerald setup receipt; nothing was changed")?,
-        None => Receipt {
-            version: 1,
-            executable: exe.to_path_buf(),
-            bindings: Vec::new(),
-            bridges: Vec::new(),
-            statusline: None,
-        },
-    };
-    if previous.version != 1 {
-        return Err("unsupported aHerald setup receipt version".into());
-    }
+    let Loaded {
+        file: receipt_file,
+        before: receipt_before,
+        receipt: previous,
+    } = load_receipt(exe)?;
     if remove && previous.executable != exe {
         return Err(
             "another executable owns this setup receipt; run --unsetup from that installation"
@@ -1049,11 +1235,25 @@ pub fn run_with_options(
         if !bindings.iter().any(|b| {
             b.agent == old.agent && b.file == old.file && same_execution(&b.handler, &old.handler)
         }) {
-            add_plan(old, exe, Action::Uninstall, &mut changes, &mut report)?;
+            add_plan(
+                old,
+                exe,
+                Action::Uninstall,
+                false,
+                &mut changes,
+                &mut report,
+            )?;
         }
     }
     for binding in &bindings {
-        add_plan(binding, exe, Action::Install, &mut changes, &mut report)?;
+        add_plan(
+            binding,
+            exe,
+            Action::Install,
+            false,
+            &mut changes,
+            &mut report,
+        )?;
     }
     let bridges = bridge_plan(
         exe,
@@ -1090,24 +1290,14 @@ pub fn run_with_options(
         &mut changes,
         &mut report,
     )?;
-    let receipt = serde_json::to_string_pretty(&Receipt {
+    let receipt = Receipt {
         version: 1,
         executable: exe.to_path_buf(),
         bindings,
         bridges,
         statusline,
-    })
-    .map_err(|_| "cannot encode setup receipt")?
-        + "\n";
-    // No receipt is created for an uninstall that has never been installed.
-    if (!remove || receipt_before.is_some()) && receipt_before.as_deref() != Some(&receipt) {
-        changes.push(Change {
-            file: receipt_file,
-            before: receipt_before,
-            after: receipt,
-            remove: false,
-        });
-    }
+    };
+    push_receipt(&mut changes, receipt_file, receipt_before, &receipt, remove)?;
     if !apply {
         report
             .push_str("Dry run: nothing was written. Run again with --apply to write the files.\n");

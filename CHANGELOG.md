@@ -11,6 +11,13 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- `--install-hooks`, `--uninstall-hooks`, `--install-statusline` and `--uninstall-statusline` now go through the
+  same setup backend as `--setup` on every system: they write a receipt, change only the named harness,
+  write hooks in the exec form and roll back a failed write. Entries written by the older command are
+  replaced once; `--uninstall-hooks` removes only entries of the running executable, no longer another
+  installation's (AH-265).
+- `aherald` parses its internal child modes in the command-line parser and runs each operation in its own
+  function; no change for users (AH-264).
 - The Linux resident no longer wakes 60 times a second while idle: the loop sleeps until an X11 event, a
   request, a tray command or new usage numbers arrive (AH-231).
 - `aherald --help` is grouped by purpose and lists every public flag, including `--notify`, `--kind`,

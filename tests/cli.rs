@@ -46,12 +46,9 @@ fn raw_output_names_a_source_and_for_usage_exactly_one_harness() {
 
 #[test]
 fn demo_accepts_default_and_custom_pause_and_rejects_conflicts() {
-    use aherald::cli::Cli;
+    use aherald::cli::{Cli, Operation};
     let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
-    assert_eq!(
-        parse(&["--demo"]).unwrap().operation.as_deref(),
-        Some("demo")
-    );
+    assert_eq!(parse(&["--demo"]).unwrap().operation, Some(Operation::Demo));
     assert!(parse(&["--demo", "3", "--config", "example.toml"]).is_ok());
     assert_eq!(parse(&["--demo"]).unwrap().demo_pause_sec, Some(3));
     assert_eq!(parse(&["--demo", "7"]).unwrap().demo_pause_sec, Some(7));
@@ -93,11 +90,11 @@ fn version_prints_the_crate_version_and_needs_no_configuration() {
 
 #[test]
 fn version_conflicts_with_other_operations_and_modes() {
-    use aherald::cli::Cli;
+    use aherald::cli::{Cli, Operation};
     let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
     assert_eq!(
-        parse(&["--version"]).unwrap().operation.as_deref(),
-        Some("version")
+        parse(&["--version"]).unwrap().operation,
+        Some(Operation::Version)
     );
     for args in [
         vec!["--version", "--help"],
@@ -168,11 +165,11 @@ fn perf_report_prints_the_ranked_table_from_the_log_beside_the_configuration() {
 
 #[test]
 fn setup_window_stands_alone_and_rejects_other_options() {
-    use aherald::cli::Cli;
+    use aherald::cli::{Cli, Operation};
     let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
     assert_eq!(
-        parse(&["--setup-window"]).unwrap().operation.as_deref(),
-        Some("setup-window")
+        parse(&["--setup-window"]).unwrap().operation,
+        Some(Operation::SetupWindow)
     );
     for args in [
         vec!["--setup-window", "--apply"],
@@ -186,11 +183,11 @@ fn setup_window_stands_alone_and_rejects_other_options() {
 
 #[test]
 fn notify_names_a_harness_and_an_existing_event_kind() {
-    use aherald::cli::Cli;
+    use aherald::cli::{Cli, Operation};
     use aherald::events::Kind;
     let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
     let cli = parse(&["--notify", "opencode", "--kind", "turn_complete"]).unwrap();
-    assert_eq!(cli.operation.as_deref(), Some("notify"));
+    assert_eq!(cli.operation, Some(Operation::Notify));
     assert_eq!(cli.notify.as_deref(), Some("opencode"));
     assert_eq!(cli.kind, Some(Kind::TurnComplete));
     assert!(!cli.activity && !cli.ended);
@@ -249,5 +246,60 @@ fn notify_rejects_unknown_kinds_reserved_keys_and_misplaced_options() {
         vec!["--notify"],
     ] {
         assert!(parse(&args).is_err(), "{args:?} must be rejected");
+    }
+}
+
+#[test]
+fn the_internal_child_modes_are_parsed_by_the_cli() {
+    use aherald::cli::{Cli, Operation};
+    let parse = |args: &[&str]| Cli::parse(args.iter().map(|s| s.to_string()));
+    let cli = parse(&["--resident-child", "resident", "--config", "c.toml"]).unwrap();
+    assert_eq!(cli.operation, Some(Operation::ResidentChild));
+    assert_eq!(cli.child_scope.as_deref(), Some("resident"));
+    assert_eq!(cli.config, Some("c.toml".into()));
+    let cli = parse(&["--display-child", "--config", "c.toml"]).unwrap();
+    assert_eq!(cli.operation, Some(Operation::DisplayChild));
+    assert_eq!(cli.config, Some("c.toml".into()));
+    // A restart waits for its parent, then continues as the command that follows.
+    let cli = parse(&["--restart-child", "42", "--test-after-apply", "--resident"]).unwrap();
+    assert_eq!((cli.restart_parent, cli.test_after_apply), (Some(42), true));
+    assert_eq!(cli.operation, None);
+    assert!(!cli.no_arguments);
+    let cli = parse(&["--restart-child", "42"]).unwrap();
+    assert_eq!(
+        (cli.restart_parent, cli.test_after_apply),
+        (Some(42), false)
+    );
+    assert!(cli.no_arguments, "nothing follows the restart prefix");
+    assert!(parse(&[]).unwrap().no_arguments);
+    for bad in [
+        vec!["--resident-child"],
+        vec!["--resident-child", "resident"],
+        vec!["--resident-child", "resident", "--config"],
+        vec!["--resident-child", "resident", "--other", "x"],
+        vec![
+            "--resident-child",
+            "resident",
+            "--config",
+            "c.toml",
+            "--resident",
+        ],
+        vec!["--display-child"],
+        vec!["--display-child", "--other", "x"],
+        vec!["--display-child", "--config", "c.toml", "extra"],
+        vec!["--restart-child"],
+        vec!["--restart-child", "not-a-pid"],
+        // Only the first argument can open a child mode.
+        vec![
+            "--hook",
+            "--resident-child",
+            "resident",
+            "--config",
+            "c.toml",
+        ],
+        vec!["--hook", "--restart-child", "42"],
+        vec!["--test-after-apply"],
+    ] {
+        assert!(parse(&bad).is_err(), "{bad:?}");
     }
 }

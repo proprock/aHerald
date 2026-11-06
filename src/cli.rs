@@ -1,9 +1,72 @@
 use crate::{agent::Agent, config::Mode};
 use std::path::PathBuf;
 
+/// What the command line asks for. No operation means "run": start the resident or, with
+/// `--transient`, show one card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Operation {
+    Demo,
+    SetupSettings,
+    ConsoleSetup,
+    SetupWindow,
+    Setup,
+    Unsetup,
+    Hook,
+    Status,
+    RemoteInfo,
+    Quit,
+    Help,
+    Version,
+    PerfReport,
+    Statusline,
+    InstallStatusline,
+    UninstallStatusline,
+    Notify,
+    Event,
+    InstallHooks,
+    UninstallHooks,
+    RawOutput,
+    /// Internal: the resident process that a launcher started (`--resident-child SCOPE --config PATH`).
+    ResidentChild,
+    /// Internal: the process that shows one card (`--display-child --config PATH`, event on stdin).
+    DisplayChild,
+}
+
+impl Operation {
+    /// The operation a plain `--flag` names; the flags that carry values are parsed in `Cli::parse`.
+    fn from_flag(flag: &str) -> Option<Self> {
+        Some(match flag {
+            "--setup-settings" => Self::SetupSettings,
+            "--console-setup" => Self::ConsoleSetup,
+            "--setup-window" => Self::SetupWindow,
+            "--setup" => Self::Setup,
+            "--unsetup" => Self::Unsetup,
+            "--hook" => Self::Hook,
+            "--status" => Self::Status,
+            "--remote-info" => Self::RemoteInfo,
+            "--quit" => Self::Quit,
+            "--help" => Self::Help,
+            "--version" => Self::Version,
+            "--perf-report" => Self::PerfReport,
+            "--statusline" => Self::Statusline,
+            "--install-statusline" => Self::InstallStatusline,
+            "--uninstall-statusline" => Self::UninstallStatusline,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cli {
-    pub operation: Option<String>,
+    pub operation: Option<Operation>,
+    /// Internal: the process that started this one is to be waited for first (`--restart-child PID`).
+    pub restart_parent: Option<u32>,
+    /// Internal: the restarted resident shows its test cards (`--test-after-apply`).
+    pub test_after_apply: bool,
+    /// No argument followed the restart prefix, if there was one: a bare launch.
+    pub no_arguments: bool,
+    /// Internal: the instance scope that `--resident-child` serves.
+    pub child_scope: Option<String>,
     pub mode: Option<Mode>,
     pub event: Option<String>,
     pub config: Option<PathBuf>,
@@ -109,10 +172,56 @@ impl Cli {
         let mut cli = Self::default();
         let mut raw_kind = None;
         let mut args = args.into_iter().peekable();
+        // The re-entry flags of the program's own child processes: only ever the first argument
+        // (a restart prefix, then at most one more), never part of a user's command line.
+        if args.peek().map(String::as_str) == Some("--restart-child") {
+            args.next();
+            let pid = args.next().ok_or("missing restart parent")?;
+            cli.restart_parent = Some(pid.parse().map_err(|_| "invalid restart parent")?);
+            if args.peek().map(String::as_str) == Some("--test-after-apply") {
+                args.next();
+                cli.test_after_apply = true;
+            }
+        }
+        cli.no_arguments = args.peek().is_none();
+        match args.peek().map(String::as_str) {
+            Some("--resident-child") => {
+                let rest: Vec<String> = args.collect();
+                let [_, scope, flag, path] = rest.as_slice() else {
+                    return Err("invalid resident invocation".into());
+                };
+                if flag != "--config" {
+                    return Err("invalid resident invocation".into());
+                }
+                cli.operation = Some(Operation::ResidentChild);
+                cli.child_scope = Some(scope.clone());
+                cli.config = Some(path.into());
+                return Ok(cli);
+            }
+            Some("--display-child") => {
+                let rest: Vec<String> = args.collect();
+                let [_, flag, path] = rest.as_slice() else {
+                    return Err("invalid internal invocation".into());
+                };
+                if flag != "--config" {
+                    return Err("invalid internal invocation".into());
+                }
+                cli.operation = Some(Operation::DisplayChild);
+                cli.config = Some(path.into());
+                return Ok(cli);
+            }
+            _ => {}
+        }
         while let Some(arg) = args.next() {
+            if let Some(operation) = Operation::from_flag(&arg) {
+                if cli.operation.replace(operation).is_some() {
+                    return Err("conflicting explicit operations".into());
+                }
+                continue;
+            }
             match arg.as_str() {
                 "--demo" => {
-                    if cli.operation.replace("demo".into()).is_some() {
+                    if cli.operation.replace(Operation::Demo).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
                     let seconds = if args.peek().is_some_and(|s| !s.starts_with("--")) {
@@ -128,25 +237,6 @@ impl Cli {
                     }
                     cli.demo_pause_sec = Some(seconds);
                 }
-                "--setup-settings"
-                | "--console-setup"
-                | "--setup-window"
-                | "--setup"
-                | "--unsetup"
-                | "--hook"
-                | "--status"
-                | "--remote-info"
-                | "--quit"
-                | "--help"
-                | "--version"
-                | "--perf-report"
-                | "--statusline"
-                | "--install-statusline"
-                | "--uninstall-statusline" => {
-                    if cli.operation.replace(arg[2..].to_owned()).is_some() {
-                        return Err("conflicting explicit operations".into());
-                    }
-                }
                 "--resident" | "--transient" => {
                     let mode = if arg == "--resident" {
                         Mode::Resident
@@ -158,7 +248,7 @@ impl Cli {
                     }
                 }
                 "--notify" => {
-                    if cli.operation.replace("notify".into()).is_some() {
+                    if cli.operation.replace(Operation::Notify).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
                     let key = args.next().ok_or("--notify requires a harness key")?;
@@ -196,7 +286,7 @@ impl Cli {
                     }
                 }
                 "--event" => {
-                    if cli.operation.replace("event".into()).is_some() {
+                    if cli.operation.replace(Operation::Event).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
                     let event = args.next().ok_or("--event requires a value")?;
@@ -206,14 +296,19 @@ impl Cli {
                     cli.event = Some(event);
                 }
                 "--install-hooks" | "--uninstall-hooks" => {
-                    if cli.operation.replace(arg[2..].to_owned()).is_some() {
+                    let operation = if arg == "--install-hooks" {
+                        Operation::InstallHooks
+                    } else {
+                        Operation::UninstallHooks
+                    };
+                    if cli.operation.replace(operation).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
                     let name = args.next().ok_or("--install-hooks requires an agent")?;
                     cli.hooks_agent = Some(Agent::from_name(&name).ok_or("unknown agent")?);
                 }
                 "--raw-output" => {
-                    if cli.operation.replace("raw-output".into()).is_some() {
+                    if cli.operation.replace(Operation::RawOutput).is_some() {
                         return Err("conflicting explicit operations".into());
                     }
                     raw_kind = Some(
@@ -309,34 +404,41 @@ impl Cli {
             }
         }
         if matches!(
-            cli.operation.as_deref(),
-            Some("status" | "quit" | "help" | "version" | "demo" | "remote-info")
+            cli.operation,
+            Some(
+                Operation::Status
+                    | Operation::Quit
+                    | Operation::Help
+                    | Operation::Version
+                    | Operation::Demo
+                    | Operation::RemoteInfo
+            )
         ) && cli.mode.is_some()
         {
             return Err("operation does not accept a mode".into());
         }
         let setup = matches!(
-            cli.operation.as_deref(),
+            cli.operation,
             Some(
-                "setup"
-                    | "unsetup"
-                    | "install-hooks"
-                    | "uninstall-hooks"
-                    | "install-statusline"
-                    | "uninstall-statusline"
+                Operation::Setup
+                    | Operation::Unsetup
+                    | Operation::InstallHooks
+                    | Operation::UninstallHooks
+                    | Operation::InstallStatusline
+                    | Operation::UninstallStatusline
             )
         );
-        let native_setup = matches!(cli.operation.as_deref(), Some("setup" | "unsetup"));
+        let native_setup = matches!(cli.operation, Some(Operation::Setup | Operation::Unsetup));
         let bridges_named = cli.usage.bridges.is_some();
-        if cli.operation.as_deref() == Some("setup") && cli.harnesses.is_empty() && !bridges_named {
+        if cli.operation == Some(Operation::Setup) && cli.harnesses.is_empty() && !bridges_named {
             return Err(
                 "--setup requires at least one --harness codex|claude|opencode|pi|goose".into(),
             );
         }
-        let raw = cli.operation.as_deref() == Some("raw-output");
-        if (bridges_named && cli.operation.as_deref() != Some("setup"))
+        let raw = cli.operation == Some(Operation::RawOutput);
+        if (bridges_named && cli.operation != Some(Operation::Setup))
             || (!cli.harnesses.is_empty()
-                && !matches!(cli.operation.as_deref(), Some("setup" | "raw-output")))
+                && !matches!(cli.operation, Some(Operation::Setup | Operation::RawOutput)))
         {
             return Err("--harness is only valid with --setup or --raw-output".into());
         }
@@ -364,10 +466,10 @@ impl Cli {
                 _ => return Err("--raw-output expects usage or statusline".into()),
             });
         }
-        let settings_read = cli.operation.as_deref() == Some("setup-settings");
+        let settings_read = cli.operation == Some(Operation::SetupSettings);
         if matches!(
-            cli.operation.as_deref(),
-            Some("console-setup" | "setup-window")
+            cli.operation,
+            Some(Operation::ConsoleSetup | Operation::SetupWindow)
         ) && (cli.mode.is_some()
             || cli.agent.is_some()
             || cli.config.is_some()
@@ -405,10 +507,10 @@ impl Cli {
         if setup && (cli.mode.is_some() || cli.agent.is_some()) {
             return Err("hook setup does not accept a mode or --agent".into());
         }
-        if cli.then.is_some() && cli.operation.as_deref() != Some("statusline") {
+        if cli.then.is_some() && cli.operation != Some(Operation::Statusline) {
             return Err("--then is only valid with --statusline".into());
         }
-        if cli.operation.as_deref() == Some("statusline")
+        if cli.operation == Some(Operation::Statusline)
             && (cli.mode.is_some() || cli.agent.is_some())
         {
             return Err("--statusline does not accept a mode or --agent".into());
@@ -419,7 +521,7 @@ impl Cli {
                     .into(),
             );
         }
-        let notify = cli.operation.as_deref() == Some("notify");
+        let notify = cli.operation == Some(Operation::Notify);
         if notify && cli.kind.is_none() {
             return Err("--notify requires --kind".into());
         }
@@ -429,7 +531,7 @@ impl Cli {
         if cli.activity && cli.ended {
             return Err("--activity and --ended exclude each other".into());
         }
-        if cli.agent.is_some() && cli.operation.as_deref() != Some("hook") {
+        if cli.agent.is_some() && cli.operation != Some(Operation::Hook) {
             return Err("--agent is only valid with --hook".into());
         }
         Ok(cli)

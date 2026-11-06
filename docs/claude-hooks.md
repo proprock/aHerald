@@ -11,8 +11,9 @@ for an idle session (AH-074), so it is ignored; `StopFailure` is still unobserve
 
 `aherald --install-hooks claude` shows what it would add to `~/.claude/settings.json`, or to `$CLAUDE_CONFIG_DIR/settings.json` when that is set (a dry run);
 `--apply` writes it with a `settings.json.aherald-backup` copy and leaves every other setting and hook
-alone. `--uninstall-hooks claude --apply` removes only aHerald's entries; `--hooks-file PATH` picks
-another settings file. The commands refuse a file that is not valid JSON or has an unexpected shape.
+alone. The hooks are written in the same form as `--setup` writes them and recorded in its receipt
+(`aherald-setup.json`), so `--unsetup` also finds them. `--uninstall-hooks claude --apply` removes only
+the entries of this executable; `--hooks-file PATH` picks another settings file. The commands refuse a file that is not valid JSON or has an unexpected shape.
 
 ## Setup (manual)
 

@@ -3,7 +3,7 @@
 #[cfg(any(windows, target_os = "linux"))]
 fn main() -> Result<(), String> {
     use aherald::{
-        cli::Cli,
+        cli::{Cli, Operation},
         events,
         ipc::{Request, Response, pipe},
         local::Scope,
@@ -15,10 +15,10 @@ fn main() -> Result<(), String> {
         return Err("a private ah101- scope is required".into());
     }
     let scope = Scope::current(&namespace)?;
-    let request = match cli.operation.as_deref() {
-        Some("status") => Request::Status,
-        Some("quit") => Request::Quit,
-        Some("hook") => {
+    let request = match cli.operation {
+        Some(Operation::Status) => Request::Status,
+        Some(Operation::Quit) => Request::Quit,
+        Some(Operation::Hook) => {
             let started = Instant::now();
             let bytes = events::read_bounded(std::io::stdin(), events::INPUT_TIMEOUT)?;
             if let Some(report) = aherald::codex_context::parse(&bytes)? {
@@ -80,7 +80,7 @@ fn main() -> Result<(), String> {
                 _ => Err("private resident rejected live hook evidence".into()),
             };
         }
-        Some("statusline") => {
+        Some(Operation::Statusline) => {
             let bytes = events::read_bounded(std::io::stdin(), events::INPUT_TIMEOUT)?;
             let report = aherald::statusline::parse(&bytes)?;
             if let Some(root) = std::env::var_os("AH100_CONTEXT_ROOT") {

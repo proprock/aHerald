@@ -1,8 +1,5 @@
-//! Explicit, user-invoked setup of the aHerald hooks in an agent's own hook file.
-//!
-//! Nothing here runs unless the user asks (`--install-hooks` / `--uninstall-hooks`); the
-//! default is a dry run and a write needs `--apply`. Only aHerald's own entries are touched,
-//! the rest of the file keeps its content and key order.
+//! Hook-file editing for setup: event lists, hook commands and the planner that adds or removes
+//! aHerald's own entries; the rest of the file keeps its content and key order.
 use crate::agent::Agent;
 use serde_json::{Map, Value, json};
 use std::path::Path;
@@ -13,7 +10,7 @@ pub enum Action {
     Uninstall,
 }
 
-/// What a plan would do to the file, one human-readable line per change.
+/// What a plan would do to the file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Plan {
     pub text: String,
@@ -68,18 +65,6 @@ pub fn command_for(exe: &Path, agent: Agent, windows: bool) -> String {
     }
 }
 
-/// Hook commands are the user's; only ones that are clearly aHerald's are ours.
-fn is_ours(hook: &Value) -> bool {
-    hook["command"].as_str().is_some_and(|command| {
-        let command = command.to_ascii_lowercase();
-        command.contains("aherald")
-            && (command.contains("--hook")
-                || hook["args"]
-                    .as_array()
-                    .is_some_and(|args| args.iter().any(|a| a == "--hook")))
-    })
-}
-
 fn malformed(what: &str) -> String {
     format!("the hook file has an unexpected shape ({what}); nothing was changed")
 }
@@ -95,21 +80,6 @@ fn groups(event: &mut Value) -> Result<&mut Vec<Value>, String> {
         }
     }
     Ok(groups)
-}
-
-pub fn plan(
-    existing: Option<&str>,
-    agent: Agent,
-    command: &str,
-    action: Action,
-) -> Result<Plan, String> {
-    plan_handler(
-        existing,
-        agent,
-        &json!({"type":"command", "command":command, "timeout":3}),
-        action,
-        is_ours,
-    )
 }
 
 /// Native setup uses a complete execution definition, including exec-form arguments.
@@ -220,7 +190,8 @@ pub fn statusline_command(exe: &Path) -> String {
 
 /// The wrapped command of a statusLine command this program wrote, if it is one:
 /// `Some(None)` for the bare wrapper, `Some(Some(original))` for `--then '<original>'`.
-fn wrapped(command: &str) -> Option<Option<String>> {
+#[cfg(not(windows))]
+pub(crate) fn wrapped(command: &str) -> Option<Option<String>> {
     let lower = command.to_ascii_lowercase();
     if !lower.contains("aherald") || !command.contains(" --statusline") {
         return None;
@@ -230,157 +201,6 @@ fn wrapped(command: &str) -> Option<Option<String>> {
     };
     let inner = rest.strip_prefix('\'')?.strip_suffix('\'')?;
     Some(Some(inner.replace("'\\''", "'")))
-}
-
-/// Plans putting aHerald's `statusLine` wrapper into the settings text, keeping the user's own
-/// status line command as `--then`, or taking it out again.
-pub fn plan_statusline(
-    existing: Option<&str>,
-    exe_command: &str,
-    action: Action,
-) -> Result<Plan, String> {
-    let mut root: Value = match existing {
-        Some(text) => serde_json::from_str(text)
-            .map_err(|_| "the settings file is not valid JSON; nothing was changed")?,
-        None => Value::Object(Map::new()),
-    };
-    let object = root
-        .as_object_mut()
-        .ok_or_else(|| malformed("not an object"))?;
-    let mut changes = Vec::new();
-    let current = object.get("statusLine").cloned();
-    let current_command = match &current {
-        None => None,
-        Some(value) if value["type"] == "command" => Some(
-            value["command"]
-                .as_str()
-                .ok_or_else(|| malformed("statusLine has no command"))?
-                .to_owned(),
-        ),
-        Some(_) => return Err(malformed("statusLine is not a command")),
-    };
-    match action {
-        Action::Install => match current_command {
-            Some(command) if wrapped(&command).is_some() => {
-                let wanted = match wrapped(&command).flatten() {
-                    Some(original) => {
-                        format!("{exe_command} --then {}", crate::quote::posix(&original))
-                    }
-                    None => exe_command.to_owned(),
-                };
-                if command != wanted {
-                    return Err("a different aHerald statusLine is set; uninstall it first".into());
-                }
-            }
-            Some(command) => {
-                object["statusLine"]["command"] =
-                    format!("{exe_command} --then {}", crate::quote::posix(&command)).into();
-                changes.push("wrap your statusLine command".into());
-            }
-            None => {
-                object.insert(
-                    "statusLine".into(),
-                    json!({"type": "command", "command": exe_command}),
-                );
-                changes.push("add statusLine".into());
-            }
-        },
-        Action::Uninstall => {
-            if let Some(command) = current_command
-                && let Some(original) = wrapped(&command)
-            {
-                match original {
-                    Some(original) => {
-                        object["statusLine"]["command"] = original.into();
-                        changes.push("restore your statusLine command".into());
-                    }
-                    None => {
-                        object.shift_remove("statusLine");
-                        changes.push("remove statusLine".into());
-                    }
-                }
-            }
-        }
-    }
-    let mut text =
-        serde_json::to_string_pretty(&root).map_err(|_| "cannot encode the settings file")?;
-    text.push('\n');
-    Ok(Plan { text, changes })
-}
-
-/// Plans the change to `file` and, with `apply`, writes it. Returns the report to print.
-/// A dry run (`apply == false`) never touches the disk.
-pub fn run(
-    agent: Agent,
-    action: Action,
-    file: &Path,
-    command: &str,
-    apply: bool,
-) -> Result<String, String> {
-    let reminder = (matches!(action, Action::Install) && agent == Agent::Codex)
-        .then_some("Start a new Codex session, open /hooks and trust the aHerald hooks.");
-    run_with(
-        &format!("{} hook file", agent.label()),
-        file,
-        apply,
-        |existing| plan(existing, agent, command, action),
-        reminder,
-    )
-}
-
-/// As [`run`] for Claude Code's `statusLine` in the settings file.
-pub fn run_statusline(
-    action: Action,
-    file: &Path,
-    exe_command: &str,
-    apply: bool,
-) -> Result<String, String> {
-    run_with(
-        "Claude settings file",
-        file,
-        apply,
-        |existing| plan_statusline(existing, exe_command, action),
-        None,
-    )
-}
-
-fn run_with(
-    label: &str,
-    file: &Path,
-    apply: bool,
-    plan: impl FnOnce(Option<&str>) -> Result<Plan, String>,
-    reminder: Option<&str>,
-) -> Result<String, String> {
-    let existing = match std::fs::read_to_string(file) {
-        Ok(text) => Some(text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("cannot read {}: {e}", file.display())),
-    };
-    let plan = plan(existing.as_deref())?;
-    let mut report = format!("{label}: {}\n", file.display());
-    if plan.changes.is_empty() {
-        report.push_str("Nothing to change.\n");
-        return Ok(report);
-    }
-    for change in &plan.changes {
-        report.push_str(&format!("  {change}\n"));
-    }
-    if !apply {
-        report
-            .push_str("Dry run: nothing was written. Run again with --apply to write the file.\n");
-        return Ok(report);
-    }
-    write(file, existing.is_some(), &plan.text)?;
-    report.push_str("Written.");
-    if existing.is_some() {
-        report.push_str(" The previous file was kept next to it as *.aherald-backup.");
-    }
-    report.push('\n');
-    if let Some(reminder) = reminder {
-        report.push_str(reminder);
-        report.push('\n');
-    }
-    Ok(report)
 }
 
 /// Backs the file up, then replaces it atomically (a symlinked file stays a symlink).
@@ -402,287 +222,79 @@ pub(crate) fn write_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
-    use std::path::PathBuf;
+    const CMD: &str = "'/Apps/aherald' --hook --agent claude --resident";
 
-    const CMD: &str =
-        "'/Applications/aHerald.app/Contents/MacOS/aherald' --hook --agent claude --resident";
-
-    fn parse(text: &str) -> Value {
-        serde_json::from_str(text).unwrap()
+    fn handler() -> Value {
+        json!({"type":"command", "command": CMD, "timeout": 3})
     }
-
-    fn commands(value: &Value, event: &str) -> Vec<String> {
-        value["hooks"][event]
-            .as_array()
-            .map(|groups| {
-                groups
-                    .iter()
-                    .flat_map(|g| g["hooks"].as_array().unwrap())
-                    .map(|h| h["command"].as_str().unwrap().to_owned())
-                    .collect()
-            })
-            .unwrap_or_default()
+    fn plan(existing: Option<&str>, action: Action) -> Result<Plan, String> {
+        plan_handler(existing, Agent::Claude, &handler(), action, |h| {
+            h["command"] == CMD
+        })
     }
 
     #[test]
-    fn install_into_a_missing_file_adds_every_event_with_a_short_timeout() {
-        let plan = plan(None, Agent::Claude, CMD, Action::Install).unwrap();
-        let value = parse(&plan.text);
-        for event in events(Agent::Claude) {
-            assert_eq!(commands(&value, event), [CMD], "{event}");
-            assert_eq!(value["hooks"][event][0]["hooks"][0]["timeout"], 3);
-            assert_eq!(value["hooks"][event][0]["hooks"][0]["type"], "command");
-        }
-        assert_eq!(plan.changes.len(), events(Agent::Claude).len());
-    }
-
-    #[test]
-    fn install_keeps_foreign_settings_hooks_and_key_order() {
-        let before = r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"say before"}]}]},"alpha":{"b":2,"a":1}}"#;
-        let plan = plan(Some(before), Agent::Claude, CMD, Action::Install).unwrap();
-        let value = parse(&plan.text);
-        assert_eq!(commands(&value, "Stop"), ["say done", CMD]);
-        assert_eq!(commands(&value, "PreToolUse"), ["say before", CMD]);
-        let keys: Vec<_> = value.as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["zeta", "hooks", "alpha"]);
-        let inner: Vec<_> = value["alpha"].as_object().unwrap().keys().collect();
-        assert_eq!(inner, ["b", "a"]);
-    }
-
-    #[test]
-    fn installing_twice_changes_nothing() {
-        let once = plan(None, Agent::Claude, CMD, Action::Install).unwrap();
-        let twice = plan(Some(&once.text), Agent::Claude, CMD, Action::Install).unwrap();
-        assert!(twice.changes.is_empty());
-        assert_eq!(parse(&twice.text), parse(&once.text));
-    }
-
-    #[test]
-    fn an_older_aherald_command_is_replaced_not_duplicated() {
-        let old =
-            "powershell.exe -NoProfile -Command \"& 'C:\\\\old\\\\aherald.exe' --hook --resident\"";
-        let before = json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": old, "timeout": 3}]}]}});
-        let plan = plan(
-            Some(&before.to_string()),
-            Agent::Claude,
-            CMD,
+    fn install_adds_every_event_keeps_foreign_content_and_is_idempotent() {
+        let first = plan(
+            Some(r#"{"zeta":1,"hooks":{"Stop":[{"hooks":[{"command":"mine"}]}]}}"#),
             Action::Install,
         )
         .unwrap();
-        assert_eq!(commands(&parse(&plan.text), "Stop"), [CMD]);
-        assert!(plan.changes.iter().any(|c| c.contains("Stop")));
+        assert_eq!(first.changes.len(), events(Agent::Claude).len());
+        let value: Value = serde_json::from_str(&first.text).unwrap();
+        assert_eq!(value["hooks"]["Stop"][0]["hooks"][0]["command"], "mine");
+        assert_eq!(value["hooks"]["Stop"][1]["hooks"][0], handler());
+        assert!(first.text.find("zeta").unwrap() < first.text.find("hooks").unwrap());
+        assert!(
+            plan(Some(&first.text), Action::Install)
+                .unwrap()
+                .changes
+                .is_empty()
+        );
     }
 
     #[test]
-    fn uninstall_removes_only_aherald_entries_and_empty_containers() {
+    fn uninstall_removes_only_owned_entries_and_empty_containers() {
         let installed = plan(
-            Some(r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]},"theme":"dark"}"#),
-            Agent::Claude,
-            CMD,
+            Some(r#"{"hooks":{"Stop":[{"hooks":[{"command":"mine"}]}]}}"#),
             Action::Install,
         )
         .unwrap();
-        let removed = plan(Some(&installed.text), Agent::Claude, CMD, Action::Uninstall).unwrap();
-        let value = parse(&removed.text);
-        assert_eq!(commands(&value, "Stop"), ["say done"]);
-        assert!(value["hooks"].get("Notification").is_none());
-        assert_eq!(value["theme"], "dark");
-        let alone = plan(None, Agent::Claude, CMD, Action::Install).unwrap();
-        let empty = plan(Some(&alone.text), Agent::Claude, CMD, Action::Uninstall).unwrap();
-        assert!(parse(&empty.text).get("hooks").is_none());
+        let removed = plan(Some(&installed.text), Action::Uninstall).unwrap();
+        let value: Value = serde_json::from_str(&removed.text).unwrap();
+        assert_eq!(
+            value,
+            json!({"hooks":{"Stop":[{"hooks":[{"command":"mine"}]}]}})
+        );
+        let all = plan(None, Action::Install).unwrap();
+        let none = plan(Some(&all.text), Action::Uninstall).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&none.text).unwrap(),
+            json!({})
+        );
     }
 
     #[test]
-    fn uninstall_without_hooks_is_a_no_op() {
-        let plan = plan(
-            Some(r#"{"theme":"dark"}"#),
-            Agent::Claude,
-            CMD,
-            Action::Uninstall,
-        )
-        .unwrap();
-        assert!(plan.changes.is_empty());
-        assert_eq!(parse(&plan.text), json!({"theme": "dark"}));
-    }
-
-    #[test]
-    fn invalid_or_unexpected_files_are_refused_untouched() {
-        for bad in [
-            "{not json",
+    fn unexpected_files_are_refused() {
+        for text in [
+            "{",
             "[]",
             r#"{"hooks":[]}"#,
             r#"{"hooks":{"Stop":{}}}"#,
+            r#"{"hooks":{"Stop":[{}]}}"#,
         ] {
-            assert!(
-                plan(Some(bad), Agent::Claude, CMD, Action::Install).is_err(),
-                "{bad}"
-            );
+            assert!(plan(Some(text), Action::Install).is_err(), "{text}");
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
-    fn the_command_quotes_the_path_and_selects_the_agent() {
-        let exe = Path::new("/Applications/aHerald.app/Contents/MacOS/aherald");
-        assert_eq!(command_for(exe, Agent::Claude, false), CMD);
+    fn a_wrapped_status_line_command_yields_the_original() {
+        let base = statusline_command(Path::new("/Apps/aHerald/aherald"));
+        assert_eq!(wrapped(&base), Some(None));
         assert_eq!(
-            command_for(exe, Agent::Codex, false),
-            "'/Applications/aHerald.app/Contents/MacOS/aherald' --hook --resident"
+            wrapped(&format!("{base} --then 'it'\\''s.sh'")),
+            Some(Some("it's.sh".into()))
         );
-        let spaced = Path::new("/Users/me/My Apps/it's/aherald");
-        assert_eq!(
-            command_for(spaced, Agent::Codex, false),
-            "'/Users/me/My Apps/it'\\''s/aherald' --hook --resident"
-        );
-        assert_eq!(
-            command_for(Path::new("C:\\Tools\\aherald.exe"), Agent::Claude, true),
-            "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Tools\\aherald.exe' --hook --agent claude --resident | Out-String\""
-        );
-    }
-
-    const EXE: &str = "'/Applications/aHerald.app/Contents/MacOS/aherald' --statusline";
-
-    #[test]
-    fn a_missing_status_line_gets_the_bare_wrapper_and_other_settings_stay() {
-        let plan =
-            plan_statusline(Some(r#"{"zeta":1,"theme":"dark"}"#), EXE, Action::Install).unwrap();
-        let value = parse(&plan.text);
-        assert_eq!(
-            value["statusLine"],
-            json!({"type": "command", "command": EXE})
-        );
-        let keys: Vec<_> = value.as_object().unwrap().keys().collect();
-        assert_eq!(keys, ["zeta", "theme", "statusLine"]);
-        assert_eq!(plan.changes.len(), 1);
-    }
-
-    #[test]
-    fn an_existing_status_line_is_wrapped_keeping_its_other_fields_and_restored_exactly() {
-        let own = "~/bin/bar.sh --who 'me' | tr a b";
-        let before = json!({"statusLine": {"type": "command", "command": own, "padding": 2, "refreshInterval": 5}}).to_string();
-        let wrapped = plan_statusline(Some(&before), EXE, Action::Install).unwrap();
-        let value = parse(&wrapped.text);
-        let command = value["statusLine"]["command"].as_str().unwrap();
-        assert!(command.starts_with(&format!("{EXE} --then '")), "{command}");
-        assert_eq!(
-            (
-                &value["statusLine"]["padding"],
-                &value["statusLine"]["refreshInterval"]
-            ),
-            (&json!(2), &json!(5))
-        );
-        // Installing again is a no-op; uninstalling gives the original command back.
-        let again = plan_statusline(Some(&wrapped.text), EXE, Action::Install).unwrap();
-        assert!(again.changes.is_empty());
-        let restored = plan_statusline(Some(&wrapped.text), EXE, Action::Uninstall).unwrap();
-        assert_eq!(parse(&restored.text), parse(&before));
-    }
-
-    #[test]
-    fn uninstalling_the_bare_wrapper_removes_the_status_line_and_foreign_ones_are_left_alone() {
-        let installed = plan_statusline(None, EXE, Action::Install).unwrap();
-        let removed = plan_statusline(Some(&installed.text), EXE, Action::Uninstall).unwrap();
-        assert!(parse(&removed.text).get("statusLine").is_none());
-        let foreign = r#"{"statusLine":{"type":"command","command":"my-bar"}}"#;
-        let untouched = plan_statusline(Some(foreign), EXE, Action::Uninstall).unwrap();
-        assert!(untouched.changes.is_empty());
-        assert_eq!(parse(&untouched.text), parse(foreign));
-    }
-
-    #[test]
-    fn unsupported_or_conflicting_status_lines_are_refused() {
-        for bad in [
-            r#"{"statusLine":"my-bar"}"#,
-            r#"{"statusLine":{"type":"text"}}"#,
-            r#"{"statusLine":{"type":"command"}}"#,
-            "{broken",
-            "[]",
-        ] {
-            assert!(
-                plan_statusline(Some(bad), EXE, Action::Install).is_err(),
-                "{bad}"
-            );
-        }
-        let other = r#"{"statusLine":{"type":"command","command":"'/old/aherald' --statusline"}}"#;
-        assert!(plan_statusline(Some(other), EXE, Action::Install).is_err());
-    }
-
-    #[test]
-    fn the_wrapper_command_quotes_the_path_for_the_shell() {
-        assert_eq!(
-            statusline_command(Path::new(
-                "/Applications/aHerald.app/Contents/MacOS/aherald"
-            )),
-            EXE
-        );
-        assert_eq!(
-            statusline_command(Path::new("/Users/me/it's/aherald")),
-            "'/Users/me/it'\\''s/aherald' --statusline"
-        );
-    }
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("aherald-hooks-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn a_dry_run_reports_the_changes_and_writes_nothing() {
-        let dir = scratch("dry");
-        let file = dir.join("nested/settings.json");
-        let report = run(Agent::Claude, Action::Install, &file, CMD, false).unwrap();
-        assert!(
-            report.contains("add Stop") && report.contains("--apply"),
-            "{report}"
-        );
-        assert!(!dir.join("nested").exists());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn apply_backs_the_old_file_up_keeps_its_mode_and_follows_a_symlink() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
-        let dir = scratch("apply");
-        let real = dir.join("dotfiles-settings.json");
-        std::fs::write(&real, r#"{"theme":"dark"}"#).unwrap();
-        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let link = dir.join("settings.json");
-        symlink(&real, &link).unwrap();
-        let report = run(Agent::Claude, Action::Install, &link, CMD, true).unwrap();
-        assert!(report.contains("Written"), "{report}");
-        assert!(
-            std::fs::symlink_metadata(&link)
-                .unwrap()
-                .file_type()
-                .is_symlink()
-        );
-        let written = parse(&std::fs::read_to_string(&real).unwrap());
-        assert_eq!(written["theme"], "dark");
-        assert_eq!(commands(&written, "Stop"), [CMD]);
-        assert_eq!(std::fs::metadata(&real).unwrap().mode() & 0o777, 0o600);
-        let backup =
-            std::fs::read_to_string(dir.join("dotfiles-settings.json.aherald-backup")).unwrap();
-        assert_eq!(backup, r#"{"theme":"dark"}"#);
-        // Removing restores a file without our hooks.
-        run(Agent::Claude, Action::Uninstall, &link, CMD, true).unwrap();
-        assert_eq!(
-            parse(&std::fs::read_to_string(&real).unwrap()),
-            json!({"theme": "dark"})
-        );
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn a_file_that_cannot_be_planned_is_left_untouched() {
-        let dir = scratch("bad");
-        let file = dir.join("settings.json");
-        std::fs::write(&file, "{broken").unwrap();
-        assert!(run(Agent::Claude, Action::Install, &file, CMD, true).is_err());
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{broken");
-        assert!(!dir.join("settings.json.aherald-backup").exists());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }
