@@ -457,67 +457,6 @@ fn statusline_setup_operations_share_apply_and_file_options() {
     }
 }
 
-#[cfg(unix)]
-#[test]
-fn statusline_setup_wraps_an_existing_command_through_the_binary_and_restores_it() {
-    let dir = std::env::temp_dir().join(format!("aherald-sl-bin-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    let file = dir.join("settings.json");
-    let original = r#"{"statusLine":{"type":"command","command":"my-bar --x"},"theme":"dark"}"#;
-    fs::write(&file, original).unwrap();
-    let run = |op: &str, extra: &[&str]| {
-        support::output(
-            Command::new(env!("CARGO_BIN_EXE_aherald"))
-                .args([op, "--hooks-file"])
-                .arg(&file)
-                .args(extra),
-        )
-    };
-    let dry = run("--install-statusline", &[]);
-    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
-    assert_eq!(fs::read_to_string(&file).unwrap(), original);
-    assert!(run("--install-statusline", &["--apply"]).status.success());
-    let text = fs::read_to_string(&file).unwrap();
-    assert!(text.contains("--statusline --then 'my-bar --x'"), "{text}");
-    assert!(run("--uninstall-statusline", &["--apply"]).status.success());
-    let restored: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(
-        restored,
-        serde_json::from_str::<serde_json::Value>(original).unwrap()
-    );
-    fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn hook_setup_dry_run_and_apply_work_through_the_binary() {
-    let dir = std::env::temp_dir().join(format!("aherald-setup-bin-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    let file = dir.join("settings.json");
-    fs::write(&file, r#"{"theme":"dark"}"#).unwrap();
-    let run = |extra: &[&str]| {
-        support::output(
-            Command::new(env!("CARGO_BIN_EXE_aherald"))
-                .args(["--install-hooks", "claude", "--hooks-file"])
-                .arg(&file)
-                .args(extra),
-        )
-    };
-    let dry = run(&[]);
-    assert!(dry.status.success());
-    assert!(String::from_utf8_lossy(&dry.stdout).contains("Dry run"));
-    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"theme":"dark"}"#);
-    let applied = run(&["--apply"]);
-    assert!(applied.status.success());
-    let text = fs::read_to_string(&file).unwrap();
-    assert!(text.contains("--hook --agent claude --resident") && text.contains("\"theme\""));
-    let again = run(&["--apply"]);
-    assert!(String::from_utf8_lossy(&again.stdout).contains("Nothing to change"));
-    fs::remove_dir_all(dir).unwrap();
-}
-
 #[test]
 fn hook_configuration_error_is_silent_and_successful() {
     let path = std::env::temp_dir().join(format!("aherald-invalid-{}.toml", std::process::id()));

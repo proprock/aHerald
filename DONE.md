@@ -3,6 +3,40 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-264 — CLI operations as an enum.**
+  `Cli.operation` is now `Option<Operation>`; `Cli::parse` also parses the internal child modes
+  (`--restart-child [PID] [--test-after-apply]`, `--resident-child SCOPE --config PATH`,
+  `--display-child --config PATH`), which only count as the first arguments. `main.rs` is a `match` over the
+  operations (56 lines, was 642) and each operation is one function in `src/commands/` (`child`, `control`,
+  `deliver`, `setup`, `statusline`). Behaviour is meant to be unchanged: the order of stdin read, scope and
+  configuration in `--hook`/`--notify`, the log codes and the monitoring warning were compared against the
+  previous `main.rs`, but no test pins that comparison. No separate red phase was observed: the new
+  `the_internal_child_modes_are_parsed_by_the_cli` was written with the parser. No parser crate was added.
+  Evidence: `cargo fmt`, `cargo clippy --locked --workspace --all-targets -D warnings`, `cargo test --locked
+  --workspace --all-targets` and `--doc` **ran locally** (Linux); the Linux extras (`remote_listener`,
+  `linux_apply --ignored`, the AH-283 test under Xephyr) **ran locally**; clippy for
+  `x86_64-pc-windows-msvc` **ran locally** as a lint only (Windows tests: **compiled/tested in CI only**);
+  macOS **compiled/tested in CI only** (the local cross build stops in `ring`).
+
+- [x] **AH-265 — `--install-hooks` delegates to the setup backend.**
+  `--install-hooks X`, `--uninstall-hooks X`, `--install-statusline` and `--uninstall-statusline` run
+  through `setup::run_hooks_only` / `setup::run_statusline_only` on every OS: one harness (or the status
+  line) is changed, and the receipt keeps the other harnesses, bridges and status line as `--setup` recorded
+  them. Exec-form hooks, exact matching and rollback are the setup backend's; `--hooks-file` stays a target
+  override and is made absolute at the command boundary. The receipt load, write and report are shared by
+  `--setup` and the two narrow operations. Migration: an entry of the old path (a shell string naming
+  aherald and `--hook`) is replaced once by `--install-hooks`; `--uninstall-hooks` removes the entries of
+  this executable even without a receipt entry, and no longer removes another installation's shell string
+  (the old planner removed any command that mentioned aherald and `--hook`); an old
+  `'<exe>' --statusline [--then '<cmd>']` wrapper is adopted so the user's own command is kept and restored.
+  The planner code that nothing used is gone: `hook_setup.rs` is 300 lines (was 688, including its tests).
+  The `--hooks-file` tests that ran the shared test binary (and wrote a receipt next to it) moved to
+  `tests/setup.rs`, which copies the executable per test. Tests: `hooks_of_one_harness_…`,
+  `hooks_default_to_the_agents_own_directory_…`, `an_entry_of_the_old_install_command_…`,
+  `a_status_line_of_the_old_install_command_…`, `a_dry_run_changes_nothing_…`,
+  `the_status_line_wraps_…`. No separate red phase was observed for them.
+  Evidence: as AH-264 (Linux **ran locally**; Windows and macOS **compiled/tested in CI only**).
+
 - [x] **AH-284 — Flaky `unix_ipc::a_stale_socket_file_is_replaced_by_the_new_owner` under load.**
   Cause: the same fork window as AH-279, for a listening socket. The test binds a listener and drops it to
   leave a dead resident's socket file; a child forked by another test thread between the bind and the drop

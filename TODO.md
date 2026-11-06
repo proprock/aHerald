@@ -573,21 +573,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   `get/post/get_at/post_at` wrappers into `http_common.rs` over the per-OS `request_at`. Acceptance: the
   contract module compiles in all three CI legs.
 
-- [ ] **AH-264 — CLI operations as an enum.**
-  Replace `Cli.operation: Option<String>` (`cli.rs:6`) with `enum Operation`, and the `if` chain in
-  `main.rs:73-433` with a `match` calling one function per operation (moved into `src/commands/` or kept in
-  `main.rs`). Parse the child modes (`main.rs:76-131`) in `Cli::parse`. A small parser crate (`lexopt`,
-  `pico-args`) is allowed if it removes code (justify it in the PR per `AGENTS.md`). Acceptance: `tests/cli.rs`
-  and `tests/aherald_cli.rs` pass; `main.rs` is under 250 lines.
-
-- [ ] **AH-265 — `--install-hooks` delegates to the setup backend.**
-  Depends on AH-234, AH-242 and AH-243. Make `--install-hooks X` / `--uninstall-hooks X` run `setup` for that
-  single harness (receipt, exact matching, rollback, exec form), keeping `--hooks-file` as a target override.
-  The same for `--install-statusline` on unix (Windows already uses `setup::run_statusline_only`). Then delete
-  the planner code left unused in `hook_setup.rs`. Migration: entries written by the old path (a shell
-  string containing "aherald" and `--hook`) are recognised and replaced once. Acceptance: `tests/hooks.rs`
-  rewritten against the new behaviour, a migration test for an old-style entry, and `hook_setup.rs` under 300 lines.
-
 - [ ] **AH-266 — Windows modules into `src/windows/`; fewer test binaries.**
   Depends on AH-257…AH-263 being merged (to avoid conflicts). `git mv` the Windows-only root modules into
   `src/windows/` (`#[path]` wiring in `lib.rs` as for `unix/`), make the 7 unused `pub mod`s `pub(crate)`, and

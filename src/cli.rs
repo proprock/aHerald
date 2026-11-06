@@ -213,6 +213,12 @@ impl Cli {
             _ => {}
         }
         while let Some(arg) = args.next() {
+            if let Some(operation) = Operation::from_flag(&arg) {
+                if cli.operation.replace(operation).is_some() {
+                    return Err("conflicting explicit operations".into());
+                }
+                continue;
+            }
             match arg.as_str() {
                 "--demo" => {
                     if cli.operation.replace(Operation::Demo).is_some() {
@@ -230,26 +236,6 @@ impl Cli {
                         return Err("demo pause must be 1..86400 seconds".into());
                     }
                     cli.demo_pause_sec = Some(seconds);
-                }
-                "--setup-settings"
-                | "--console-setup"
-                | "--setup-window"
-                | "--setup"
-                | "--unsetup"
-                | "--hook"
-                | "--status"
-                | "--remote-info"
-                | "--quit"
-                | "--help"
-                | "--version"
-                | "--perf-report"
-                | "--statusline"
-                | "--install-statusline"
-                | "--uninstall-statusline" => {
-                    let operation = Operation::from_flag(&arg).expect("a plain operation flag");
-                    if cli.operation.replace(operation).is_some() {
-                        return Err("conflicting explicit operations".into());
-                    }
                 }
                 "--resident" | "--transient" => {
                     let mode = if arg == "--resident" {

@@ -37,56 +37,39 @@ pub fn window() -> Result<(), String> {
     Err("--setup-window is available on macOS only".into())
 }
 
+/// A path from the command line as the setup receipt needs it: absolute.
+fn absolute(path: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    std::path::absolute(path).map_err(|e| format!("cannot resolve {}: {e}", path.display()))
+}
+
 /// `--install-statusline` and `--uninstall-statusline`.
 pub fn statusline_file(cli: &Cli) -> Result<(), String> {
-    let action = match cli.operation {
-        Some(Operation::InstallStatusline) => aherald::hook_setup::Action::Install,
-        _ => aherald::hook_setup::Action::Uninstall,
-    };
-    let exe = executable()?;
-    // Windows keeps the wrapper in the setup receipt, as `--setup` does (AH-211).
-    #[cfg(windows)]
-    let report = aherald::setup::run_statusline_only(
-        &exe,
-        cli.hooks_file.as_deref(),
-        action == aherald::hook_setup::Action::Uninstall,
-        cli.apply,
-    )?;
-    #[cfg(not(windows))]
-    let report = {
-        let file = match cli.hooks_file.clone() {
-            Some(file) => file,
-            None => aherald::paths::agent_hook_file(aherald::agent::Agent::Claude)
-                .ok_or("cannot locate the configuration directory; use --hooks-file")?,
-        };
-        aherald::hook_setup::run_statusline(
-            action,
-            &file,
-            &aherald::hook_setup::statusline_command(&exe),
+    let file = cli.hooks_file.as_deref().map(absolute).transpose()?;
+    print!(
+        "{}",
+        aherald::setup::run_statusline_only(
+            &executable()?,
+            file.as_deref(),
+            cli.operation == Some(Operation::UninstallStatusline),
             cli.apply,
         )?
-    };
-    print!("{report}");
+    );
     Ok(())
 }
 
 /// `--install-hooks` and `--uninstall-hooks`.
 pub fn hooks(cli: &Cli) -> Result<(), String> {
-    let action = match cli.operation {
-        Some(Operation::InstallHooks) => aherald::hook_setup::Action::Install,
-        _ => aherald::hook_setup::Action::Uninstall,
-    };
     let agent = cli.hooks_agent.ok_or("hook setup needs an agent")?;
-    let exe = executable()?;
-    let file = match cli.hooks_file.clone() {
-        Some(file) => file,
-        None => aherald::paths::agent_hook_file(agent)
-            .ok_or("cannot locate the configuration directory; use --hooks-file")?,
-    };
-    let command = aherald::hook_setup::command_for(&exe, agent, cfg!(windows));
+    let file = cli.hooks_file.as_deref().map(absolute).transpose()?;
     print!(
         "{}",
-        aherald::hook_setup::run(agent, action, &file, &command, cli.apply)?
+        aherald::setup::run_hooks_only(
+            &executable()?,
+            agent,
+            file.as_deref(),
+            cli.operation == Some(Operation::UninstallHooks),
+            cli.apply,
+        )?
     );
     Ok(())
 }
