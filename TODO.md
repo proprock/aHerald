@@ -535,6 +535,19 @@ P2 tasks run in the listed order; AH-266 goes last.
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
 
+- [ ] **AH-290 — Windows memory test `repeated_card_rendering_and_dpi_resize_release_native_resources` failed once in a nightly run.**
+  On 2026-11-06 the manual Nightly run on `master` (commit `7872a8c`) failed this test on `windows-latest`:
+  "private commit kept growing: lowest at cycles 50-100 was 15462400, at 150-200 47767552, baseline
+  15626240" (`src/windows/overlay.rs`, listed in `.github/noisy-tests.txt`, so it runs only in the nightly
+  full run). Re-running the failed job passed. The last scheduled nightly before it (13:10 UTC the same day,
+  before the resident refactors AH-257..AH-263 and AH-287) was green. Depends on nothing. Decide whether it
+  is runner noise or a leak: (1) collect the result of this test from the next nightly runs (record pass or
+  fail and the three numbers in the failure message, as text); (2) if it fails again, bisect over the
+  pull requests merged on 2026-11-06 with the manual workflow on `windows-latest` (the test alone, repeated)
+  and fix the cause; (3) if it stays green over a week of nightlies, record it as a one-off noise with the
+  numbers and close. Acceptance: either a fix with a regression check or a recorded noise verdict with
+  the evidence; the threshold is not loosened without a measured baseline.
+
 - [ ] **AH-289 — Program starts in tests have a 3 s bound that a loaded full run can exceed.**
   Seen twice in a full workspace run on a busy 12-core Linux machine: `config_portable` once and
   `hook_log::a_hook_input_that_is_not_json_or_is_too_large_is_logged_by_code_only` once failed on
