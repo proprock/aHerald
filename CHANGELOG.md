@@ -10,6 +10,17 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Added
+- Messenger sinks can name the computer: `include_host = true` (off by default, per sink) puts the
+  computer's name, or its IP address if the name cannot be read, into the message, and `{host}` is
+  available in a webhook body and a command. It is recorded in `docs/privacy.md` (AH-285).
+
+### Changed
+- A forwarded message with `include_folder` or `include_host` now starts with a header line
+  (`host/folder`, `host` or `folder`) and a blank line, then `Claude: input required`; the folder no
+  longer stands in brackets after the harness name. Without either setting the message is unchanged
+  (AH-285).
+
 ## [0.16.0] - 2026-11-06
 
 ### Added

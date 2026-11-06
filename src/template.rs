@@ -2,7 +2,7 @@
 //! `config.toml` (used by the webhook and the command sink):
 //! - `${NAME}` is replaced once, when the sink is built, by the environment variable `NAME`. Every
 //!   value substituted this way is a secret to scrub from error text.
-//! - `{text}`, `{kind}`, `{harness}` and `{folder}` are replaced at each send. For a JSON content
+//! - `{text}`, `{kind}`, `{harness}`, `{folder}` and `{host}` are replaced at each send. For a JSON content
 //!   type the value is escaped to sit inside a JSON string, so the template writes its own quotes:
 //!   `"text": "{text}"`; a form body is percent-encoded.
 use crate::sink::Message;
@@ -84,7 +84,7 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
-/// Fills `{text}`, `{kind}`, `{harness}` and `{folder}` in one pass, so a value that itself
+/// Fills `{text}`, `{kind}`, `{harness}`, `{folder}` and `{host}` in one pass, so a value that itself
 /// contains a placeholder is not expanded again. Other braces (JSON) are left alone.
 pub fn render(template: &str, message: &Message, mode: Escape) -> String {
     let escape = |value: &str| match mode {
@@ -105,6 +105,7 @@ pub fn render(template: &str, message: &Message, mode: Escape) -> String {
             ("{kind}", message.kind.as_str()),
             ("{harness}", message.harness.as_str()),
             ("{folder}", message.folder.as_deref().unwrap_or("")),
+            ("{host}", message.host.as_deref().unwrap_or("")),
         ]
         .into_iter()
         .find(|(name, _)| tail.starts_with(name));
@@ -141,6 +142,7 @@ mod tests {
             kind: "input_required".into(),
             harness: "Claude".into(),
             folder: Some("project".into()),
+            host: None,
             text: text.into(),
         }
     }
@@ -225,5 +227,32 @@ mod tests {
         let mut message = message("t");
         message.folder = None;
         assert_eq!(render("[{folder}]", &message, Escape::Raw), "[]");
+    }
+
+    #[test]
+    fn the_host_is_a_placeholder_and_empty_when_absent() {
+        let mut message = message("t");
+        assert_eq!(render("[{host}]", &message, Escape::Raw), "[]");
+        message.host = Some("work station&1".into());
+        assert_eq!(
+            render("[{host}]", &message, Escape::Raw),
+            "[work station&1]"
+        );
+        assert_eq!(
+            render("h={host}", &message, Escape::Form),
+            "h=work%20station%261"
+        );
+    }
+
+    #[test]
+    fn the_two_line_text_is_escaped_for_each_body_type() {
+        let text = "workstation-1/project\n\nClaude: turn complete";
+        let message = message(text);
+        let json = render(r#"{"text": "{text}"}"#, &message, Escape::Json);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["text"], text);
+        let form = render("text={text}", &message, Escape::Form);
+        assert!(form.contains("%0A%0A") && !form.contains('\n'), "{form}");
+        assert_eq!(render("{text}", &message, Escape::Raw), text);
     }
 }

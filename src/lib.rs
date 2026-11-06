@@ -25,6 +25,7 @@ pub mod events;
 pub mod focus;
 pub mod forward;
 pub mod hook_setup;
+mod host_name;
 mod http_common;
 pub mod ipc;
 pub mod notice;

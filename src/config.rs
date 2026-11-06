@@ -92,10 +92,14 @@ pub struct SinkConfig {
     /// The folder name goes to a third party, so it is sent only when asked for.
     #[serde(default)]
     pub include_folder: bool,
+    /// The computer's name (or, failing that, its IP address) goes to a third party, so it is sent
+    /// only when asked for. It heads the message, as `host/folder` when the folder is on too.
+    #[serde(default)]
+    pub include_host: bool,
     /// Webhook: the address to POST to; `${NAME}` is replaced by an environment variable.
     pub url: Option<String>,
     /// Webhook: the body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and
-    /// `{folder}` at each send. Default `{text}`.
+    /// `{folder}` and `{host}` at each send. Default `{text}`.
     pub body: Option<String>,
     /// Webhook: default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
     pub content_type: Option<String>,

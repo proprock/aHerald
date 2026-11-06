@@ -123,12 +123,32 @@ enabled = true            # initial state of the tray "Messenger" switch
 type = "webhook"
 kinds = ["turn_complete", "permission_required", "input_required", "error"]  # the default
 include_folder = false    # the default; see below
+include_host = false      # the default; see below
 url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
 ```
 
-- **What is sent:** a line such as `Claude: input required`, with the folder name in brackets only
-  when `include_folder = true`. Never a prompt, an assistant message, a path or a session name. The
-  folder name goes to a third party, which is why it is off by default.
+- **What is sent:** a line such as `Claude: input required`. With `include_folder = true` and/or
+  `include_host = true` the message starts with a header line, then a blank line, then that line:
+
+  ```text
+  workstation-1/aHerald
+
+  Claude: input required
+  ```
+
+  The header is `host/folder` with both, only the host or only the folder with one, and absent
+  (no blank line either) with neither, so the default message is exactly `Claude: input required`.
+  An event that carries no folder leaves it out. Never a prompt, an assistant message, a path or a
+  session name. The folder name and the computer name go to a third party, which is why both are
+  off by default (per sink).
+- **`include_host`:** the computer's name, as the system reports it (control characters removed,
+  at most 64 characters, not shortened or hashed). If it cannot be read or is empty, the sink sends the
+  computer's IP address instead: the address of the network interface that the default route
+  uses, IPv4 first (found without sending a packet or asking a DNS server). If there is no address
+  either, the header has no host. Looking the name up never delays a card or a hook. The IP address
+  is covered by the same setting and the same entry in the [privacy register](privacy.md).
+  In 0.16.0 and earlier the folder stood in brackets after the harness name (`Claude (aHerald):
+  input required`); it is now in the header.
 - **Secrets are never in `config.toml`.** Write `${NAME}` where a secret belongs; aHerald replaces
   it with the environment variable `NAME` when it starts. A literal `token` key is refused at load
   without being echoed. A missing or empty variable shows a card naming the variable, not its value.
@@ -174,9 +194,12 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
   `NAME`. Use it for every secret: the token, a secret topic, a webhook address. The value is
   scrubbed from every error and card. A missing or empty variable shows a card naming the
   variable. Put no secret literally in `url` or `body`: aHerald does not check for it.
-- **`{text}`, `{kind}`, `{harness}`, `{folder}`** (in `body` only) are replaced at each send.
-  `{text}` is the message line, for example `Claude: input required`; `{folder}` is empty unless
-  `include_folder = true`. They are filled in one pass: a value that contains `{kind}` is not
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`** (in `body` only) are replaced at each
+  send. `{text}` is the whole message, including the header line and the blank line when there is
+  a header (two lines, for example `workstation-1/aHerald`, a blank line, `Claude: input required`);
+  a JSON body escapes the line breaks and a form body encodes them (`%0A`), a plain-text body keeps
+  them. `{folder}` is empty unless `include_folder = true` and `{host}` unless `include_host =
+  true`; use the single placeholders when a body wants its own layout. They are filled in one pass: a value that contains `{kind}` is not
   expanded again, and other braces (JSON) stay as written.
 - **`content_type`** defaults to `text/plain; charset=utf-8` and also chooses how the values are
   made safe, because a folder name can hold any character:
@@ -211,8 +234,10 @@ command = ["signal-cli", "-a", "${AHERALD_SIGNAL_NUMBER}", "send", "-m", "{text}
   scrubbed from errors. Other local users can list a program's arguments with `ps`, so for a secret
   prefer `stdin`, or let the program read its own configuration or environment; the program
   inherits the resident's environment.
-- **`{text}`, `{kind}`, `{harness}`, `{folder}`** are filled at each send, as written (nothing is
-  escaped, since nothing parses them). `{folder}` is empty unless `include_folder = true`.
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`** are filled at each send, as written
+  (nothing is escaped, since nothing parses them). `{text}` can hold two lines and a blank line (see
+  above); an argument carries it whole. `{folder}` is empty unless `include_folder = true` and
+  `{host}` unless `include_host = true`.
 - **Result:** exit status 0 is a success. Anything else, a program that is not found, or one that
   runs over 10 seconds (it is killed) is one error card per distinct error, naming the exit status
   and never the program's output or arguments. Retries, the queue of 32 and the per-sink worker
