@@ -23,6 +23,10 @@ expect() {
 
 expect "empty diff selects nothing" 'code=false os=[]'
 expect "markdown only selects nothing" 'code=false os=[]' README.md docs/guide.md
+expect "README images select nothing" 'code=false os=[]' docs/images/card.png docs/images/demo.gif README.md
+expect "an image next to code does not widen the selection" \
+  'windows=true linux=false macos=false' docs/images/card.png src/windows/tray.rs
+expect "other files under docs are still code" 'code=true' docs/aherald.1
 expect "shared source selects every platform" \
   'code=true windows=true linux=true macos=true os=["windows-latest","macos-15","ubuntu-22.04"]' \
   src/lib.rs

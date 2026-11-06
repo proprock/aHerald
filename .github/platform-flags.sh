@@ -71,7 +71,8 @@ if [ "${1:-}" = --all ]; then
 else
   while IFS= read -r path; do
     case "$path" in
-      '' | *.md) continue ;;
+      # Text and the README pictures (`docs/images/`, referenced only from Markdown) change no build.
+      '' | *.md | docs/images/*) continue ;;
     esac
     code=true
     case "$path" in
