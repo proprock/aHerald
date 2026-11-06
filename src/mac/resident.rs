@@ -1002,11 +1002,10 @@ fn present(
             monitor_watch: crate::notice::MonitorWatch::new(),
             shown_card: Default::default(),
             presenter: crate::presenter::Presenter::default(),
-            source_labels: if usage_enabled {
-                crate::session_source::Service::shared(usage.names())
-            } else {
-                crate::session_source::Service::codex()
-            },
+            source_labels: crate::session_source::Service::for_resident(
+                &config,
+                usage_enabled.then(|| usage.names()),
+            ),
             demo,
             carousel,
             test_sound: None,

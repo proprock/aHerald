@@ -275,6 +275,9 @@ shared development-profile and artwork performance changes need no separate port
   compile there; report them as "CI only"); by hand, a resident with the default configuration shows
   Codex cards without a name and starts no `codex app-server` while `[codex.usage]` is off (check
   the process list).
+  Partial 2026-11-06: the shared mode selector and configuration switch are implemented, with
+  focused tests for the default, disabled lookup, enabled lookup and both transient switches.
+  Windows cross-target Clippy passed locally; Windows/macOS CI and the manual resident check remain.
 
 - [ ] **AH-106 — Optional context and five-hour quota indicators in notifications.**
   Discuss and agree on the design before implementation: optionally show context

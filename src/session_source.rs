@@ -38,6 +38,53 @@ pub struct Service {
     start: Instant,
 }
 impl Service {
+    pub fn disabled() -> Self {
+        let (_, results) = mpsc::sync_channel(1);
+        Self {
+            entries: HashMap::new(),
+            jobs: None,
+            results,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+            start: Instant::now(),
+        }
+    }
+    pub fn for_resident(
+        config: &crate::config::Config,
+        shared: Option<crate::usage_service::NameLookup>,
+    ) -> Self {
+        Self::for_mode(config, crate::config::Mode::Resident, shared)
+    }
+    pub fn for_mode(
+        config: &crate::config::Config,
+        mode: crate::config::Mode,
+        shared: Option<crate::usage_service::NameLookup>,
+    ) -> Self {
+        Self::for_mode_with(
+            config,
+            mode,
+            shared,
+            crate::app_server::StdioTransport::codex_controlled,
+        )
+    }
+    pub fn for_mode_with<T: crate::app_server::Transport + Send + 'static>(
+        config: &crate::config::Config,
+        mode: crate::config::Mode,
+        shared: Option<crate::usage_service::NameLookup>,
+        connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
+    ) -> Self {
+        if !config.codex.session_names
+            || (mode == crate::config::Mode::Transient && !config.codex.transient_names)
+        {
+            Self::disabled()
+        } else if mode == crate::config::Mode::Resident
+            && let Some(lookup) = shared
+        {
+            Self::shared(lookup)
+        } else {
+            Self::connect(connect)
+        }
+    }
     pub fn new(resolve: impl FnMut(&str) -> Option<String> + Send + 'static) -> Self {
         Self::start(resolve, Arc::new(AtomicBool::new(false)))
     }
@@ -83,12 +130,9 @@ impl Service {
         if enabled {
             return Self::connect(connect);
         }
-        let mut service = Self::new(|_| None);
-        // Without a job sender no lookup is queued; the worker sees a closed channel and ends.
-        service.jobs.take();
-        service
+        Self::disabled()
     }
-    /// The Codex-backed `transient` used by the overlay.
+    /// The Codex-backed transient lookup.
     pub fn transient_codex(enabled: bool) -> Self {
         Self::transient(enabled, crate::app_server::StdioTransport::codex_controlled)
     }

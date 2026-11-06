@@ -11,7 +11,12 @@ the card. The folder is display-only: only the last path component is kept, cont
 bidirectional-override characters are removed, it is cut at 40 characters, and it is
 never logged.
 
-In the resident with Codex usage polling enabled, names are read over the usage
+Name lookup is disabled by default; `[codex] session_names = true` enables it for the
+resident. Transient mode additionally requires `[codex] transient_names = true`.
+When disabled, no name-lookup worker or app-server child is started; usage polling
+remains independent.
+
+In the resident with name lookup and Codex usage polling enabled, names are read over the usage
 worker's own app-server connection (`usage_service::NameLookup`): requests are
 strictly serial on that one connection, so only one `codex app-server` child runs.
 An unknown thread (a JSON-RPC error) leaves the connection open; a lost connection

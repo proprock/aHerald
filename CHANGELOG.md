@@ -11,6 +11,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Changed
+- Codex session name lookups are now off by default; set `[codex] session_names = true` to enable them.
+  Transient cards also require `transient_names = true`. See AH-267 in `TODO.md` for remaining acceptance.
 - `--install-hooks`, `--uninstall-hooks`, `--install-statusline` and `--uninstall-statusline` now go through the
   same setup backend as `--setup` on every system: they write a receipt, change only the named harness,
   write hooks in the exec form and roll back a failed write. Entries written by the older command are
