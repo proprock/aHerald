@@ -300,15 +300,6 @@ shared development-profile and artwork performance changes need no separate port
   suppression remains blocked on a supported observable source; preserve current
   notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
 
-- [ ] **AH-054 — Capture a live Claude `StopFailure` payload (split from AH-036).**
-  Depends on AH-036. The mapping (`StopFailure` to `error`, resolving same-session
-  pending cards) is covered by automated tests, but no live payload exists. A bad model
-  name and an invalid `ANTHROPIC_API_KEY` with `claude -p` fail before a turn starts and
-  fire no hook (2026-10-26). Try an interactive session that hits a real API error
-  (for example a rate limit) with the capture hook, then compare the fields (`error`)
-  with `docs/claude-hooks.md`. Acceptance: a captured payload matches the documented
-  fields, or the doc records the difference and the mapping is adjusted test-first.
-
 - [ ] **AH-277 — Windows console companion checks (left from AH-211).**
   By hand: `aherald-cli` in Windows Terminal and on Windows Server 2019 (output, exit code, an unknown
   option); a live Claude Code and Codex hook (still `aherald.exe`) opens no console window. Automated:
