@@ -3,6 +3,33 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-253 — One version reader for scripts; scripts move to `scripts/`.**
+  Done in PR #125 (2026-11-06). `package-*.sh`, `check-release*.sh`, `package-release.ps1`,
+  `build-installer.ps1` and `check-release.ps1` live in `scripts/`; `scripts/version.sh` (`crate_version`,
+  `require_tag_matches`) and `scripts/Version.ps1` (`Get-CrateVersion`, `Assert-TagMatches`) read the version
+  with `cargo metadata --no-deps --format-version 1`; `ci.yml` and `release.yml` use them for the tag and
+  version checks. The sed constraint test in `tests/workspace.rs` was replaced by tests that run the reader
+  (POSIX, plus a PowerShell test on Windows). `generate_assets.rs` and `generate_app_icon.rs` moved to
+  `examples/tools/` with the `[[example]]` paths; `.github/platform-flags.sh` and `tests/ci_platform_flags.sh`
+  follow the new paths. `ls *.sh *.ps1` in the root is empty. Evidence: **ran locally** (Linux):
+  `package-linux.sh`, `package-deb.sh`, `package-ping.sh` from the new place give the same artifacts, a wrong
+  tag prints the new error, `tests/ci_platform_flags.sh` and zizmor are clean; **compiled/tested in CI**: PR
+  run https://github.com/proprock/aHerald/actions/runs/42131417172: Windows "Package the Windows release candidate" and "Verify isolated Windows installer
+  lifecycle", "Assemble the Debian package and verify its isolated lifecycle" and the Linux package job all
+  succeeded. **Not checked**: the macOS scripts (`package-macos.sh`, `package-dmg.sh`, `check-release-*.sh`)
+  and the nightly full run; they run only in `release.yml` (moved to AH-280 and AH-282).
+
+- [x] **AH-249 — `[lints]` table: the Windows SAFETY comments.**
+  Done in PR #125 (2026-11-06). Every Windows module in `src/` (`resident, local, resident_overlay, tray,
+  overlay, pipe, tray_native_tests, restart, audio_windows, detached`) and the 19 Windows-dependent files in
+  `tests/` now carry a real `// SAFETY:` comment per `unsafe` block, and every
+  `#![allow(clippy::undocumented_unsafe_blocks)] // TODO(AH-249)` is gone (`unsafe impl Sync for StopEvent`
+  is documented too). Evidence: **ran locally** (lint only, Linux): `cargo clippy --locked --target
+  x86_64-pc-windows-msvc --all-targets -- -D warnings` green with no allow left, using an `llvm-rc` stub (the
+  method is in AGENTS.md); **compiled/tested in CI**: PR run https://github.com/proprock/aHerald/actions/runs/42131417172, Windows, macOS and Ubuntu build and test,
+  MSRV on three OSes and Format all green. Windows tests themselves ran only in CI; macOS was not
+  affected by the change beyond compiling.
+
 - [x] **AH-231 — Linux resident: no periodic wake-ups while idle (one check is left, AH-283).**
   The loop in `src/linux/resident.rs` no longer sleeps 16 ms per pass. `linux::wake::timeout(busy,
   housekeeping)` gives a frame (16 ms) while something is shown, queued, animating or playing, the one-second
