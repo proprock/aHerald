@@ -125,6 +125,7 @@ jobs:
           FILE: ${{ steps.script.outputs.file }}
           ARGS: ${{ inputs.args }}
           XVFB: ${{ inputs.xvfb }}
+          MANUAL_MINUTES: ${{ inputs.minutes }}
         run: |
           set -u -o pipefail
           set -f # the arguments are split on spaces, never expanded as patterns
