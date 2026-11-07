@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-290 — Windows memory test `repeated_card_rendering_and_dpi_resize_release_native_resources` failed in nightly runs.**
+  Verdict: not a regression of the pull requests merged on 2026-11-06; it is the load-dependent failure
+  already tracked as AH-221, which stays open. Failures: manual Nightly on `7872a8c` (2026-11-06; lowest at
+  cycles 50-100 15462400, at 150-200 47767552, baseline 15626240) and scheduled Nightly 42367496547 on `ce71ebe`
+  (2026-11-07; 15773696, 45547520, baseline 29687808). Bisect with the manual workflow on `windows-latest`:
+  the test alone, 30 runs on each of `882bb50` (last green scheduled nightly), `16ce626`, `251ae07`,
+  `9077805`, `bf8b401` and `ce71ebe` (runs 42422762285..42422774458): 180 of 180 passed, private commit flat
+  at about 11-15 MB. `src/windows/overlay.rs` changed by 2 lines over the whole range (the AH-266 move).
+  The whole `aherald` lib suite, 40 runs (42423173320, 42423175530, 42423180857, 42423185815): `882bb50`
+  failed the test 1 of 40 plain and 6 of 40 with a busy loop on every CPU, `ce71ebe` 1 of 40 and 1 of 40;
+  every failure with a reason shown is "kept growing" with the same shape as the nightly ones. The
+  threshold was not changed. Evidence: **compiled/tested in CI only** (Windows runner); Linux and macOS
+  are not affected (Windows-only test).
+
 - [x] **AH-285 — Messenger messages: an optional computer name and a header line.**
   New per-sink switch `include_host` (default `false`). The message is now an optional header line (`host/folder`,
   `host`, `folder`; none means none, with no blank line) and a blank line, then `Claude: turn complete`; the
