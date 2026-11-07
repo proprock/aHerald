@@ -100,7 +100,8 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   manual runs 42423173320 and 42423175530 (load) and 42422762285 (alone).
   Status (2026-11-08): the test moved from `.github/noisy-tests.txt` to `.github/solo-tests.txt`; every
   CI run (pull request and nightly) skips it in the whole suite and runs it alone on Windows in the step
-  `cargo test (alone)`, so a pull request now runs it. The release still skips it. Left: explain the
+  `cargo test (alone)`, so a pull request now runs it (#168; its CI run 42425645837 on `windows-latest`
+  skipped the test in the suite and passed it alone). The release still skips it. Left: explain the
   growth under load (a leak that only load exposes, or DWM/allocator noise) and make the test hold
   inside a busy suite; then it can go back into the whole-suite run.
 
