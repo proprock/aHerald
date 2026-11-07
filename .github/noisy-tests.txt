@@ -1,8 +1,7 @@
-# Tests that are noisy on a shared runner: timing budgets and the native memory-growth check
-# (AH-221). A pull request and a release skip them; the nightly full run keeps them, so a real
-# regression still shows within a day. One test name per line; blank lines and # comments are ignored.
+# Tests that are noisy on a shared runner: timing budgets. A pull request and a release skip them;
+# the nightly full run keeps them, so a real regression still shows within a day. The native
+# memory-growth check (AH-221) runs alone in every CI run instead: see .github/solo-tests.txt. One test name per line; blank lines and # comments are ignored.
 # A renamed test only runs early again, never drops out of the nightly run.
 warmed_artwork_preparation_stays_inside_budget
 hot_paths_stay_inside_their_baseline_budgets
 the_wrapper_costs_little_beyond_starting_the_executable
-repeated_card_rendering_and_dpi_resize_release_native_resources

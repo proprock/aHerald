@@ -60,7 +60,7 @@ explicit go-ahead.
      reachable from `master`;
    - `package` (the reusable `package.yml`, which the nightly workflow also calls) runs four jobs in
      parallel, each checking that the tag equals the crate version, running the test suite without
-     the noisy timing and memory checks (the nightly run keeps them), building, packaging, verifying a clean extraction, attesting build
+     the noisy timing checks (the nightly run keeps them) and the memory check (it runs alone in every CI run), building, packaging, verifying a clean extraction, attesting build
      provenance and uploading the artifacts with `.sha256` files: Windows x64, macOS arm64,
      Linux x86-64 GNU, `aherald-ping` for Linux musl (x86_64 and aarch64, plus a container test);
    - `draft_release`: checks that every platform delivered its files and checksums, extracts the

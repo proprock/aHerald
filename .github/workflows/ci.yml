@@ -204,9 +204,9 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
-      # Timing budgets and the native memory-growth check (AH-221) are noisy on a shared
-      # runner, so a pull request skips them; the nightly run keeps them. The list is
-      # .github/noisy-tests.txt, which the release workflow reads too (AH-251).
+      # Timing budgets are noisy on a shared runner, so a pull request skips them; the nightly
+      # run keeps them. The list is .github/noisy-tests.txt, which the release workflow reads
+      # too (AH-251). The tests in .github/solo-tests.txt are skipped here and run alone below.
       - name: cargo test
         if: ${{ !inputs.full }}
         shell: bash
@@ -220,9 +220,30 @@ jobs:
 
       - name: cargo test (including the noisy checks)
         if: ${{ inputs.full }}
+        shell: bash
         env:
           AHERALD_REQUIRE_NODE: ${{ runner.os == 'Linux' && '1' || '' }}
-        run: cargo test --locked --workspace --all-targets
+        run: |
+          skips=$(sh .github/noisy-test-args.sh .github/solo-tests.txt)
+          echo "Skipping (run alone below): $skips"
+          # shellcheck disable=SC2086 # the names are plain identifiers
+          cargo test --locked --workspace --all-targets -- $skips
+
+      # Other tests running at the same time make these fail (AH-221, AH-290), so each runs
+      # alone after the suite. They are Windows tests today; a name that runs nowhere fails
+      # the step instead of passing silently.
+      - name: cargo test (alone)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -eu
+          while IFS= read -r line || [ -n "$line" ]; do
+            name=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+            case "$name" in '' | '#'*) continue ;; esac
+            out=$(cargo test --locked --workspace --all-targets -- "$name" 2>&1) || { printf '%s\n' "$out"; exit 1; }
+            printf '%s\n' "$out"
+            printf '%s\n' "$out" | grep -q "$name \.\.\. ok" || { echo "::error::$name did not run"; exit 1; }
+          done <.github/solo-tests.txt
 
       # --all-targets leaves out documentation tests.
       - name: cargo test --doc

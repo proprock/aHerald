@@ -51,7 +51,8 @@ jobs:
           . ./scripts/Version.ps1
           Assert-TagMatches "$env:RELEASE_TAG" (Get-CrateVersion)
 
-      # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
+      # The noisy timing checks run in the nightly full run and the memory check alone in every
+      # CI run, not here (AH-251, AH-221).
       - name: Test
         if: inputs.run_tests
         shell: bash
@@ -131,7 +132,8 @@ jobs:
           . ./scripts/version.sh
           require_tag_matches "$RELEASE_TAG" "$(crate_version)"
 
-      # The noisy timing and memory checks run in the nightly full run, not here (AH-251).
+      # The noisy timing checks run in the nightly full run and the memory check alone in every
+      # CI run, not here (AH-251, AH-221).
       - name: Test
         if: inputs.run_tests
         shell: bash
