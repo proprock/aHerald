@@ -91,6 +91,13 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   the test deterministic (for example, count GDI and USER handles instead of private commit, or
   widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
   hosted runner, and the `--skip` is removed from ci.yml.
+  Reproduction (2026-11-08, from AH-290): on `windows-latest` the test alone passes 30 of 30 with flat
+  private commit (about 11-15 MB), but the whole `cargo test -p aherald --lib` suite run 40 times fails it
+  1 time in 40, and 6 times in 40 with a busy loop on every CPU, on `882bb50` (before the 2026-11-06
+  refactors) as on `ce71ebe`. The failure always has the same shape: the lowest commit at cycles 50-100 is
+  12-15 MB, at 150-200 it is 32-42 MB, and after the compositor flush it stays at 45-121 MB. The baseline
+  sample itself is sometimes about 25-30 MB instead of 13-15 MB. Scripts: the inline `ah290-load.sh` of
+  manual runs 42423173320 and 42423175530 (load) and 42422762285 (alone).
 
 - [ ] **AH-272 — macOS DMG installation by hand (left from AH-102).**
   On the MacBook Pro M1 with a released DMG: install into /Applications and launch with a Finder
@@ -535,18 +542,6 @@ P2 tasks run in the listed order; AH-266 goes last.
   leaves exactly one release; a run with a failing package job (forced on a scratch branch) leaves the first
   nightly intact; the stable `release.yml` run on the next release candidate is unchanged in behaviour.
 
-- [ ] **AH-290 — Windows memory test `repeated_card_rendering_and_dpi_resize_release_native_resources` failed once in a nightly run.**
-  On 2026-11-06 the manual Nightly run on `master` (commit `7872a8c`) failed this test on `windows-latest`:
-  "private commit kept growing: lowest at cycles 50-100 was 15462400, at 150-200 47767552, baseline
-  15626240" (`src/windows/overlay.rs`, listed in `.github/noisy-tests.txt`, so it runs only in the nightly
-  full run). Re-running the failed job passed. The last scheduled nightly before it (13:10 UTC the same day,
-  before the resident refactors AH-257..AH-263 and AH-287) was green. Depends on nothing. Decide whether it
-  is runner noise or a leak: (1) collect the result of this test from the next nightly runs (record pass or
-  fail and the three numbers in the failure message, as text); (2) if it fails again, bisect over the
-  pull requests merged on 2026-11-06 with the manual workflow on `windows-latest` (the test alone, repeated)
-  and fix the cause; (3) if it stays green over a week of nightlies, record it as a one-off noise with the
-  numbers and close. Acceptance: either a fix with a regression check or a recorded noise verdict with
-  the evidence; the threshold is not loosened without a measured baseline.
 
 - [ ] **AH-289 — Program starts in tests have a 3 s bound that a loaded full run can exceed.**
   Status (2026-11-06): the bound is now `support::START_BOUND` (30 s), used by the 11 calls that run a
