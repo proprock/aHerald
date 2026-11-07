@@ -98,6 +98,11 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   12-15 MB, at 150-200 it is 32-42 MB, and after the compositor flush it stays at 45-121 MB. The baseline
   sample itself is sometimes about 25-30 MB instead of 13-15 MB. Scripts: the inline `ah290-load.sh` of
   manual runs 42423173320 and 42423175530 (load) and 42422762285 (alone).
+  Status (2026-11-08): the test moved from `.github/noisy-tests.txt` to `.github/solo-tests.txt`; every
+  CI run (pull request and nightly) skips it in the whole suite and runs it alone on Windows in the step
+  `cargo test (alone)`, so a pull request now runs it. The release still skips it. Left: explain the
+  growth under load (a leak that only load exposes, or DWM/allocator noise) and make the test hold
+  inside a busy suite; then it can go back into the whole-suite run.
 
 - [ ] **AH-272 — macOS DMG installation by hand (left from AH-102).**
   On the MacBook Pro M1 with a released DMG: install into /Applications and launch with a Finder
