@@ -3,6 +3,13 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-292 — Adopt TDD red/green commits (kaBoost `tdd-commits`).**
+  `AGENTS.md` gains the managed rule block and `scripts/kaboost_audit_tdd.py` checks the pairs, both written
+  by `kaboost_init.py apply --ids tdd-commits`. The merge commit is the boundary for kaBoost's real-use
+  evidence (KB-025); pairs after it are audited with
+  `python scripts/kaboost_audit_tdd.py <boundary>..master --run 'cargo test --workspace -- {tests}'`.
+  Evidence: docs and a standard-library script only; no Rust code changed.
+
 - [x] **AH-290 — Windows memory test `repeated_card_rendering_and_dpi_resize_release_native_resources` failed in nightly runs.**
   Verdict: not a regression of the pull requests merged on 2026-11-06; it is the load-dependent failure
   already tracked as AH-221, which stays open. Failures: manual Nightly on `7872a8c` (2026-11-06; lowest at

@@ -220,3 +220,12 @@ cargo test --locked --workspace --doc
   `BREAKING CHANGE:` footer for breaking changes. One coherent change per commit with its
   tests and docs; inspect the staged diff. Commit only when asked or when the agreed workflow
   includes it.
+
+<!-- kaboost:begin tdd-commits:rules v1 sha=1da1b7023f80 pre=1 created=0 -->
+## TDD red/green commits
+
+- When work is test-driven, commit the failing tests alone first: message `<task ID>: test: ...` (or `test: ... (<task ID>)` where the project ends subjects with the task ID), a line `Expected failing: <test ids>` and the trailer `TDD: red`. Then commit the solution with the same task ID and the trailer `TDD: green`. Documentation, exploratory work and configuration are exempt.
+- A red commit fails CI by design: skip push-triggered runs whose head commit message contains `TDD: red` and keep pull-request runs unconditional, or push the pair together.
+- Merge with merge commits, not squash, so the pairs stay in history; find the first failing commit with `git bisect --first-parent`.
+- Check the pairs with `python scripts/kaboost_audit_tdd.py <range> --run '<test command with {tests}>'`: the named tests must fail on red and pass on green.
+<!-- kaboost:end tdd-commits:rules -->
