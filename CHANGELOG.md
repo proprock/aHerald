@@ -10,6 +10,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-09
+
 ### Added
 - Messenger sinks can name the computer: `include_host = true` (off by default, per sink) puts the
   computer's name, or its IP address if the name cannot be read, into the message, and `{host}` is
@@ -524,7 +526,8 @@ configuration work.
   the notification service does not run there yet (AH-062 onward). Unix IPC isolates
   by user id only; there is no logon-session equivalent.
 
-[Unreleased]: https://github.com/proprock/aHerald/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/proprock/aHerald/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/proprock/aHerald/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/proprock/aHerald/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/proprock/aHerald/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/proprock/aHerald/compare/v0.13.0...v0.14.0
