@@ -173,8 +173,17 @@ jobs:
       # while the assets are still the old ones. The notes say "in progress" for that time, and
       # name the commit only at the end, so a run that dies half way leaves a release that the next
       # run rebuilds. Recovery: run this workflow again.
+      #
+      # The tag moves with NIGHTLY_TOKEN, not with the job's GITHUB_TOKEN: GitHub refuses a
+      # GITHUB_TOKEN any ref that points at a commit with files under .github/workflows (HTTP 403
+      # "Resource not accessible by integration"), and every commit of this repository has them.
+      # The token is fine-grained, limited to this repository (Contents and Workflows: write), and
+      # only this step sees it. It is kept as a secret of the `nightly` environment.
       - name: Mark the release as being updated and move the tag
+        env:
+          GH_TOKEN: ${{ secrets.NIGHTLY_TOKEN }}
         run: |
+          test -n "$GH_TOKEN" || { echo "Secret NIGHTLY_TOKEN is not set (see docs/nightly.md); the nightly tag cannot move." >&2; exit 1; }
           date_utc=$(date -u '+%Y-%m-%d %H:%M UTC')
           printf 'Update in progress since %s. If this stays, the last run failed: run the Nightly workflow again.\n' "$date_utc" > notes.md
           if gh release view "$TAG_NAME" > /dev/null 2>&1; then

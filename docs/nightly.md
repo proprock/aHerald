@@ -44,5 +44,16 @@ release shows "Update in progress" for long, run the workflow again: a release w
 note is always rebuilt. The workflow touches only the `nightly` tag and release, and refuses to
 continue if that release is not a published prerelease.
 
+## The token that moves the tag
+
+GitHub refuses the workflow's own `GITHUB_TOKEN` any tag that points at a commit with files under
+`.github/workflows` (HTTP 403 "Resource not accessible by integration"), and every commit of this
+repository has them. So the step that moves the `nightly` tag uses the secret `NIGHTLY_TOKEN`, a
+fine-grained personal access token limited to `proprock/aHerald` with **Contents: read and write**
+and **Workflows: read and write**. Store it as a secret of the `nightly` environment (Settings →
+Environments → nightly), where only the publish job can read it. Without it the run stops at that
+step with a message naming the secret. The token expires: renew it before the date you set, or
+the nightly runs fail again (AH-295).
+
 GitHub's "immutable releases" setting must stay off for this repository (it is off today): an
 immutable release cannot be edited and its tag cannot move.
