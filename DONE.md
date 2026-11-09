@@ -18,6 +18,10 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   `clippy -D warnings` and `cargo test --all-targets` on macOS; the live window was clicked through
   Accessibility (Claude context on selects hooks and status line, hooks off clears them, Codex idle on
   selects Codex hooks) and checked by eye by the owner, in a fresh copy and in the installed app.
+  The Linux console test (`tests/console_setup_linux.py`, updated for the new question) passes in a
+  linux/amd64 container (rust:1); it first caught that a warning saved for an agent whose hooks were
+  declined brought the hooks back, so the console only applies the Claude context -> wrapper rule.
+  The Windows installer part is AH-298.
 
 - [x] **AH-295 — The nightly run fails when it moves the `nightly` tag (HTTP 403).**
   From 2026-11-07 every scheduled Nightly built, tested and packaged all platforms, but the publish job

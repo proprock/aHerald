@@ -153,12 +153,13 @@ pub fn console() -> Result<(), String> {
             defaults.claude_statusline || selection.claude_context,
         )?;
     }
-    // A choice that needs another one turns it on: say so instead of leaving it silently off.
-    let required = selection.with_dependencies();
-    if required.claude_statusline && !selection.claude_statusline {
+    // Only the answers just given count: a warning saved for an agent whose hooks were declined
+    // must not bring the hooks back. The Claude context warning needs the wrapper; say so
+    // instead of leaving it silently off.
+    if selection.claude && selection.claude_context && !selection.claude_statusline {
         println!("The Claude context warning needs the status line wrapper; it is installed too.");
+        selection.claude_statusline = true;
     }
-    selection = required;
     let harnesses = selection.harnesses();
     let options = selection.options();
     let remove = selection.remove();
