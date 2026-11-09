@@ -58,12 +58,18 @@ installed hook dispatch or use an audio device. Those live checks remain AH-115.
 The test uses Linux pidfds for owned-process cleanup and requires a kernel that
 supports `pidfd_open` and `pidfd_send_signal`.
 
-Alternatively, Claude Code can install the repository's plugin marketplace:
+Alternatively, Claude Code can install the plugin from the `proprock` marketplace, which lists
+the plugins of several repositories and pins aHerald to its latest release:
 
 ```sh
-claude plugin marketplace add proprock/aHerald
+claude plugin marketplace add https://github.com/proprock/marketplace.git
 claude plugin install aherald@proprock
 ```
+
+Update with `claude plugin marketplace update proprock` and `claude plugin update aherald@proprock`.
+An earlier `proprock` marketplace added from `proprock/aHerald` no longer exists; if you added
+it, run `claude plugin marketplace remove proprock` first, because the name `proprock` can point
+to only one source.
 
 The plugin looks for `$AHERALD_PATH`, then `~/.local/share/aHerald/aherald`, then `PATH`.
 Set `AHERALD_PATH` in the environment that starts Claude Code when using another location.

@@ -16,6 +16,13 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   available in a webhook body and a command. It is recorded in `docs/privacy.md` (AH-285).
 
 ### Changed
+- The Claude Code plugin is installed from the shared `proprock` marketplace
+  (`claude plugin marketplace add https://github.com/proprock/marketplace.git`, then
+  `claude plugin install aherald@proprock`). This repository no longer carries its own marketplace
+  named `proprock`: two sources cannot share that name, and adding one dropped the other's plugin.
+  If you added `proprock/aHerald` as a marketplace, run `claude plugin marketplace remove proprock`
+  and add the new one. A stable release now updates the `aherald` pin in that catalog by itself
+  (AH-293).
 - A forwarded message with `include_folder` or `include_host` now starts with a header line
   (`host/folder`, `host` or `folder`) and a blank line, then `Claude: input required`; the folder no
   longer stands in brackets after the harness name. Without either setting the message is unchanged

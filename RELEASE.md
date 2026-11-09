@@ -68,7 +68,15 @@ explicit go-ahead.
    - `publish`: waits for approval in the `release` environment;
    - `update_tap` (not for pre-releases): opens a pull request on `proprock/homebrew-tap` with
      the new version and checksum and merges it once the tap's check passes (needs the
-     `TAP_TOKEN` secret).
+     `TAP_TOKEN` secret);
+   - `update_marketplace` (not for pre-releases): opens a pull request on `proprock/marketplace`
+     that pins the `aherald` entry of `.claude-plugin/marketplace.json` to the tag and its commit
+     (`scripts/update-marketplace.sh`) and merges it at once. That repository has no checks, so the
+     job validates the result itself before merging. It needs the `MARKETPLACE_TOKEN` secret
+     (fine-grained, only `proprock/marketplace`, contents and pull requests write). Without the
+     secret, or if the job fails, run `scripts/update-marketplace.sh` by hand on a checkout of
+     that repository (`TAG` is the release tag, `SHA` is `git rev-parse "$TAG^{commit}"`) and open
+     the pull request yourself. The Codex catalog is not touched until the Codex plugin exists.
 4. Open the draft release, check the notes and the attached files, then approve `publish`.
 
 To rebuild an existing tag, run the workflow manually (Actions → Release → Run workflow) with
@@ -92,7 +100,8 @@ the tag. A published release is never overwritten; the draft step refuses it.
 
 - Do not move or delete a published tag. Fix forward with a patch version.
 - Until the fix is out: edit the GitHub Release back to a draft (or mark it pre-release), and
-  revert the cask commit in `proprock/homebrew-tap` so `brew` users stay on the previous version.
+  revert the cask commit in `proprock/homebrew-tap` and the pin commit in `proprock/marketplace`
+  so `brew` and plugin users stay on the previous version.
 - Note the problem under the fixed version in `CHANGELOG.md`.
 
 ## Artifacts
