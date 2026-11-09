@@ -16,7 +16,7 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   Evidence, 2026-11-09: Nightly dispatched on `master` (`471879b`): all jobs green after a rerun of two
   macOS jobs that never got a runner (see AH-296); the `nightly` tag equals `471879b`, the release holds
   17 assets and its notes name that commit. Not run: Windows and macOS locally (CI only).
-  Left over: the token expires, renew it before the date set at creation.
+  Token expiry: the owner renews `NIGHTLY_TOKEN` before it expires (confirmed 2026-11-09); nothing left over.
 
 - [x] **AH-293 — Publish `aherald` through `proprock/marketplace` and pin it from the release workflow.**
   Two repositories published a marketplace named `proprock`; Claude Code keys marketplaces by name, so
