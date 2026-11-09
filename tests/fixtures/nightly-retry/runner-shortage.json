@@ -1,0 +1,711 @@
+{
+  "jobs": [
+    {
+      "name": "Clippy on stable (ubuntu-22.04)",
+      "conclusion": "success",
+      "runner_id": 1000007467,
+      "runner_name": "GitHub Actions 1000007467",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo clippy",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Clippy on stable (windows-latest)",
+      "conclusion": "success",
+      "runner_id": 1000007468,
+      "runner_name": "GitHub Actions 1000007468",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo clippy",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Clippy on stable (macos-15)",
+      "conclusion": "success",
+      "runner_id": 1000007483,
+      "runner_name": "GitHub Actions 1000007483",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo clippy",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Changes since the last nightly",
+      "conclusion": "success",
+      "runner_id": 1000007470,
+      "runner_name": "GitHub Actions 1000007470",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Compare master with the commit of the published nightly",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / Detect changed paths",
+      "conclusion": "success",
+      "runner_id": 1000007471,
+      "runner_name": "GitHub Actions 1000007471",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check the path classifier, the noisy-test list and the marketplace pin script",
+          "conclusion": "success"
+        },
+        {
+          "name": "Classify changed paths",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Dependency audit (no change)",
+      "conclusion": "skipped",
+      "runner_id": null,
+      "runner_name": null,
+      "steps": []
+    },
+    {
+      "name": "Full CI / Linux package and console setup (ubuntu-22.04)",
+      "conclusion": "success",
+      "runner_id": 1000007475,
+      "runner_name": "GitHub Actions 1000007475",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install runtime libraries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify interactive console setup",
+          "conclusion": "success"
+        },
+        {
+          "name": "Assemble the Debian package and verify its isolated lifecycle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / Format",
+      "conclusion": "success",
+      "runner_id": 1000007481,
+      "runner_name": "GitHub Actions 1000007481",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo fmt --check",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / aherald-ping in a container (ubuntu-22.04)",
+      "conclusion": "success",
+      "runner_id": 1000007474,
+      "runner_name": "GitHub Actions 1000007474",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install link-time libraries",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build both static senders",
+          "conclusion": "success"
+        },
+        {
+          "name": "Package them and run the x86_64 one in a container",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / MSRV build (ubuntu-22.04)",
+      "conclusion": "success",
+      "runner_id": 1000007476,
+      "runner_name": "GitHub Actions 1000007476",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Linux build dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Read rust-version from Cargo.toml",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo check",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / Build and test (macos-15)",
+      "conclusion": "cancelled",
+      "runner_id": 0,
+      "runner_name": "",
+      "steps": []
+    },
+    {
+      "name": "Full CI / Dependency audit",
+      "conclusion": "success",
+      "runner_id": 1000007480,
+      "runner_name": "GitHub Actions 1000007480",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / MSRV build (windows-latest)",
+      "conclusion": "success",
+      "runner_id": 1000007472,
+      "runner_name": "GitHub Actions 1000007472",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Linux build dependencies",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Read rust-version from Cargo.toml",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo check",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / MSRV build (macos-15)",
+      "conclusion": "cancelled",
+      "runner_id": 0,
+      "runner_name": "",
+      "steps": []
+    },
+    {
+      "name": "Full CI / Build and test (windows-latest)",
+      "conclusion": "success",
+      "runner_id": 1000007473,
+      "runner_name": "GitHub Actions 1000007473",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Linux test dependencies",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install Node.js for the bridge tests",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo clippy",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo test",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "cargo test (including the noisy checks)",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo test (alone)",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo test --doc",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test the remote listener with a real resident",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test Linux tray and warning lifecycle",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Test Linux usage wake-up",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify the isolated macOS app lifecycle",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify installer failure diagnostics",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build the Windows release candidate",
+          "conclusion": "success"
+        },
+        {
+          "name": "Package the Windows release candidate",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install the signed Inno Setup compiler",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify isolated Windows installer lifecycle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Install the signed Inno Setup compiler",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / Build and test (ubuntu-22.04)",
+      "conclusion": "success",
+      "runner_id": 1000007477,
+      "runner_name": "GitHub Actions 1000007477",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Linux test dependencies",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Node.js for the bridge tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo clippy",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo test",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "cargo test (including the noisy checks)",
+          "conclusion": "success"
+        },
+        {
+          "name": "cargo test (alone)",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "cargo test --doc",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test the remote listener with a real resident",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test Linux tray and warning lifecycle",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test Linux usage wake-up",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify the isolated macOS app lifecycle",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify installer failure diagnostics",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Build the Windows release candidate",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Package the Windows release candidate",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install the signed Inno Setup compiler",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify isolated Windows installer lifecycle",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run ./.github/actions/setup-rust",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Install Node.js for the bridge tests",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / Lint workflows",
+      "conclusion": "success",
+      "runner_id": 1000007482,
+      "runner_name": "GitHub Actions 1000007482",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "actionlint",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b",
+          "conclusion": "success"
+        },
+        {
+          "name": "zizmor",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Full CI / CI gate",
+      "conclusion": "failure",
+      "runner_id": 1000007488,
+      "runner_name": "GitHub Actions 1000007488",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Require every needed job to pass or be skipped",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "Package",
+      "conclusion": "skipped",
+      "runner_id": null,
+      "runner_name": null,
+      "steps": []
+    },
+    {
+      "name": "Publish the rolling prerelease",
+      "conclusion": "skipped",
+      "runner_id": null,
+      "runner_name": null,
+      "steps": []
+    }
+  ]
+}
