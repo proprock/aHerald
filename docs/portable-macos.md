@@ -73,13 +73,18 @@ The first command is a dry run. `--apply` writes `~/.claude/settings.json` or `~
 with a `*.aherald-backup` copy and touches only aHerald's own entries. Start a new Codex session,
 open `/hooks` and trust the commands. Remove them with `--uninstall-hooks claude|codex --apply`.
 
-For Claude Code there is also a plugin from this repository's marketplace; use it instead of
-`--install-hooks claude`, not together:
+For Claude Code there is also a plugin in the `proprock` marketplace (it pins aHerald to its
+latest release); use it instead of `--install-hooks claude`, not together:
 
 ```bash
-claude plugin marketplace add proprock/aHerald
+claude plugin marketplace add https://github.com/proprock/marketplace.git
 claude plugin install aherald@proprock
 ```
+
+Update with `claude plugin marketplace update proprock` and `claude plugin update aherald@proprock`.
+If you added a `proprock` marketplace from `proprock/aHerald` earlier, run
+`claude plugin marketplace remove proprock` first: that source no longer exists, and the name can
+point to only one source.
 
 To do it by hand instead, copy `examples/aherald-codex-hook.sh` and `examples/aherald-claude-hook.sh`
 somewhere stable, fix the app path inside, and merge `examples/hooks.macos.json` into

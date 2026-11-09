@@ -186,3 +186,59 @@ jobs:
           done
           gh pr checks "$branch" --watch --fail-fast
           gh pr merge "$branch" --squash --delete-branch
+
+  update_marketplace:
+    name: Pin aherald in the proprock marketplace
+    needs: [verify_tag, publish]
+    # Pre-releases are not offered through the marketplace.
+    if: needs.verify_tag.outputs.prerelease != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # The release commit; only its hash is used, never its files.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ needs.verify_tag.outputs.tag }}
+          path: aherald
+          persist-credentials: false
+      # The fine-grained MARKETPLACE_TOKEN reaches only the catalog repository. The checkout
+      # keeps it so that the push below is authenticated.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: proprock/marketplace
+          token: ${{ secrets.MARKETPLACE_TOKEN }}
+          path: marketplace
+          persist-credentials: true
+      - name: Pin the release, then open a pull request and merge it
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "Secret MARKETPLACE_TOKEN is not set; pin the release by hand (RELEASE.md)." >&2; exit 1; }
+          sha=$(git -C aherald rev-parse HEAD)
+          catalog=marketplace/.claude-plugin/marketplace.json
+          cp "$catalog" "$RUNNER_TEMP/before.json"
+          sh aherald/scripts/update-marketplace.sh "$catalog" "$RELEASE_TAG" "$sha"
+          # The catalog repository has no checks, so the result is verified here: the aherald
+          # entry points at this release and every other entry is unchanged.
+          jq -e --arg tag "$RELEASE_TAG" --arg sha "$sha" \
+            '[.plugins[] | select(.name == "aherald" and .source.ref == $tag and .source.sha == $sha)] | length == 1' \
+            "$catalog" > /dev/null
+          [ "$(jq -c '[.plugins[] | select(.name != "aherald")]' "$catalog")" = \
+            "$(jq -c '[.plugins[] | select(.name != "aherald")]' "$RUNNER_TEMP/before.json")" ]
+          cd marketplace
+          git diff --quiet && { echo "The catalog already pins aherald $RELEASE_TAG."; exit 0; }
+          branch="aherald-${RELEASE_TAG}"
+          git config user.name "aHerald release"
+          git config user.email "noreply@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -am "aherald ${RELEASE_TAG#v}"
+          # The branch belongs to this job alone, so a re-run may overwrite an earlier attempt.
+          git push --force origin "$branch"
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" = 0 ]; then
+            gh pr create --base master --head "$branch" --title "aherald ${RELEASE_TAG#v}" --body "Release ${RELEASE_TAG} of proprock/aHerald."
+          fi
+          # The release is already published and approved, and the repository has no checks
+          # or branch protection, so the pull request is merged right away.
+          gh pr merge "$branch" --squash --delete-branch
