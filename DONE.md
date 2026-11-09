@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-293 — Publish `aherald` through `proprock/marketplace` and pin it from the release workflow.**
+  Two repositories published a marketplace named `proprock`; Claude Code keys marketplaces by name, so
+  adding one dropped the other's plugin. Decision (owner, 2026-11-09): `proprock/marketplace` is the only
+  catalog. Done (PR #171 and proprock/marketplace#1): the local `.claude-plugin/marketplace.json` is removed;
+  `scripts/update-marketplace.sh` pins the entry by tag and commit, with `tests/update_marketplace.sh`
+  (red commit, then green; wired into the CI classifier job); the `update_marketplace` job in `release.yml`
+  opens and merges the catalog pull request after `publish`; docs, `RELEASE.md` and `CHANGELOG.md` updated.
+  Evidence, 2026-11-09, Linux, Claude Code 2.1.319, isolated `CLAUDE_CONFIG_DIR`: on the real catalog
+  `marketplace add`, `install aherald@proprock` (0.16.0) and `install kaboost@proprock` (0.2.0) both
+  succeeded. Release v0.17.0 ran the new job: it opened and merged proprock/marketplace#2, the catalog pin
+  equals the tag (`a9bf592`), and `claude plugin update aherald@proprock` moved 0.16.0 to 0.17.0.
+  `claude plugin validate --strict` passed on the catalog. Not run: Windows and macOS (CI and docs only).
+  Left over: the Codex catalog entry (AH-294). Side finding: the nightly publish step fails (AH-295).
+
 - [x] **AH-292 — Adopt TDD red/green commits (kaBoost `tdd-commits`).**
   `AGENTS.md` gains the managed rule block and `scripts/kaboost_audit_tdd.py` checks the pairs, both written
   by `kaboost_init.py apply --ids tdd-commits`. The merge commit is the boundary for kaBoost's real-use

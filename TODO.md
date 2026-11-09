@@ -597,26 +597,17 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ## Milestone 14 — One `proprock` plugin catalog (2026-11-09)
 
-- [ ] **AH-293 — Publish `aherald` through `proprock/marketplace` and pin it from the release workflow.**
-  Two repositories published a marketplace named `proprock`; Claude Code keys marketplaces by name, so
-  adding one dropped the other's plugin (`aherald@proprock` vanished after `kaboost`'s README was
-  followed). Decision (owner, 2026-11-09): `proprock/marketplace` is the only catalog.
-  Done on `chore/AH-293-marketplace-pin` (not merged): the local `.claude-plugin/marketplace.json` is
-  removed; `scripts/update-marketplace.sh` pins the `aherald` entry (git-subdir, tag and commit) with
-  `tests/update_marketplace.sh` (red first, then green; wired into the CI classifier job); the
-  `update_marketplace` job in `release.yml` opens and merges the catalog pull request after `publish`
-  (zizmor clean); docs, `RELEASE.md` and `CHANGELOG.md` say how to install and migrate.
-  Remaining, in this order: (1) a pull request on `proprock/marketplace` adds `aherald` pinned to
-  `v0.16.0` (commit `6f8ef731d003e6a2583a2af3a55c71e0efdfe4a3`) and a README row, and is merged
-  before this branch; (2) the owner creates the `MARKETPLACE_TOKEN` secret (fine-grained, only
-  `proprock/marketplace`, contents and pull requests write); (3) after the next stable tag, the job
-  opened and merged its pull request and the catalog pin equals the tag. Acceptance: on an isolated
-  `CLAUDE_CONFIG_DIR`, `claude plugin marketplace add https://github.com/proprock/marketplace.git`
-  then `install aherald@proprock` and `install kaboost@proprock` both succeed; record the Claude Code
-  version and the result in `DONE.md` (counts and dates, no run links).
+- [ ] **AH-295 — The nightly run fails when it moves the `nightly` tag (HTTP 403).**
+  Since 2026-11-07 every scheduled Nightly run builds, tests and packages every platform successfully, but
+  the job "Publish the rolling prerelease" stops in the step "Mark the release as being updated and move
+  the tag" with `gh: Resource not accessible by integration (HTTP 403)`, so the rolling `nightly`
+  prerelease is stale (last published 2026-11-06). Find which call is refused (release edit, tag
+  PATCH or tag POST), whether the token permissions, a repository setting or a ruleset changed on
+  2026-11-07, and fix it. Acceptance: a Nightly run on `master` ends green and the `nightly` release shows the
+  new commit; the cause is recorded in `DONE.md`.
 
 - [ ] **AH-294 — Codex plugin for aHerald and its catalog entry.**
-  Depends on AH-293. `proprock/marketplace` also carries a Codex catalog (`.agents/plugins/marketplace.json`);
+  Depends on AH-293 (done). `proprock/marketplace` also carries a Codex catalog (`.agents/plugins/marketplace.json`);
   aHerald has no Codex plugin package yet (only Codex hook setup through `--install-hooks codex`).
   Read the current Codex plugin and hook documentation first (`AGENTS.md`, harness integrations), build a
   package in the layout kaBoost uses (`adapters/codex/package/kaboost`), add the entry to the Codex
