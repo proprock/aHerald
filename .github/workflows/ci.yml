@@ -42,11 +42,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check the path classifier, the noisy-test list and the marketplace pin script
+      - name: Check the path classifier, the noisy-test list, the marketplace pin script and the nightly retry decision
         run: |
           sh tests/ci_platform_flags.sh
           sh tests/ci_noisy_tests.sh
           sh tests/update_marketplace.sh
+          sh tests/nightly_retry.sh
 
       # The checkout is the pull request merge commit, so diffing against the base branch
       # tip yields exactly the changes this pull request brings in; a diff needs only the

@@ -44,6 +44,15 @@ release shows "Update in progress" for long, run the workflow again: a release w
 note is always rebuilt. The workflow touches only the `nightly` tag and release, and refuses to
 continue if that release is not a published prerelease.
 
+## Reruns when no runner is available
+
+Sometimes GitHub has no macOS runner for a job: it waits 15 minutes and is cancelled with no steps run.
+The workflow `nightly-retry.yml` then reruns the failed jobs of that Nightly run, and only then. Every
+failed job except the final `CI gate` must never have got a runner (`runner_id` 0, no steps); a test
+that failed, or a job that ran and timed out, stays red. At most two reruns per run. The decision is
+`scripts/nightly-retry-decision.sh`, and the run summary of "Nightly retry" says what it decided and why.
+Only the scheduled or manually started Nightly on `master` is covered; a release run is not.
+
 ## The token that moves the tag
 
 GitHub refuses the workflow's own `GITHUB_TOKEN` any tag that points at a commit with files under
