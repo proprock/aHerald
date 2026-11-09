@@ -1009,9 +1009,96 @@ fn installer_reads_usage_defaults_without_creating_config() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
+        "codex_usage=false\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nclaude_statusline=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     assert!(!app.root.join("config.toml").exists());
+}
+
+#[test]
+fn a_status_line_selection_alone_installs_reports_and_removes_the_wrapper() {
+    let app = Install::new("statusline-selection");
+    let install = [
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-statusline",
+        "true",
+    ];
+    // A dry run changes nothing.
+    app.ok(&install);
+    assert!(!app.file("claude").exists());
+    let mut apply = install.to_vec();
+    apply.push("--apply");
+    app.ok(&apply);
+    let command = app.read("claude")["statusLine"]["command"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    if cfg!(unix) {
+        assert!(command.ends_with("--statusline"), "{command}");
+    }
+    let report = app.ok(&["--setup-settings"]);
+    assert!(
+        String::from_utf8_lossy(&report.stdout).contains("claude_statusline=true"),
+        "{}",
+        String::from_utf8_lossy(&report.stdout)
+    );
+    // Repeating does not nest the wrapper.
+    app.ok(&apply);
+    assert_eq!(app.read("claude")["statusLine"]["command"], command);
+    let off = [
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-statusline",
+        "false",
+        "--apply",
+    ];
+    app.ok(&off);
+    assert!(app.read("claude").get("statusLine").is_none());
+    let report = app.ok(&["--setup-settings"]);
+    assert!(String::from_utf8_lossy(&report.stdout).contains("claude_statusline=false"));
+}
+
+#[test]
+fn a_status_line_selection_beats_a_format_and_a_context_warning_only_when_it_is_given() {
+    let app = Install::new("statusline-explicit");
+    std::fs::write(
+        app.root.join("config.toml"),
+        "[claude.statusline]\nformat = \"{model.display_name}\"\n",
+    )
+    .unwrap();
+    // Not given: the format alone still installs the wrapper (installers that do not know the option).
+    app.ok(&["--setup", "--harness", "claude", "--apply"]);
+    assert!(app.read("claude").get("statusLine").is_some());
+    // Given as false: the user does not want it, whatever the format says.
+    app.ok(&[
+        "--setup",
+        "--harness",
+        "claude",
+        "--claude-statusline",
+        "false",
+        "--apply",
+    ]);
+    assert!(app.read("claude").get("statusLine").is_none());
+}
+
+#[test]
+fn a_status_line_selection_needs_the_claude_hooks() {
+    let app = Install::new("statusline-no-claude");
+    let out = app.run(&[
+        "--setup",
+        "--harness",
+        "codex",
+        "--claude-statusline",
+        "true",
+    ]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("--claude-statusline"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
@@ -1023,7 +1110,7 @@ fn installer_changes_only_selected_usage_and_preserves_comments_and_sources() {
     let out = app.ok(&["--setup-settings"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
+        "codex_usage=false\nclaude_usage=true\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nclaude_statusline=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     let args = ["--setup", "--harness", "codex", "--codex-usage", "true"];
     app.ok(&args);
@@ -1107,7 +1194,7 @@ fn installer_settings_preview_uses_explicit_target_file_and_rejects_invalid_flag
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
+        "codex_usage=true\nclaude_usage=false\ncodex_context=false\nclaude_context=false\ncodex_idle=false\nclaude_idle=false\nclaude_statusline=false\nopencode_bridge=false\npi_bridge=false\ngoose_bridge=false"
     );
     for args in [
         vec!["--codex-usage", "true"],

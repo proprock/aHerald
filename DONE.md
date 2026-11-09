@@ -3,6 +3,22 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-297 — Setup window and console: status line choice, dependencies between choices, Done.**
+  The macOS setup window and the Linux console setup did not offer the Claude Code status line
+  wrapper (it was installed only as a side effect of a context warning or a text format), and showed
+  combinations that silently did nothing (an idle warning without its hooks). Now
+  `--claude-statusline true|false` installs or restores the wrapper on its own (`--setup-settings`
+  reports `claude_statusline`; without the flag the earlier rule holds, so the Windows installer is
+  unchanged). `Selection::with_dependencies` / `without_dependents` / `needs_resident` switch on what
+  a choice needs (warning -> its hooks, Claude context -> status line, usage/warnings/status line ->
+  start the resident) and clear what depended on a cleared parent. The macOS window gained the Status
+  line box, a **Done** button that unlocks after a successful Apply, a looser layout and a note that no
+  longer clips.
+  Evidence: unit tests for the rules, process-level tests for the flag, report and removal, `cargo fmt`,
+  `clippy -D warnings` and `cargo test --all-targets` on macOS; the live window was clicked through
+  Accessibility (Claude context on selects hooks and status line, hooks off clears them, Codex idle on
+  selects Codex hooks) and checked by eye by the owner, in a fresh copy and in the installed app.
+
 - [x] **AH-295 — The nightly run fails when it moves the `nightly` tag (HTTP 403).**
   From 2026-11-07 every scheduled Nightly built, tested and packaged all platforms, but the publish job
   stopped at "move the tag" with HTTP 403 "Resource not accessible by integration", so the rolling prerelease

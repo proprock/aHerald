@@ -122,7 +122,10 @@ Installers can inspect usage and warning settings without starting the resident 
 configuration by running aherald --setup-settings. Native setup and removal accept
 `--codex-usage true|false`, `--claude-usage true|false`, `--codex-context true|false`,
 `--claude-context true|false`, `--codex-idle true|false` and `--claude-idle true|false`; omitted options preserve
-existing values. The installer uses --settings-file with an absolute target path
+existing values. `--claude-statusline true|false` (with `--harness claude`) installs or restores
+the Claude Code status line wrapper on its own; without it the wrapper follows the context
+warning and a configured status line text, as before. `--setup-settings` also reports
+`claude_statusline`. The installer uses --settings-file with an absolute target path
 so its temporary executable reads and patches the installed configuration.
 
 For silent installation, /TASKS="codex,claude,usagecodex,usageclaude" selects both
@@ -173,17 +176,24 @@ first start needs Control-click, Open (or `xattr -dr com.apple.quarantine`; see
 
 Opening `aHerald.app` from Finder starts the **aHerald Setup** window; the same window opens
 from a terminal with `aherald --setup-window`. It runs as the user and lists, for Codex and for
-Claude Code, the hooks, usage monitoring and context and idle warnings, plus a launch option.
+Claude Code, the hooks, usage monitoring and context and idle warnings, for Claude Code also the
+status line wrapper, then OpenCode, Pi and Goose bridges and the option to start the resident.
 
 - First setup starts with nothing selected. Later runs read the saved receipt and
   `config.toml`, so the selection is retained; usage stays off until you choose it.
   Claude usage `auto` tries the login token, then the last statusLine report.
+- Choices that need another one switch it on: a warning ticks the hooks of its agent, the
+  Claude context warning also ticks the status line, and usage, warnings and the status line
+  tick **Start the resident after applying** (they only work while a resident runs). Clearing
+  the hooks clears the warnings and the status line that depend on them. Claude usage needs no
+  status line; it only uses its reports when the login token is unavailable.
 - **Preview** is a dry run and shows the files and entries that would change. **Apply** calls
   the same backend as `--setup` / `--unsetup` with `--apply`: all files are checked first,
   backups are kept, a failed write is rolled back, repeating it changes nothing, and choosing
   no agent removes only the saved bindings. A failure is shown in the Details box and changes
   nothing. Foreign hooks and other installations are left alone, and each agent's own hook
-  trust review still applies. No autostart entry is created.
+  trust review still applies. No autostart entry is created. **Done** unlocks after a successful Apply and closes the window; the
+  Details box keeps what was changed and what to do next (for example trusting the Codex hooks).
 - Hooks use the fixed path `/Applications/aHerald.app/Contents/MacOS/aherald` (or wherever
   the app was when you applied). The receipt, `config.toml`, logs and backups live in
   `~/Library/Application Support/aHerald`; the signed bundle is never modified.

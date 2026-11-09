@@ -66,6 +66,10 @@ pub struct UsageOptions {
     pub claude_context: Option<bool>,
     pub codex_idle: Option<bool>,
     pub claude_idle: Option<bool>,
+    /// Whether Claude Code's `statusLine` runs aHerald's wrapper. `None` keeps the earlier rule
+    /// (installed for a context warning or a configured text), so installer pages that do not
+    /// know the option behave as before; it needs the Claude hooks in the same setup.
+    pub claude_statusline: Option<bool>,
     /// Bridge files to install. `None` leaves installed bridges alone, so setups that do not
     /// know about them (installer pages) never remove one; `Some` replaces the whole set.
     pub bridges: Option<Vec<Bridge>>,
@@ -123,8 +127,12 @@ pub fn settings_state(exe: &Path, selected: Option<&Path>) -> Result<String, Str
         _ => exe.to_path_buf(),
     };
     let bridges = selected_bridges(&owner);
+    let statusline = saved_receipt(&owner)
+        .ok()
+        .flatten()
+        .is_some_and(|receipt| receipt.statusline.is_some());
     let mut report = format!(
-        "codex_usage={}\nclaude_usage={}\ncodex_context={}\nclaude_context={}\ncodex_idle={}\nclaude_idle={}\n",
+        "codex_usage={}\nclaude_usage={}\ncodex_context={}\nclaude_context={}\ncodex_idle={}\nclaude_idle={}\nclaude_statusline={statusline}\n",
         config.codex.usage.enabled,
         config.claude.usage.enabled,
         config.codex.warnings.context_threshold().is_some(),
@@ -1268,7 +1276,16 @@ pub fn run_with_options(
         .find(|b| b.agent == "claude")
         .map(|b| b.file.clone());
     // The wrapper serves the context warning and the configured status line text.
-    let wrapper_wanted = if claude_file.is_some() {
+    if options.claude_statusline.is_some() && claude_file.is_none() && !remove {
+        return Err(
+            "--claude-statusline needs --harness claude: the status line belongs to Claude Code's settings"
+                .into(),
+        );
+    }
+    let wrapper_wanted = if let (Some(_), Some(wanted)) = (&claude_file, options.claude_statusline)
+    {
+        wanted
+    } else if claude_file.is_some() {
         let file = settings_file(exe, options.file.as_deref())?;
         let config = if let Some(change) = changes.iter().find(|c| c.file == file) {
             crate::config::Config::parse(

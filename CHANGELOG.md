@@ -10,6 +10,13 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Added
+- The setup window and the Linux console setup offer the Claude Code status line wrapper as its
+  own choice (`--claude-statusline true|false`; `--setup-settings` reports `claude_statusline`).
+  A choice now switches on what it needs (a warning its agent's hooks, the Claude context warning
+  the status line, usage, warnings and the status line a resident), and clearing the hooks clears
+  what depended on them. The macOS window gains a **Done** button that unlocks after Apply (AH-297).
+
 ## [0.17.0] - 2026-11-09
 
 ### Added

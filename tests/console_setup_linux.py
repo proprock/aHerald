@@ -52,7 +52,8 @@ def prompts(codex, claude):
     if codex:
         names += ["Enable Codex context warning?", "Enable Codex idle warning?"]
     if claude:
-        names += ["Enable Claude context warning?", "Enable Claude idle warning?"]
+        names += ["Enable Claude context warning?", "Enable Claude idle warning?",
+                  "Install the Claude Code status line wrapper?"]
     return names + ["Apply these changes?"]
 
 
@@ -109,7 +110,7 @@ def main():
         original = {"theme": "dark", "statusLine": {
             "type": "command", "command": "echo mine", "padding": 2}}
         claude_file.write_text(json.dumps(original))
-        run(exe, env, (True, True), ["y", "y", "n", "n", "y", "y", "y", "n"])
+        run(exe, env, (True, True), ["y", "y", "n", "n", "y", "y", "y", "n", "y"])
         state = settings(exe, env)
         assert (state["codex_context"], state["codex_idle"], state["claude_context"],
                 state["claude_idle"]) == ("true", "true", "true", "false"), state
@@ -122,17 +123,24 @@ def main():
         # Empty answers keep every choice, byte for byte.
         files = [codex_hooks, claude_file, config]
         before = [file.read_bytes() for file in files]
-        run(exe, env, (True, True), [""] * 8)
+        run(exe, env, (True, True), [""] * 9)
         assert [file.read_bytes() for file in files] == before
 
-        # Turning the Claude context warning off restores the user's status line and keeps the
-        # threshold they can turn back on.
-        run(exe, env, (True, True), ["", "", "", "", "", "", "n", ""])
+        # Turning the Claude context warning and the wrapper off restores the user's status line
+        # and keeps the threshold they can turn back on.
+        run(exe, env, (True, True), ["", "", "", "", "", "", "n", "", "n"])
         restored = json.loads(claude_file.read_text())
         assert restored["statusLine"] == original["statusLine"], restored
         assert restored["theme"] == "dark" and "hooks" in restored
         assert settings(exe, env)["claude_context"] == "false"
         assert "400k" in config.read_text()
+
+        # The context warning needs the wrapper: answering no to the wrapper still installs it.
+        run(exe, env, (True, True), ["", "", "", "", "", "", "y", "", "n"])
+        assert "--statusline" in json.loads(claude_file.read_text())["statusLine"]["command"]
+        assert settings(exe, env)["claude_statusline"] == "true"
+        run(exe, env, (True, True), ["", "", "", "", "", "", "n", "", "n"])
+        assert settings(exe, env)["claude_statusline"] == "false"
 
         # Deselecting Claude asks nothing about it and leaves its settings alone.
         kept = config.read_bytes()

@@ -145,7 +145,20 @@ pub fn console() -> Result<(), String> {
         selection.claude_context =
             choice("Enable Claude context warning?", defaults.claude_context)?;
         selection.claude_idle = choice("Enable Claude idle warning?", defaults.claude_idle)?;
+        println!(
+            "The status line wrapper reports the session name, quota and context size to the resident; the Claude context warning needs it."
+        );
+        selection.claude_statusline = choice(
+            "Install the Claude Code status line wrapper?",
+            defaults.claude_statusline || selection.claude_context,
+        )?;
     }
+    // A choice that needs another one turns it on: say so instead of leaving it silently off.
+    let required = selection.with_dependencies();
+    if required.claude_statusline && !selection.claude_statusline {
+        println!("The Claude context warning needs the status line wrapper; it is installed too.");
+    }
+    selection = required;
     let harnesses = selection.harnesses();
     let options = selection.options();
     let remove = selection.remove();
