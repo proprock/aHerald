@@ -3,6 +3,21 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-295 — The nightly run fails when it moves the `nightly` tag (HTTP 403).**
+  From 2026-11-07 every scheduled Nightly built, tested and packaged all platforms, but the publish job
+  stopped at "move the tag" with HTTP 403 "Resource not accessible by integration", so the rolling prerelease
+  stayed at the 2026-11-06 build. Cause, reproduced with a throwaway probe workflow (branch deleted):
+  `GITHUB_TOKEN` (Contents: write) may create a tag at a commit without files under `.github/workflows`
+  (the root commit) and gets 403 for a commit with them, through the REST ref calls, `git push` and
+  `gh release create` alike. The tag had kept moving until 2026-11-06 because the two commits had the same
+  workflow files; `2e958ce` changed `nightly.yml`. Fix (PR #174, owner's choice): the tag step uses the
+  secret `NIGHTLY_TOKEN` (fine-grained, this repository only, Contents and Workflows write, secret of the
+  `nightly` environment), with a clear message when it is missing; `docs/nightly.md` documents it.
+  Evidence, 2026-11-09: Nightly dispatched on `master` (`471879b`): all jobs green after a rerun of two
+  macOS jobs that never got a runner (see AH-296); the `nightly` tag equals `471879b`, the release holds
+  17 assets and its notes name that commit. Not run: Windows and macOS locally (CI only).
+  Left over: the token expires, renew it before the date set at creation.
+
 - [x] **AH-293 — Publish `aherald` through `proprock/marketplace` and pin it from the release workflow.**
   Two repositories published a marketplace named `proprock`; Claude Code keys marketplaces by name, so
   adding one dropped the other's plugin. Decision (owner, 2026-11-09): `proprock/marketplace` is the only

@@ -597,14 +597,19 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ## Milestone 14 — One `proprock` plugin catalog (2026-11-09)
 
-- [ ] **AH-295 — The nightly run fails when it moves the `nightly` tag (HTTP 403).**
-  Since 2026-11-07 every scheduled Nightly run builds, tests and packages every platform successfully, but
-  the job "Publish the rolling prerelease" stops in the step "Mark the release as being updated and move
-  the tag" with `gh: Resource not accessible by integration (HTTP 403)`, so the rolling `nightly`
-  prerelease is stale (last published 2026-11-06). Find which call is refused (release edit, tag
-  PATCH or tag POST), whether the token permissions, a repository setting or a ruleset changed on
-  2026-11-07, and fix it. Acceptance: a Nightly run on `master` ends green and the `nightly` release shows the
-  new commit; the cause is recorded in `DONE.md`.
+- [ ] **AH-296 — Rerun a Nightly job that never got a runner (and only that).**
+  Nightly and releases sometimes fail because a macOS job waits 15 minutes for a runner and is cancelled
+  (v0.16.0 on 2026-11-06 and Nightly on 2026-11-09). In that case the job has `runner_id` 0, an empty
+  `runner_name` and no steps; a real failure always has a runner and steps. Add a workflow `nightly-retry.yml`
+  on `workflow_run` (Nightly, `failure`, `master`, `schedule` or `workflow_dispatch` only) that reads the jobs
+  of the failed attempt and runs `gh run rerun --failed` only when every failed job except the final
+  `CI gate` never got a runner, at most twice (`run_attempt` below 3). Selection logic in a script with a test
+  on fixtures taken from real API answers: all runner-less, a real failure, a mix, and the attempt limit.
+  Permissions `actions: write` and `contents: read`, no new secret. A `workflow_run` workflow starts only from
+  the default branch, so the live check comes after the merge: report it as checked or not checked. Not in
+  scope: `release.yml` (a rerun touches publication, a separate decision) and `ci.yml`.
+  Acceptance: the test passes; a deliberate or natural runner shortage leads to one automatic rerun, a failing
+  test does not; the evidence goes into `DONE.md`.
 
 - [ ] **AH-294 — Codex plugin for aHerald and its catalog entry.**
   Depends on AH-293 (done). `proprock/marketplace` also carries a Codex catalog (`.agents/plugins/marketplace.json`);
