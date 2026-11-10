@@ -137,6 +137,10 @@ pub fn help() -> &'static str {
         "                                  thresholds are kept.\n",
         "                                  First context enablement uses Codex 250k / Claude 400k when no\n",
         "                                  threshold exists.\n",
+        "  --claude-statusline true|false  Install or restore Claude Code's statusLine wrapper with --setup\n",
+        "                                  --harness claude (session name, quota and context for resident\n",
+        "                                  features). Without it, a context warning or a status line text\n",
+        "                                  installs the wrapper.\n",
         "  --setup-executable PATH         Bind the hooks to this executable instead of the running one.\n",
         "  --settings-file PATH            Absolute path of the configuration that setup edits or reports.\n",
         "  --setup-settings                Report the current usage and warning flags without writing.\n",
@@ -332,8 +336,13 @@ impl Cli {
                     }
                     cli.harnesses.push(agent);
                 }
-                "--codex-usage" | "--claude-usage" | "--codex-context" | "--claude-context"
-                | "--codex-idle" | "--claude-idle" => {
+                "--codex-usage"
+                | "--claude-usage"
+                | "--codex-context"
+                | "--claude-context"
+                | "--codex-idle"
+                | "--claude-idle"
+                | "--claude-statusline" => {
                     let selected = match args.next().as_deref() {
                         Some("true") => true,
                         Some("false") => false,
@@ -345,6 +354,7 @@ impl Cli {
                         "--codex-context" => &mut cli.usage.codex_context,
                         "--claude-context" => &mut cli.usage.claude_context,
                         "--codex-idle" => &mut cli.usage.codex_idle,
+                        "--claude-statusline" => &mut cli.usage.claude_statusline,
                         _ => &mut cli.usage.claude_idle,
                     };
                     if slot.replace(selected).is_some() {
@@ -478,14 +488,15 @@ impl Cli {
             || cli.apply
             || cli.usage.file.is_some()
             || cli.usage.executable.is_some()
-            || cli.usage.has_selections())
+            || cli.usage.has_selections()
+            || cli.usage.claude_statusline.is_some())
         {
             return Err("--console-setup and --setup-window do not accept other options".into());
         }
         if cli.usage.executable.is_some() && !native_setup {
             return Err("--setup-executable is only valid with --setup or --unsetup".into());
         }
-        if cli.usage.has_selections() && !native_setup {
+        if (cli.usage.has_selections() || cli.usage.claude_statusline.is_some()) && !native_setup {
             return Err("setting selections are only valid with --setup or --unsetup".into());
         }
         if cli.usage.file.is_some() && !native_setup && !settings_read {
@@ -571,6 +582,16 @@ mod tests {
         (
             "--claude-idle",
             &["--setup", "--harness", "claude", "--claude-idle", "false"],
+        ),
+        (
+            "--claude-statusline",
+            &[
+                "--setup",
+                "--harness",
+                "claude",
+                "--claude-statusline",
+                "true",
+            ],
         ),
         (
             "--claude-usage",

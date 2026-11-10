@@ -22,7 +22,9 @@ use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSSt
 use std::path::PathBuf;
 
 const WIDTH: f64 = 520.0;
-const HEIGHT: f64 = 690.0;
+const HEIGHT: f64 = 740.0;
+/// Space above the first row, so the content does not crowd the title bar.
+const SHIFT: f64 = 16.0;
 const MARGIN: f64 = 20.0;
 const ROW: f64 = 24.0;
 
@@ -37,6 +39,7 @@ enum Box {
     CodexIdle,
     ClaudeContext,
     ClaudeIdle,
+    ClaudeStatusline,
     Launch,
     OpenCode,
     Pi,
@@ -44,7 +47,7 @@ enum Box {
 }
 
 /// Title, column (0 Codex, 1 Claude Code; `None` spans both) and top of each checkbox.
-const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
+const BOXES: [(Box, &str, Option<usize>, f64); 10] = [
     (Box::Codex, "Hooks", Some(0), 112.0),
     (Box::Claude, "Hooks", Some(1), 112.0),
     (Box::CodexUsage, "Usage monitoring", Some(0), 140.0),
@@ -53,7 +56,18 @@ const BOXES: [(Box, &str, Option<usize>, f64); 9] = [
     (Box::CodexIdle, "Idle warning", Some(0), 196.0),
     (Box::ClaudeContext, "Context warning", Some(1), 168.0),
     (Box::ClaudeIdle, "Idle warning", Some(1), 196.0),
-    (Box::Launch, "Launch aHerald after applying", None, 420.0),
+    (
+        Box::ClaudeStatusline,
+        "Status line (name, quota, context)",
+        Some(1),
+        224.0,
+    ),
+    (
+        Box::Launch,
+        "Start the resident after applying",
+        None,
+        440.0,
+    ),
 ];
 
 /// The bridge-file checkboxes: one column each of three, under the two agents.
@@ -62,12 +76,14 @@ const BRIDGES: [(Box, &str); 3] = [
     (Box::Pi, "Pi"),
     (Box::Goose, "Goose"),
 ];
-const BRIDGES_TOP: f64 = 354.0;
+const BRIDGES_TOP: f64 = 398.0;
 
 struct Controls {
     exe: PathBuf,
     boxes: Vec<Retained<NSButton>>,
     result: Retained<NSTextView>,
+    /// Closes the window; enabled once an Apply succeeded, so the report stays readable first.
+    done: Retained<NSButton>,
 }
 
 impl Controls {
@@ -85,9 +101,52 @@ impl Controls {
             claude_context: self.checked(Box::ClaudeContext),
             codex_idle: self.checked(Box::CodexIdle),
             claude_idle: self.checked(Box::ClaudeIdle),
+            claude_statusline: self.checked(Box::ClaudeStatusline),
             opencode: self.checked(Box::OpenCode),
             pi: self.checked(Box::Pi),
             goose: self.checked(Box::Goose),
+        }
+    }
+
+    /// Shows `selection` in the boxes that hold it; the resident and bridge boxes are the user's.
+    fn show(&self, selection: &Selection) {
+        for (which, on) in [
+            (Box::Codex, selection.codex),
+            (Box::Claude, selection.claude),
+            (Box::CodexContext, selection.codex_context),
+            (Box::CodexIdle, selection.codex_idle),
+            (Box::ClaudeContext, selection.claude_context),
+            (Box::ClaudeIdle, selection.claude_idle),
+            (Box::ClaudeStatusline, selection.claude_statusline),
+        ] {
+            self.boxes[which as usize].setState(if on {
+                NSControlStateValueOn
+            } else {
+                NSControlStateValueOff
+            });
+        }
+    }
+
+    /// A box was clicked: switching something on switches on what it needs, switching a parent
+    /// off switches off what needed it, and a choice that needs a resident asks for one.
+    fn toggled(&self, sender: &AnyObject) {
+        let Some(index) = self
+            .boxes
+            .iter()
+            .position(|button| std::ptr::eq(Retained::as_ptr(button).cast::<AnyObject>(), sender))
+        else {
+            return;
+        };
+        let selection = self.selection();
+        let turned_on = self.boxes[index].state() == NSControlStateValueOn;
+        let selection = if turned_on {
+            selection.with_dependencies()
+        } else {
+            selection.without_dependents()
+        };
+        self.show(&selection);
+        if turned_on && selection.needs_resident() {
+            self.boxes[Box::Launch as usize].setState(NSControlStateValueOn);
         }
     }
 
@@ -103,6 +162,9 @@ impl Controls {
         );
         let text = match outcome {
             Ok(report) => {
+                if apply {
+                    self.done.setEnabled(true);
+                }
                 if apply && self.checked(Box::Launch) && !selection.remove() {
                     launch(&self.exe);
                 }
@@ -147,6 +209,16 @@ define_class!(
             self.ivars().run(false);
         }
 
+        #[unsafe(method(toggled:))]
+        fn toggled(&self, sender: &AnyObject) {
+            self.ivars().toggled(sender);
+        }
+
+        #[unsafe(method(done:))]
+        fn done(&self, _sender: &AnyObject) {
+            NSApplication::sharedApplication(self.mtm()).terminate(None);
+        }
+
         #[unsafe(method(apply:))]
         fn apply(&self, _sender: &AnyObject) {
             self.ivars().run(true);
@@ -157,7 +229,7 @@ define_class!(
 fn frame(x: f64, top: f64, width: f64, height: f64) -> NSRect {
     // AppKit's origin is the bottom left; layout is written from the top.
     NSRect::new(
-        NSPoint::new(x, HEIGHT - top - height),
+        NSPoint::new(x, HEIGHT - top - SHIFT - height),
         NSSize::new(width, height),
     )
 }
@@ -210,7 +282,7 @@ pub fn run() -> Result<(), String> {
             exe.display()
         ),
         MARGIN,
-        16.0,
+        16.0 - SHIFT, // stays where it was; everything below moves down
         inner,
         64.0,
     );
@@ -235,10 +307,12 @@ pub fn run() -> Result<(), String> {
         defaults.codex_idle,
         defaults.claude_context,
         defaults.claude_idle,
+        defaults.claude_statusline,
         true,
     ];
     let checkbox = |title: &str, x: f64, width: f64, top: f64, on: bool| {
-        // SAFETY: no target and no action: the checkbox only keeps its own state.
+        // SAFETY: no target and no action yet; the controller is set as target below for the
+        // boxes that have dependencies.
         let button = unsafe {
             NSButton::checkboxWithTitle_target_action(&NSString::from_str(title), None, None, mtm)
         };
@@ -279,25 +353,25 @@ pub fn run() -> Result<(), String> {
     );
     bridges_heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     let note = label(
-        "Claude usage auto: login token, then the last statusLine report. A Claude context warning wraps your statusLine command (kept and still shown; restored when turned off or removed). Warnings apply to selected agents; thresholds are kept.",
+        "Usage, warnings and the status line report to a resident, so Start the resident is ticked for them. Choosing a warning also ticks the hooks it needs; the Claude context warning also ticks the status line. Claude usage auto: login token, then the last status line report. The status line wraps your statusLine command (kept and still shown; restored when turned off or removed). Thresholds are kept.",
         MARGIN,
-        230.0,
+        256.0,
         inner,
-        46.0,
+        60.0,
     );
     note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     note.setTextColor(Some(&NSColor::secondaryLabelColor()));
     let format_note = label(
         "Status line text: set [claude.statusline] format in config.toml (menu: Edit configuration), for example {model.display_name} {context_window} {rate_limits.five_hour}, then Apply again. See docs/configuration.md.",
         MARGIN,
-        278.0,
+        322.0,
         inner,
         44.0,
     );
     format_note.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     format_note.setTextColor(Some(&NSColor::secondaryLabelColor()));
 
-    let heading = label("Details", MARGIN, 492.0, inner, 18.0);
+    let heading = label("Details", MARGIN, 520.0, inner, 18.0);
     heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     // A framed, selectable, scrolling box so it reads as the output area; the note about a
     // receipt from another installation, when there is one, is the first thing shown in it.
@@ -310,18 +384,54 @@ pub fn run() -> Result<(), String> {
     result.setSelectable(true);
     result.setFont(Some(&NSFont::systemFontOfSize(11.0)));
     result.setString(&NSString::from_str(&format!(
-        "Preview shows what Apply would change; Apply makes the changes.{note_text}"
+        "Preview shows what Apply would change; Apply makes the changes. Done unlocks after a successful Apply.{note_text}"
     )));
     scroll.setBorderType(NSBorderType::BezelBorder);
-    scroll.setFrame(frame(MARGIN, 512.0, inner, 158.0));
+    scroll.setFrame(frame(MARGIN, 540.0, inner, 158.0));
     content.addSubview(&scroll);
 
-    let controller = mtm
-        .alloc::<Controller>()
-        .set_ivars(Controls { exe, boxes, result });
+    // SAFETY: no target yet; the controller is set below, once it exists.
+    let done = unsafe {
+        NSButton::buttonWithTitle_target_action(&NSString::from_str("Done"), None, None, mtm)
+    };
+    done.setFrame(frame(WIDTH - MARGIN - 100.0, 476.0, 100.0, 32.0));
+    done.setEnabled(false);
+    content.addSubview(&done);
+    let controller = mtm.alloc::<Controller>().set_ivars(Controls {
+        exe,
+        boxes,
+        result,
+        done,
+    });
     // SAFETY: `init` of the superclass on a freshly allocated object with its ivars set.
     let controller: Retained<Controller> = unsafe { msg_send![super(controller), init] };
 
+    // The boxes with dependencies tell the controller when they are clicked; the resident and
+    // bridge boxes depend on nothing.
+    for which in [
+        Box::Codex,
+        Box::Claude,
+        Box::CodexUsage,
+        Box::ClaudeUsage,
+        Box::CodexContext,
+        Box::CodexIdle,
+        Box::ClaudeContext,
+        Box::ClaudeIdle,
+        Box::ClaudeStatusline,
+    ] {
+        let button = &controller.ivars().boxes[which as usize];
+        // SAFETY: `toggled:` is implemented by `Controller`, which outlives the window.
+        unsafe {
+            button.setTarget(Some(&controller));
+            button.setAction(Some(sel!(toggled:)));
+        }
+    }
+    // SAFETY: `done:` is implemented by `Controller`, which outlives the window.
+    unsafe {
+        let done = &controller.ivars().done;
+        done.setTarget(Some(&controller));
+        done.setAction(Some(sel!(done:)));
+    }
     for (title, action, x) in [
         ("Preview", sel!(preview:), MARGIN),
         ("Apply", sel!(apply:), 130.0),
@@ -335,7 +445,7 @@ pub fn run() -> Result<(), String> {
                 mtm,
             )
         };
-        button.setFrame(frame(x, 452.0, 100.0, 32.0));
+        button.setFrame(frame(x, 476.0, 100.0, 32.0));
         content.addSubview(&button);
     }
 

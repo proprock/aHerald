@@ -14,6 +14,9 @@ pub struct Selection {
     pub claude_context: bool,
     pub codex_idle: bool,
     pub claude_idle: bool,
+    /// Claude Code's `statusLine` runs aHerald's wrapper, which reports the session name, quota
+    /// and context size to the resident.
+    pub claude_statusline: bool,
     /// The bridge files of the harnesses that have no hooks of their own.
     pub opencode: bool,
     pub pi: bool,
@@ -33,12 +36,55 @@ impl Selection {
             claude_context: on("claude_context"),
             codex_idle: on("codex_idle"),
             claude_idle: on("claude_idle"),
+            claude_statusline: on("claude_statusline"),
             ..Default::default()
         };
         for bridge in Bridge::ALL {
             selection.set_bridge(bridge, on(&format!("{}_bridge", bridge.key())));
         }
         selection
+    }
+
+    /// Turns on what a chosen item cannot work without, so no page shows a combination that
+    /// silently does nothing: a warning needs the hooks of its agent, and the Claude context
+    /// warning needs the status line wrapper, which is installed beside the Claude hooks.
+    #[must_use]
+    pub fn with_dependencies(mut self) -> Self {
+        self.codex |= self.codex_context || self.codex_idle;
+        self.claude_statusline |= self.claude_context;
+        self.claude |= self.claude_context || self.claude_idle || self.claude_statusline;
+        self
+    }
+
+    /// The reverse after something was switched off: whatever needed it is switched off too.
+    /// Usage needs no hooks, so it stays.
+    #[must_use]
+    pub fn without_dependents(mut self) -> Self {
+        if !self.codex {
+            self.codex_context = false;
+            self.codex_idle = false;
+        }
+        if !self.claude {
+            self.claude_context = false;
+            self.claude_idle = false;
+            self.claude_statusline = false;
+        }
+        if !self.claude_statusline {
+            self.claude_context = false;
+        }
+        self
+    }
+
+    /// Whether any chosen item only works while a resident runs (usage, warnings and the status
+    /// line reports all end in it); hooks alone also work without one.
+    pub fn needs_resident(&self) -> bool {
+        self.codex_usage
+            || self.claude_usage
+            || self.codex_context
+            || self.claude_context
+            || self.codex_idle
+            || self.claude_idle
+            || self.claude_statusline
     }
 
     /// Whether `bridge` is selected. The one place that maps a bridge to its field, so a new
@@ -90,6 +136,7 @@ impl Selection {
             claude_context: self.claude.then_some(self.claude_context),
             codex_idle: self.codex.then_some(self.codex_idle),
             claude_idle: self.claude.then_some(self.claude_idle),
+            claude_statusline: self.claude.then_some(self.claude_statusline),
             // A setup page knows the bridges, so its choice replaces the whole set.
             bridges: Some(self.bridges()),
             ..Default::default()
@@ -110,6 +157,156 @@ mod tests {
     use std::path::Path;
 
     const BUNDLE: &str = "/Applications/aHerald.app/Contents/MacOS/aherald";
+
+    #[test]
+    fn a_warning_selects_the_hooks_of_its_agent() {
+        let selection = Selection {
+            codex_idle: true,
+            claude_idle: true,
+            ..Default::default()
+        }
+        .with_dependencies();
+        assert!(selection.codex && selection.claude);
+        let selection = Selection {
+            codex_context: true,
+            ..Default::default()
+        }
+        .with_dependencies();
+        assert!(selection.codex && !selection.claude);
+    }
+
+    #[test]
+    fn the_claude_context_warning_selects_hooks_and_the_status_line() {
+        let selection = Selection {
+            claude_context: true,
+            ..Default::default()
+        }
+        .with_dependencies();
+        assert!(selection.claude && selection.claude_statusline);
+        assert!(!selection.codex && !selection.codex_context);
+    }
+
+    #[test]
+    fn the_status_line_selects_the_claude_hooks_it_is_installed_beside() {
+        let selection = Selection {
+            claude_statusline: true,
+            ..Default::default()
+        }
+        .with_dependencies();
+        assert!(selection.claude);
+    }
+
+    #[test]
+    fn claude_usage_alone_asks_for_nothing_else() {
+        let selection = Selection {
+            claude_usage: true,
+            ..Default::default()
+        };
+        assert_eq!(selection.with_dependencies(), selection);
+    }
+
+    #[test]
+    fn clearing_hooks_clears_what_needs_them() {
+        let all = Selection {
+            codex: true,
+            claude: true,
+            codex_usage: true,
+            claude_usage: true,
+            codex_context: true,
+            claude_context: true,
+            codex_idle: true,
+            claude_idle: true,
+            claude_statusline: true,
+            ..Default::default()
+        };
+        let no_claude = Selection {
+            claude: false,
+            ..all
+        }
+        .without_dependents();
+        assert!(
+            !no_claude.claude_context && !no_claude.claude_idle && !no_claude.claude_statusline
+        );
+        // Usage does not need hooks, and the other agent is untouched.
+        assert!(no_claude.claude_usage && no_claude.codex_context && no_claude.codex_idle);
+        let no_codex = Selection {
+            codex: false,
+            ..all
+        }
+        .without_dependents();
+        assert!(!no_codex.codex_context && !no_codex.codex_idle);
+        assert!(no_codex.claude_context && no_codex.claude_statusline);
+    }
+
+    #[test]
+    fn clearing_the_status_line_clears_the_claude_context_warning() {
+        let selection = Selection {
+            claude: true,
+            claude_context: true,
+            claude_statusline: false,
+            ..Default::default()
+        }
+        .without_dependents();
+        assert!(!selection.claude_context);
+    }
+
+    #[test]
+    fn everything_that_runs_in_the_resident_asks_for_one() {
+        assert!(!Selection::default().needs_resident());
+        assert!(
+            !Selection {
+                claude: true,
+                ..Default::default()
+            }
+            .needs_resident()
+        );
+        for selection in [
+            Selection {
+                codex_usage: true,
+                ..Default::default()
+            },
+            Selection {
+                claude_usage: true,
+                ..Default::default()
+            },
+            Selection {
+                codex_context: true,
+                ..Default::default()
+            },
+            Selection {
+                claude_context: true,
+                ..Default::default()
+            },
+            Selection {
+                codex_idle: true,
+                ..Default::default()
+            },
+            Selection {
+                claude_idle: true,
+                ..Default::default()
+            },
+            Selection {
+                claude_statusline: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(selection.needs_resident(), "{selection:?}");
+        }
+    }
+
+    #[test]
+    fn the_status_line_choice_is_read_from_the_report_and_sent_with_the_claude_hooks() {
+        let report = format!("{OFF}claude_statusline=true\n");
+        let selection = Selection::initial(&[Agent::Claude], &report);
+        assert!(selection.claude_statusline);
+        assert_eq!(selection.options().claude_statusline, Some(true));
+        // Without the Claude hooks there is no status line to set, so the file is left alone.
+        let none = Selection {
+            claude_statusline: true,
+            ..Default::default()
+        };
+        assert_eq!(none.options().claude_statusline, None);
+    }
 
     #[test]
     fn a_bundle_started_without_arguments_opens_the_setup_window() {

@@ -145,6 +145,20 @@ pub fn console() -> Result<(), String> {
         selection.claude_context =
             choice("Enable Claude context warning?", defaults.claude_context)?;
         selection.claude_idle = choice("Enable Claude idle warning?", defaults.claude_idle)?;
+        println!(
+            "The status line wrapper reports the session name, quota and context size to the resident; the Claude context warning needs it."
+        );
+        selection.claude_statusline = choice(
+            "Install the Claude Code status line wrapper?",
+            defaults.claude_statusline || selection.claude_context,
+        )?;
+    }
+    // Only the answers just given count: a warning saved for an agent whose hooks were declined
+    // must not bring the hooks back. The Claude context warning needs the wrapper; say so
+    // instead of leaving it silently off.
+    if selection.claude && selection.claude_context && !selection.claude_statusline {
+        println!("The Claude context warning needs the status line wrapper; it is installed too.");
+        selection.claude_statusline = true;
     }
     let harnesses = selection.harnesses();
     let options = selection.options();

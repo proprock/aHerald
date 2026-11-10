@@ -597,6 +597,19 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 ## Milestone 14 — One `proprock` plugin catalog (2026-11-09)
 
+- [ ] **AH-299 — `src/linux/audio.rs` does not compile on aarch64 Linux (found while checking AH-297).**
+  `pa_simple_new` is called with `c"...".as_ptr()` (`*const u8` on aarch64, where `c_char` is unsigned) but
+  the binding expects `*const i8`, so `cargo build` fails with E0308 on an arm64 Linux container
+  (x86_64 CI never sees it). Use `std::ffi::c_char` in the binding. Linux builds are x86_64 only today;
+  decide whether arm64 Linux is in scope before fixing.
+
+- [ ] **AH-298 — Status line and dependencies in the Windows installer (left from AH-297).**
+  The Windows installer (`installer/windows.iss`) has no status line task and does not tick the hooks a
+  warning needs; pass `--claude-statusline` and enable the dependent tasks on the task page. Do it on Windows
+  together with AH-214: the wizard can be built and seen only there.
+  Acceptance: the installer ticks the Claude hooks task for a Claude context or idle task and a status line
+  task for the context task, and clears them with their parent; seen in the wizard on a clean machine.
+
 - [ ] **AH-296 — Rerun a Nightly job that never got a runner (and only that).**
   Nightly and releases sometimes fail because a macOS job waits 15 minutes for a runner and is cancelled
   (v0.16.0 on 2026-11-06 and Nightly on 2026-11-09). In that case the job has `runner_id` 0, an empty
