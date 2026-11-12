@@ -2,6 +2,7 @@
 //! account's 5-hour and 7-day quota, and input context token count (AH-100).
 use crate::usage::{Bucket, Snapshot, Window};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// A statusLine payload is a few KiB; anything larger is not one (and `read_bounded` refuses it).
 pub const MAX_PAYLOAD: usize = crate::events::MAX_INPUT;
@@ -176,8 +177,22 @@ impl Store {
     /// The latest quota as a snapshot: windows that have already reset are dropped, and a
     /// report older than an hour is not shown.
     pub fn quota_snapshot(&self, now: i64, plan: Option<&str>) -> Option<Snapshot> {
+        self.quota_snapshot_with_max_age(now, plan, QUOTA_MAX_AGE_SECS)
+    }
+
+    pub(crate) fn quota_snapshot_for_auto(&self, now: i64, interval: Duration) -> Option<Snapshot> {
+        let max_age = interval.as_secs().min(QUOTA_MAX_AGE_SECS as u64) as i64;
+        self.quota_snapshot_with_max_age(now, None, max_age)
+    }
+
+    fn quota_snapshot_with_max_age(
+        &self,
+        now: i64,
+        plan: Option<&str>,
+        max_age_secs: i64,
+    ) -> Option<Snapshot> {
         let (quota, seen) = self.quota.as_ref()?;
-        if now.saturating_sub(*seen) > QUOTA_MAX_AGE_SECS {
+        if now.saturating_sub(*seen) > max_age_secs {
             return None;
         }
         let live = |limit: Option<Limit>| limit.filter(|l| l.resets_at.is_none_or(|t| t > now));
@@ -531,7 +546,6 @@ mod tests {
         use crate::app_server::Error;
         use crate::claude_usage::read_with;
         use crate::config::ClaudeUsageSource::Auto;
-        use std::time::Duration;
 
         let mut store = Store::default();
         store.record(
@@ -548,17 +562,13 @@ mod tests {
         let result = read_with(
             Auto,
             || Err(Error::Service("token fallback")),
-            || auto_snapshot(&store, age_secs, Duration::from_secs(interval_secs)),
+            || store.quota_snapshot_for_auto(age_secs, Duration::from_secs(interval_secs)),
         );
         if use_statusline {
             assert!(result.is_ok());
         } else {
             assert!(matches!(result, Err(Error::Service("token fallback"))));
         }
-    }
-
-    fn auto_snapshot(store: &Store, now: i64, _interval: std::time::Duration) -> Option<Snapshot> {
-        store.quota_snapshot(now, None)
     }
 
     #[test]

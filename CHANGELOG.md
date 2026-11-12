@@ -18,8 +18,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   what depended on them. The macOS window gains a **Done** button that unlocks after Apply (AH-297).
 
 ### Changed
-- Claude quota in `auto` mode uses fresh statusLine quota when available and falls back to the
-  OAuth usage endpoint when no usable quota window remains (AH-300).
+- Claude quota in `auto` mode prefers usable statusLine quota within the configured refresh
+  interval, capped at one hour, and falls back to the OAuth usage endpoint (AH-300).
 
 ## [0.17.0] - 2026-11-09
 

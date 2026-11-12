@@ -46,9 +46,10 @@ copy is made. Use `--hooks-file PATH` for another settings file. On Windows the 
 percentages and reset times) from the payload, hands them to a running resident and never starts one.
 Nothing else in the payload is stored or logged. The resident shows the name on Claude cards.
 With `[claude.usage] enabled = true`, `source = "auto"` (default) uses a statusLine quota report
-at most an hour old after discarding any windows that have reset. If no window is available,
-it reads the login token and polls the API. `source = "token"` always uses the API.
-`source = "statusline"` uses only local reports. `rate_limits` exists only for Pro and Max accounts
+no older than `refresh_interval_sec` (300 seconds by default), capped at one hour. After discarding
+windows that have reset, it reads the login token and polls the API if no usable window is
+available. `source = "token"` uses the API. `source = "statusline"` uses only local reports
+up to one hour old. `rate_limits` exists only for Pro and Max accounts
 and only after the first model response. The wrapper adds about 4 ms to a status line refresh (see docs/statusline-performance.md), which happens after
 each assistant message, and cannot slow the agent's turn. Claude Desktop does not run `statusLine` (a probe command in `settings.json` was never called by a
 Desktop session, 2026-10-29), so names and the statusLine quota reach cards only for Claude Code in a

@@ -8,6 +8,11 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
   most an hour old with at least one quota window that has yet to reset. It falls back to the
   OAuth usage endpoint when no such window is available. The regression test fails on the
   previous behavior because it calls the token source despite a fresh report.
+  The follow-up limits report age in `auto` to the configured refresh interval or one hour,
+  whichever is shorter. Explicit `statusline` keeps its one-hour limit. The Windows
+  `cargo test --locked --lib statusline::tests::` and
+  `cargo test --locked --lib claude_usage::tests::` runs cover the follow-up. The full
+  suite and platform builds were omitted for the follow-up at the owner's request.
   Evidence with Rust 1.98.1:
   - Windows 11 x64 **ran locally**. The regression test, format, Clippy, doctests, workspace
     suite with the CI exclusions, isolated overlay test, release build and

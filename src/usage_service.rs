@@ -739,7 +739,12 @@ impl Service {
                 crate::claude_usage::ClaudeSource::new(move || {
                     crate::claude_usage::read_with(source, crate::claude_usage::fetch_live, || {
                         crate::statusline::with_store(|store| {
-                            store.quota_snapshot(unix_now(), None)
+                            let now = unix_now();
+                            if source == crate::config::ClaudeUsageSource::Auto {
+                                store.quota_snapshot_for_auto(now, interval)
+                            } else {
+                                store.quota_snapshot(now, None)
+                            }
                         })
                     })
                 })
