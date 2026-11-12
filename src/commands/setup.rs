@@ -129,7 +129,7 @@ pub fn console() -> Result<(), String> {
         selection.set_bridge(bridge, selected);
     }
     println!(
-        "Usage monitoring is optional. Claude auto tries the login token, then the last statusLine report; existing source settings are preserved."
+        "Usage monitoring is optional. Claude auto uses fresh statusLine quota when available and falls back to the login token. Existing source settings are preserved."
     );
     selection.codex_usage = choice("Enable Codex usage monitoring?", defaults.codex_usage)?;
     selection.claude_usage = choice("Enable Claude usage monitoring?", defaults.claude_usage)?;

@@ -95,9 +95,11 @@ See `docs/codex-hooks.md` and `docs/claude-hooks.md`.
 
 - Clicking a card brings the session's terminal or Claude Desktop/Codex.app window forward.
   macOS may ask for permission the first time.
-- Claude quota (`[claude.usage]`, off by default) reads the Claude Code login from the
-  Keychain item `Claude Code-credentials`; macOS shows its own access prompt. The token is
-  sent only to `api.anthropic.com` and never stored or logged.
+- Claude quota (`[claude.usage]`, off by default) uses fresh statusLine quota in `auto`
+  mode when available. Otherwise, or in `token` mode, it reads the login from the Keychain
+  item `Claude Code-credentials`, which can trigger a macOS access prompt. The token goes
+  only to `api.anthropic.com` and is never stored or logged. `statusline` mode uses only
+  local quota reports.
 
 ## Autostart and removal
 

@@ -353,7 +353,7 @@ pub fn run() -> Result<(), String> {
     );
     bridges_heading.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
     let note = label(
-        "Usage, warnings and the status line report to a resident, so Start the resident is ticked for them. Choosing a warning also ticks the hooks it needs; the Claude context warning also ticks the status line. Claude usage auto: login token, then the last status line report. The status line wraps your statusLine command (kept and still shown; restored when turned off or removed). Thresholds are kept.",
+        "Usage, warnings and the status line report to a resident, so Start the resident is ticked for them. Choosing a warning also ticks the hooks it needs; the Claude context warning also ticks the status line. Claude auto prefers fresh statusLine quota. The status line wraps your statusLine command (kept and still shown; restored when turned off or removed). Thresholds are kept.",
         MARGIN,
         256.0,
         inner,

@@ -17,6 +17,10 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   the status line, usage, warnings and the status line a resident), and clearing the hooks clears
   what depended on them. The macOS window gains a **Done** button that unlocks after Apply (AH-297).
 
+### Changed
+- Claude quota in `auto` mode uses fresh statusLine quota when available and falls back to the
+  OAuth usage endpoint when no usable quota window remains (AH-300).
+
 ## [0.17.0] - 2026-11-09
 
 ### Added

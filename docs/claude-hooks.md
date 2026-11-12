@@ -44,12 +44,12 @@ copy is made. Use `--hooks-file PATH` for another settings file. On Windows the 
 (`context_window.current_usage.input_tokens`, `cache_creation_input_tokens`,
 `cache_read_input_tokens`, summed for AH-100) and `rate_limits` (5-hour and 7-day
 percentages and reset times) from the payload, hands them to a running resident and never starts one.
-Nothing else in the payload is stored or logged. The resident then shows the name on Claude cards and,
-with `[claude.usage] enabled = true`, can show the quota without reading the login token:
-`source = "auto"` (default) tries the token first and falls back to the last statusLine report,
-`"token"` never uses it, `"statusline"` never reads the login. `rate_limits` exists only for Pro and Max
-accounts and only after the first model response; a report older than an hour, or a window that has
-already reset, is not shown. The wrapper adds about 4 ms to a status line refresh (see docs/statusline-performance.md), which happens after
+Nothing else in the payload is stored or logged. The resident shows the name on Claude cards.
+With `[claude.usage] enabled = true`, `source = "auto"` (default) uses a statusLine quota report
+at most an hour old after discarding any windows that have reset. If no window is available,
+it reads the login token and polls the API. `source = "token"` always uses the API.
+`source = "statusline"` uses only local reports. `rate_limits` exists only for Pro and Max accounts
+and only after the first model response. The wrapper adds about 4 ms to a status line refresh (see docs/statusline-performance.md), which happens after
 each assistant message, and cannot slow the agent's turn. Claude Desktop does not run `statusLine` (a probe command in `settings.json` was never called by a
 Desktop session, 2026-10-29), so names and the statusLine quota reach cards only for Claude Code in a
 terminal or IDE; the token quota still works for Desktop.
@@ -111,13 +111,15 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 ## Quota (opt-in)
 
-Hooks carry no quota. With `[claude.usage] enabled = true`, the resident polls
-`GET https://api.anthropic.com/api/oauth/usage` (WinHTTP, header `anthropic-beta: oauth-2025-04-20`)
-using the access token from `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), every
-300 s or more. `five_hour` and `seven_day` `utilization` (percent) and `resets_at` (ISO 8601)
+With `[claude.usage] enabled = true`, the resident polls
+`GET https://api.anthropic.com/api/oauth/usage` (header `anthropic-beta: oauth-2025-04-20`)
+in `token` mode or when `auto` has no usable statusLine quota. It reads the access token from
+`~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), or from `Claude Code-credentials`
+in Keychain on macOS. The scheduled refresh interval defaults to 300 seconds.
+`five_hour` and `seven_day` `utilization` (percent) and `resets_at` (ISO 8601)
 feed the same tray tooltip, menu line and usage card as Codex; the tray icon bars follow Codex
-unless Claude is the only enabled agent. The details card mirrors the Codex layout: `Claude plan: <subscriptionType from the credentials
-file>`, `5h` and `Week` lines, `Extra usage: enabled|disabled, limit: <used>/<monthly> <currency>`
+unless Claude is the only enabled agent. The details card mirrors the Codex layout: `Claude plan: <subscriptionType from the stored
+credentials>`, `5h` and `Week` lines, `Extra usage: enabled|disabled, limit: <used>/<monthly> <currency>`
 from `extra_usage` (minor units scaled by `decimal_places`) and `Spend: enabled|disabled,
 <used>/<limit> <currency>` from `spend`; missing values show `—`. When the provider reports them,
 each of these two lines continues with `, <n>% used`, its own state word (`normal`) and
@@ -130,7 +132,8 @@ refused as "Claude usage response has no quota or spend data", and one that does
 "ordinary usage allowed" have no counterpart in the endpoint and are omitted. An expired token shows "open Claude Code to refresh"
 because aHerald never refreshes or writes tokens. This endpoint and its response are undocumented
 and unverified against a live session; other tools (for example rate-tray) use the same source.
-An alternative without tokens is the statusLine `rate_limits` field (tracked in AH-038).
+The statusLine `rate_limits` report contains only the quota windows. Plan, extra usage and
+spend details come from the token-based source.
 
 To see what the endpoint really answered, for example when the card says "Claude usage response
 not recognised", run `aherald --raw-output usage --harness claude`: it prints the last response
@@ -150,7 +153,7 @@ settings, WPAD and PAC). After HTTP 429 the next request waits at least
 hold the token (file contents, token, request headers) after the request; copies made by
 the JSON parser, the standard library or WinHTTP are not covered.
 
-Manual checks (not automated): (1) with `[claude.usage] enabled = true` behind a system
+Manual checks (not automated): (1) with `[claude.usage] enabled = true` and `source = "token"` behind a system
 proxy or PAC (Settings > Network > Proxy), restart the resident and confirm the usage card
 shows `5h`/`Week` values instead of "Claude usage request failed"; (2) to see the
 redirect refusal against a real server, point a hosts entry or test proxy at a 302

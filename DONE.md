@@ -3,6 +3,26 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-300 — Prefer fresh Claude statusLine quota in auto mode.**
+  The shared Claude usage service for Windows, macOS and Linux uses a statusLine report at
+  most an hour old with at least one quota window that has yet to reset. It falls back to the
+  OAuth usage endpoint when no such window is available. The regression test fails on the
+  previous behavior because it calls the token source despite a fresh report.
+  Evidence with Rust 1.98.1:
+  - Windows 11 x64 **ran locally**. The regression test, format, Clippy, doctests, workspace
+    suite with the CI exclusions, isolated overlay test, release build and
+    `scripts/check-release.ps1` passed. Unfiltered runs hit the existing overlay and performance
+    timing failures. The audio cancellation test passed in isolation and in the CI-filtered run.
+  - Linux x64 (Debian WSL) **ran locally**. The regression test, format, Clippy, doctests,
+    `remote_listener` and the usage snapshot Xvfb check passed. All six isolated `linux_apply`
+    checks passed across runs. The CI-filtered suite hit a timing failure in the setup test
+    helper and CRLF shell checkout errors. The affected tests passed in targeted reruns after
+    running the helper alone and restoring LF in the test worktree. The workspace version
+    check and console setup script require Python 3, which was unavailable in this Debian instance.
+  - macOS runtime **not checked**. The resident passed `cargo check --locked -p aherald --lib
+    --no-default-features --target aarch64-apple-darwin` from Windows. The default-feature cross-check
+    stopped at `ring` because a macOS C toolchain was unavailable.
+
 - [x] **AH-297 — Setup window and console: status line choice, dependencies between choices, Done.**
   The macOS setup window and the Linux console setup did not offer the Claude Code status line
   wrapper (it was installed only as a side effect of a context warning or a text format), and showed

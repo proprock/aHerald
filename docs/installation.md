@@ -21,9 +21,9 @@ from the Start menu, or let a hook start the resident.
 The task page also offers independent Codex usage and Claude usage checkboxes.
 Both are off on a new installation. On upgrades, they reflect the current
 config.toml in the selected directory. Changing the directory reloads those values.
-Codex usage needs a signed-in Codex account. Claude defaults to auto: local Claude
-login first, then statusLine. An upgrade preserves an explicitly configured Claude
-source.
+Codex usage needs a signed-in Codex account. Claude defaults to `auto`, which uses fresh
+statusLine quota when available and falls back to the login token. An upgrade preserves an
+explicitly configured Claude source.
 
 Four further checkboxes control context and idle warnings independently for each
 agent. On a new installation, context is off and idle is on. When first enabling
@@ -181,12 +181,12 @@ status line wrapper, then OpenCode, Pi and Goose bridges and the option to start
 
 - First setup starts with nothing selected. Later runs read the saved receipt and
   `config.toml`, so the selection is retained; usage stays off until you choose it.
-  Claude usage `auto` tries the login token, then the last statusLine report.
+  Claude usage `auto` uses fresh statusLine quota when available and falls back to the login token.
 - Choices that need another one switch it on: a warning ticks the hooks of its agent, the
   Claude context warning also ticks the status line, and usage, warnings and the status line
   tick **Start the resident after applying** (they only work while a resident runs). Clearing
-  the hooks clears the warnings and the status line that depend on them. Claude usage needs no
-  status line; it only uses its reports when the login token is unavailable.
+  the hooks clears the warnings and the status line that depend on them. The Claude usage
+  checkbox can be enabled independently of the status line wrapper.
 - **Preview** is a dry run and shows the files and entries that would change. **Apply** calls
   the same backend as `--setup` / `--unsetup` with `--apply`: all files are checked first,
   backups are kept, a failed write is rolled back, repeating it changes nothing, and choosing
@@ -246,8 +246,8 @@ Every choice starts off on a first setup; later runs read the saved selections a
 configuration, and an agent you deselect keeps its settings. Enabling the Claude context
 warning wraps your existing status line (it is still shown and restored on removal); without
 one, Claude shows the `[claude.statusline] format` text, empty by default. Claude usage's `auto`
-source tries the login token, then the last statusLine report; existing source
-settings are preserved. The optional launch starts a
+source uses fresh statusLine quota when available and falls back to the login token. Setup preserves
+existing source settings. The optional launch starts a
 resident for the current session; no autostart is installed. Start a new Codex
 session and trust the hook entries in `/hooks` after setup.
 

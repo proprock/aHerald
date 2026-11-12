@@ -289,11 +289,11 @@ pub fn read_with(
     match source {
         Source::Token => token(),
         Source::Statusline => statusline().ok_or(WAITING),
-        Source::Auto => token().or_else(|error| statusline().ok_or(error)),
+        Source::Auto => statusline().map_or_else(token, Ok),
     }
 }
 
-/// Claude quota source: one HTTPS request per read, no connection and no pushed updates.
+/// Claude quota source: at most one HTTPS request per read and no pushed updates.
 pub struct ClaudeSource<F> {
     fetch: F,
 }
