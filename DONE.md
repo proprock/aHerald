@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-301 — Show the Fable quota in the Claude Usage card.**
+  The card shows Fable's usage, scheduled reset, API data age and optional share of the
+  weekly budget. A card refresh in auto mode may fetch the Fable details, and a fresh
+  statusLine report supplies the common windows. The API interval and Retry-After gate
+  credential reads and requests. The local-only mode uses statusLine alone.
+  Rust 1.98.1 verification:
+  - Windows **ran locally**. `cargo test --locked --lib usage` passed 44 tests with one
+    interactive preview ignored. `cargo test --locked --lib statusline` passed 29 tests.
+    `cargo clippy --locked -p aherald --lib -- -D warnings` and
+    `cargo fmt --all -- --check` passed.
+  - Linux and macOS runtime **not checked**. The library and resident cross-checks passed
+    from Windows with `cargo check --locked -p aherald --lib --no-default-features --target`
+    for `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin`, respectively.
+
 - [x] **AH-300 — Prefer fresh Claude statusLine quota in auto mode.**
   The shared Claude usage service for Windows, macOS and Linux uses a statusLine report at
   most an hour old with at least one quota window that has yet to reset. It falls back to the

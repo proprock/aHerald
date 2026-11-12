@@ -334,7 +334,8 @@ enabled = false
 refresh_interval_sec = 300
 # "auto" (default) uses a statusLine quota report no older than refresh_interval_sec,
 # capped at one hour, with at least one window that has yet to reset. Otherwise it polls
-# the API. "token" uses the API. "statusline" uses local reports up to one hour old
+# the API. Opening the usage card can also fetch Fable details at this interval.
+# "token" uses the API. "statusline" uses local reports up to one hour old
 # (see `aherald --install-statusline`).
 source = "auto"
 

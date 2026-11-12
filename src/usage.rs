@@ -74,6 +74,16 @@ pub struct Snapshot {
     pub buckets: BTreeMap<String, Bucket>,
     pub ordinary_usage_allowed: Option<bool>,
     pub reset_credits: Option<ResetCredits>,
+    pub claude_fable: Option<ClaudeFable>,
+}
+
+/// Fable's weekly quota and its share of the account-wide weekly budget.
+#[derive(Clone, Debug)]
+pub struct ClaudeFable {
+    pub window: Window,
+    pub weekly_share: Option<(f64, f64)>,
+    /// Time since the service started at which the OAuth answer was read.
+    pub fetched_at: Option<std::time::Duration>,
 }
 impl Snapshot {
     /// A snapshot of one already-typed bucket, validated like parsed data.
@@ -116,6 +126,7 @@ impl Snapshot {
             buckets,
             ordinary_usage_allowed: wire.ordinary_usage_allowed,
             reset_credits: wire.rate_limit_reset_credits,
+            claude_fable: None,
         })
     }
     /// Merge only present, non-null values. False asks the caller for a full refetch.

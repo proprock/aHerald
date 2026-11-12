@@ -11,6 +11,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 ## [Unreleased]
 
 ### Added
+- The Claude Usage card shows Fable's weekly quota, scheduled reset, data age and share of the
+  overall weekly budget when available from the OAuth usage endpoint (AH-301).
 - The setup window and the Linux console setup offer the Claude Code status line wrapper as its
   own choice (`--claude-statusline true|false`; `--setup-settings` reports `claude_statusline`).
   A choice now switches on what it needs (a warning its agent's hooks, the Claude context warning
