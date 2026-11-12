@@ -518,6 +518,49 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case(300, 300, true)]
+    #[case(300, 301, false)]
+    #[case(86_400, 3_600, true)]
+    #[case(86_400, 3_601, false)]
+    fn auto_quota_is_fresh_for_at_most_the_refresh_interval_and_one_hour(
+        #[case] interval_secs: u64,
+        #[case] age_secs: i64,
+        #[case] use_statusline: bool,
+    ) {
+        use crate::app_server::Error;
+        use crate::claude_usage::read_with;
+        use crate::config::ClaudeUsageSource::Auto;
+        use std::time::Duration;
+
+        let mut store = Store::default();
+        store.record(
+            report(
+                "a",
+                None,
+                Some(Quota {
+                    five_hour: limit(10.0, 100_000),
+                    seven_day: None,
+                }),
+            ),
+            0,
+        );
+        let result = read_with(
+            Auto,
+            || Err(Error::Service("token fallback")),
+            || auto_snapshot(&store, age_secs, Duration::from_secs(interval_secs)),
+        );
+        if use_statusline {
+            assert!(result.is_ok());
+        } else {
+            assert!(matches!(result, Err(Error::Service("token fallback"))));
+        }
+    }
+
+    fn auto_snapshot(store: &Store, now: i64, _interval: std::time::Duration) -> Option<Snapshot> {
+        store.quota_snapshot(now, None)
+    }
+
     #[test]
     fn the_shared_store_remembers_names_across_calls() {
         with_store(|s| s.record(report("global-store-test", Some("Kept"), None), 0));
