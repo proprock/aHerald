@@ -405,6 +405,44 @@ pub fn fetch_with(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn auto_uses_fresh_statusline_quota_without_reading_the_token() {
+        use crate::config::ClaudeUsageSource::Auto;
+        use crate::statusline::{Limit, Quota, Report, Store};
+
+        let mut store = Store::default();
+        store.record(
+            Report {
+                session_id: "claude-session".into(),
+                session_name: None,
+                quota: Some(Quota {
+                    five_hour: Some(Limit {
+                        used_percent: 40.0,
+                        resets_at: Some(2_000),
+                    }),
+                    seven_day: None,
+                }),
+                context_tokens: None,
+            },
+            1_000,
+        );
+
+        let snapshot = read_with(
+            Auto,
+            || panic!("fresh statusLine quota should bypass the token"),
+            || store.quota_snapshot(1_500, None),
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.buckets["claude"]
+                .primary
+                .as_ref()
+                .unwrap()
+                .used_percent,
+            Some(40.0)
+        );
+    }
+
+    #[test]
     fn the_configured_source_decides_which_reads_happen() {
         use crate::config::ClaudeUsageSource::{Auto, Statusline, Token};
         let snap = |id: &str| {
@@ -438,17 +476,8 @@ mod tests {
         let no_sl = || -> Option<Snapshot> { panic!("the statusLine must not be read") };
         assert_eq!(id(read_with(Token, || Ok(snap("t")), no_sl)).unwrap(), "t");
         assert!(read_with(Token, || Err(Error::Malformed), no_sl).is_err());
-        // auto: the token wins, the statusLine only fills in when the token fails.
-        assert_eq!(id(read_with(Auto, || Ok(snap("t")), no_sl)).unwrap(), "t");
-        assert_eq!(
-            id(read_with(
-                Auto,
-                || Err(Error::Malformed),
-                || Some(snap("s"))
-            ))
-            .unwrap(),
-            "s"
-        );
+        // Auto uses the token when there is no usable statusLine quota.
+        assert_eq!(id(read_with(Auto, || Ok(snap("t")), || None)).unwrap(), "t");
         assert!(matches!(
             read_with(Auto, || Err(Error::Service("denied")), || None),
             Err(Error::Service("denied"))
