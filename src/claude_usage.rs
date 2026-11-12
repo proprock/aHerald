@@ -520,6 +520,39 @@ mod tests {
         assert_eq!(bucket.secondary.as_ref().unwrap().used_percent, Some(11.0));
     }
 
+    const FABLE_RESPONSE: &[u8] = br#"{
+        "seven_day": {"utilization": 100},
+        "limits": [
+            {"kind":"weekly_all","percent":100},
+            {"kind":"weekly_scoped","percent":67,"resets_at":"2026-11-14T09:59:59.661777+00:00",
+             "scope":{"model":{"id":null,"display_name":"Fable"}},"is_active":false}
+        ],
+        "weekly_scoped_shares": [
+            {"limit_index":0,"used_percent_of_weekly":88,"allowance_percent_of_weekly":90},
+            {"limit_index":1,"used_percent_of_weekly":34,"allowance_percent_of_weekly":50}
+        ]
+    }"#;
+
+    #[test]
+    fn fable_card_shows_its_own_weekly_limit_and_share() {
+        let text = card(FABLE_RESPONSE);
+        assert!(text.contains("Fable: 67% used"), "{text}");
+        assert!(text.contains("34% of weekly budget used / 50% allowed"), "{text}");
+    }
+
+    #[test]
+    fn fable_card_hides_the_snapshot_at_reset() {
+        let mut view = crate::usage_service::View::for_agent(
+            crate::agent::Agent::Claude,
+            true,
+            Duration::from_secs(300),
+        );
+        view.snapshot = Some(parse_response(FABLE_RESPONSE, None).unwrap());
+        let reset = iso_to_unix("2026-11-14T09:59:59Z").unwrap();
+        assert!(view.card_text(Duration::ZERO, reset - 1).contains("Fable:"));
+        assert!(!view.card_text(Duration::ZERO, reset).contains("Fable:"));
+    }
+
     #[test]
     fn details_card_follows_the_codex_template() {
         let body = br#"{"five_hour":{"utilization":8,"resets_at":"2026-10-25T17:50:00+00:00"},
