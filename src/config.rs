@@ -572,7 +572,7 @@ impl Default for ClaudeUsage {
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ClaudeUsageSource {
-    /// The login token first, the statusLine report when the token cannot be used.
+    /// Fresh statusLine quota first, with the login token as a fallback.
     #[default]
     Auto,
     Token,

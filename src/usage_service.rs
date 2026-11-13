@@ -131,6 +131,9 @@ impl View {
                         .unwrap_or_else(|| "—".into())
                 ));
             }
+            if let Some(fable) = self.snapshot.as_ref().and_then(|s| s.claude_fable.as_ref()) {
+                self.append_fable(&mut text, fable, now, unix);
+            }
             for (name, allowance) in [
                 ("Extra usage", &bucket.extra_usage),
                 ("Spend", &bucket.spend),
@@ -155,6 +158,44 @@ impl View {
         }
         text
     }
+    fn append_fable(
+        &self,
+        text: &mut String,
+        fable: &crate::usage::ClaudeFable,
+        now: Duration,
+        unix: i64,
+    ) {
+        let reset = fable.window.resets_at;
+        let age = fable
+            .fetched_at
+            .or(self.updated)
+            .map(|at| now.saturating_sub(at));
+        if reset.is_some_and(|at| at <= unix)
+            || (reset.is_none() && age.is_some_and(|age| age >= self.interval))
+        {
+            return;
+        }
+        if let Some(percent) = fable.window.used_percent {
+            text.push_str(&format!(
+                "Fable: {}% used / {}; reset: {}",
+                percent_figure(percent),
+                countdown(reset, unix),
+                reset.and_then(short_reset_text).as_deref().unwrap_or("—")
+            ));
+            if let Some(age) = age {
+                text.push_str(&format!(" (API {}s ago)", age.as_secs()));
+            }
+            text.push('\n');
+        }
+        if let Some((used, allowed)) = fable.weekly_share {
+            text.push_str(&format!(
+                "Fable: {}% of weekly budget used / {}% allowed\n",
+                percent_figure(used),
+                percent_figure(allowed)
+            ));
+        }
+    }
+
     pub fn card_text(&self, now: Duration, unix: i64) -> String {
         if self.agent != Agent::Codex {
             return self.simple_card_text(now, unix);
@@ -481,6 +522,13 @@ pub struct Push {
 /// not need to speak any wire protocol of another provider.
 pub trait UsageSource {
     fn read(&mut self, now: Duration) -> Result<Snapshot, Error>;
+    fn read_for_refresh(&mut self, now: Duration) -> Result<Snapshot, Error> {
+        self.read(now)
+    }
+    /// True when the source bounds its own remote requests and can always check local data.
+    fn manages_retry(&self) -> bool {
+        false
+    }
     /// True while a connection stays open and must be polled for pushed updates.
     fn is_live(&self) -> bool {
         false
@@ -616,6 +664,12 @@ impl<S: UsageSource> Driver<S> {
         }
         // A rate-limited service is asked again no sooner than its `Retry-After` (capped)
         // and never sooner than the refresh interval.
+        self.view.error = Some(error.to_string());
+        if self.source.manages_retry() {
+            // The source gates HTTP independently, so keep looking for local reports.
+            self.next = now.saturating_add(self.view.interval.min(Duration::from_secs(10)));
+            return;
+        }
         let delay = match error {
             Error::RateLimited(_, retry_after) => self
                 .backoff
@@ -624,16 +678,22 @@ impl<S: UsageSource> Driver<S> {
                 .max(self.view.interval),
             _ => self.backoff,
         };
-        self.view.error = Some(error.to_string());
         self.next = now.saturating_add(delay);
         self.allowed = self.next;
         self.backoff = (self.backoff * 2).min(Duration::from_secs(300));
     }
     pub fn step(&mut self, now: Duration, manual: bool) -> bool {
-        if now >= self.allowed && (manual || now >= self.next) {
+        if (now >= self.allowed && (manual || now >= self.next))
+            || (manual && self.source.manages_retry())
+        {
             self.allowed = now.saturating_add(Duration::from_secs(5));
             self.next = now.saturating_add(self.view.interval);
-            match self.source.read(now) {
+            let result = if manual {
+                self.source.read_for_refresh(now)
+            } else {
+                self.source.read(now)
+            };
+            match result {
                 Ok(snapshot) => {
                     self.view.snapshot = Some(snapshot);
                     self.view.updated = Some(now);
@@ -736,12 +796,33 @@ impl Service {
             interval,
             Arc::new(AtomicBool::new(false)),
             move || {
-                crate::claude_usage::ClaudeSource::new(move || {
-                    crate::claude_usage::read_with(source, crate::claude_usage::fetch_live, || {
+                let mut auto = crate::claude_usage::AutoUsage::default();
+                crate::claude_usage::ClaudeSource::new(source, move |now, manual| {
+                    let statusline = || {
                         crate::statusline::with_store(|store| {
-                            store.quota_snapshot(unix_now(), None)
+                            let now = unix_now();
+                            if source == crate::config::ClaudeUsageSource::Auto {
+                                store.quota_snapshot_for_auto(now, interval)
+                            } else {
+                                store.quota_snapshot(now, None)
+                            }
                         })
-                    })
+                    };
+                    if source == crate::config::ClaudeUsageSource::Auto {
+                        auto.read(
+                            now,
+                            interval,
+                            manual,
+                            statusline(),
+                            crate::claude_usage::fetch_live,
+                        )
+                    } else {
+                        crate::claude_usage::read_with(
+                            source,
+                            crate::claude_usage::fetch_live,
+                            statusline,
+                        )
+                    }
                 })
             },
         )

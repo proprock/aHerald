@@ -90,7 +90,7 @@ begin
   UsageNote.SetBounds(WizardForm.TasksList.Left,
     WizardForm.TasksList.Top + WizardForm.TasksList.Height + ScaleY(6),
     WizardForm.TasksList.Width, ScaleY(72));
-  UsageNote.Caption := 'Usage uses your signed-in account. Claude defaults to auto: local Claude login, then statusLine. Upgrades keep the configured Claude source.' + #13#10 +
+  UsageNote.Caption := 'Claude auto uses fresh statusLine quota or the login token when no quota is available. Upgrades keep the configured Claude source.' + #13#10 +
     'Warnings require a running resident. Enabling Claude context configures the statusLine wrapper and preserves your existing status line.';
 end;
 

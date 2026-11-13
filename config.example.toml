@@ -324,16 +324,19 @@ display_ctx = "used"
 display_usage = "remain"
 
 [claude.usage]
-# Opt-in Claude Code 5h/7d quota; default false. When true, aHerald reads the OAuth access
-# token Claude Code stores in ~/.claude/.credentials.json (or CLAUDE_CONFIG_DIR) and sends it only
-# to https://api.anthropic.com/api/oauth/usage. The token is never logged, stored or refreshed.
+# Opt-in Claude Code 5h/7d quota (default false). When polling the API, aHerald reads Claude
+# Code's OAuth access token from ~/.claude/.credentials.json (or CLAUDE_CONFIG_DIR), or from
+# Keychain on macOS. It sends the token only to https://api.anthropic.com/api/oauth/usage.
+# The token is never logged, stored or refreshed.
 # The endpoint is undocumented and may change; failures leave notifications working.
 enabled = false
 # Refresh interval in seconds: 300..86400; default 300.
 refresh_interval_sec = 300
-# Where the quota comes from: "auto" (default) tries the login token and falls back to what Claude
-# Code's statusLine last reported (see `aherald --install-statusline`); "token" reads only the
-# login; "statusline" never reads the login and waits for a statusLine report.
+# "auto" (default) uses a statusLine quota report no older than refresh_interval_sec,
+# capped at one hour, with at least one window that has yet to reset. Otherwise it polls
+# the API. Opening the usage card can also fetch Fable details at this interval.
+# "token" uses the API. "statusline" uses local reports up to one hour old
+# (see `aherald --install-statusline`).
 source = "auto"
 
 [codex.usage]

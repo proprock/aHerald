@@ -7,7 +7,7 @@
 //! documented contract: unknown or malformed data becomes an "unavailable" view.
 use crate::{
     app_server::Error,
-    usage::{Allowance, Bucket, Snapshot},
+    usage::{Allowance, Bucket, ClaudeFable, Snapshot},
     usage_service::UsageSource,
 };
 use serde::Deserialize;
@@ -32,12 +32,15 @@ pub fn parse_response(body: &[u8], plan: Option<&str>) -> Result<Snapshot, Error
         seven_day: Option<Window>,
         extra_usage: Option<Value>,
         spend: Option<Value>,
+        limits: Option<Value>,
+        weekly_scoped_shares: Option<Value>,
     }
     let wire: Wire = serde_json::from_slice(body)
         .map_err(|_| Error::Service("Claude usage response not recognised"))?;
     let extra = wire.extra_usage.as_ref().and_then(extra_usage);
     let spend = wire.spend.as_ref().and_then(spend);
-    let quota = wire.five_hour.is_some() || wire.seven_day.is_some();
+    let fable = fable_limit(wire.limits.as_ref(), wire.weekly_scoped_shares.as_ref());
+    let quota = wire.five_hour.is_some() || wire.seven_day.is_some() || fable.is_some();
     if !quota && extra.is_none() && spend.is_none() {
         return Err(Error::Service(
             "Claude usage response has no quota or spend data",
@@ -62,7 +65,48 @@ pub fn parse_response(body: &[u8], plan: Option<&str>) -> Result<Snapshot, Error
         spend,
         ..Bucket::default()
     };
-    Snapshot::single("claude", bucket).map_err(Error::Service)
+    let mut snapshot = Snapshot::single("claude", bucket).map_err(Error::Service)?;
+    snapshot.claude_fable = fable;
+    Ok(snapshot)
+}
+
+fn fable_limit(limits: Option<&Value>, shares: Option<&Value>) -> Option<ClaudeFable> {
+    let percent = |value: &Value| value.as_f64().filter(|n| (0.0..=100.0).contains(n));
+    limits?
+        .as_array()?
+        .iter()
+        .enumerate()
+        .find_map(|(index, limit)| {
+            let name = limit.pointer("/scope/model/display_name")?.as_str()?;
+            if limit["kind"] != "weekly_scoped"
+                || !name
+                    .split_whitespace()
+                    .next()?
+                    .eq_ignore_ascii_case("fable")
+            {
+                return None;
+            }
+            let weekly_share = shares.and_then(Value::as_array).and_then(|shares| {
+                shares.iter().find_map(|share| {
+                    if share["limit_index"].as_u64()? != index as u64 {
+                        return None;
+                    }
+                    Some((
+                        percent(&share["used_percent_of_weekly"])?,
+                        percent(&share["allowance_percent_of_weekly"])?,
+                    ))
+                })
+            });
+            Some(ClaudeFable {
+                window: crate::usage::Window {
+                    used_percent: Some(percent(&limit["percent"])?),
+                    window_duration_mins: Some(SEVEN_DAY_MINS),
+                    resets_at: limit["resets_at"].as_str().and_then(iso_to_unix),
+                },
+                weekly_share,
+                fetched_at: None,
+            })
+        })
 }
 
 /// Formats an amount in minor units (`1234`, exponent 2 -> `12.34`).
@@ -289,23 +333,88 @@ pub fn read_with(
     match source {
         Source::Token => token(),
         Source::Statusline => statusline().ok_or(WAITING),
-        Source::Auto => token().or_else(|error| statusline().ok_or(error)),
+        Source::Auto => statusline().map_or_else(token, Ok),
     }
 }
 
-/// Claude quota source: one HTTPS request per read, no connection and no pushed updates.
+/// Claude quota source: at most one HTTPS request per read and no pushed updates.
 pub struct ClaudeSource<F> {
     fetch: F,
+    source: crate::config::ClaudeUsageSource,
 }
-impl<F: FnMut() -> Result<Snapshot, Error>> ClaudeSource<F> {
-    pub fn new(fetch: F) -> Self {
-        Self { fetch }
+impl<F: FnMut(Duration, bool) -> Result<Snapshot, Error>> ClaudeSource<F> {
+    pub fn new(source: crate::config::ClaudeUsageSource, fetch: F) -> Self {
+        Self { fetch, source }
     }
 }
-impl<F: FnMut() -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
-    fn read(&mut self, _now: Duration) -> Result<Snapshot, Error> {
+impl<F: FnMut(Duration, bool) -> Result<Snapshot, Error>> UsageSource for ClaudeSource<F> {
+    fn read(&mut self, now: Duration) -> Result<Snapshot, Error> {
         let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
-        (self.fetch)()
+        (self.fetch)(now, false)
+    }
+
+    fn read_for_refresh(&mut self, now: Duration) -> Result<Snapshot, Error> {
+        let _timer = crate::perf::span(crate::perf::Span::UsagePoll);
+        (self.fetch)(now, true)
+    }
+
+    fn manages_retry(&self) -> bool {
+        self.source == crate::config::ClaudeUsageSource::Auto
+    }
+}
+
+/// Last successful OAuth response and the earliest time another request may start.
+#[derive(Default)]
+pub(crate) struct AutoUsage {
+    token: Option<Snapshot>,
+    error: Option<Error>,
+    next: Duration,
+    backoff: Option<Duration>,
+}
+impl AutoUsage {
+    pub(crate) fn read(
+        &mut self,
+        now: Duration,
+        interval: Duration,
+        manual: bool,
+        statusline: Option<Snapshot>,
+        token: impl FnOnce() -> Result<Snapshot, Error>,
+    ) -> Result<Snapshot, Error> {
+        if (manual || statusline.is_none()) && now >= self.next {
+            self.next = now.saturating_add(interval);
+            match token() {
+                Ok(mut snapshot) => {
+                    if let Some(fable) = &mut snapshot.claude_fable {
+                        fable.fetched_at = Some(now);
+                    }
+                    self.token = Some(snapshot);
+                    self.error = None;
+                    self.backoff = None;
+                }
+                Err(error) => {
+                    let backoff = self.backoff.unwrap_or(Duration::from_secs(10));
+                    let delay = match &error {
+                        Error::RateLimited(_, retry_after) => {
+                            interval.max(backoff).max(retry_after.unwrap_or_default())
+                        }
+                        _ if statusline.is_some() => interval.max(backoff),
+                        _ => backoff,
+                    };
+                    self.next = now.saturating_add(delay);
+                    self.backoff = Some((backoff * 2).min(Duration::from_secs(300)));
+                    self.error = Some(error);
+                }
+            }
+        }
+
+        if let Some(mut snapshot) = statusline {
+            snapshot.claude_fable = self.token.as_ref().and_then(|s| s.claude_fable.clone());
+            return Ok(snapshot);
+        }
+        if let Some(error) = &self.error {
+            return Err(error.clone());
+        }
+        self.token.clone().ok_or(Error::Backoff)
     }
 }
 
@@ -405,6 +514,44 @@ pub fn fetch_with(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn auto_uses_fresh_statusline_quota_without_reading_the_token() {
+        use crate::config::ClaudeUsageSource::Auto;
+        use crate::statusline::{Limit, Quota, Report, Store};
+
+        let mut store = Store::default();
+        store.record(
+            Report {
+                session_id: "claude-session".into(),
+                session_name: None,
+                quota: Some(Quota {
+                    five_hour: Some(Limit {
+                        used_percent: 40.0,
+                        resets_at: Some(2_000),
+                    }),
+                    seven_day: None,
+                }),
+                context_tokens: None,
+            },
+            1_000,
+        );
+
+        let snapshot = read_with(
+            Auto,
+            || panic!("fresh statusLine quota should bypass the token"),
+            || store.quota_snapshot(1_500, None),
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot.buckets["claude"]
+                .primary
+                .as_ref()
+                .unwrap()
+                .used_percent,
+            Some(40.0)
+        );
+    }
+
+    #[test]
     fn the_configured_source_decides_which_reads_happen() {
         use crate::config::ClaudeUsageSource::{Auto, Statusline, Token};
         let snap = |id: &str| {
@@ -438,17 +585,8 @@ mod tests {
         let no_sl = || -> Option<Snapshot> { panic!("the statusLine must not be read") };
         assert_eq!(id(read_with(Token, || Ok(snap("t")), no_sl)).unwrap(), "t");
         assert!(read_with(Token, || Err(Error::Malformed), no_sl).is_err());
-        // auto: the token wins, the statusLine only fills in when the token fails.
-        assert_eq!(id(read_with(Auto, || Ok(snap("t")), no_sl)).unwrap(), "t");
-        assert_eq!(
-            id(read_with(
-                Auto,
-                || Err(Error::Malformed),
-                || Some(snap("s"))
-            ))
-            .unwrap(),
-            "s"
-        );
+        // Auto uses the token when there is no usable statusLine quota.
+        assert_eq!(id(read_with(Auto, || Ok(snap("t")), || None)).unwrap(), "t");
         assert!(matches!(
             read_with(Auto, || Err(Error::Service("denied")), || None),
             Err(Error::Service("denied"))
@@ -489,6 +627,167 @@ mod tests {
         assert_eq!(five.used_percent, Some(10.0));
         assert_eq!(five.resets_at, iso_to_unix("2026-10-26T00:59:59Z"));
         assert_eq!(bucket.secondary.as_ref().unwrap().used_percent, Some(11.0));
+    }
+
+    const FABLE_RESPONSE: &[u8] = br#"{
+        "seven_day": {"utilization": 100},
+        "limits": [
+            {"kind":"weekly_all","percent":100},
+            {"kind":"weekly_scoped","percent":67,"resets_at":"2026-11-14T09:59:59.661777+00:00",
+             "scope":{"model":{"id":null,"display_name":"Fable"}},"is_active":false}
+        ],
+        "weekly_scoped_shares": [
+            {"limit_index":0,"used_percent_of_weekly":88,"allowance_percent_of_weekly":90},
+            {"limit_index":1,"used_percent_of_weekly":34,"allowance_percent_of_weekly":50}
+        ]
+    }"#;
+
+    #[test]
+    fn fable_card_shows_its_own_weekly_limit_and_share() {
+        let text = card(FABLE_RESPONSE);
+        assert!(text.contains("Fable: 67% used"), "{text}");
+        assert!(
+            text.contains("34% of weekly budget used / 50% allowed"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn fable_card_hides_the_snapshot_at_reset() {
+        let mut view = crate::usage_service::View::for_agent(
+            crate::agent::Agent::Claude,
+            true,
+            Duration::from_secs(300),
+        );
+        view.snapshot = Some(parse_response(FABLE_RESPONSE, None).unwrap());
+        let reset = iso_to_unix("2026-11-14T09:59:59Z").unwrap();
+        assert!(view.card_text(Duration::ZERO, reset - 1).contains("Fable:"));
+        assert!(!view.card_text(Duration::ZERO, reset).contains("Fable:"));
+    }
+
+    #[test]
+    fn auto_card_refresh_combines_statusline_and_fable() {
+        use crate::{agent::Agent, usage_service::Driver};
+        let interval = Duration::from_secs(300);
+        let mut auto = AutoUsage::default();
+        let statusline = || parse_response(br#"{"seven_day":{"utilization":81}}"#, None).ok();
+        let source = ClaudeSource::new(
+            crate::config::ClaudeUsageSource::Auto,
+            move |now, manual| {
+                auto.read(now, interval, manual, statusline(), || {
+                    assert_eq!(now, Duration::from_secs(1), "only the first click polls");
+                    parse_response(FABLE_RESPONSE, None)
+                })
+            },
+        );
+        let mut driver = Driver::with_source(Agent::Claude, interval, source);
+        assert!(driver.step(Duration::ZERO, false));
+        assert!(!driver.view.card_text(Duration::ZERO, 0).contains("Fable:"));
+        assert!(driver.step(Duration::from_secs(1), true));
+        assert!(driver.step(Duration::from_secs(15), true));
+        let text = driver.view.card_text(Duration::from_secs(18), 0);
+        assert!(text.contains("Week: 81% used"), "{text}");
+        assert!(text.contains("Fable: 67% used"), "{text}");
+        assert!(text.contains("(API 17s ago)"), "{text}");
+    }
+
+    #[test]
+    fn auto_keeps_fable_during_an_api_throttle() {
+        let interval = Duration::from_secs(300);
+        let mut auto = AutoUsage::default();
+        let statusline = || parse_response(br#"{"seven_day":{"utilization":81}}"#, None).ok();
+        let fallback = auto
+            .read(Duration::ZERO, interval, false, None, || {
+                parse_response(FABLE_RESPONSE, None)
+            })
+            .unwrap();
+        assert!(fallback.claude_fable.is_some());
+
+        let limited = auto
+            .read(
+                Duration::from_secs(300),
+                interval,
+                true,
+                statusline(),
+                || {
+                    Err(Error::RateLimited(
+                        "throttled",
+                        Some(Duration::from_secs(600)),
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            limited.claude_fable.unwrap().fetched_at,
+            Some(Duration::ZERO)
+        );
+        let cached = auto
+            .read(
+                Duration::from_secs(899),
+                interval,
+                true,
+                statusline(),
+                || panic!("must honor Retry-After"),
+            )
+            .unwrap();
+        assert!(cached.claude_fable.is_some());
+
+        let refreshed = auto
+            .read(
+                Duration::from_secs(900),
+                interval,
+                true,
+                statusline(),
+                || parse_response(br#"{"seven_day":{"utilization":80}}"#, None),
+            )
+            .unwrap();
+        assert!(refreshed.claude_fable.is_none());
+    }
+
+    #[test]
+    fn fable_can_be_the_only_quota_in_the_api_response() {
+        let text = card(
+            br#"{"limits":[{"kind":"weekly_scoped","percent":67,
+                              "scope":{"model":{"display_name":"Fable 5.2"}}}]}"#,
+        );
+        assert!(text.contains("Fable: 67% used"), "{text}");
+        assert!(!text.contains("enterprise"), "{text}");
+    }
+
+    #[test]
+    fn auto_fallback_retry_does_not_wait_for_the_refresh_interval() {
+        use crate::{agent::Agent, config::ClaudeUsageSource, usage_service::Driver};
+        let interval = Duration::from_secs(300);
+        let mut auto = AutoUsage::default();
+        let source = ClaudeSource::new(ClaudeUsageSource::Auto, move |now, manual| {
+            auto.read(now, interval, manual, None, || {
+                if now.is_zero() {
+                    Err(Error::Unavailable)
+                } else {
+                    assert_eq!(now, Duration::from_secs(10));
+                    parse_response(FABLE_RESPONSE, None)
+                }
+            })
+        });
+        let mut driver = Driver::with_source(Agent::Claude, interval, source);
+        assert!(driver.step(Duration::ZERO, false));
+        assert_eq!(driver.wait(Duration::ZERO), Duration::from_secs(10));
+        assert!(driver.step(Duration::from_secs(10), false));
+        assert!(driver.view.error.is_none());
+    }
+
+    #[test]
+    fn invalid_optional_fable_data_does_not_hide_the_common_windows() {
+        let text = card(
+            br#"{
+            "seven_day":{"utilization":51},
+            "limits":[{"kind":"weekly_scoped","percent":"bad",
+                       "scope":{"model":{"display_name":"Fable"}}}],
+            "weekly_scoped_shares":{}
+        }"#,
+        );
+        assert!(text.contains("Week: 51% used"), "{text}");
+        assert!(!text.contains("Fable:"), "{text}");
     }
 
     #[test]
@@ -710,7 +1009,7 @@ mod tests {
     #[test]
     fn shared_driver_serves_claude_through_its_source() {
         use crate::{agent::Agent, usage_service::Driver};
-        let source = ClaudeSource::new(|| {
+        let source = ClaudeSource::new(crate::config::ClaudeUsageSource::Token, |_, _| {
             parse_response(
                 br#"{"five_hour":{"utilization":10,"resets_at":null}}"#,
                 None,
@@ -732,7 +1031,7 @@ mod tests {
     #[test]
     fn fetch_failure_becomes_a_view_error_not_a_panic() {
         use crate::{agent::Agent, usage_service::Driver};
-        let source = ClaudeSource::new(|| {
+        let source = ClaudeSource::new(crate::config::ClaudeUsageSource::Token, |_, _| {
             Err(Error::Service(
                 "Claude usage unauthorized (sign in to Claude Code again)",
             ))
