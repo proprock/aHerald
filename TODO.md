@@ -616,7 +616,7 @@ P2 tasks run in the listed order; AH-266 goes last.
 Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
 `AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
 **compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-302 to AH-305 run
-in this order; the others are independent. Suggested order: AH-310, AH-306, AH-311, then AH-302 to
+in this order; the others are independent. Suggested order (AH-310 done): AH-306, AH-311, then AH-302 to
 AH-305, AH-312, AH-308, and the rest when convenient.
 
 - [ ] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
@@ -767,8 +767,8 @@ AH-305, AH-312, AH-308, and the rest when convenient.
 
 - [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
   `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
-  `[general] mode = "transient"` is the default until AH-310 lands (afterwards an explicit choice, and the
-  value in every existing `config.toml`), and the README says the behaviour is identical. By reading:
+  `[general] mode = "transient"` is an explicit choice since AH-310 (and the value in every existing
+  `config.toml`), and the README says the behaviour is identical. By reading:
   `show` acknowledges the parent first (`process::acknowledge`) and then returns the error, so
   `aherald --event turn_complete` and `aherald --notify x --kind error` succeed and show nothing. Confirm
   with one run on the M1 before changing anything.
@@ -805,50 +805,11 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   Acceptance: the table matches the code (each "yes" names the test or manual evidence); item 2 only after
   the owner's answer.
 
-- [ ] **AH-310 — OpenCode, Pi, Goose and Crush events go through the resident, like Codex and Claude.**
-  The Codex and Claude hook commands carry `--resident` (`src/hook_setup.rs:58-63`). The bridges call
-  `aherald --notify <harness> ...` with no mode (`examples/harnesses/opencode-aherald.ts:23`,
-  `pi-aherald.ts:22`, `crushrc`, `goose-hooks.json`), so `[general] mode` decides, and its default is
-  `transient`. In transient mode `--activity` and `--ended` are dropped (`src/commands/deliver.rs:193-199`),
-  a `permission_required` card never leaves by itself, nothing is forwarded to a messenger, and on macOS
-  no card appears (AH-307).
-  Agreed 2026-11-16, two changes; the bridge files and the installed copies stay as they are, so nobody
-  has to run setup again.
-  1. **`--notify` uses the resident unless `--transient` is given**, whatever `[general] mode` says. In
-     `Cli::selected_mode` (`src/cli.rs:555`) an `Operation::Notify` without a mode flag is `Mode::Resident`.
-     The configuration is ignored here on purpose: every `config.toml` created so far was copied from the
-     example and holds an explicit `mode = "transient"`, so honouring it would leave existing installations
-     as they are, and a wait without a resident cannot be resolved. A first event starts the resident as a
-     Codex or Claude hook does (`resident::forward`); activity and `--ended` never start one
-     (`forward_if_running`).
-  2. **`[general] mode` defaults to `"resident"`** (usage, warnings, the queue and the messenger need the
-     resident anyway). Change `Mode`'s default in `src/config.rs` and the active line and its comment in
-     `config.example.toml` together (the default-config parity test, AH-256, must stay green). It governs
-     `--hook` and `--event` without a mode flag, and a start with no operation, which now runs the resident
-     (`src/commands/deliver.rs` `start`). `--transient` and `mode = "transient"` keep working; an existing
-     `config.toml` keeps its explicit value and is never edited (say so in `CHANGELOG.md` with the one line
-     to change by hand).
-     Blast radius to check before editing, and list in the pull request: every test and fixture that relies
-     on the transient default (`tests/fixtures/*.toml`, `tests/config.rs`, `tests/cli.rs`,
-     `tests/native_overlay.rs`, `tests/native_notice.rs`, `tests/process*.rs`, `tests/hooks.rs`,
-     `tests/claude_hooks.rs`, `tests/unix_hook.rs`): pin the mode in the test (`--transient` or the fixture)
-     instead of changing what it asserts; a test that starts the program without a private scope and runtime
-     directory must get one, so it can never reach or start a resident of the real user. Also check the
-     installers and packaging scripts (`installer/windows.iss`, `scripts/package-*.sh`, `scripts/*.ps1`,
-     `tests/installer_windows.ps1`, `tests/macos_app_lifecycle.sh`, `tests/linux_deb_lifecycle.sh`) for
-     commands that assumed a start with no flag does nothing.
-  Docs for both: `--help` (`src/cli.rs`; the test that every public flag is listed), `docs/aherald.1`,
-  `README.md` ("Try it" no longer needs `--resident`), `docs/configuration.md`, `docs/portable*.md`,
-  `docs/harnesses.md`, `docs/harness-compatibility.md` ("The `--notify` input") and `CHANGELOG.md`
-  (`Changed`). Check that `examples/harnesses/crushrc` and the README table need no edit.
-  Tests first: a `src/cli.rs` unit test of `selected_mode` for `--notify`, `--hook` and `--event`, each with
-  no flag, `--resident`, `--transient`, and configuration `mode = "transient"`; a `tests/config.rs` case that
-  an empty file means resident and an explicit `"transient"` is kept; `tests/external_notify.rs` gains a
-  case where `--notify x --kind permission_required` starts an isolated resident with one queued card and a
-  following `--activity` leaves zero (use the fixture of `tests/remote_listener.rs` on Unix, or the shared
-  one of AH-312 if it exists), and one where `--transient` starts none.
-  Acceptance: the tests pass on Linux; Windows and macOS in CI; one manual run with a real OpenCode or Pi
-  session if one is installed, otherwise reported as not checked.
+- [ ] **AH-316 — Manual check of AH-310 with a real OpenCode or Pi session.**
+  Split from AH-310 (closed without it: neither harness was installed). With the installed bridge and no
+  mode flag, a permission prompt in a real OpenCode or Pi session shows a card through the resident (it
+  starts one if none runs), and answering the prompt in the harness clears the card before the turn ends.
+  Acceptance: one line in `DONE.md` with the harness version, aHerald version and OS.
 
 - [ ] **AH-311 — The sound of a new event follows one rule on Windows, macOS and Linux.**
   Today (by reading): with the usage card open, Windows and macOS start no sound until it closes
