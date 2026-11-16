@@ -135,3 +135,151 @@ fn sound_slots_cap_concurrent_playback() {
     assert_eq!(sound_slots(MAX_SOUNDS), 0);
     assert_eq!(sound_slots(MAX_SOUNDS + 3), 0);
 }
+
+mod announcer {
+    //! Which sounds a resident pass starts (AH-311): one rule for Windows, macOS and Linux.
+    use aherald::{
+        events::{Event, Kind},
+        focus::Outputs,
+        presenter::{Announce, Announcer, MAX_SOUNDS},
+        queue::{Entry, Queue},
+    };
+
+    fn queue_with(sessions: &[&str], outputs: Outputs) -> Queue {
+        let mut queue = Queue::new(16, 0);
+        for session in sessions {
+            let mut event = Event::demo(Kind::Error.name()).unwrap();
+            event.session_id = Some((*session).into());
+            assert!(queue.push_with_outputs(event, 0, 5000, outputs).is_queued());
+        }
+        queue
+    }
+
+    fn sample(id: u64) -> Entry {
+        Entry {
+            outputs: Outputs::default(),
+            id,
+            event: Event::demo(Kind::TurnComplete.name()).unwrap(),
+            duration: 0,
+            visible_ms: 0,
+            announced: true,
+            arrived_ms: 0,
+        }
+    }
+
+    fn sessions(announce: &Announce) -> Vec<String> {
+        announce
+            .play
+            .iter()
+            .map(|e| e.event.session_id.clone().unwrap_or_default())
+            .collect()
+    }
+
+    #[test]
+    fn a_new_event_sounds_while_the_usage_card_is_selected() {
+        let mut queue = Queue::new(16, 0);
+        queue.show_usage();
+        let mut event = Event::demo(Kind::Error.name()).unwrap();
+        event.session_id = Some("new".into());
+        queue.push(event, 0, 5000);
+        assert!(queue.selected().is_some_and(|e| e.is_usage()));
+        let announce = Announcer::default().pass(&mut queue, None, false, true, 0);
+        assert_eq!(sessions(&announce), ["new"]);
+        assert!(!announce.cancel);
+    }
+
+    #[test]
+    fn a_new_event_sounds_when_its_window_is_suppressed_and_no_card_is_visible() {
+        let hidden = Outputs {
+            window: false,
+            sound: true,
+        };
+        let mut queue = queue_with(&["focused"], hidden);
+        assert!(queue.selected().is_none());
+        let announce = Announcer::default().pass(&mut queue, None, false, true, 0);
+        assert_eq!(sessions(&announce), ["focused"]);
+    }
+
+    #[test]
+    fn a_suppressed_sound_never_plays() {
+        let silent = Outputs {
+            window: true,
+            sound: false,
+        };
+        let mut queue = queue_with(&["silent"], silent);
+        let announce = Announcer::default().pass(&mut queue, None, false, true, 0);
+        assert!(announce.play.is_empty());
+    }
+
+    #[test]
+    fn pause_holds_new_sounds_until_it_ends() {
+        let mut queue = queue_with(&["held"], Outputs::default());
+        let mut announcer = Announcer::default();
+        let paused = announcer.pass(&mut queue, None, true, true, 0);
+        assert!(paused.play.is_empty() && !paused.cancel);
+        let resumed = announcer.pass(&mut queue, None, false, true, 0);
+        assert_eq!(sessions(&resumed), ["held"]);
+    }
+
+    #[test]
+    fn pause_holds_the_preview_sample_until_it_ends() {
+        let mut queue = Queue::new(16, 0);
+        let mut announcer = Announcer::default();
+        let paused = announcer.pass(&mut queue, Some(&sample(7)), true, true, 0);
+        assert!(paused.play.is_empty() && !paused.cancel);
+        let resumed = announcer.pass(&mut queue, Some(&sample(7)), false, true, 0);
+        assert_eq!(resumed.play.iter().map(|e| e.id).collect::<Vec<_>>(), [7]);
+    }
+
+    #[test]
+    fn events_that_arrive_while_sound_is_off_never_play_later() {
+        let mut queue = queue_with(&["a", "b", "c", "d", "e", "f"], Outputs::default());
+        let mut announcer = Announcer::default();
+        let off = announcer.pass(&mut queue, None, false, false, 0);
+        assert!(off.play.is_empty());
+        let on = announcer.pass(&mut queue, None, false, true, 0);
+        assert!(on.play.is_empty(), "replayed {:?}", sessions(&on));
+    }
+
+    #[test]
+    fn the_preview_sample_is_silent_while_sound_is_off() {
+        let mut queue = Queue::new(16, 0);
+        let announce = Announcer::default().pass(&mut queue, Some(&sample(7)), false, false, 0);
+        assert!(announce.play.is_empty());
+    }
+
+    #[test]
+    fn each_preview_sample_sounds_once_per_visit_and_silences_the_previous_one() {
+        let mut queue = Queue::new(16, 0);
+        let mut announcer = Announcer::default();
+        let mut pass = |id| {
+            let a = announcer.pass(&mut queue, Some(&sample(id)), false, true, 0);
+            (a.play.iter().map(|e| e.id).collect::<Vec<_>>(), a.cancel)
+        };
+        assert_eq!(pass(1), (vec![1], true));
+        assert_eq!(pass(1), (vec![], false));
+        assert_eq!(pass(2), (vec![2], true));
+        assert_eq!(pass(1), (vec![1], true));
+    }
+
+    #[test]
+    fn the_preview_sample_sounds_even_when_every_slot_is_busy() {
+        let mut queue = Queue::new(16, 0);
+        let announce =
+            Announcer::default().pass(&mut queue, Some(&sample(3)), false, true, MAX_SOUNDS);
+        assert_eq!(announce.play.iter().map(|e| e.id).collect::<Vec<_>>(), [3]);
+        assert!(announce.cancel);
+    }
+
+    #[test]
+    fn at_most_max_sounds_play_at_once_and_the_rest_wait() {
+        let mut queue = queue_with(&["a", "b", "c", "d", "e"], Outputs::default());
+        let mut announcer = Announcer::default();
+        let first = announcer.pass(&mut queue, None, false, true, 0);
+        assert_eq!(first.play.len(), MAX_SOUNDS);
+        let busy = announcer.pass(&mut queue, None, false, true, MAX_SOUNDS);
+        assert!(busy.play.is_empty());
+        let later = announcer.pass(&mut queue, None, false, true, 0);
+        assert_eq!(sessions(&later), ["e"]);
+    }
+}
