@@ -24,6 +24,7 @@ pub fn events(agent: Agent) -> &'static [&'static str] {
             "UserPromptSubmit",
             "PreToolUse",
             "PostToolUse",
+            "PostToolUseFailure",
             "Notification",
             "PermissionRequest",
             "Stop",

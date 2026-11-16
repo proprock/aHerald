@@ -560,6 +560,28 @@ fn session_warning_thresholds_accept_tokens_and_kilotokens() {
     }
 }
 
+/// AH-304: the delay is on by default, the example says the same, and 0..=120 is accepted.
+#[test]
+fn the_codex_permission_delay_defaults_to_the_example_and_is_bounded() {
+    let example =
+        Config::parse(include_str!("../config.example.toml"), &PathBuf::from(".")).unwrap();
+    assert_eq!(
+        example.codex.permission_delay_sec,
+        Config::default().codex.permission_delay_sec
+    );
+    for (value, ok) in [(0, true), (120, true), (121, false)] {
+        let parsed = Config::parse(
+            &format!("[codex]\npermission_delay_sec = {value}"),
+            &PathBuf::from("."),
+        );
+        assert_eq!(parsed.is_ok(), ok, "{value}: {parsed:?}");
+        if !ok {
+            assert!(parsed.unwrap_err().contains("codex.permission_delay_sec"));
+        }
+    }
+    assert!(Config::parse("[codex]\npermission_delay_sec = -1", &PathBuf::from(".")).is_err());
+}
+
 #[test]
 fn session_warning_defaults_are_per_agent_and_invalid_values_are_private() {
     for config in [

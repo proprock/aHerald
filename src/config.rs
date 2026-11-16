@@ -636,6 +636,9 @@ pub struct Codex {
     pub usage: Usage,
     #[serde(deserialize_with = "deserialize_session_warnings::<_, 25>")]
     pub warnings: SessionWarnings,
+    /// Seconds a permission request waits in the resident before it becomes a card, so a request
+    /// the automatic reviewer answers shows nothing (AH-304); 0 shows it at once. 0..=120.
+    pub permission_delay_sec: u64,
 }
 impl Default for Codex {
     fn default() -> Self {
@@ -644,6 +647,7 @@ impl Default for Codex {
             input_monitoring: false,
             session_names: false,
             transient_names: false,
+            permission_delay_sec: 3,
             usage: Usage::default(),
             warnings: SessionWarnings::with_idle(25),
         }
@@ -935,6 +939,11 @@ impl Config {
                 self.sounds.volume.is_finite() && (0.0..=1.0).contains(&self.sounds.volume),
                 "sounds.volume",
                 "must be between 0 and 1",
+            ),
+            (
+                self.codex.permission_delay_sec <= 120,
+                "codex.permission_delay_sec",
+                "must be between 0 and 120",
             ),
             (
                 (10..=86_400).contains(&self.codex.usage.refresh_interval_sec),

@@ -177,9 +177,14 @@ pub struct Event {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// The tool call of `PreToolUse`/`PostToolUse` activity; `None` for every other event.
+    /// The tool call of `PreToolUse`/`PostToolUse`/`PostToolUseFailure` activity; `None` for
+    /// every other event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_use_id: Option<String>,
+    /// Whether tool activity is the call's start (`PreToolUse`) or finish (`PostToolUse`);
+    /// `None` for every other event. An older resident ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_phase: Option<ToolPhase>,
     /// Terminal window that hosts the session, recorded by supported hook processes.
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +206,13 @@ pub struct Event {
     /// Notice text for `Source::App`, or the measured context/idle warning label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+/// The step of a tool call that tool activity reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolPhase {
+    Start,
+    Finish,
 }
 const MAX_FOLDER_CHARS: usize = 40;
 const MAX_NOTICE_CHARS: usize = 80;
@@ -248,6 +260,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -273,6 +286,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -295,6 +309,9 @@ impl Event {
     pub fn validate(&self) -> Result<(), String> {
         if self.window == Some(0) {
             return Err("invalid event window".into());
+        }
+        if self.tool_phase.is_some() && !self.activity {
+            return Err("invalid event tool phase".into());
         }
         if let Source::External(key) = &self.source
             && !is_harness_key(key)
@@ -330,11 +347,20 @@ pub fn is_identity(id: &str) -> bool {
     !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
 }
 
-/// The tool call id of `PreToolUse`/`PostToolUse`; no other event keeps one.
+/// The tool call id of `PreToolUse`/`PostToolUse` (and Claude's `PostToolUseFailure`); no other
+/// event keeps one.
 pub(crate) fn tool_use_id(event_name: &str, id: Option<String>) -> Option<String> {
-    matches!(event_name, "PreToolUse" | "PostToolUse")
-        .then_some(id)
-        .flatten()
+    tool_phase(event_name).and(id)
+}
+
+/// The tool call step of `PreToolUse`/`PostToolUse`/`PostToolUseFailure`; no other event has
+/// one. A failed call has finished too.
+pub(crate) fn tool_phase(event_name: &str) -> Option<ToolPhase> {
+    match event_name {
+        "PreToolUse" => Some(ToolPhase::Start),
+        "PostToolUse" | "PostToolUseFailure" => Some(ToolPhase::Finish),
+        _ => None,
+    }
 }
 
 /// `/dev/` followed by a plain device name: no traversal, control characters or long names.
@@ -384,6 +410,7 @@ pub fn external_event(
         request_id: None,
         agent_id: None,
         tool_use_id: None,
+        tool_phase: None,
         window: None,
         tty: None,
         ended,
@@ -423,6 +450,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         kind,
         source: Source::CodexHook,
         tool_use_id: tool_use_id(&hook.hook_event_name, hook.tool_use_id),
+        tool_phase: tool_phase(&hook.hook_event_name),
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,

@@ -31,6 +31,12 @@ uses the resident unless `--transient` is given. A `config.toml` created by an o
 an explicit `mode = "transient"` and is never edited: change that line to `mode = "resident"` to
 follow the new default.
 
+`[codex] permission_delay_sec` (default `3`, range 0..=120) holds a Codex permission request in
+the resident for that many seconds before its card, sound and messenger forward; a request the
+session shows answered meanwhile (by the automatic reviewer, for example) shows nothing. Set it to
+`0` for the behaviour before AH-304: every request at once. Transient mode ignores it. Details in
+[Permission delay](codex-approval-observation.md#permission-delay-ah-304).
+
 Default hook invocation is `aherald.exe --hook --resident`. The PowerShell wrapper
 in `examples/hooks.windows.json` retains `| Out-String` for GUI executable response
 capture. Add `--config` only when using a custom file; no automatic hook edits occur.

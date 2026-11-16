@@ -36,6 +36,8 @@ pub enum Outcome {
     /// The queue holds only cards of equal or higher priority.
     Full,
     Invalid,
+    /// A Codex permission request waits for its delay before it becomes a card (AH-304).
+    Held,
 }
 impl Outcome {
     pub fn is_queued(self) -> bool {
@@ -57,6 +59,9 @@ pub struct Queue {
     /// Whether a card was selected at the previous tick; idle gaps are not display time.
     counting: bool,
     terminal_history: VecDeque<Event>,
+    approvals: crate::pending_approvals::PendingApprovals,
+    /// Held requests resolved before their delay, not yet reported to the log.
+    auto_resolved: usize,
 }
 fn rank(e: &Event) -> u8 {
     match e.kind.priority() {
@@ -129,6 +134,8 @@ impl Queue {
             last_tick: None,
             counting: false,
             terminal_history: VecDeque::new(),
+            approvals: Default::default(),
+            auto_resolved: 0,
         }
     }
     pub fn is_obsolete(&self, event: &Event) -> bool {
@@ -139,40 +146,60 @@ impl Queue {
                 .any(|terminal| same_turn(terminal, event))
     }
     /// Resumed activity of an external harness resolves its session's waits: such a harness
-    /// reports the answer or the next step explicitly. Claude and Codex activity only clears
-    /// reminders (their waits end with the turn), so it resolves nothing here.
+    /// reports the answer or the next step explicitly. Codex and Claude activity resolves a held
+    /// request or a shown wait card of its turn (Claude: session) when it is evidence of the
+    /// answer (`pending_approvals`).
     pub fn observe_activity(&mut self, event: &Event) -> usize {
+        let mut resolved = 0;
+        if event.activity {
+            resolved = self.observe_approvals(event);
+        }
         if !event.activity
             || !matches!(event.source, Source::External(_))
             || event.session_id.is_none()
             || event.validate().is_err()
         {
-            return 0;
+            return resolved;
         }
         self.resolve(|e| pending(e) && e.source == event.source && e.session_id == event.session_id)
+    }
+    /// Feeds Codex evidence to the held requests and watched cards; removes the settled cards.
+    fn observe_approvals(&mut self, event: &Event) -> usize {
+        let items = &self.items;
+        self.approvals
+            .keep_cards(|id| items.iter().any(|e| e.id == id));
+        let settled = self.approvals.observe(event);
+        self.auto_resolved += settled.held;
+        if settled.cards.is_empty() {
+            return 0;
+        }
+        self.resolve_entries(|e| settled.cards.contains(&e.id))
     }
     /// Process verified lifecycle evidence even while presentation is disabled.
     pub fn observe_terminal(&mut self, event: &Event) -> usize {
         if !event.is_terminal_evidence() {
             return 0;
         }
+        let watched = self.observe_approvals(event);
         if event.ended {
-            return self.resolve(|e| {
-                pending(e)
-                    && e.source == event.source
-                    && e.session_id == event.session_id
-                    && e.agent_id == event.agent_id
-            });
+            return watched
+                + self.resolve(|e| {
+                    pending(e)
+                        && e.source == event.source
+                        && e.session_id == event.session_id
+                        && e.agent_id == event.agent_id
+                });
         }
         if per_session(event) {
             // Claude turns in one session are sequential, so the end of a turn
             // resolves every pending card of that session (and no other agent's).
-            return self.resolve(|e| {
-                pending(e)
-                    && e.source == event.source
-                    && e.agent_id == event.agent_id
-                    && e.session_id == event.session_id
-            });
+            return watched
+                + self.resolve(|e| {
+                    pending(e)
+                        && e.source == event.source
+                        && e.agent_id == event.agent_id
+                        && e.session_id == event.session_id
+                });
         }
         // Another Stop hook can continue the same turn. Only interruption proves
         // that a later-delivered wait belongs to an already terminated turn.
@@ -184,12 +211,15 @@ impl Queue {
                 self.terminal_history.pop_front();
             }
         }
-        self.resolve(|e| pending(e) && same_turn(e, event))
+        watched + self.resolve(|e| pending(e) && same_turn(e, event))
     }
     fn resolve(&mut self, matches: impl Fn(&Event) -> bool) -> usize {
+        self.resolve_entries(|entry| matches(&entry.event))
+    }
+    fn resolve_entries(&mut self, matches: impl Fn(&Entry) -> bool) -> usize {
         let previous_index = self.selected_index();
         let count = self.items.len();
-        self.items.retain(|entry| !matches(&entry.event));
+        self.items.retain(|entry| !matches(entry));
         if self.selected().is_none() {
             self.selected = self
                 .items
@@ -237,6 +267,18 @@ impl Queue {
         duration: u64,
         outputs: crate::focus::Outputs,
     ) -> Outcome {
+        let waiter = self.approvals.waiter(&event);
+        self.admit(event, now, duration, outputs, waiter)
+    }
+    /// Admits `event`; a queued Codex wait card is then watched with `waiter` (AH-305).
+    fn admit(
+        &mut self,
+        event: Event,
+        now: u64,
+        duration: u64,
+        outputs: crate::focus::Outputs,
+        waiter: Option<crate::pending_approvals::Waiter>,
+    ) -> Outcome {
         if event.validate().is_err() {
             return Outcome::Invalid;
         }
@@ -255,6 +297,9 @@ impl Queue {
         };
         if self.is_obsolete(&event) {
             return refused(Outcome::Obsolete);
+        }
+        if self.approvals.trails_answered(&event) {
+            return refused(Outcome::Duplicate);
         }
         // Claude's PermissionRequest and permission_prompt Notification for one prompt can
         // arrive seconds apart (6 s observed), so an unresolved card absorbs the repeat.
@@ -301,6 +346,12 @@ impl Queue {
             announced: false,
             arrived_ms: now,
         });
+        if let Some(waiter) = waiter {
+            let items = &self.items;
+            self.approvals
+                .keep_cards(|id| items.iter().any(|e| e.id == id));
+            self.approvals.watch(id, waiter);
+        }
         self.items.sort_by_key(|e| (rank(&e.event), e.id));
         if let Some(first) = self.items.iter().find(|e| e.outputs.window)
             && self
@@ -310,6 +361,55 @@ impl Queue {
             self.selected = Some(first.id);
         }
         Outcome::Queued
+    }
+    /// Like `push_with_outputs`, except that a Codex permission request with a turn waits
+    /// `delay_ms` first (`Outcome::Held`); `release_due` admits it then unless lifecycle
+    /// evidence resolved it meanwhile (AH-304).
+    pub fn push_with_delay(
+        &mut self,
+        event: Event,
+        now: u64,
+        duration: u64,
+        outputs: crate::focus::Outputs,
+        delay_ms: u64,
+    ) -> Outcome {
+        if event.validate().is_err() || !self.approvals.takes(&event, delay_ms) {
+            return self.push_with_outputs(event, now, duration, outputs);
+        }
+        if self.is_obsolete(&event) {
+            return Outcome::Obsolete;
+        }
+        self.approvals
+            .hold(event, outputs, duration, now.saturating_add(delay_ms));
+        Outcome::Held
+    }
+    /// Admits the held requests whose delay has passed and returns those that became cards,
+    /// for the messenger forward.
+    pub fn release_due(&mut self, now: u64) -> Vec<Event> {
+        let mut shown = Vec::new();
+        for held in self.approvals.due(now) {
+            let event = held.event.clone();
+            // The card keeps the tools open when the request arrived, not those opened since.
+            if self.admit(
+                held.event,
+                now,
+                held.duration,
+                held.outputs,
+                Some(held.waiter),
+            ) == Outcome::Queued
+            {
+                shown.push(event);
+            }
+        }
+        shown
+    }
+    /// Whether a request is waiting for its delay: the resident must wake up for it.
+    pub fn has_held(&self) -> bool {
+        !self.approvals.is_empty()
+    }
+    /// How many held requests evidence resolved since the last call, for the debug log.
+    pub fn take_auto_resolved(&mut self) -> usize {
+        std::mem::take(&mut self.auto_resolved)
     }
     /// One internal persistent card shares navigation with agent notifications.
     /// It has a reserved slot so opening usage never evicts an agent event.
@@ -327,6 +427,7 @@ impl Queue {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,

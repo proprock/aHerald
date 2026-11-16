@@ -88,6 +88,17 @@
           }
         ]
       }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/YOU/aherald/examples/aherald-claude-hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }
