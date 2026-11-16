@@ -3,6 +3,25 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-221 — Flaky native memory-growth test on the Windows runner.**
+  Not a leak: the check read `ProcessAppMemoryInfo`, which reports the commit of the whole job
+  (cargo and the parent test process with every other test), so a busy suite failed it. In the
+  loaded lib suite that counter read 3.8 GB while the process's own private commit was 2.2 MB and
+  its live heap flat at about 271 KB. The test now compares per-process private commit
+  (`GetProcessMemoryInfo`, bound 1 MiB) and live heap bytes (`HeapSummary`, bound 64 KiB) between
+  cycles 50-100 and 150-200, and checks USER objects exactly besides GDI objects, handles and
+  threads. Test change explained: the assertion is no weaker for this process's leaks; an
+  injected 2 KiB-per-cycle heap leak fails it (not committed). The test is back in the whole
+  suite: `.github/solo-tests.txt` is empty, so pull requests, the nightly run and the release run
+  it again. Investigation: `docs/notes/ah-221-memory-growth-test.md`. Rust 1.98.1:
+  - Windows 11 Pro 22621.4317 **ran locally**: old check failed 7 of 20 loaded lib-suite runs; the
+    new one passed 30 of 30 (one run failed in an unrelated audio timing test, now AH-315).
+    `cargo fmt --all -- --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`
+    and `sh tests/ci_noisy_tests.sh` passed.
+  - Hosted `windows-latest` **compiled/tested in CI only**: Manual run 43851719746, the whole lib
+    suite 40 times with a busy loop on every CPU, 40 of 40 passed.
+  - macOS and Linux: not applicable (Windows-only test).
+
 - [x] **AH-301 — Show the Fable quota in the Claude Usage card.**
   The card shows Fable's usage, scheduled reset, API data age and optional share of the
   weekly budget. A card refresh in auto mode may fetch the Fable details, and a fresh
