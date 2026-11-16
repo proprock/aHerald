@@ -287,6 +287,7 @@ fn claude(kind: Kind, session: &str) -> Event {
         request_id: None,
         agent_id: None,
         tool_use_id: None,
+        tool_phase: None,
         window: None,
         tty: None,
         ended: false,

@@ -157,6 +157,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         kind,
         source: Source::ClaudeHook,
         tool_use_id: crate::events::tool_use_id(&hook.hook_event_name, hook.tool_use_id),
+        tool_phase: None,
         session_id: hook.session_id,
         turn_id: None,
         request_id: None,

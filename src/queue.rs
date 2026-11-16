@@ -36,6 +36,8 @@ pub enum Outcome {
     /// The queue holds only cards of equal or higher priority.
     Full,
     Invalid,
+    /// A Codex permission request waits for its delay before it becomes a card (AH-304).
+    Held,
 }
 impl Outcome {
     pub fn is_queued(self) -> bool {
@@ -311,6 +313,25 @@ impl Queue {
         }
         Outcome::Queued
     }
+    pub fn push_with_delay(
+        &mut self,
+        event: Event,
+        now: u64,
+        duration: u64,
+        outputs: crate::focus::Outputs,
+        _delay_ms: u64,
+    ) -> Outcome {
+        self.push_with_outputs(event, now, duration, outputs)
+    }
+    pub fn release_due(&mut self, _now: u64) -> Vec<Event> {
+        Vec::new()
+    }
+    pub fn has_held(&self) -> bool {
+        false
+    }
+    pub fn take_auto_resolved(&mut self) -> usize {
+        0
+    }
     /// One internal persistent card shares navigation with agent notifications.
     /// It has a reserved slot so opening usage never evicts an agent event.
     pub fn show_usage(&mut self) {
@@ -327,6 +348,7 @@ impl Queue {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,

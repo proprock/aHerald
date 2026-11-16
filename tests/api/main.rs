@@ -19,6 +19,7 @@ mod installer_bridges;
 mod ipc;
 mod perf_artwork;
 mod perf_report;
+mod permission_delay;
 mod placement;
 mod presenter;
 mod queue;

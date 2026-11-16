@@ -636,6 +636,7 @@ pub struct Codex {
     pub usage: Usage,
     #[serde(deserialize_with = "deserialize_session_warnings::<_, 25>")]
     pub warnings: SessionWarnings,
+    pub permission_delay_sec: u64,
 }
 impl Default for Codex {
     fn default() -> Self {
@@ -644,6 +645,7 @@ impl Default for Codex {
             input_monitoring: false,
             session_names: false,
             transient_names: false,
+            permission_delay_sec: 0,
             usage: Usage::default(),
             warnings: SessionWarnings::with_idle(25),
         }

@@ -180,6 +180,10 @@ pub struct Event {
     /// The tool call of `PreToolUse`/`PostToolUse` activity; `None` for every other event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_use_id: Option<String>,
+    /// Whether tool activity is the call's start (`PreToolUse`) or finish (`PostToolUse`);
+    /// `None` for every other event. An older resident ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_phase: Option<ToolPhase>,
     /// Terminal window that hosts the session, recorded by supported hook processes.
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +205,13 @@ pub struct Event {
     /// Notice text for `Source::App`, or the measured context/idle warning label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+/// The step of a tool call that tool activity reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolPhase {
+    Start,
+    Finish,
 }
 const MAX_FOLDER_CHARS: usize = 40;
 const MAX_NOTICE_CHARS: usize = 80;
@@ -248,6 +259,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -273,6 +285,7 @@ impl Event {
             request_id: None,
             agent_id: None,
             tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -384,6 +397,7 @@ pub fn external_event(
         request_id: None,
         agent_id: None,
         tool_use_id: None,
+        tool_phase: None,
         window: None,
         tty: None,
         ended,
@@ -423,6 +437,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         kind,
         source: Source::CodexHook,
         tool_use_id: tool_use_id(&hook.hook_event_name, hook.tool_use_id),
+        tool_phase: None,
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,

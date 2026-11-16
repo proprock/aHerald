@@ -47,6 +47,12 @@ impl<T> Shared<T> {
     }
 }
 
+impl<T> Shared<T> {
+    pub fn has_deadline(&self) -> bool {
+        self.warnings.has_deadline()
+    }
+}
+
 impl<T> Controls for Shared<T> {
     fn queue(&mut self) -> &mut Queue {
         &mut self.queue
@@ -637,6 +643,13 @@ fn respond_with_focus(
                 ),
                 Outcome::Duplicate => (Response::Accepted, dropped("duplicate")),
                 Outcome::Obsolete => (Response::Accepted, dropped("obsolete")),
+                Outcome::Held => (
+                    Response::Accepted,
+                    Effects {
+                        wake: true,
+                        ..Effects::default()
+                    },
+                ),
                 outcome @ (Outcome::Queued | Outcome::Resolved) => {
                     if outcome == Outcome::Queued {
                         state.forward(&accepted);
