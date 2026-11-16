@@ -282,6 +282,7 @@ fn the_example_hook_files_register_turn_ends_waits_and_tool_activity() {
                 "Notification",
                 "PermissionRequest",
                 "PostToolUse",
+                "PostToolUseFailure",
                 "PreToolUse",
                 "SessionEnd",
                 "Stop",

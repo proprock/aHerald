@@ -31,6 +31,13 @@ instead (2026-11-16) when approving the plan. `src/config.rs` and `config.exampl
 No Claude `PermissionRequest` rows either, so whether Claude needs the delay stays open; it is a
 separate decision (see `TODO.md`).
 
+The Claude Code hook reference (read 2026-11-16, Claude Code 2.1.325) says: "PermissionRequest
+hooks run only when Claude Code is about to ask you for permission, or when it would otherwise
+auto-deny a call that can't prompt." A call the `auto` permission mode approves therefore sends
+no `PermissionRequest`, and the `permission_prompt` notification fires only after a prompt "has
+waited about six seconds". Claude has no counterpart of Codex's automatic reviewer behind a
+prompt, which argues against a Claude delay; the measurement in AH-317 decides it.
+
 ## To measure later
 
 Binding Watchdog's hook entries to Codex `PermissionRequest` and `PostModelRequest` would let the

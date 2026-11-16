@@ -88,6 +88,17 @@
           }
         ]
       }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -NonInteractive -Command \"& 'C:\\Program Files\\aHerald\\aherald.exe' --hook --agent claude --resident | Out-String\"",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

@@ -146,9 +146,9 @@ impl Queue {
                 .any(|terminal| same_turn(terminal, event))
     }
     /// Resumed activity of an external harness resolves its session's waits: such a harness
-    /// reports the answer or the next step explicitly. Codex activity resolves a held request or
-    /// a shown wait card of its turn when it is evidence of the answer (`pending_approvals`).
-    /// Claude activity only clears reminders: its waits end with the turn.
+    /// reports the answer or the next step explicitly. Codex and Claude activity resolves a held
+    /// request or a shown wait card of its turn (Claude: session) when it is evidence of the
+    /// answer (`pending_approvals`).
     pub fn observe_activity(&mut self, event: &Event) -> usize {
         let mut resolved = 0;
         if event.activity {
@@ -297,6 +297,9 @@ impl Queue {
         };
         if self.is_obsolete(&event) {
             return refused(Outcome::Obsolete);
+        }
+        if self.approvals.trails_answered(&event) {
+            return refused(Outcome::Duplicate);
         }
         // Claude's PermissionRequest and permission_prompt Notification for one prompt can
         // arrive seconds apart (6 s observed), so an unresolved card absorbs the repeat.

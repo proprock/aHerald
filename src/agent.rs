@@ -131,7 +131,7 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     let mut ended = false;
     let activity = matches!(
         hook.hook_event_name.as_str(),
-        "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+        "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure"
     );
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,

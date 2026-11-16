@@ -36,7 +36,7 @@ There is no autostart: a resident must be running. The token is a file (`remote-
 | | `aherald-ping` | `aherald-ping.sh` |
 |---|---|---|
 | Needs | nothing (static binary) | `sh`, `curl`, `head` |
-| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval and a `PreToolUse` or `PostToolUse` the tool input (and output), in plain text |
+| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval, a `PreToolUse` or `PostToolUse` the tool input (and output), and a `PostToolUseFailure` the tool input and error, in plain text |
 | Drops unwanted events itself | yes | register only the events in the example files |
 | Where | release asset `aherald-ping-<version>-linux-<arch>-musl` | `examples/sandbox/aherald-ping.sh` |
 
@@ -93,10 +93,12 @@ prompt. Whatever the bind, limit who can reach the port with a firewall rule.
 
 - Taken: `Stop`, `StopFailure`, `PermissionRequest`, `Notification` (permission and input prompts),
   `SessionEnd`; for Codex `Stop`, `PermissionRequest`, `Interrupt`, `SessionEnd`.
-- Activity: `PreToolUse`, `PostToolUse` and `UserPromptSubmit` from both agents, and Codex
-  `PostModelRequest` with `status` `completed`. They make no card; they tell the resident the session
-  is working, which dismisses its idle reminder. The example files register the two tool events and,
-  for Codex, `PostModelRequest`: one or two requests per tool call and one per model request. Leave
+- Activity: `PreToolUse`, `PostToolUse` and `UserPromptSubmit` from both agents, Claude
+  `PostToolUseFailure`, and Codex `PostModelRequest` with `status` `completed`. They make no card;
+  they tell the resident the session is working, which dismisses its idle reminder, and that a
+  wait was answered, which clears its card. The example files register the tool events (Claude:
+  `PostToolUseFailure` too) and, for Codex, `PostModelRequest`: one or two requests per tool call
+  and one per model request. Leave
   them out if that traffic matters more than idle reminders. `aherald-ping` sends only the event
   name, `session_id`, `turn_id`, `agent_id`, `tool_use_id` and, for `PostModelRequest`, `status`.
 - The host ignores a guest's token counts, so context warnings do not work for guest sessions; idle

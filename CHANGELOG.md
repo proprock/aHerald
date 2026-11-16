@@ -46,8 +46,11 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 - A Codex permission card already on screen leaves as soon as the same session, turn and agent show
   that the request was answered: every tool that was open when it arrived finished, the next model
   request completed, or a prompt was submitted. Before, it stayed until the turn ended. A messenger
-  message already sent is not recalled. Claude Code cards are unchanged so far (AH-305, open: see
-  TODO.md).
+  message already sent is not recalled. Claude Code permission and input cards leave the same way,
+  per session and agent: every tool open on arrival finished (`PostToolUse` or the newly bound
+  `PostToolUseFailure`), or a prompt was submitted; the `permission_prompt` notification of a prompt
+  already answered shows no card. Run `aherald --setup --harness claude --apply` (or reinstall the
+  plugin) again to bind `PostToolUseFailure` (AH-305, open: see TODO.md).
 
 ### Fixed
 - The Linux resident no longer exits when a card cannot be drawn (for example with every output
