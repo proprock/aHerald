@@ -1508,16 +1508,17 @@ mod card_tests {
             let before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
             let mut handles = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut handles).unwrap();
-            let memory = || {
-                let mut info = APP_MEMORY_INFORMATION::default();
-                GetProcessInformation(
-                    GetCurrentProcess(),
-                    ProcessAppMemoryInfo,
-                    &mut info as *mut _ as *mut _,
-                    std::mem::size_of_val(&info) as u32,
-                )
-                .unwrap();
-                info.PrivateCommitUsage
+            // This process's own private commit. `ProcessAppMemoryInfo` is not used: it reports
+            // the whole job (cargo and the parent test process with every other test), which is
+            // what failed this check inside a busy suite (AH-221).
+            let private = || {
+                use windows::Win32::System::ProcessStatus::*;
+                let mut counters = PROCESS_MEMORY_COUNTERS {
+                    cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                    ..Default::default()
+                };
+                GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb).unwrap();
+                counters.PagefileUsage
             };
             let threads = || {
                 use windows::Win32::System::Diagnostics::ToolHelp::*;
@@ -1535,50 +1536,74 @@ mod card_tests {
                     Process32NextW(snapshot.0, &mut entry).unwrap();
                 }
             };
-            let before_memory = memory();
+            // Live bytes summed over every heap of the process (Rust's allocator uses the
+            // process heap).
+            let heap = || {
+                use windows::Win32::System::Memory::*;
+                let mut list = vec![windows::Win32::Foundation::HANDLE::default(); 64];
+                let count = GetProcessHeaps(&mut list) as usize;
+                assert!(
+                    count <= list.len(),
+                    "more heaps than the buffer holds: {count}"
+                );
+                list[..count].iter().fold(0usize, |allocated, heap| {
+                    let mut summary = HEAP_SUMMARY {
+                        cb: std::mem::size_of::<HEAP_SUMMARY>() as u32,
+                        ..Default::default()
+                    };
+                    assert!(HeapSummary(*heap, 0, &mut summary).as_bool());
+                    allocated + summary.cbAllocated
+                })
+            };
             let before_threads = threads();
-            eprintln!("resource cycle baseline: private_commit={before_memory}");
-            // Private commit is a sawtooth here: it climbs by 10-40 MiB while the compositor
-            // and the allocator warm up, and Windows trims it back at its own pace (CI traces
-            // peak at 69 MiB and end between 13 and 43 MiB from baselines of 16-32 MiB), so
-            // neither the end against the start nor two single samples are stable. The low
-            // point of each window is what stays committed: compare the lowest of the samples
-            // at cycles 50-100 with the lowest at 150-200. A leak raises every sample.
-            let mut early = usize::MAX;
-            let mut late = usize::MAX;
+            let user = GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS);
+            eprintln!(
+                "resource cycle baseline: private={} heap={}",
+                private(),
+                heap()
+            );
+            // A DIB leak shows exactly in the GDI count below. Heap and private commit wobble
+            // by a few KiB as the allocator and the system trim, so compare the lowest sample
+            // at cycles 50-100 with the lowest at 150-200: a leak raises every sample.
+            let (mut early_private, mut late_private) = (usize::MAX, usize::MAX);
+            let (mut early_heap, mut late_heap) = (usize::MAX, usize::MAX);
             for cycle_index in 0..200 {
                 cycle();
                 let done = cycle_index + 1;
                 if done % 25 == 0 {
                     let _ = GdiFlush();
-                    let now = memory() as usize;
-                    eprintln!("resource cycle {done}: private_commit={now}");
+                    let (now_private, now_heap) = (private(), heap());
+                    eprintln!("resource cycle {done}: private={now_private} heap={now_heap}");
                     match done {
-                        50..=100 => early = early.min(now),
-                        150..=200 => late = late.min(now),
+                        50..=100 => {
+                            early_private = early_private.min(now_private);
+                            early_heap = early_heap.min(now_heap);
+                        }
+                        150..=200 => {
+                            late_private = late_private.min(now_private);
+                            late_heap = late_heap.min(now_heap);
+                        }
                         _ => {}
                     }
                 }
             }
             let _ = GdiFlush();
-            eprintln!(
-                "resource cycle before compositor flush: private_commit={}",
-                memory()
-            );
             DwmFlush().ok().unwrap();
             assert_eq!(GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS), before);
+            assert_eq!(GetGuiResources(GetCurrentProcess(), GR_USEROBJECTS), user);
             let mut after = 0;
             GetProcessHandleCount(GetCurrentProcess(), &mut after).unwrap();
             assert_eq!(after, handles);
             assert_eq!(threads(), before_threads);
-            let after_memory = memory();
-            eprintln!(
-                "resource cycle after compositor flush: private_commit={after_memory} (lowest at 50-100: {early}, at 150-200: {late}, baseline: {before_memory})"
-            );
-            // One leaked 320x110 surface per cycle would add about 14 MiB between the windows.
+            // 100 cycles lie between the windows: 64 KiB catches a leak of 1 KiB per cycle on
+            // the heap, 1 MiB one of 10 KiB per cycle anywhere in private memory.
             assert!(
-                late <= early + 8 * 1024 * 1024,
-                "private commit kept growing: lowest at cycles 50-100 was {early}, at 150-200 {late}, baseline {before_memory}"
+                late_heap <= early_heap + 64 * 1024,
+                "heap kept growing: lowest at cycles 50-100 was {early_heap}, at 150-200 {late_heap}"
+            );
+            assert!(
+                late_private <= early_private + 1024 * 1024,
+                "private commit kept growing: lowest at cycles 50-100 was {early_private}, at 150-200 {late_private}"
             );
         }
     }
