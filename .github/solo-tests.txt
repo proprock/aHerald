@@ -1,6 +1,5 @@
 # Tests that every CI run executes alone, in their own step after the whole suite, because other
 # tests running at the same time make them fail. Whole-suite runs skip them (.github/noisy-test-args.sh).
-# The Windows memory-growth check (AH-221, AH-290): alone it passed 180 of 180 runs on windows-latest
-# with flat private commit; inside the busy lib suite it failed 1 to 6 times in 40. A real leak still
-# shows alone. One test name per line; blank lines and # comments are ignored.
-repeated_card_rendering_and_dpi_resize_release_native_resources
+# Empty since AH-221: the Windows memory-growth check failed inside the suite because it read the
+# commit of the whole job, not of its own process, and now runs in the suite again.
+# One test name per line; blank lines and # comments are ignored.
