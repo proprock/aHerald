@@ -177,7 +177,8 @@ pub struct Event {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
-    /// The tool call of `PreToolUse`/`PostToolUse` activity; `None` for every other event.
+    /// The tool call of `PreToolUse`/`PostToolUse`/`PostToolUseFailure` activity; `None` for
+    /// every other event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_use_id: Option<String>,
     /// Whether tool activity is the call's start (`PreToolUse`) or finish (`PostToolUse`);
@@ -346,18 +347,18 @@ pub fn is_identity(id: &str) -> bool {
     !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
 }
 
-/// The tool call id of `PreToolUse`/`PostToolUse`; no other event keeps one.
+/// The tool call id of `PreToolUse`/`PostToolUse` (and Claude's `PostToolUseFailure`); no other
+/// event keeps one.
 pub(crate) fn tool_use_id(event_name: &str, id: Option<String>) -> Option<String> {
-    matches!(event_name, "PreToolUse" | "PostToolUse")
-        .then_some(id)
-        .flatten()
+    tool_phase(event_name).and(id)
 }
 
-/// The tool call step of `PreToolUse`/`PostToolUse`; no other event has one.
+/// The tool call step of `PreToolUse`/`PostToolUse`/`PostToolUseFailure`; no other event has
+/// one. A failed call has finished too.
 pub(crate) fn tool_phase(event_name: &str) -> Option<ToolPhase> {
     match event_name {
         "PreToolUse" => Some(ToolPhase::Start),
-        "PostToolUse" => Some(ToolPhase::Finish),
+        "PostToolUse" | "PostToolUseFailure" => Some(ToolPhase::Finish),
         _ => None,
     }
 }
