@@ -32,7 +32,7 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 - Tool and prompt activity from Codex and Claude Code hooks now reaches a running resident even with
   the idle warning off, and a completed Codex model request reports progress for every agent,
   subagents included. Tool activity keeps its `tool_use_id`. A resident older than this release
-  ignores the subagent progress and keeps working. Guests behind `[remote]` deliver tool activity
+  rejects the subagent progress; the hook drops that answer silently and the resident keeps working. Guests behind `[remote]` deliver tool activity
   and Codex model requests too (their token counts are dropped), so idle reminders now work for
   guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
   `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:

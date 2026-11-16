@@ -48,7 +48,10 @@ and register the hooks:
 - Codex: merge `examples/sandbox/codex-hooks.json` into `$CODEX_HOME/hooks.json`.
 
 Both files call `/usr/local/bin/aherald-ping.sh`; to use the binary instead, change the command to
-`/usr/local/bin/aherald-ping --hook --agent claude` (or `codex`). Or paste
+`/usr/local/bin/aherald-ping --hook --agent claude` (or `codex`). With the script, the
+`PreToolUse` and `PostToolUse` entries post each tool's input (and output) to the host in plain
+text; the binary strips it, or drop those entries and give up idle reminders. Never register
+`UserPromptSubmit` with the script: it posts the prompt. Or paste
 [the setup instructions](sandbox-setup-for-agents.md) to the agent inside the guest.
 
 A hook never fails or delays the agent for more than about a second: a missing resident, a wrong
