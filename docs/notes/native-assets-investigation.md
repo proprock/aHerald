@@ -42,3 +42,22 @@ suite passed outside the sandbox, with no concurrent build during the full run. 
 log is retained locally at `target/ah090-native-assets-full.txt`. Window
 enumeration inside the sandbox did not observe the new process's fallback window, so
 native desktop checks require the interactive desktop for this verification session.
+
+## AH-215 verification (2026-11-16)
+
+AH-097 recorded the same `notification startup deadline exceeded` stop in the full run and
+split it off as AH-215. That record predates the test correction above, and the message no
+longer exists in `tests/native_assets.rs`. Verdict: the timeout was environmental (slow
+creation of a freshly copied executable inside Windows, before any aHerald code runs), and
+the corrected test bounds only rendering and dismissal. No code or deadline changed.
+
+Rechecked on master `19da8bb` (aHerald 0.17.0), Windows 11 Pro build 22621.4317, Rust 1.98.1,
+on the interactive desktop:
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --test native_assets` | 1 passed |
+| `cargo test --locked --workspace --all-targets --no-fail-fast` | exit 0; 80 test binaries, 974 passed, 0 failed, 25 ignored; `native_assets` passed in 0.97 s |
+
+The production delivery budgets (750 ms caller, 500 ms readiness) are unchanged, so a slow
+cold launch of a fresh copy can still exceed them; `tests/process.rs` owns that contract.

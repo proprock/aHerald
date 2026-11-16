@@ -3,6 +3,17 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-215 — Cause of the `native_assets` timeout in the full Cargo test run (split from AH-097).**
+  The timeout was environmental: Windows spent up to about 900 ms creating a freshly copied
+  executable, before aHerald code ran, which exceeded the delivery budget the test used. The
+  2026-11-01 test correction (`docs/notes/native-assets-investigation.md`) starts the display
+  child directly and bounds only rendering and dismissal; production budgets are unchanged.
+  No code changed under AH-215. Verified on master `19da8bb` (0.17.0) with Rust 1.98.1:
+  - Windows 11 Pro 22621.4317 **ran locally**:
+    `cargo test --locked --workspace --all-targets --no-fail-fast` exited 0 with 974 passed,
+    0 failed, 25 ignored across 80 test binaries; `native_assets` passed in 0.97 s.
+  - macOS and Linux: not applicable (`tests/native_assets.rs` is Windows-only).
+
 - [x] **AH-301 — Show the Fable quota in the Claude Usage card.**
   The card shows Fable's usage, scheduled reset, API data age and optional share of the
   weekly budget. A card refresh in auto mode may fetch the Fable details, and a fresh
