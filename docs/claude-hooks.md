@@ -74,12 +74,56 @@ terminal or IDE; the token quota still works for Desktop.
 | `Notification` | `elicitation_dialog`, `agent_needs_input` | `input_required` |
 | `Notification` | `idle_prompt` | none: the `Stop` card already announced the finished turn |
 | `SessionEnd` | any `reason` (`clear`, `logout`, `prompt_input_exit`, ...) | none: clears that session's pending cards |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | always | none: activity, see below |
 | `SubagentStop` and other hooks / notification types | | ignored |
 
-Only event/session/subagent identity, `notification_type` and the sanitized folder label
-are used. UserPromptSubmit, PreToolUse and PostToolUse carry activity evidence only
-for the optional session idle timer; they never create cards. Prompts, `message`,
-`tool_input` and `last_assistant_message` are never stored or logged.
+Only event/session/subagent identity, `tool_use_id`, `notification_type` and the sanitized
+folder label are used. `UserPromptSubmit`, `PreToolUse`, `PostToolUse` and `PostToolUseFailure`
+are activity: they feed the optional session idle timer and tell when a wait card leaves
+(next section); they never create cards. Prompts, `message`, `tool_input`, `tool_response`,
+`error` and `last_assistant_message` are never stored or logged.
+
+## When a wait card leaves
+
+A permission or input card leaves on evidence from the same `session_id` and `agent_id` that
+its request was answered (AH-305; the resident only):
+
+- every tool call that was open (`PreToolUse` seen, no finish yet) when the card arrived
+  finished, with `PostToolUse` or `PostToolUseFailure` for its `tool_use_id`;
+- the user submitted a prompt (`UserPromptSubmit`);
+- the turn or session ended: `Stop` (also a `Stop` held back by `suppress_while_busy`),
+  `StopFailure` or `SessionEnd`.
+
+A tool that started after the card never counts, and with no tool open on arrival only a
+prompt or the end of the turn clears it. A subagent's events never clear the main session's
+card, nor the reverse. Approval shows only through the tool's finish, so an approved command that
+runs for minutes keeps its card until it finishes. Claude's `permission_prompt` notification
+fires once a prompt has waited about six seconds; if the answer came at about that moment, the
+notification can reach the resident after the card left. When the prompt was already answered
+(its tool finished and no other tool is open), such a notification shows no card. The next tool call starts with `PreToolUse`, so a later prompt shows
+a card as usual. A messenger message already sent is not recalled. A hook run by aHerald 0.17.0
+or older sends tool activity without `tool_use_id` or phase; such activity counts as a prompt.
+
+What the Claude Code hook reference says (read 2026-11-16, Claude Code 2.1.325):
+
+- `PreToolUse`, `PostToolUse`, `PostToolUseFailure` and `PermissionDenied` carry `tool_use_id`;
+  `PermissionRequest` does not ("like PreToolUse hooks, but without `tool_use_id`"). The ticket's
+  fallback for tool finishes without ids is therefore not needed.
+- A permission denied in the dialog sends neither `PostToolUseFailure` ("Permission denials fire
+  `PreToolUse` but not this event") nor `PermissionDenied` ("it doesn't run when you manually deny
+  a permission dialog"); the reference names no hook for it. The card then waits for the next
+  prompt or `Stop`.
+- `PermissionDenied` fires only when auto mode denies a call; aHerald does not subscribe to it
+  yet (AH-319). `PermissionRequest` runs "only when Claude Code is about to ask you for
+  permission, or when it would otherwise auto-deny a call that can't prompt", so a call auto mode
+  approves sends none.
+- An `elicitation_dialog` comes from an MCP tool call, so its card leaves when that call
+  finishes. The reference also lists `elicitation_complete` and `elicitation_response`
+  notifications and an `ElicitationResult` hook; aHerald does not use them. For
+  `agent_needs_input` (a background session or teammate waiting) the reference names no
+  answering event, so its card leaves on a prompt or the end of the turn.
+- `prompt_id` is now a documented common field; aHerald still keys Claude waits by session
+  (AH-318).
 
 ## Contract
 
@@ -90,13 +134,13 @@ Select the agent with `--hook --agent claude`; omitting `--agent` keeps the Code
 
 ## Limitations
 
-- Correlation is per `session_id`; the observed `StopFailure` also carried `prompt_id`,
-  which is not used for correlation. `Stop`/`StopFailure`
-  resolves that session's pending permission/input cards (never another session's or
-  Codex's, and even when those events are disabled), and a repeated pending event of one
-  session joins that session's unresolved card at any delay (covers the
+- Correlation is per `session_id`; `prompt_id` is not used for correlation (AH-318).
+  `Stop`/`StopFailure` resolves that session's pending permission/input cards (never another
+  session's or Codex's, and even when those events are disabled), and a repeated pending event
+  of one session joins that session's unresolved card at any delay (covers the
   `PermissionRequest` + `Notification` pair, seen 6 s apart). A second prompt in the same
-  session shows a new card only after `Stop`/`StopFailure` or dismissal of the first.
+  session shows a new card once the first card left (see "When a wait card leaves") or was
+  dismissed.
 - Every new event plays its sound once, even when a persistent card keeps the selection.
 - Session names are Codex-only; Claude cards show "Claude" (the name is only delivered to a
   `statusLine` command, tracked in AH-038). Click-to-activate is described in
