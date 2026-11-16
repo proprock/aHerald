@@ -1050,7 +1050,7 @@ fn present(
             } else if crate::resident_request::idle_poll_needed(
                 ui.config.codex.usage.enabled,
                 ui.claude.is_some(),
-                ui.shared.lock().is_ok_and(|s| s.warnings.has_deadline()),
+                ui.shared.lock().is_ok_and(|s| s.has_deadline()),
             ) {
                 // Usage polling keeps the icon and tooltip fresh while nothing is shown.
                 NSDate::dateWithTimeIntervalSinceNow(1.0)

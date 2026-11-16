@@ -48,8 +48,10 @@ impl<T> Shared<T> {
 }
 
 impl<T> Shared<T> {
+    /// Whether the resident must wake up by itself: a session warning or a held permission
+    /// request is due later. The one predicate all three residents ask.
     pub fn has_deadline(&self) -> bool {
-        self.warnings.has_deadline()
+        self.warnings.has_deadline() || self.queue.has_held()
     }
 }
 
@@ -76,6 +78,10 @@ impl<T> Controls for Shared<T> {
 
 /// Called by native loops even when the presentation queue is empty.
 pub fn tick(state: &mut impl Controls, settings: &Config, now: u64) {
+    // A held permission request is admitted like any event, which a pause does not stop.
+    for event in state.queue().release_due(now) {
+        state.forward(&event);
+    }
     let paused = state.paused();
     if paused {
         return;
@@ -466,7 +472,13 @@ pub fn respond(
     settings: &Config,
     now: u64,
 ) -> (Response, Effects) {
-    respond_with_focus(request, state, settings, now, crate::focus::observe)
+    let answer = respond_with_focus(request, state, settings, now, crate::focus::observe);
+    for _ in 0..state.queue().take_auto_resolved() {
+        crate::operational_log::log(crate::operational_log::Record::EventDropped(
+            "auto_resolved",
+        ));
+    }
+    answer
 }
 
 fn respond_with_focus(
@@ -630,9 +642,10 @@ fn respond_with_focus(
             };
             let outputs = crate::focus::outputs(settings, observe(&event, settings));
             let accepted = event.clone();
+            let delay_ms = settings.codex.permission_delay_sec.saturating_mul(1000);
             match state
                 .queue()
-                .push_with_outputs(event, now, duration, outputs)
+                .push_with_delay(event, now, duration, outputs, delay_ms)
             {
                 Outcome::Full | Outcome::Invalid => (
                     Response::Rejected,

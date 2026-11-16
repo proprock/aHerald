@@ -1089,9 +1089,7 @@ impl Ui {
             && crate::resident_request::idle_poll_needed(
                 self.usage.is_some() && self.config.codex.usage.enabled,
                 self.claude.is_some(),
-                self.state
-                    .lock()
-                    .is_ok_and(|guard| guard.warnings.has_deadline()),
+                self.state.lock().is_ok_and(|guard| guard.has_deadline()),
             );
         block(&self.window, &self.wake, &self.stop, busy, housekeeping)
     }

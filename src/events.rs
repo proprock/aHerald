@@ -309,6 +309,9 @@ impl Event {
         if self.window == Some(0) {
             return Err("invalid event window".into());
         }
+        if self.tool_phase.is_some() && !self.activity {
+            return Err("invalid event tool phase".into());
+        }
         if let Source::External(key) = &self.source
             && !is_harness_key(key)
         {
@@ -348,6 +351,15 @@ pub(crate) fn tool_use_id(event_name: &str, id: Option<String>) -> Option<String
     matches!(event_name, "PreToolUse" | "PostToolUse")
         .then_some(id)
         .flatten()
+}
+
+/// The tool call step of `PreToolUse`/`PostToolUse`; no other event has one.
+pub(crate) fn tool_phase(event_name: &str) -> Option<ToolPhase> {
+    match event_name {
+        "PreToolUse" => Some(ToolPhase::Start),
+        "PostToolUse" => Some(ToolPhase::Finish),
+        _ => None,
+    }
 }
 
 /// `/dev/` followed by a plain device name: no traversal, control characters or long names.
@@ -437,7 +449,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         kind,
         source: Source::CodexHook,
         tool_use_id: tool_use_id(&hook.hook_event_name, hook.tool_use_id),
-        tool_phase: None,
+        tool_phase: tool_phase(&hook.hook_event_name),
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,

@@ -689,6 +689,26 @@ mod tests {
             assert!(event.activity);
             assert_eq!((event.window, event.tty.as_deref()), (None, None));
         }
+        // AH-304: the host can tell a guest tool's start from its finish.
+        let phases: Vec<_> = seen
+            .iter()
+            .filter_map(|r| match r {
+                Request::Event { event } => Some(event.tool_phase),
+                _ => None,
+            })
+            .collect();
+        use crate::events::ToolPhase::{Finish, Start};
+        assert_eq!(
+            phases,
+            [
+                Some(Start),
+                Some(Finish),
+                None,
+                Some(Start),
+                Some(Finish),
+                None
+            ]
+        );
     }
 
     #[test]

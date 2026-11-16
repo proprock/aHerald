@@ -59,6 +59,9 @@ pub struct Queue {
     /// Whether a card was selected at the previous tick; idle gaps are not display time.
     counting: bool,
     terminal_history: VecDeque<Event>,
+    approvals: crate::pending_approvals::PendingApprovals,
+    /// Held requests resolved before their delay, not yet reported to the log.
+    auto_resolved: usize,
 }
 fn rank(e: &Event) -> u8 {
     match e.kind.priority() {
@@ -131,6 +134,8 @@ impl Queue {
             last_tick: None,
             counting: false,
             terminal_history: VecDeque::new(),
+            approvals: Default::default(),
+            auto_resolved: 0,
         }
     }
     pub fn is_obsolete(&self, event: &Event) -> bool {
@@ -142,8 +147,12 @@ impl Queue {
     }
     /// Resumed activity of an external harness resolves its session's waits: such a harness
     /// reports the answer or the next step explicitly. Claude and Codex activity only clears
-    /// reminders (their waits end with the turn), so it resolves nothing here.
+    /// reminders (their waits end with the turn), so it resolves no card here; Codex activity
+    /// can still resolve a request held for its delay.
     pub fn observe_activity(&mut self, event: &Event) -> usize {
+        if event.activity {
+            self.auto_resolved += self.approvals.observe(event);
+        }
         if !event.activity
             || !matches!(event.source, Source::External(_))
             || event.session_id.is_none()
@@ -158,6 +167,7 @@ impl Queue {
         if !event.is_terminal_evidence() {
             return 0;
         }
+        self.auto_resolved += self.approvals.observe(event);
         if event.ended {
             return self.resolve(|e| {
                 pending(e)
@@ -313,24 +323,48 @@ impl Queue {
         }
         Outcome::Queued
     }
+    /// Like `push_with_outputs`, except that a Codex permission request with a turn waits
+    /// `delay_ms` first (`Outcome::Held`); `release_due` admits it then unless lifecycle
+    /// evidence resolved it meanwhile (AH-304).
     pub fn push_with_delay(
         &mut self,
         event: Event,
         now: u64,
         duration: u64,
         outputs: crate::focus::Outputs,
-        _delay_ms: u64,
+        delay_ms: u64,
     ) -> Outcome {
-        self.push_with_outputs(event, now, duration, outputs)
+        if event.validate().is_err() || !self.approvals.takes(&event, delay_ms) {
+            return self.push_with_outputs(event, now, duration, outputs);
+        }
+        if self.is_obsolete(&event) {
+            return Outcome::Obsolete;
+        }
+        self.approvals
+            .hold(event, outputs, duration, now.saturating_add(delay_ms));
+        Outcome::Held
     }
-    pub fn release_due(&mut self, _now: u64) -> Vec<Event> {
-        Vec::new()
+    /// Admits the held requests whose delay has passed and returns those that became cards,
+    /// for the messenger forward.
+    pub fn release_due(&mut self, now: u64) -> Vec<Event> {
+        let mut shown = Vec::new();
+        for held in self.approvals.due(now) {
+            let event = held.event.clone();
+            if self.push_with_outputs(held.event, now, held.duration, held.outputs)
+                == Outcome::Queued
+            {
+                shown.push(event);
+            }
+        }
+        shown
     }
+    /// Whether a request is waiting for its delay: the resident must wake up for it.
     pub fn has_held(&self) -> bool {
-        false
+        !self.approvals.is_empty()
     }
+    /// How many held requests evidence resolved since the last call, for the debug log.
     pub fn take_auto_resolved(&mut self) -> usize {
-        0
+        std::mem::take(&mut self.auto_resolved)
     }
     /// One internal persistent card shares navigation with agent notifications.
     /// It has a reserved slot so opening usage never evicts an agent event.

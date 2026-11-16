@@ -257,7 +257,10 @@ fn at_most_64_requests_are_held_and_the_next_is_queued() {
     }
     let outcome = hold(&mut queue, named("PermissionRequest", "s", "t64"), 0);
     assert_eq!(outcome, Outcome::Queued);
-    assert_eq!(queue.release_due(DELAY).len(), 64);
+    assert_eq!(permission_cards(&queue), 1);
+    // The queue holds 64 cards, so one released request finds it full.
+    assert_eq!(queue.release_due(DELAY).len(), 63);
+    assert!(!queue.has_held());
 }
 
 // The resident: release, sound and messenger forward.
