@@ -615,22 +615,9 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
 `AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
-**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-302 to AH-305 run
-in this order; the others are independent. Suggested order (AH-310 and AH-306 done): AH-311, then AH-302 to
-AH-305, AH-312, AH-308, and the rest when convenient.
-
-- [ ] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
-  Blocks AH-304 and AH-305. Source reading of `rust-v0.169.0` (`codex-rs/core/src/tools/approvals.rs`,
-  `tools/registry.rs`) says: `PreToolUse`, then `PermissionRequest`, then the reviewer, then the tool, then
-  `PostToolUse` (only when the tool succeeded), then the next `PostModelRequest`. Confirm it on a real session.
-  Extend `tests/live/codex_approval_observation.ps1` (or add a `.sh` twin) so its recorder keeps, per hook
-  call, only: event name, `turn_id` and `tool_use_id` as short hashes, `agent_id` presence, and a monotonic
-  sequence number. No tool input, prompt or path. Run three cases with `approvals_reviewer = "auto_review"`:
-  a request the reviewer approves, one it denies, and two tool calls in one model step where one needs
-  approval. Record the Codex version.
-  Acceptance: `docs/codex-approval-observation.md` gains a table with the observed order per case, states
-  whether `PreToolUse` or `PostToolUse` of a sibling call can arrive between a `PermissionRequest` and its
-  resolution, and `docs/harness-compatibility.md` names the tested version. No production code changes.
+**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-303 to AH-305 run
+in this order; the others are independent. Suggested order (AH-310, AH-306 and AH-302 done): AH-311, then
+AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
 
 - [ ] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
   Depends on AH-302. Today `events::parse_hook` drops `tool_use_id` (`src/events.rs:380`), Codex activity is

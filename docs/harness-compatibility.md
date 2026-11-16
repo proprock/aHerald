@@ -108,6 +108,15 @@ shipped examples and a recorder in place of aherald:
   `ctx.hasUI` is true: that also silences `pi -p` scripts, which is intended.
 - Not verified: compaction and queued follow-ups.
 
+## Codex 0.169.0 (AH-302)
+
+Hook order around an automatically reviewed approval was checked live on 2026-11-16 with
+`codex-cli 0.169.0` (npm `@openai/codex@0.169.0`, tag `rust-v0.169.0`) on Windows 11 build 22621:
+`PreToolUse`, `PermissionRequest`, the reviewer, the tool, `PostToolUse` only when the call ran,
+then the next `PostModelRequest`. `PermissionRequest` carries no `tool_use_id` in this version. The
+cases, the table and the sibling-call finding are in
+[the approval observation](codex-approval-observation.md#hook-order-around-automatic-review-ah-302).
+
 ## Repeating the probes
 
 ```sh

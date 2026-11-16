@@ -119,3 +119,63 @@ session and individual request: human-wait entry, automatic resolution, rejectio
 and any fallback. Then add failing behavioral tests for those paths and unknown
 data, preserve silent hook responses and prompt independence, and verify real
 human waits and automatic review in a controlled Codex session before closing AH-099.
+
+## Hook order around automatic review (AH-302)
+
+Observed 2026-11-16 on Windows 11 build 22621 with `codex-cli 0.169.0` (npm
+`@openai/codex@0.169.0`), confirming a source reading of tag `rust-v0.169.0`
+(`codex-rs/core/src/tools/approvals.rs`, `tools/registry.rs`). Run:
+
+```powershell
+./tests/live/codex_approval_observation.ps1 -HookOrder -CodexPath 'C:\path\to\codex.exe'
+```
+
+Three fresh ephemeral `codex exec` sessions with `approval_policy="on-request"`,
+`approvals_reviewer="auto_review"`, a `read-only` sandbox and `windows.sandbox="elevated"`. The
+probe passes `--ignore-user-config`, which also drops the Windows sandbox setting; without it
+every command asked for approval, including the unescalated sibling. One silent recorder is
+attached to `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostModelRequest` and `Stop`. Per
+call it keeps only the event name, the first 8 hex characters of a salted SHA-256 of `turn_id`
+and `tool_use_id`, whether `agent_id` is set, and a sequence number taken under a named mutex.
+No tool input, prompt, path or raw payload is kept.
+
+- **approve**: one escalated `Write-Output`.
+- **deny**: one escalated upload of a placeholder file to an `.invalid` host (nothing real to
+  send and no resolvable host even if approved). A separate `codex exec --json` run of the
+  same prompt reported the command item as `"status":"declined"`, so the missing
+  `PostToolUse` is the reviewer's denial, not a failed command. Only event types and
+  statuses were read from that output; it was deleted.
+- **siblings**: one model response with two parallel shell calls, one plain (A) and one
+  escalated (B).
+
+`A`, `B` stand for the hashed `tool_use_id`; every call had the same turn, and none carried
+`agent_id`.
+
+| Case | Observed order |
+| --- | --- |
+| approve | `PostModelRequest`, `PreToolUse`(A), `PermissionRequest`, `PostToolUse`(A), `PostModelRequest`, `Stop` |
+| deny | `PostModelRequest`, `PreToolUse`(A), `PermissionRequest`, `PostModelRequest`, `Stop` |
+| siblings | `PostModelRequest`, `PreToolUse`(A), `PreToolUse`(B), `PermissionRequest`, `PostToolUse`(A), `PostToolUse`(B), `PostModelRequest`, `Stop` |
+
+Findings:
+
+- The order matches the source reading: `PreToolUse`, `PermissionRequest`, the reviewer, the
+  tool, `PostToolUse` only when the call ran, then the next `PostModelRequest`. A denied call
+  has no `PostToolUse`; the next completed `PostModelRequest` of the turn follows the denial.
+  The first `PostModelRequest` is the model request that produced the tool calls.
+- **A sibling's `PostToolUse` can arrive between a `PermissionRequest` and its resolution.** In
+  the siblings case the plain call's `PostToolUse` came after the request and before the
+  escalated call's `PostToolUse`. A single `PostToolUse` is therefore evidence of resolution
+  only for a `tool_use_id` that was open when the request arrived, and with several open ids
+  only once all of them completed.
+- Both sibling `PreToolUse` calls arrived before the `PermissionRequest` here. One run does not
+  show that a sibling `PreToolUse` can never follow it, and a `PreToolUse` says nothing about
+  the verdict: it is not evidence of resolution.
+- `PermissionRequest` has no `tool_use_id` in 0.169.0 (input schema at the tag), so a request is
+  matched to a call only by order within its session and turn.
+- The first live attempt, without the Windows sandbox setting, produced two `PermissionRequest`
+  calls in the siblings case, both before either `PostToolUse`; the order was otherwise the
+  same.
+
+Not covered: a person answering the prompt, subagents (`agent_id`), Linux and macOS. The
+sanitized evidence stayed in a disposable `%TEMP%/aherald-ah302-*` directory.

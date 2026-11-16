@@ -217,6 +217,12 @@ known field presence and run summaries, never raw payloads or command arguments.
 It does not assert a verdict or a pending human prompt. See
 [the investigation and remaining acceptance](../../docs/codex-approval-observation.md).
 
+Add `-HookOrder` (AH-302) to record the hook order around automatic review instead: three
+`auto_review` sessions (approved, denied, two sibling calls in one model step). Per hook call
+it keeps the event name, salted 8-character hashes of `turn_id` and `tool_use_id`,
+`agent_id` presence and a sequence number, and prints the order per case. See
+[the hook-order results](../../docs/codex-approval-observation.md#hook-order-around-automatic-review-ah-302).
+
 ## Harness event probes (AH-201)
 
 `tests/live/harness_probes/run.sh pi|opencode` runs one real turn of Pi or OpenCode in a
