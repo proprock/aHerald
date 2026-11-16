@@ -988,6 +988,53 @@ mod tests {
         assert_eq!(s.queue.items().len(), 1);
     }
 
+    /// A `codex_progress` request as a newer hook sends it.
+    fn progress(json: serde_json::Value) -> Request {
+        serde_json::from_value(json).expect("codex_progress is a request")
+    }
+
+    #[test]
+    fn codex_progress_dismisses_its_sessions_idle_reminder() {
+        use crate::events::Kind;
+        let settings = Config::parse(
+            "[codex.warnings]\nidle_enabled=true\nidle_minutes=1\n[events.turn_complete]\nenabled=false",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let mut s = state(8);
+        s.paused = false;
+        let mut completion = Event::demo("turn_complete").unwrap();
+        completion.source = Source::CodexHook;
+        completion.session_id = Some("s".into());
+        respond(Request::Event { event: completion }, &mut s, &settings, 0);
+        tick(&mut s, &settings, 60_001);
+        assert_eq!(s.queue.items()[0].event.kind, Kind::IdleWarning);
+        let (reply, effects) = respond(
+            progress(
+                serde_json::json!({"operation":"codex_progress","session_id":"s","turn_id":"t"}),
+            ),
+            &mut s,
+            &settings,
+            70_000,
+        );
+        assert!(matches!(reply, Response::Accepted));
+        assert!(effects.wake);
+        assert!(s.queue.items().is_empty(), "progress is new activity");
+    }
+
+    #[test]
+    fn codex_progress_with_a_hostile_identity_is_rejected() {
+        let settings = Config::default();
+        for json in [
+            serde_json::json!({"operation":"codex_progress","session_id":""}),
+            serde_json::json!({"operation":"codex_progress","session_id":"s","turn_id":"a\u{7}"}),
+            serde_json::json!({"operation":"codex_progress","session_id":"s","agent_id":"x".repeat(257)}),
+        ] {
+            let (reply, _) = respond(progress(json.clone()), &mut state(8), &settings, 0);
+            assert!(matches!(reply, Response::Rejected), "{json}");
+        }
+    }
+
     #[test]
     fn quit_says_goodbye_and_asks_for_a_stop_and_a_wake() {
         let (response, effects) = respond(Request::Quit, &mut state(8), &Config::default(), 0);
