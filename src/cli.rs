@@ -118,6 +118,8 @@ pub fn help() -> &'static str {
         "\n",
         "Resident control\n",
         "  --resident | --transient        Run the local notification service, or show one card and exit.\n",
+        "                                  Without either: [general] mode (resident by default); --notify\n",
+        "                                  always uses the resident unless --transient is given.\n",
         "  --status | --quit               Ask the running resident for its state, or stop it.\n",
         "  --remote-info                   Print the endpoint and token an agent in a container or VM needs;\n",
         "                                  the resident listens only with [remote] enabled = true.\n",
@@ -552,8 +554,15 @@ impl Cli {
         self.agent.unwrap_or(Agent::Codex)
     }
 
+    /// A mode flag wins. Without one, `--notify` uses the resident whatever the configuration says:
+    /// every `config.toml` copied from the example before AH-310 holds an explicit
+    /// `mode = "transient"`, and a wait without a resident can never be resolved.
     pub fn selected_mode(&self, config: &crate::config::Config) -> Mode {
-        self.mode.unwrap_or(config.general.mode)
+        match (self.mode, self.operation) {
+            (Some(mode), _) => mode,
+            (None, Some(Operation::Notify)) => Mode::Resident,
+            (None, _) => config.general.mode,
+        }
     }
 }
 

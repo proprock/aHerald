@@ -8,7 +8,12 @@ use std::{
 fn invoke(input: &[u8]) -> std::process::Output {
     support::run_bounded_with_input(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--hook", "--transient", "--config", "tests/fixtures/quiet.toml"])
+            .args([
+                "--hook",
+                "--transient",
+                "--config",
+                "tests/fixtures/quiet.toml",
+            ])
             .stdin(Stdio::piped()),
         input,
         support::START_BOUND,
@@ -42,7 +47,12 @@ fn model_request_observer_is_silent_and_independent_of_resident_lifetime() {
 #[test]
 fn open_stdin_does_not_hold_hook_process() {
     let child = Command::new(env!("CARGO_BIN_EXE_aherald"))
-        .args(["--hook", "--transient", "--config", "tests/fixtures/quiet.toml"])
+        .args([
+            "--hook",
+            "--transient",
+            "--config",
+            "tests/fixtures/quiet.toml",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
