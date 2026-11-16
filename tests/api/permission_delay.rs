@@ -162,6 +162,34 @@ fn a_subagent_event_does_not_resolve_the_parent_request() {
     }
 }
 
+/// A denied call never finishes; the next model step must forget it, or every later request of
+/// the turn would wait for it.
+#[test]
+fn a_denied_call_does_not_keep_later_requests_of_the_turn_waiting() {
+    let mut queue = Queue::new(8, 0);
+    observe(&mut queue, tool("PreToolUse", "s", "t", "denied"), 0);
+    hold(&mut queue, permission(), 0);
+    // The completed model request after the denial (same shape as a UserPromptSubmit here).
+    observe(&mut queue, named("UserPromptSubmit", "s", "t"), 100);
+    assert!(!queue.has_held());
+    observe(&mut queue, tool("PreToolUse", "s", "t", "b"), 200);
+    hold(&mut queue, permission(), 200);
+    observe(&mut queue, tool("PostToolUse", "s", "t", "b"), 300);
+    assert!(!queue.has_held());
+}
+
+/// A hook from before `tool_phase` sends tool activity without it; that is not proof of an answer.
+#[test]
+fn tool_activity_without_a_phase_does_not_resolve_a_request() {
+    let mut queue = Queue::new(8, 0);
+    observe(&mut queue, tool("PreToolUse", "s", "t", "a"), 0);
+    hold(&mut queue, permission(), 0);
+    let mut old = tool("PreToolUse", "s", "t", "b");
+    old.tool_phase = None;
+    observe(&mut queue, old, 100);
+    assert!(released(&mut queue, 0));
+}
+
 #[test]
 fn a_zero_delay_queues_the_request_at_once() {
     let mut queue = Queue::new(8, 0);
