@@ -74,12 +74,6 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   the Windows build, harness versions and limitations. Evidence so far:
   docs/notes/ah-097-windows-acceptance.md.
 
-- [ ] **AH-215 — Cause of the `native_assets` timeout in the full Cargo test run (split from AH-097).**
-  `cargo test --all-targets` stops at `native_assets` with a notification startup timeout,
-  both inside and outside the sandbox. Reproduce once, find the cause, and fix it test-first,
-  or document why the timeout is environmental. Acceptance: the full run passes on Windows 11,
-  with the commands and results recorded.
-
 - [ ] **AH-221 — Flaky native memory-growth test on the Windows runner.**
   `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
   (src/windows/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"

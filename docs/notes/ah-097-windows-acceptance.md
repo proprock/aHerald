@@ -53,6 +53,8 @@ outside the sandbox. Changing execution context did not resolve it. No cause or
 baseline classification is established, and tests after the failing integration
 binary were not executed by that command. Logs are in
 `target/ah097-cargo-test.log` and `target/ah097-cargo-test-native.log`.
+Resolved under AH-215 (2026-11-16): the full run now passes; see
+[the native asset investigation](native-assets-investigation.md#ah-215-verification-2026-11-16).
 
 The installer lifecycle verified malformed-input preflight, hook/settings
 installation, backups, statusLine wrapping/restoration, live configuration
