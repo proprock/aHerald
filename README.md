@@ -100,7 +100,7 @@ is rebuilt every night when the checks pass; see [docs/nightly.md](docs/nightly.
 
 ```sh
 aherald --demo                                   # loops through every signal
-aherald --resident --event permission_required   # starts the resident and shows one card
+aherald --event permission_required              # starts the resident and shows one card
 aherald --status                                 # PID, queue, switches
 aherald --quit
 ```

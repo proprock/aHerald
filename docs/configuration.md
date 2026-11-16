@@ -25,6 +25,12 @@ launch working directory. Relative resource paths (pet manifests, animations and
 sounds) are resolved from the chosen configuration file's directory, for both
 default and custom files. No environment-variable or tilde expansion is performed.
 
+`[general] mode` defaults to `"resident"` (before AH-310 it was `"transient"`). It governs
+`--hook`, `--event` and a start with no operation when no mode flag is given; `--notify` always
+uses the resident unless `--transient` is given. A `config.toml` created by an older version holds
+an explicit `mode = "transient"` and is never edited: change that line to `mode = "resident"` to
+follow the new default.
+
 Default hook invocation is `aherald.exe --hook --resident`. The PowerShell wrapper
 in `examples/hooks.windows.json` retains `| Out-String` for GUI executable response
 capture. Add `--config` only when using a custom file; no automatic hook edits occur.
