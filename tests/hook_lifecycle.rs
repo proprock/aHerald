@@ -60,7 +60,7 @@ fn hook_process_returns_while_its_finite_or_indefinite_overlay_remains_alive() {
             .unwrap();
             let start = Instant::now();
             let hook = Command::new(env!("CARGO_BIN_EXE_aherald"))
-                .args(["--hook", "--config"])
+                .args(["--hook", "--transient", "--config"])
                 .arg(&path)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())

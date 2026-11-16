@@ -463,7 +463,7 @@ fn hook_configuration_error_is_silent_and_successful() {
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
     let output = support::output(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--hook", "--config"])
+            .args(["--hook", "--transient", "--config"])
             .arg(&path),
     );
     fs::remove_file(path).unwrap();

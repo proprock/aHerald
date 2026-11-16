@@ -101,7 +101,7 @@ fn concurrent_first_loads_publish_one_complete_configuration() {
 fn hook(exe: &Path, cwd: &Path, appdata: &Path, args: &[&std::ffi::OsStr]) -> std::process::Output {
     support::run_bounded_with_input(
         Command::new(exe)
-            .arg("--hook")
+            .args(["--hook", "--transient"])
             .args(args)
             .current_dir(cwd)
             .env("APPDATA", appdata)

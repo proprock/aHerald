@@ -6,7 +6,8 @@ fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
     support::run_bounded_with_input(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
             .args(args)
-            .args(["--config", "tests/fixtures/quiet.toml"])
+            // `--notify` uses the resident unless told otherwise: never reach the user's one.
+            .args(["--transient", "--config", "tests/fixtures/quiet.toml"])
             .stdin(Stdio::piped()),
         input,
         support::START_BOUND,

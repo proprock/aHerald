@@ -11,7 +11,7 @@ fn configured_input_monitoring_reports_unsupported_without_blocking_delivery() {
     .unwrap();
     let output = support::run_bounded(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--event", "turn_complete", "--config"])
+            .args(["--event", "turn_complete", "--transient", "--config"])
             .arg(&path),
         Duration::from_secs(20),
     )
