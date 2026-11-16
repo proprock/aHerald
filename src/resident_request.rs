@@ -323,6 +323,35 @@ fn invalid() -> (Response, Effects) {
     )
 }
 
+/// A completed Codex model request as activity of its session, turn and agent; `None` when an
+/// id is invalid.
+fn codex_progress(
+    session_id: &str,
+    turn_id: Option<String>,
+    agent_id: Option<String>,
+) -> Option<crate::events::Event> {
+    let mut event = crate::events::Event::demo("turn_complete").ok()?;
+    event.source = Source::CodexHook;
+    event.session_id = Some(session_id.to_owned());
+    event.turn_id = turn_id;
+    event.agent_id = agent_id;
+    event.activity = true;
+    event.validate().ok()?;
+    Some(event)
+}
+
+/// Activity settles idle reminders and an external harness's waits; it is never a card.
+fn observe_activity(
+    event: &crate::events::Event,
+    state: &mut impl Controls,
+    settings: &Config,
+    now: u64,
+) {
+    state.warnings().observe(event, settings, now);
+    state.queue().clear_session_warnings(event);
+    state.queue().observe_activity(event);
+}
+
 /// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
 /// with the state locked, after a notice was queued, and wakes the presentation loop.
 pub fn notice_sink<S: Controls + Send + 'static>(
@@ -490,20 +519,40 @@ fn respond_with_focus(
             if !report.valid() {
                 return invalid();
             }
-            let warning = state.warnings().context(
+            let Some(progress) = codex_progress(&report.session_id, report.turn_id.clone(), None)
+            else {
+                return invalid();
+            };
+            observe_activity(&progress, state, settings, now);
+            if let Some(event) = state.warnings().context(
                 crate::agent::Agent::Codex,
                 &report.session_id,
                 Some(report.tokens),
                 settings,
-            );
-            let wake = warning.is_some();
-            if let Some(event) = warning {
+            ) {
                 deliver_warning(event, state, settings, now);
             }
             (
                 Response::Accepted,
                 Effects {
-                    wake,
+                    wake: true,
+                    ..Effects::default()
+                },
+            )
+        }
+        Request::CodexProgress {
+            session_id,
+            turn_id,
+            agent_id,
+        } => {
+            let Some(progress) = codex_progress(&session_id, turn_id, agent_id) else {
+                return invalid();
+            };
+            observe_activity(&progress, state, settings, now);
+            (
+                Response::Accepted,
+                Effects {
+                    wake: true,
                     ..Effects::default()
                 },
             )
@@ -520,10 +569,8 @@ fn respond_with_focus(
             if event.validate().is_err() {
                 return invalid();
             }
-            state.warnings().observe(&event, settings, now);
-            state.queue().clear_session_warnings(&event);
             if event.activity {
-                state.queue().observe_activity(&event);
+                observe_activity(&event, state, settings, now);
                 return (
                     Response::Accepted,
                     Effects {
@@ -532,6 +579,8 @@ fn respond_with_focus(
                     },
                 );
             }
+            state.warnings().observe(&event, settings, now);
+            state.queue().clear_session_warnings(&event);
             if event.source == Source::App {
                 // The settings of the events belong to the agents: a notice is always shown.
                 let duration = NOTICE_MS.saturating_add(settings.notifications.fade_out_ms);
@@ -957,6 +1006,7 @@ mod tests {
         let report = crate::codex_context::Report {
             session_id: "codex-context-test".into(),
             tokens: 101,
+            turn_id: None,
         };
         let request = Request::CodexContext {
             report: report.clone(),
@@ -978,6 +1028,7 @@ mod tests {
                 report: crate::codex_context::Report {
                     session_id: "".into(),
                     tokens: 200,
+                    turn_id: None,
                 },
             },
             &mut s,

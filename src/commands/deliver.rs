@@ -115,7 +115,7 @@ pub fn hook(cli: &Cli) -> Result<(), String> {
         aherald::events::read_bounded(std::io::stdin(), aherald::events::INPUT_TIMEOUT)
             .and_then(|bytes| {
                 if agent == aherald::agent::Agent::Codex {
-                    hook_context = aherald::codex_context::parse(&bytes)?;
+                    hook_context = aherald::codex_context::progress(&bytes)?;
                 }
                 let event = agent.parse_hook(&bytes)?;
                 hook_busy = event.as_ref().is_some_and(aherald::agent::is_claude_stop)
@@ -134,15 +134,13 @@ pub fn hook(cli: &Cli) -> Result<(), String> {
     let (scope, config) = connect(cli, &path)?;
     warn_about_input_monitoring(&config);
     let mode = cli.selected_mode(&config);
-    if let Some(report) = hook_context {
-        if agent.hooks_enabled(&config)
-            && config.codex.warnings.context_threshold().is_some()
-            && mode == Mode::Resident
-        {
-            // Observation only: do not start a resident or fail the model request.
+    if let Some(progress) = hook_context {
+        // Observation only: do not start a resident or fail the model request. The resident
+        // decides whether a report raises the context warning.
+        if agent.hooks_enabled(&config) && mode == Mode::Resident {
             let _ = aherald::ipc::pipe::request_if_running(
                 &scope,
-                &aherald::ipc::Request::CodexContext { report },
+                &progress.request(),
                 std::time::Duration::from_millis(150),
             );
         }
@@ -178,17 +176,8 @@ pub fn hook(cli: &Cli) -> Result<(), String> {
 
 fn dispatch(event: &Event, config: &Config, path: &Path, mode: Mode) -> Result<(), String> {
     if event.ended || event.activity {
-        let idle_enabled = match event.source.agent() {
-            Some(aherald::agent::Agent::Claude) => {
-                config.claude.warnings.idle_threshold().is_some()
-            }
-            Some(aherald::agent::Agent::Codex) => config.codex.warnings.idle_threshold().is_some(),
-            // An external harness reports its waits' answers as activity: always forward it.
-            None => matches!(event.source, aherald::events::Source::External(_)),
-        };
-        if event.activity && !idle_enabled {
-            return Ok(());
-        }
+        // Activity goes to a running resident whatever the warnings say: it settles idle
+        // reminders and an external harness's waits, and tells the resident a session moves on.
         // Only a resident holds waits to clear; a transient card has no later session state.
         return match mode {
             Mode::Resident => aherald::resident::forward_if_running(
