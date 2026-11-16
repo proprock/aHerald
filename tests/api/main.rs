@@ -9,6 +9,7 @@ mod card;
 mod card_border;
 mod card_folder;
 mod claude_desktop;
+mod claude_waits;
 mod click_target;
 mod codex_approval_observation;
 mod codex_context;
