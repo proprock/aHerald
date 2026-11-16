@@ -1,5 +1,6 @@
 //! Single resident card. The GUI never waits for asset decoding or IPC.
 use crate::reentry::{Deferred, Gate};
+use crate::render_fault::injected as fault;
 use crate::{
     animation::PreparedAnimation,
     artwork_worker::ArtworkWorker,
@@ -23,16 +24,6 @@ use windows::{
     },
     core::{PCWSTR, w},
 };
-/// Debug builds only: lets native tests inject a render failure by writing its name
-/// to `aherald.fault` beside the configuration (isolated per resident instance).
-#[cfg(debug_assertions)]
-fn fault(directory: &std::path::Path, name: &str) -> bool {
-    std::fs::read_to_string(directory.join("aherald.fault")).is_ok_and(|v| v.trim() == name)
-}
-#[cfg(not(debug_assertions))]
-fn fault(_: &std::path::Path, _: &str) -> bool {
-    false
-}
 /// How long a newly selected card waits for its artwork before showing the text card.
 const ART_WAIT_MS: u64 = 300;
 /// A payload-free wake: quota data stays in the service under its own mutex.

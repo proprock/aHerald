@@ -44,6 +44,7 @@ pub mod queue;
 pub(crate) mod quote;
 pub mod reentry;
 pub mod remote;
+pub mod render_fault;
 mod resident_client;
 pub mod resident_request;
 pub(crate) mod resident_runtime;

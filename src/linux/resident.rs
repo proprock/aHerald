@@ -765,6 +765,9 @@ impl Ui {
         count: usize,
         now: u64,
     ) -> Result<bool, String> {
+        if crate::render_fault::injected(&self.config.diagnostic_directory, "placement") {
+            return Err("injected placement failure".into());
+        }
         let monitors = self.window.monitors()?;
         self.monitor_watch
             .check(self.config.notifications.monitor, monitors.len());
