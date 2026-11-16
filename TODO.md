@@ -564,6 +564,17 @@ P2 tasks run in the listed order; AH-266 goes last.
   it proves (a canceled request never waits for the gate). Acceptance: 40 loaded lib-suite runs on
   `windows-latest` without this failure, and the test still fails when cancellation is ignored.
 
+- [ ] **AH-320 — `repeated_card_rendering_and_dpi_resize_release_native_resources` fails its thread count on a runner.**
+  `src/windows/overlay.rs`: after the render cycles the test asserts the process has as many threads as
+  before. CI run 43922624880 on `37752d9` (pull request #189, which changes no Windows source) failed
+  on `windows-latest` with `threads()` 6 against 4; the same test passed 5 of 5 locally (Windows 11,
+  2026-11-16). Depends on nothing. Do first: find which threads appear (system thread-pool workers
+  started by `DwmFlush` or layered-window updates are the first suspect) with the `Manual` workflow
+  under load. Then compare only threads this process can leak, or let idle pool workers exit before
+  counting, without loosening the check that rendering leaks no thread it started. Acceptance: 40 loaded
+  lib-suite runs on `windows-latest` without this failure, and the test still fails when a render
+  cycle leaks a thread.
+
 ### P2 — structural refactoring of the residents (in this order)
 
 ## Milestone 13 — Messenger notifications (2026-11-06)
