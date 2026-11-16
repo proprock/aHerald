@@ -197,6 +197,7 @@ struct Ui {
     pending: bool,
     art_wait: Option<u64>,
     compose_due: bool,
+    render: crate::render_fault::Episode,
     animation_start: u64,
     frame: Option<Frame>,
     screen_watch: geometry::ScreenWatch,
@@ -590,11 +591,15 @@ impl Ui {
     /// keep the queue and retry from scratch on the next wake.
     fn step(&mut self) {
         self.refresh_tray();
-        if self.draw().is_err() {
+        let drawn = self.draw().is_ok();
+        if !drawn {
             self.frame = None;
             self.composition = None;
             self.hide();
             self.compose_due = true;
+        }
+        if self.render.record(drawn) {
+            crate::render_fault::log(&self.config, crate::operational_log::Record::RenderFailure);
         }
     }
 
@@ -893,6 +898,9 @@ impl Ui {
                     event_card_text(config, &entry.event, &controls, Some(&shown.3)),
                 )
             })?;
+            if composed.degraded {
+                crate::render_fault::log(config, crate::operational_log::Record::RenderFallback);
+            }
             self.shown_card = shown;
             self.composition = Some(composed);
         }
@@ -996,6 +1004,7 @@ fn present(
             pending: false,
             art_wait: None,
             compose_due: false,
+            render: Default::default(),
             animation_start: 0,
             frame: None,
             screen_watch: geometry::ScreenWatch::default(),

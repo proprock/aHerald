@@ -30,6 +30,12 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 - Claude quota in `auto` mode prefers usable statusLine quota within the configured refresh
   interval, capped at one hour, and falls back to the OAuth usage endpoint (AH-300).
 
+### Fixed
+- The Linux resident no longer exits when a card cannot be drawn (for example with every output
+  turned off): it hides the card, keeps the queue and tries again when something next wakes it (a new event, a click, the tray), as on Windows.
+  Linux and macOS now log `render.failed` once per failure episode and `render.fallback` for a
+  card shown without its artwork (AH-306).
+
 ## [0.17.0] - 2026-11-09
 
 ### Added
