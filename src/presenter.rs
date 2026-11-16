@@ -77,3 +77,57 @@ pub const MAX_SOUNDS: usize = 4;
 pub fn sound_slots(playing: usize) -> usize {
     MAX_SOUNDS.saturating_sub(playing)
 }
+
+/// The sounds one resident pass starts. The caller cancels what is playing first when
+/// `cancel` is set, so every sound in `play` starts with the fresh cancel flag.
+#[derive(Clone, Debug, Default)]
+pub struct Announce {
+    pub play: Vec<Entry>,
+    pub cancel: bool,
+}
+
+/// Decides which sounds start in each pass of a resident, the same on every OS. It runs
+/// before anything decides what to draw, so the usage card, a hidden window or switched
+/// off pop-ups never hold a sound back.
+#[derive(Debug, Default)]
+pub struct Announcer {
+    /// The Apply + Test sample that sounded last, so each sample sounds once per visit.
+    sample: Option<u64>,
+}
+
+impl Announcer {
+    /// `sample` is the Apply + Test card on screen, if any; `sounds` is the Sound switch;
+    /// `playing` counts the sounds still running.
+    ///
+    /// Paused, nothing is taken, so new events and the sample sound when the pause ends.
+    /// With sound off, new events are still consumed, so switching it on replays nothing.
+    /// The sample silences what plays and ignores `MAX_SOUNDS`; queue events wait for a slot.
+    pub fn pass(
+        &mut self,
+        queue: &mut crate::queue::Queue,
+        sample: Option<&Entry>,
+        paused: bool,
+        sounds: bool,
+        playing: usize,
+    ) -> Announce {
+        let mut announce = Announce::default();
+        if paused {
+            return announce;
+        }
+        if let Some(sample) = sample
+            && self.sample != Some(sample.id)
+        {
+            self.sample = Some(sample.id);
+            announce.cancel = true;
+            announce.play.push(sample.clone());
+        }
+        let room = if sounds {
+            sound_slots(playing)
+        } else {
+            usize::MAX
+        };
+        announce.play.extend(queue.take_unannounced(room));
+        announce.play.retain(|entry| sounds && entry.outputs.sound);
+        announce
+    }
+}

@@ -68,6 +68,8 @@ struct Ui {
     usage_claude: bool,
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
+    /// Which sounds each pass starts, the same rule as on macOS and Linux.
+    announcer: crate::presenter::Announcer,
     error: Option<String>,
     render: crate::render_fault::Episode,
     timer_ms: Option<u32>,
@@ -88,8 +90,7 @@ struct Ui {
 impl Ui {
     fn end_test(&mut self) {
         if self.carousel.take().is_some() {
-            self.audio_cancel.store(true, Ordering::Release);
-            self.audio_cancel = Arc::new(AtomicBool::new(false));
+            crate::audio::silence(&mut self.audio_cancel);
             self.selection = None;
             self.presenter.invalidate();
         }
@@ -294,6 +295,25 @@ impl Ui {
             index = cards.index();
             count = cards.len();
         }
+        // Every new event sounds once, before anything decides what to draw: behind the usage
+        // card, a selected persistent card or a window suppressed by focus.
+        self.audio.retain(|job| !job.is_finished());
+        let sample = entry.as_ref().filter(|_| self.carousel.is_some());
+        let announce = {
+            let mut state = self
+                .shared
+                .lock()
+                .map_err(|_| "resident state unavailable")?;
+            let sounds = state.sounds;
+            self.announcer
+                .pass(&mut state.queue, sample, paused, sounds, self.audio.len())
+        };
+        crate::audio::start_announced(
+            announce,
+            &self.config,
+            &mut self.audio_cancel,
+            &mut self.audio,
+        );
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
         if !self.usage_window {
             self.notice = None;
@@ -305,40 +325,6 @@ impl Ui {
             }
             self.selection = entry.as_ref().map(|e| e.id);
             return self.draw_usage(hwnd, index, count);
-        }
-        self.audio.retain(|job| !job.is_finished());
-        // Every new event sounds once, even behind a selected persistent card.
-        let room = crate::presenter::sound_slots(self.audio.len());
-        let fresh = if self.carousel.is_some() {
-            let Some(entry) = entry.as_ref() else {
-                return Ok(());
-            };
-            if self.selection != Some(entry.id) {
-                self.audio_cancel.store(true, Ordering::Release);
-                self.audio_cancel = Arc::new(AtomicBool::new(false));
-                vec![entry.clone()]
-            } else {
-                Vec::new()
-            }
-        } else if !paused {
-            self.shared
-                .lock()
-                .map(|mut state| state.queue.take_unannounced(room))
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        for fresh in fresh {
-            if !fresh.outputs.sound {
-                continue;
-            }
-            if let Some(audio) = crate::audio::start_controlled(
-                &fresh.event,
-                &self.config,
-                self.audio_cancel.clone(),
-            ) {
-                self.audio.push(audio);
-            }
         }
         let Some(entry) = entry.filter(|_| !paused) else {
             self.hide(hwnd);
@@ -1136,6 +1122,7 @@ pub(super) fn run_preview(
             usage_claude: false,
             usage_surface: None,
             audio_cancel: Arc::new(AtomicBool::new(false)),
+            announcer: Default::default(),
             error: None,
             render: Default::default(),
             timer_ms: None,

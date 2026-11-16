@@ -308,3 +308,30 @@ pub fn start_controlled(
         Err(error) => report_rejection(&path, error),
     }))
 }
+
+/// Silences what is playing; the next sound starts with a fresh flag.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub fn silence(cancel: &mut std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    cancel.store(true, Ordering::Release);
+    *cancel = std::sync::Arc::new(AtomicBool::new(false));
+}
+
+/// Starts the sounds one resident pass decided on (`presenter::Announcer`), silencing what
+/// plays first when the pass asks, so each new sound gets the fresh cancel flag.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub fn start_announced(
+    announce: crate::presenter::Announce,
+    config: &Config,
+    cancel: &mut std::sync::Arc<std::sync::atomic::AtomicBool>,
+    jobs: &mut Vec<std::thread::JoinHandle<()>>,
+) {
+    if announce.cancel {
+        silence(cancel);
+    }
+    for entry in announce.play {
+        if let Some(job) = start_controlled(&entry.event, config, cancel.clone()) {
+            jobs.push(job);
+        }
+    }
+}

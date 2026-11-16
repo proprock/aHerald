@@ -209,8 +209,8 @@ struct Ui {
     demo: Option<crate::demo::Demo>,
     /// Apply + Test: the samples being browsed; ends on dismissal or on the first real card.
     carousel: Option<crate::demo::Carousel>,
-    /// The sample whose sound has played, so a card sounds once per visit.
-    test_sound: Option<u64>,
+    /// Which sounds each pass starts, the same rule as on Windows and Linux.
+    announcer: crate::presenter::Announcer,
     tray: Tray,
     usage: crate::usage_service::Service,
     claude: Option<crate::usage_service::Service>,
@@ -358,8 +358,7 @@ impl Ui {
 
     /// Silences what is playing; the next sound starts with a fresh flag.
     fn cancel_sound(&mut self) {
-        self.audio_cancel.store(true, Ordering::Release);
-        self.audio_cancel = Arc::new(AtomicBool::new(false));
+        crate::audio::silence(&mut self.audio_cancel);
     }
 
     /// Pages through a long usage card, or browses the Apply + Test samples, with the wheel.
@@ -718,21 +717,31 @@ impl Ui {
             self.carousel = None;
             self.cancel_sound();
         }
-        let mut preview_sound = None;
         if let Some(cards) = &mut self.carousel {
             cards.tick(now, paused);
-            let selected = cards.selected().clone();
-            if self.test_sound != Some(selected.id) && !paused {
-                preview_sound = Some(selected.clone());
-                self.test_sound = Some(selected.id);
-            }
-            entry = Some(selected);
+            entry = Some(cards.selected().clone());
             index = cards.index();
             count = cards.len();
         }
-        if preview_sound.is_some() {
-            self.cancel_sound();
-        }
+        // Every new event sounds once, before anything decides what to draw: behind the usage
+        // card, a selected persistent card or a window suppressed by focus.
+        self.audio.retain(|job| !job.is_finished());
+        let sample = entry.as_ref().filter(|_| self.carousel.is_some());
+        let announce = {
+            let mut state = self
+                .shared
+                .lock()
+                .map_err(|_| "resident state unavailable")?;
+            let sounds = state.sounds;
+            self.announcer
+                .pass(&mut state.queue, sample, paused, sounds, self.audio.len())
+        };
+        crate::audio::start_announced(
+            announce,
+            &self.config,
+            &mut self.audio_cancel,
+            &mut self.audio,
+        );
         self.usage_window = entry.as_ref().is_some_and(|e| e.is_usage());
         if !self.usage_window {
             self.notice = None;
@@ -759,29 +768,6 @@ impl Ui {
             self.hide();
             return Ok(());
         };
-        self.audio.retain(|job| !job.is_finished());
-        // Every new event sounds once, even behind a selected persistent card.
-        let room = crate::presenter::sound_slots(self.audio.len());
-        let fresh = if self.carousel.is_some() {
-            preview_sound.into_iter().collect()
-        } else {
-            self.shared
-                .lock()
-                .map(|mut state| state.queue.take_unannounced(room))
-                .unwrap_or_default()
-        };
-        for fresh in fresh {
-            if !fresh.outputs.sound {
-                continue;
-            }
-            if let Some(job) = crate::audio::start_controlled(
-                &fresh.event,
-                &self.config,
-                self.audio_cancel.clone(),
-            ) {
-                self.audio.push(job);
-            }
-        }
         // The preview shows its samples even when pop-ups are switched off.
         if !self.config.notifications.enabled && self.carousel.is_none() {
             self.hide();
@@ -1017,7 +1003,7 @@ fn present(
             ),
             demo,
             carousel,
-            test_sound: None,
+            announcer: Default::default(),
             tray: Tray::new(mtm),
             usage,
             claude,

@@ -233,8 +233,6 @@ struct Tick {
     count: usize,
     paused: bool,
     visuals: bool,
-    fresh: Vec<crate::queue::Entry>,
-    sounds: bool,
 }
 
 /// The resident's (or a one-card notice's) window loop and everything it keeps between passes.
@@ -257,7 +255,7 @@ struct Ui {
     labels: crate::session_source::Service,
     carousel: Option<crate::demo::Carousel>,
     demo: Option<crate::demo::Demo>,
-    test_sound: Option<u64>,
+    announcer: crate::presenter::Announcer,
     usage_claude: bool,
     about_open: bool,
     usage_page: usize,
@@ -370,7 +368,7 @@ impl Ui {
             labels,
             carousel,
             demo,
-            test_sound: None,
+            announcer: Default::default(),
             usage_claude: false,
             about_open: false,
             usage_page: 0,
@@ -399,12 +397,6 @@ impl Ui {
         self.start.elapsed().as_millis().min(u64::MAX as u128) as u64
     }
 
-    /// Silences what is playing; the next sound starts with a fresh flag.
-    fn cancel_sound(&mut self) {
-        self.audio_cancel.store(true, Ordering::Release);
-        self.audio_cancel = Arc::new(AtomicBool::new(false));
-    }
-
     fn run(&mut self) -> Result<(), String> {
         while !self.stop.load(Ordering::Acquire) {
             let now = self.now();
@@ -414,7 +406,7 @@ impl Ui {
             let now = self.now();
             let mut tick = self.read_queue(now)?;
             self.advance_carousel(&mut tick, now);
-            self.start_sounds(std::mem::take(&mut tick.fresh), tick.sounds);
+            self.start_sounds(&tick)?;
             if self.transient && tick.entry.is_none() {
                 break;
             }
@@ -535,6 +527,9 @@ impl Ui {
             }
             Effect::SwitchesChanged => {
                 let guard = lock(&self.state)?;
+                // The Sound switch reaches `audio::start_controlled` through the
+                // configuration, as on Windows and macOS.
+                self.config.sounds.enabled = guard.sounds;
                 if let Some(tray) = &self.tray {
                     tray.set_state(
                         guard.sounds,
@@ -628,7 +623,7 @@ impl Ui {
             Some(crate::card::Action::Next) => cards.navigate(1, now),
             Some(crate::card::Action::Dismiss) => {
                 self.carousel = None;
-                self.cancel_sound();
+                crate::audio::silence(&mut self.audio_cancel);
             }
             None => {}
         }
@@ -694,8 +689,6 @@ impl Ui {
 
     /// Advances the queue and the demo, and reads what the window and the sounds need.
     fn read_queue(&mut self, now: u64) -> Result<Tick, String> {
-        self.audio_jobs.retain(|job| !job.is_finished());
-        let room = crate::presenter::sound_slots(self.audio_jobs.len());
         let mut guard = self
             .state
             .lock()
@@ -706,56 +699,57 @@ impl Ui {
         }
         crate::resident_request::tick(&mut *guard, &self.config, now);
         guard.queue.tick(now, paused);
-        let fresh = if !self.transient && !paused {
-            guard.queue.take_unannounced(room)
-        } else {
-            Vec::new()
-        };
         Ok(Tick {
             entry: guard.queue.selected().cloned(),
             index: guard.queue.selected_index(),
             count: guard.queue.visible_count(),
             paused,
             visuals: guard.visuals,
-            fresh,
-            sounds: guard.sounds,
         })
     }
 
     /// The Apply + Test samples replace the queue's card until a real card arrives or they are
-    /// dismissed; each sample sounds once.
+    /// dismissed.
     fn advance_carousel(&mut self, tick: &mut Tick, now: u64) {
         if self.carousel.is_some() && tick.entry.is_some() {
             self.carousel = None;
-            self.cancel_sound();
+            crate::audio::silence(&mut self.audio_cancel);
         }
         let Some(cards) = &mut self.carousel else {
             return;
         };
         cards.tick(now, tick.paused);
-        let selected = cards.selected().clone();
         tick.index = cards.index();
         tick.count = cards.len();
-        if self.test_sound != Some(selected.id) && !tick.paused {
-            self.test_sound = Some(selected.id);
-            tick.fresh = vec![selected.clone()];
-            self.cancel_sound();
-        }
-        tick.entry = Some(selected);
+        tick.entry = Some(cards.selected().clone());
     }
 
-    fn start_sounds(&mut self, fresh: Vec<crate::queue::Entry>, sounds: bool) {
-        let mut audio_config = self.config.clone();
-        audio_config.sounds.enabled = sounds;
-        for fresh in fresh.into_iter().filter(|f| f.outputs.sound) {
-            if let Some(job) = crate::audio::start_controlled(
-                &fresh.event,
-                &audio_config,
-                self.audio_cancel.clone(),
-            ) {
-                self.audio_jobs.push(job);
-            }
+    /// Starts this pass's sounds before anything decides what to draw. A one-card notice
+    /// plays its own sound and takes nothing from the queue.
+    fn start_sounds(&mut self, tick: &Tick) -> Result<(), String> {
+        if self.transient {
+            return Ok(());
         }
+        self.audio_jobs.retain(|job| !job.is_finished());
+        let sample = tick.entry.as_ref().filter(|_| self.carousel.is_some());
+        let announce = {
+            let mut guard = lock(&self.state)?;
+            let sounds = guard.sounds;
+            self.announcer.pass(
+                &mut guard.queue,
+                sample,
+                tick.paused,
+                sounds,
+                self.audio_jobs.len(),
+            )
+        };
+        crate::audio::start_announced(
+            announce,
+            &self.config,
+            &mut self.audio_cancel,
+            &mut self.audio_jobs,
+        );
+        Ok(())
     }
 
     fn hide_window(&mut self) -> Result<(), String> {
