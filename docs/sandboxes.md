@@ -36,8 +36,8 @@ There is no autostart: a resident must be running. The token is a file (`remote-
 | | `aherald-ping` | `aherald-ping.sh` |
 |---|---|---|
 | Needs | nothing (static binary) | `sh`, `curl`, `head` |
-| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval, in plain text |
-| Drops unwanted events itself | yes | register only the five events (example files) |
+| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval and a `PreToolUse` or `PostToolUse` the tool input (and output), in plain text |
+| Drops unwanted events itself | yes | register only the events in the example files |
 | Where | release asset `aherald-ping-<version>-linux-<arch>-musl` | `examples/sandbox/aherald-ping.sh` |
 
 Prefer `aherald-ping` wherever you can copy a binary in. Set `AHERALD_ENDPOINT` and `AHERALD_TOKEN`
@@ -89,8 +89,15 @@ prompt. Whatever the bind, limit who can reach the port with a firewall rule.
 ## 4. What crosses and what does not
 
 - Taken: `Stop`, `StopFailure`, `PermissionRequest`, `Notification` (permission and input prompts),
-  `SessionEnd`; for Codex `Stop`, `PermissionRequest`, `Interrupt`, `SessionEnd`. Tool and prompt
-  activity stay in the guest, so context and idle warnings do not work for guest sessions.
+  `SessionEnd`; for Codex `Stop`, `PermissionRequest`, `Interrupt`, `SessionEnd`.
+- Activity: `PreToolUse`, `PostToolUse` and `UserPromptSubmit` from both agents, and Codex
+  `PostModelRequest` with `status` `completed`. They make no card; they tell the resident the session
+  is working, which dismisses its idle reminder. The example files register the two tool events and,
+  for Codex, `PostModelRequest`: one or two requests per tool call and one per model request. Leave
+  them out if that traffic matters more than idle reminders. `aherald-ping` sends only the event
+  name, `session_id`, `turn_id`, `agent_id`, `tool_use_id` and, for `PostModelRequest`, `status`.
+- The host ignores a guest's token counts, so context warnings do not work for guest sessions; idle
+  warnings do.
 - The host parses the payload itself: a guest cannot name a window or terminal of your machine, and
   a card from a guest is never hidden because you are "watching" a session.
 - No TLS and no per-guest tokens. A guest holding the token can raise cards for any session id.

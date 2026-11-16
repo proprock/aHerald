@@ -648,6 +648,15 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   payload with a hostile id is rejected; `SECRET` in `tool_input` never appears in the serialized event.
   Update `crates/aherald-ping` and both shell senders only if the listener contract changes
   (`tests/` contract test `parser_contract.rs` must stay green).  Acceptance: the tests pass on Linux; Windows and macOS compile in CI.
+  Progress (2026-11-16, branch `feature/AH-303-codex-progress`, stacked on AH-302): all four parts and their
+  docs are committed. Choice for part 2: a main-agent report with tokens stays `CodexContext` (with an
+  optional `turn_id` an old resident ignores); a subagent or tokenless report goes as the new
+  `CodexProgress`, which an old resident rejects at no loss. Guest token counts are dropped. Hook time
+  (WSL Debian, xvfb, release, private resident, median of 50, two rounds): before 12380/12152 µs, after
+  12604/12866 µs, so +0.2 to +0.7 ms. Local runs: Windows full suite 987 passed, 0 failed; Linux (WSL)
+  1035 passed with only the `workspace` test failing for a missing `python3`, as on `master`, and the
+  three xvfb extras passed; macOS not checked. Remaining: the pull request and its CI on all three
+  platforms.
 
 - [ ] **AH-304 — Hold a Codex permission card until the request is still open (`[codex] permission_delay_sec`).**
   Depends on AH-303. Agreed 2026-11-16: the delay is **on by default**; `0` switches it off. Range 0..=120.

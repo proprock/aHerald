@@ -18,10 +18,14 @@ You are inside a container or VM. Make your hook events reach aHerald on the hos
      `~/.local/bin/aherald-ping.sh <claude|codex>` as the hook command. It needs `curl`.
 4. Register hooks, merging into existing settings and keeping the user's other hooks:
    - Claude Code, `~/.claude/settings.json`: events `Notification`, `PermissionRequest`, `Stop`,
-     `StopFailure`, `SessionEnd`, each `{"hooks":[{"type":"command","command":"<hook command>","timeout":3}]}`.
+     `StopFailure`, `SessionEnd`, `PreToolUse`, `PostToolUse`, each
+     `{"hooks":[{"type":"command","command":"<hook command>","timeout":3}]}`.
    - Codex, `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`): events `Stop`,
-     `PermissionRequest`, `Interrupt`, `SessionEnd`, same shape.
-   Do not register `PreToolUse`, `PostToolUse` or `UserPromptSubmit`.
+     `PermissionRequest`, `Interrupt`, `SessionEnd`, `PreToolUse`, `PostToolUse`,
+     `PostModelRequest`, same shape.
+   The tool and model-request events only dismiss idle reminders on the host. Leave them out if
+   the user does not want a request per tool call, or if you use the script: it posts the whole
+   payload, including tool input, while `aherald-ping` strips it to ids.
 5. Verify: with `aherald-ping`, run `aherald-ping --self-test`; it must print `ok:`. With the script,
    `curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $AHERALD_TOKEN" "$AHERALD_ENDPOINT/v1/ping"` must print 200.
    If it fails: refused or timed out means the host address, bind or firewall is wrong or the

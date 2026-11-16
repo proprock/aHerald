@@ -29,6 +29,14 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   `mode = "resident"` to follow the new default (AH-310).
 - Claude quota in `auto` mode prefers usable statusLine quota within the configured refresh
   interval, capped at one hour, and falls back to the OAuth usage endpoint (AH-300).
+- Tool and prompt activity from Codex and Claude Code hooks now reaches a running resident even with
+  the idle warning off, and a completed Codex model request reports progress for every agent,
+  subagents included. Tool activity keeps its `tool_use_id`. A resident older than this release
+  ignores the subagent progress and keeps working. Guests behind `[remote]` deliver tool activity
+  and Codex model requests too (their token counts are dropped), so idle reminders now work for
+  guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
+  `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
+  see TODO.md).
 
 ### Fixed
 - The Linux resident no longer exits when a card cannot be drawn (for example with every output
