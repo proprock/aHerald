@@ -3,6 +3,27 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-306 — The Linux resident survives a card that cannot be drawn (parity with AH-041).**
+  A failed Linux draw (for example `X11: no monitor` with every output off) hides the card, keeps the
+  queue and retries on the next wake; only a lost X connection ends the loop, and a failing card does not
+  keep the loop at 16 ms frames. A transient Linux card that cannot be drawn still ends with the error,
+  which its caller logs. Shared `src/render_fault.rs` holds the debug-only `aherald.fault` switch (moved
+  from the Windows resident) and `Episode`, which logs `render.failed` once per failure episode on all
+  three residents; Linux and macOS also log `render.fallback` for a degraded composition (not covered by
+  a test). The Linux tests live in `tests/linux_apply.rs` because `tests/resident_render_faults.rs` is
+  Windows-only: `linux_card_that_cannot_be_drawn_keeps_the_resident_and_is_shown_after_recovery`,
+  `linux_transient_card_that_cannot_be_drawn_ends_its_process`, plus the unit test
+  `render_fault::tests::a_failure_episode_is_reported_once_and_a_success_ends_it`. TDD: refactor
+  `c9e3a36`, red `8099e42` → green `fe88e20`, red `04783f3` → green `389a66d`, both pairs confirmed by
+  `scripts/kaboost_audit_tdd.py`; PR #187, merged as `1321efd`. Rust 1.98.1:
+  - Linux (WSL Debian, xvfb-run and dbus-run-session) **ran locally**: `linux_apply` 8 passed, 0 failed;
+    clippy `-D warnings` clean.
+  - Windows 11 Pro 22621.4317 **ran locally**: fmt and clippy clean; `resident_render_faults` 10 passed,
+    `resident` 12 passed, the `render_fault` unit test passed.
+  - macOS **compiled/tested in CI only**; CI run 43881833752 (macOS leg re-run after a runner
+    shortage): Build and test on windows-latest, macos-15 and ubuntu-22.04, MSRV builds, Linux package
+    and console setup, all passed.
+
 - [x] **AH-310 — OpenCode, Pi, Goose and Crush events go through the resident, like Codex and Claude.**
   `aherald --notify` uses the resident unless `--transient` is given, whatever `[general] mode` says;
   a first event starts the resident, `--activity` and `--ended` never do. `[general] mode` defaults to
