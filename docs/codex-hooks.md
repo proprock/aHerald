@@ -98,6 +98,22 @@ subagents remain isolated. Processing also runs with presentation disabled or
 paused. Demo events never resolve Codex waits. Incomplete identities and subagent
 waits without a supported terminal source remain manually dismissible.
 
+A permission card already shown also leaves before the turn ends, on the same
+evidence that resolves a request held for `[codex] permission_delay_sec`
+([details](codex-approval-observation.md)), always for the same session, turn
+and agent: every tool that was open when the request arrived finished
+(`PostToolUse` with its `tool_use_id`), the next model request completed
+(`PostModelRequest`), or a prompt was submitted. A tool that started after the
+request never counts, and with no tool open on arrival only a model request,
+prompt, Stop, Interrupt or session end clears the card. A card released after
+the delay keeps the tools that were open when the request arrived. A messenger
+message already sent is not recalled. This needs the resident; Codex hooks
+report no input request, so only permission cards are concerned. A hook run by
+aHerald 0.17.0 or older forwards tool activity only with the idle warning on,
+and without `tool_use_id` or phase; the resident then treats its `PreToolUse`
+like a prompt, which can clear the card early (the same limit as for a held
+request).
+
 Interrupt retains at most 128 terminated-turn identities to suppress delayed
 wait delivery. Stop does not: another Stop hook can continue the same turn, so
 subsequent waits must remain visible. A delayed Stop cannot be distinguished from

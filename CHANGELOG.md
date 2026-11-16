@@ -41,8 +41,13 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   0..=120) and are dropped when the session shows the request was answered meanwhile: a request
   answered within the delay (by the automatic reviewer, for example) shows no card, sound or
   messenger message. A request a person must answer appears after the delay; a long-running
-  approved command can still show one. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
+  approved command can still show one until it finishes. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
   whether a tool started or finished; an older resident ignores that (AH-304, open: see TODO.md).
+- A Codex permission card already on screen leaves as soon as the same session, turn and agent show
+  that the request was answered: every tool that was open when it arrived finished, the next model
+  request completed, or a prompt was submitted. Before, it stayed until the turn ended. A messenger
+  message already sent is not recalled. Claude Code cards are unchanged so far (AH-305, open: see
+  TODO.md).
 
 ### Fixed
 - The Linux resident no longer exits when a card cannot be drawn (for example with every output

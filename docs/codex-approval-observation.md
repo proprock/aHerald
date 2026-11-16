@@ -208,10 +208,21 @@ Cost and limits:
 - **A long-running approved command still shows a card.** Approval is observed only through the
   call's `PostToolUse`, which arrives when the command has finished. A command the reviewer
   approves but that runs longer than the delay (a build, a test suite) produces a card, which
-  stays until the turn ends.
+  leaves when the command finishes (AH-305, below).
 - A tool that starts after the request is not counted, so its finish never drops the request;
   the rule errs towards showing a card.
 - Transient mode has no state between hooks, so it shows every request at once.
 
 The default comes from the owner's choice on 2026-11-16, not from measured data: the Watchdog
 sample held no `PermissionRequest` rows (see `docs/notes/ah-304-permission-delay.md`).
+
+## Shown cards (AH-305)
+
+The same evidence also removes a permission card already on screen, whether it was shown at
+once (delay `0`, a full held list) or released after the delay. A released card keeps the tools
+that were open when its request arrived, not those opened during the delay. The resident watches
+at most 64 shown cards. A messenger message already sent is not recalled.
+
+This relies on the resident receiving a turn's hooks in the order Codex runs them, as observed
+above: the `PostModelRequest` that produced a tool call precedes its `PermissionRequest`. If a
+hook process were delayed past a later one, that `PostModelRequest` would clear the card early.

@@ -765,6 +765,19 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   Acceptance: tests pass; `docs/codex-hooks.md`, `docs/claude-hooks.md` and `docs/harnesses.md` each say when
   a wait card leaves; by hand, one real Claude Code permission prompt answered in the terminal clears its
   card before the turn ends (record the version and OS).
+  Progress (2026-11-16, branch `feature/AH-305-codex-wait-resolution`, stacked on AH-304): the Codex part
+  is implemented with a red and a green commit. `pending_approvals::Waiter` holds the one evidence rule
+  for held requests and shown cards; the queue watches each admitted Codex wait card by entry id
+  (a side list pruned against the queue, so `queue::Entry` keeps its fields) and a card released after
+  the delay keeps the tools open when its request arrived. Codex hooks report no input request, so
+  only permission cards are concerned. The test
+  `requests_without_request_identity_are_not_merged_or_resolved_by_tool_results` is now
+  `requests_without_request_identity_are_not_merged` (body unchanged): say so in the pull request.
+  `docs/codex-hooks.md`, `docs/codex-approval-observation.md` and `CHANGELOG.md` updated. Windows: full
+  suite ran locally, 1023 passed, 0 failed, 25 ignored; `kaboost_audit_tdd.py` confirms the pair.
+  Linux and macOS: not checked yet (CI). Remaining: the Claude part (hook reference, docs,
+  code, tests and the manual check), the bridge tests and `docs/harnesses.md`, each in its own pull
+  request; the Codex pull request and its CI.
 
 - [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
   `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
