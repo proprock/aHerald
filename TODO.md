@@ -714,9 +714,15 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   not subscribe to it), so there was nothing to measure; the owner chose **3 s** instead of the 8 s
   fallback (`docs/notes/ah-304-permission-delay.md`; re-measuring is AH-317). Wire choice: `Event` gains
   `tool_phase` (`start`/`finish`), set by the hook parser, so the resident can tell a tool's start from
-  its finish even without an id. Windows full suite 1010 passed, 0 failed (**ran locally**). Remaining:
-  the manual check with a real Codex auto-review session, the Linux run, the pull request and its CI.
-  AH-099 stays open (restated below).
+  its finish even without an id. A second red/green pair: a prompt or completed model request forgets the
+  turn's open tools (a denied call never sends `PostToolUse`), and phase-less tool activity from an older
+  hook is ignored. Pull request notes: the first red commit carries compile-only stubs in `src/`; the
+  green commit corrected one red expectation (a 64-card queue releases 63 of 64 held requests, since the
+  65th was already queued); the release runs in `resident_request::tick`, not `Queue::tick`, because it
+  needs `Controls::forward`; a hook from before AH-303 forwards activity without `tool_use_id` only with
+  the idle warning on, and its `PreToolUse` then counts as a prompt and can drop a real wait.
+  Remaining: the manual check with a real Codex auto-review session, macOS (CI), the pull request and
+  its CI. AH-099 stays open (restated below).
 
 - [ ] **AH-305 — A shown permission or input card of any harness disappears when its request is resolved.**
   Depends on AH-303; independent of the delay. Today the card stays until `Stop` or `Interrupt` of the turn

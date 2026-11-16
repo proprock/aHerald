@@ -38,10 +38,10 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
   see TODO.md).
 - Codex permission cards now wait 3 seconds in the resident (`[codex] permission_delay_sec`,
-  0..=120) and are dropped when the session shows the request was answered meanwhile, so most
-  requests the automatic reviewer approves no longer show a card, sound or messenger message. A
-  request a person must answer appears after the delay; a long-running approved command can still
-  show one. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
+  0..=120) and are dropped when the session shows the request was answered meanwhile: a request
+  answered within the delay (by the automatic reviewer, for example) shows no card, sound or
+  messenger message. A request a person must answer appears after the delay; a long-running
+  approved command can still show one. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
   whether a tool started or finished; an older resident ignores that (AH-304, open: see TODO.md).
 
 ### Fixed

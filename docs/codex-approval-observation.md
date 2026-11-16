@@ -39,7 +39,7 @@ the user. It does not guarantee a second PermissionRequest or a human approval
 dialog. Reviewer configuration alone would miss these distinctions; global config
 also does not establish another session's effective settings. Timing delays and
 tool-result inference do not supply the missing observation; since AH-304 the resident
-uses them as a heuristic that drops most automatically approved requests (see
+uses them as a heuristic that drops a request answered within a short delay (see
 [Permission delay](#permission-delay-ah-304)), not as proof. A hook cannot wait for its own
 downstream reviewer without blocking that approval path.
 
@@ -194,7 +194,10 @@ and `agent_id`:
 - a completed `PostModelRequest` (the next model step after a denial);
 - `UserPromptSubmit`, `Stop` or `Interrupt` of that turn, or `SessionEnd` of the session.
 
-`PreToolUse` alone is never evidence. Otherwise the request becomes an ordinary card when the
+`PreToolUse` alone is never evidence. A prompt or completed model request also forgets the turn's
+open tools: a call still open then was denied and never sends `PostToolUse`, and it must not keep
+a later request of the turn waiting. Tool activity from a hook older than AH-304 carries no
+start/finish marker and is ignored. Otherwise the request becomes an ordinary card when the
 delay ends, with its sound and forward once. A request without a turn, a Claude request and
 every other harness are not held. The resident remembers open tools for 64 turns of 32 ids each
 and holds at most 64 requests; a further request is shown at once.
