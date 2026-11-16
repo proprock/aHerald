@@ -35,6 +35,10 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   turned off): it hides the card, keeps the queue and tries again when something next wakes it (a new event, a click, the tray), as on Windows.
   Linux and macOS now log `render.failed` once per failure episode and `render.fallback` for a
   card shown without its artwork (AH-306).
+- A new event sounds at once on Windows and macOS while the usage card is open, instead of after
+  it closes. On macOS an event whose card is hidden because its session has focus, but whose sound
+  is not, now sounds when no other card is visible. On Windows an Apply + Test sample no longer
+  plays (and restarts on each redraw) while notifications are paused. All three systems now share one rule for which sounds start (AH-311).
 
 ## [0.17.0] - 2026-11-09
 

@@ -771,8 +771,9 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   2. The artwork wait: `pending`, `art_wait`, `ART_WAIT_MS`, "prepared for another scale, ask again"
      (`src/linux/resident.rs:892-927` is the cleanest form) as one state machine over `ArtworkWorker`.
   3. "Compose again or only update the text" (`shown_card` / `CardKey`).
-  4. Sound start and cancel, including how the tray Sound switch reaches `audio::start_controlled`
-     (Linux clones `Config` per call at `src/linux/resident.rs:733`; find what Windows and macOS do).
+  4. Sound start and cancel, including how the tray Sound switch reaches `audio::start_controlled`:
+     done by AH-311 (`presenter::Announcer`, `audio::start_announced`, `audio::silence`; all three
+     residents mirror the switch into their `Config` on `SwitchesChanged`).
   5. The once-a-second and on-change tray usage refresh.
   Then split `Ui::draw_now` in `src/windows/resident_overlay.rs:245` along the Linux steps.
   Acceptance per step: the new module has tests that run on Linux; all three residents call it; no behaviour
@@ -810,6 +811,21 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   sounding once per visit, and `MAX_SOUNDS`. All three residents call it; this is step 4 of AH-308, done first.
   Acceptance: the pure tests pass; Linux ran locally; Windows and macOS CI only, plus one manual check each
   (open the usage card, send `aherald --resident --event error` with a sound configured, hear it).
+  Status: implemented on `feature/AH-311-sound-rule` (pure tests in `tests/api/presenter.rs`, module
+  `announcer`); closes with its CI evidence. The manual checks moved to AH-317.
+
+- [ ] **AH-317 — Manual check of AH-311 on Windows and macOS.**
+  Depends on AH-311. With a sound configured for `error`, open the usage card from the tray, run
+  `aherald --resident --event error` and hear the sound while the usage card stays open. Use a resident
+  started for the check, not one the user already runs.
+  Acceptance: one line per OS in `DONE.md` with the OS version and aHerald commit.
+
+- [ ] **AH-318 — One rule for when a real card ends the Apply + Test preview.**
+  Windows ends the preview as soon as the queue holds any item (`src/windows/resident_overlay.rs`, `end_test`
+  call in `draw_now`); Linux and macOS end it only when the queue has a selected card, so an event whose
+  window is suppressed by focus keeps the preview open there. Pick one rule, move it into a
+  platform-independent function with pure tests, and call it from the three residents (fits AH-308).
+  Acceptance: pure tests pass; Linux ran in CI; Windows and macOS CI only.
 
 - [ ] **AH-312 — One resident contract suite that runs on every OS.**
   The end-to-end resident tests are Windows-only (`tests/resident.rs`, `resident_fixture.rs`,
