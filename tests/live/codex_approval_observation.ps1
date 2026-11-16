@@ -120,7 +120,9 @@ if ($HookOrder) {
         $hook = '[{hooks=[{type="command",command=' + $quoted + ',commandWindows=' + $quoted + ',timeout=15}]}]'
         $cliArgs = $isolation + @('-C',$workspace,'-s','read-only',
             '-c','analytics.enabled=false','-c','approval_policy="on-request"',
-            '-c','approvals_reviewer="auto_review"')
+            '-c','approvals_reviewer="auto_review"',
+            # --ignore-user-config drops the Windows sandbox; without it every command asks for approval.
+            '-c','windows.sandbox="elevated"')
         foreach ($event in @('PreToolUse','PermissionRequest','PostToolUse','PostModelRequest','Stop')) {
             $cliArgs += @('-c', ('hooks.' + $event + '=' + $hook))
         }
