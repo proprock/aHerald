@@ -82,31 +82,6 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   the Windows build, harness versions and limitations. Evidence so far:
   docs/notes/ah-097-windows-acceptance.md.
 
-- [ ] **AH-221 — Flaky native memory-growth test on the Windows runner.**
-  `notification::overlay::card_tests::repeated_card_rendering_and_dpi_resize_release_native_resources`
-  (src/windows/overlay.rs) failed on a hosted `windows-latest` runner with "private commit kept growing"
-  (30.4 MB at cycles 50-100, 40.4 MB at 150-200, baseline 29.0 MB) on a change that did not touch
-  the code, and passed on the same diff and on master. Verdict (2026-11-04): a pull request skips
-  it (`--skip` in the `cargo test` step of ci.yml) and the nightly full run keeps it, so a real
-  leak still shows within a day. The release skips it too (AH-251); only the nightly run keeps it. Work left: reproduce on Windows 11,
-  decide whether the growth is a real leak (GDI/heap) or allocator and runner noise, and make
-  the test deterministic (for example, count GDI and USER handles instead of private commit, or
-  widen the window with several samples). Acceptance: the test passes 20 runs in a row on a
-  hosted runner, and the `--skip` is removed from ci.yml.
-  Reproduction (2026-11-08, from AH-290): on `windows-latest` the test alone passes 30 of 30 with flat
-  private commit (about 11-15 MB), but the whole `cargo test -p aherald --lib` suite run 40 times fails it
-  1 time in 40, and 6 times in 40 with a busy loop on every CPU, on `882bb50` (before the 2026-11-06
-  refactors) as on `ce71ebe`. The failure always has the same shape: the lowest commit at cycles 50-100 is
-  12-15 MB, at 150-200 it is 32-42 MB, and after the compositor flush it stays at 45-121 MB. The baseline
-  sample itself is sometimes about 25-30 MB instead of 13-15 MB. Scripts: the inline `ah290-load.sh` of
-  manual runs 42423173320 and 42423175530 (load) and 42422762285 (alone).
-  Status (2026-11-08): the test moved from `.github/noisy-tests.txt` to `.github/solo-tests.txt`; every
-  CI run (pull request and nightly) skips it in the whole suite and runs it alone on Windows in the step
-  `cargo test (alone)`, so a pull request now runs it (#168; its CI run 42425645837 on `windows-latest`
-  skipped the test in the suite and passed it alone). The release still skips it. Left: explain the
-  growth under load (a leak that only load exposes, or DWM/allocator noise) and make the test hold
-  inside a busy suite; then it can go back into the whole-suite run.
-
 - [ ] **AH-272 — macOS DMG installation by hand (left from AH-102).**
   On the MacBook Pro M1 with a released DMG: install into /Applications and launch with a Finder
   double-click; Codex and Claude Code hook delivery and dismissal with the installed app; the whole
@@ -572,6 +547,16 @@ P2 tasks run in the listed order; AH-266 goes last.
   Acceptance: the stress run on the loaded runner shows no failure of these two tests in the number of
   repeats recorded before; a hung child still fails the test within the new bound (a self-test in
   `tests/support`); no assertion about speed was loosened.
+
+- [ ] **AH-315 — `canceled_audio_does_not_wait_for_the_serial_gate` misses its 300 ms bound under load (found in AH-221).**
+  `src/windows/audio.rs`: the test spawns a thread whose `acquire_controlled` must give up at once on a
+  set cancel flag, and asserts the whole spawn and join took under 300 ms. Seen once in 30 runs of the
+  whole lib suite with a busy loop on every CPU (Windows 11, 4 CPUs, 2026-11-16): `canceled audio waited
+  for another playback`. Depends on nothing. Do first: measure where the time goes under load (thread
+  start against the wait itself). Then make the check independent of scheduling, for example by
+  asserting that the call returns well before the 1000 ms timeout it was given, without loosening what
+  it proves (a canceled request never waits for the gate). Acceptance: 40 loaded lib-suite runs on
+  `windows-latest` without this failure, and the test still fails when cancellation is ignored.
 
 ### P2 — structural refactoring of the residents (in this order)
 

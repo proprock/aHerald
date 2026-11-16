@@ -231,9 +231,9 @@ jobs:
           # shellcheck disable=SC2086 # the names are plain identifiers
           cargo test --locked --workspace --all-targets -- $skips
 
-      # Other tests running at the same time make these fail (AH-221, AH-290), so each runs
-      # alone after the suite. They are Windows tests today; a name that runs nowhere fails
-      # the step instead of passing silently.
+      # Tests that other tests running at the same time make fail run alone after the suite.
+      # The list is empty since AH-221; a name that runs nowhere fails the step instead of
+      # passing silently.
       - name: cargo test (alone)
         if: runner.os == 'Windows'
         shell: bash

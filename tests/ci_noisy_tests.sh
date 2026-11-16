@@ -47,7 +47,6 @@ for name in $(sh "$script" .github/noisy-tests.txt .github/solo-tests.txt); do
     *) echo "FAIL: the default arguments miss $name" >&2; failures=$((failures + 1)) ;;
   esac
 done
-check "the solo list is not empty" 1 "$([ -n "$(sh "$script" .github/solo-tests.txt)" ] && echo 1 || echo 0)"
 
 # The real list: every entry is one plain test name, so the unquoted expansion in the workflows
 # cannot split or glob it.
