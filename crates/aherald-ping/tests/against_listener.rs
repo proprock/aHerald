@@ -116,28 +116,73 @@ fn a_codex_stop_prints_the_acknowledgement() {
 }
 
 #[test]
-fn tool_activity_never_leaves_the_guest() {
+fn a_subagent_stop_never_leaves_the_guest() {
     let host = host();
-    for name in [
-        "PreToolUse",
-        "PostToolUse",
-        "UserPromptSubmit",
-        "SubagentStop",
-    ] {
+    let (output, elapsed) = ping(
+        &["--hook", "--agent", "claude"],
+        br#"{"hook_event_name":"SubagentStop","session_id":"s"}"#,
+        Some(&host.endpoint),
+        Some(TOKEN),
+    );
+    assert!(output.status.success());
+    // No request at all: it returns without touching the network.
+    assert!(elapsed < Duration::from_millis(900), "{elapsed:?}");
+    assert!(host.seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn tool_activity_reaches_the_host_without_its_input() {
+    let host = host();
+    for name in ["PreToolUse", "PostToolUse", "UserPromptSubmit"] {
         let body = format!(
-            r#"{{"hook_event_name":"{name}","session_id":"s","tool_input":{{"command":"ls"}}}}"#
+            r#"{{"hook_event_name":"{name}","session_id":"s","tool_use_id":"call-1","tool_input":{{"command":"SECRET"}}}}"#
         );
-        let (output, elapsed) = ping(
+        let (output, _) = ping(
             &["--hook", "--agent", "claude"],
             body.as_bytes(),
             Some(&host.endpoint),
             Some(TOKEN),
         );
         assert!(output.status.success(), "{name}");
-        // No request at all: it returns without touching the network.
-        assert!(elapsed < Duration::from_millis(900), "{name} {elapsed:?}");
+        assert!(output.stdout.is_empty(), "{name}");
     }
-    assert!(host.seen.lock().unwrap().is_empty());
+    let seen = host.seen.lock().unwrap();
+    assert_eq!(seen.len(), 3, "{seen:?}");
+    for request in seen.iter() {
+        let Request::Event { event } = request else {
+            panic!("{request:?}");
+        };
+        assert!(event.activity);
+        assert!(!format!("{request:?}").contains("SECRET"));
+    }
+}
+
+#[test]
+fn a_completed_codex_model_request_reaches_the_host_as_progress() {
+    let host = host();
+    let (output, _) = ping(
+        &["--hook", "--agent", "codex"],
+        br#"{"hook_event_name":"PostModelRequest","session_id":"s","turn_id":"t","status":"completed","token_usage":{"input_tokens":5}}"#,
+        Some(&host.endpoint),
+        Some(TOKEN),
+    );
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    let seen = host.seen.lock().unwrap();
+    let [
+        Request::CodexProgress {
+            session_id,
+            turn_id,
+            agent_id,
+        },
+    ] = seen.as_slice()
+    else {
+        panic!("{seen:?}");
+    };
+    assert_eq!(
+        (session_id.as_str(), turn_id.as_deref(), agent_id.as_deref()),
+        ("s", Some("t"), None)
+    );
 }
 
 #[test]

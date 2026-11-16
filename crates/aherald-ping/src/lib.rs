@@ -319,18 +319,20 @@ mod tests {
     }
 
     #[test]
-    fn only_turn_ends_and_waits_are_wanted() {
-        for name in ["Stop", "StopFailure", "PermissionRequest", "SessionEnd"] {
-            let value = json!({"hook_event_name": name});
-            assert!(wanted(Agent::Claude, &value), "{name}");
-        }
+    fn turn_ends_waits_and_activity_are_wanted() {
         for name in [
+            "Stop",
+            "StopFailure",
+            "PermissionRequest",
+            "SessionEnd",
             "PreToolUse",
             "PostToolUse",
             "UserPromptSubmit",
-            "SubagentStop",
-            "Notification",
         ] {
+            let value = json!({"hook_event_name": name});
+            assert!(wanted(Agent::Claude, &value), "{name}");
+        }
+        for name in ["SubagentStop", "Notification", "PostModelRequest"] {
             assert!(
                 !wanted(Agent::Claude, &json!({"hook_event_name": name})),
                 "{name}"
@@ -346,7 +348,15 @@ mod tests {
         }
         let idle = json!({"hook_event_name": "Notification", "notification_type": "idle_prompt"});
         assert!(!wanted(Agent::Claude, &idle));
-        for name in ["Stop", "PermissionRequest", "Interrupt", "SessionEnd"] {
+        for name in [
+            "Stop",
+            "PermissionRequest",
+            "Interrupt",
+            "SessionEnd",
+            "PreToolUse",
+            "PostToolUse",
+            "UserPromptSubmit",
+        ] {
             assert!(
                 wanted(Agent::Codex, &json!({"hook_event_name": name})),
                 "{name}"
@@ -357,11 +367,49 @@ mod tests {
             Agent::Codex,
             &json!({"hook_event_name": "StopFailure"})
         ));
-        assert!(!wanted(
+        // A model request is progress only once it completed.
+        assert!(wanted(
             Agent::Codex,
-            &json!({"hook_event_name": "PostModelRequest"})
+            &json!({"hook_event_name": "PostModelRequest", "status": "completed"})
         ));
+        for status in [json!("failed"), json!("cancelled"), Value::Null] {
+            assert!(!wanted(
+                Agent::Codex,
+                &json!({"hook_event_name": "PostModelRequest", "status": status})
+            ));
+        }
         assert!(!wanted(Agent::Codex, &json!({})));
+    }
+
+    #[test]
+    fn tool_activity_keeps_its_call_id_and_a_model_request_its_status() {
+        let tool = redact(&json!({
+            "hook_event_name": "PostToolUse",
+            "session_id": "s-1",
+            "turn_id": "t-1",
+            "tool_use_id": "call-1",
+            "tool_name": "Bash",
+            "tool_input": {"command": "cat ~/.ssh/id_rsa"},
+            "tool_response": "private",
+            "status": "ok",
+        }));
+        assert_eq!(
+            tool,
+            json!({"hook_event_name": "PostToolUse", "session_id": "s-1", "turn_id": "t-1", "tool_use_id": "call-1"})
+        );
+        let model = redact(&json!({
+            "hook_event_name": "PostModelRequest",
+            "session_id": "s-1",
+            "turn_id": "t-1",
+            "agent_id": "a-1",
+            "status": "completed",
+            "token_usage": {"input_tokens": 5},
+            "model": "private",
+        }));
+        assert_eq!(
+            model,
+            json!({"hook_event_name": "PostModelRequest", "session_id": "s-1", "turn_id": "t-1", "agent_id": "a-1", "status": "completed"})
+        );
     }
 
     #[test]
@@ -420,7 +468,7 @@ mod tests {
 
     #[test]
     fn prepare_drops_unwanted_and_unparseable_input() {
-        assert!(prepare(Agent::Claude, br#"{"hook_event_name":"PreToolUse"}"#).is_none());
+        assert!(prepare(Agent::Claude, br#"{"hook_event_name":"SubagentStop"}"#).is_none());
         assert!(prepare(Agent::Claude, b"{nope").is_none());
         assert!(prepare(Agent::Claude, &vec![b' '; MAX_INPUT * 2]).is_none());
         let body = prepare(
