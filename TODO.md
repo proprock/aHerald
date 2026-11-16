@@ -74,12 +74,6 @@ covers automated checks only. New direct dependencies follow the rule in AGENTS.
   the Windows build, harness versions and limitations. Evidence so far:
   docs/notes/ah-097-windows-acceptance.md.
 
-- [ ] **AH-215 — Cause of the `native_assets` timeout in the full Cargo test run (split from AH-097).**
-  `cargo test --all-targets` stops at `native_assets` with a notification startup timeout,
-  both inside and outside the sandbox. Reproduce once, find the cause, and fix it test-first,
-  or document why the timeout is environmental. Acceptance: the full run passes on Windows 11,
-  with the commands and results recorded.
-
 - [ ] **AH-272 — macOS DMG installation by hand (left from AH-102).**
   On the MacBook Pro M1 with a released DMG: install into /Applications and launch with a Finder
   double-click; Codex and Claude Code hook delivery and dismissal with the installed app; the whole
