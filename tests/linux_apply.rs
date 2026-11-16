@@ -623,6 +623,46 @@ fn linux_card_that_cannot_be_drawn_keeps_the_resident_and_is_shown_after_recover
 
 #[test]
 #[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn linux_transient_card_that_cannot_be_drawn_ends_its_process() {
+    let f = Fixture::new("render-fault-transient");
+    std::fs::write(f.root.join("aherald.fault"), "placement").unwrap();
+    let mut child = Command::new(&f.exe)
+        .arg("--config")
+        .arg(&f.config)
+        .args(["--transient", "--event", "turn_complete"])
+        .spawn()
+        .unwrap();
+    // The launcher returns once the detached display process acknowledges; that one must end too.
+    let running = || {
+        std::fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<u32>().ok())
+            .filter(|pid| {
+                std::fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| exe == f.exe)
+            })
+            .collect::<Vec<_>>()
+    };
+    let exited = support::wait_until(
+        Duration::from_secs(5),
+        Duration::from_millis(30),
+        "transient processes exit after a failed draw",
+        || child.try_wait().unwrap().is_some() && running().is_empty(),
+    );
+    if exited.is_err() {
+        let _ = child.kill();
+        for pid in running() {
+            // SAFETY: kill takes two integers and touches no memory of ours; the PID was just
+            // read as a process of this fixture's private executable.
+            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        }
+    }
+    let _ = child.wait();
+    exited.unwrap();
+    assert!(f.status().is_none(), "a transient card started a resident");
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
 fn linux_context_adapters_reach_cards_and_the_tray_switch() {
     use std::io::Write;
     let (conn, screen) = x11rb::connect(None).unwrap();
