@@ -134,8 +134,14 @@ impl PendingApprovals {
                 }
                 (Some(ToolPhase::Finish), Some(id)) => self.finish_tool(&key, id),
                 (Some(_), None) => 0,
-                // A user prompt or a completed model request.
-                (None, _) => self.resolve(|h| h.key == key),
+                // Tool activity from a hook that predates `tool_phase`: start or finish unknown.
+                (None, Some(_)) => 0,
+                // A user prompt or a completed model request. The model step that opened the
+                // tools is over: a call without `PostToolUse` by now was denied and never will.
+                (None, None) => {
+                    self.open.retain(|(k, _)| *k != key);
+                    self.resolve(|h| h.key == key)
+                }
             };
         }
         if matches!(event.kind, Kind::TurnComplete | Kind::Interrupted) {
