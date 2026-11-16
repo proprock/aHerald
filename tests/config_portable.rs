@@ -42,7 +42,7 @@ fn first_load_creates_defaults_without_replacing_existing_custom_resources() {
     let path = r.0.join("config.toml");
     let c = Config::load(&path, false).unwrap();
     assert!(path.is_file());
-    assert_eq!(c.general.mode, Mode::Transient);
+    assert_eq!(c.general.mode, Mode::Resident);
     assert!(!c.codex.usage.enabled);
     assert!(c.notifications.activate_agent_on_click);
     assert_eq!(c.events[Kind::PermissionRequired].duration_ms, 0);
@@ -88,7 +88,7 @@ fn concurrent_first_loads_publish_one_complete_configuration() {
             std::thread::spawn(move || {
                 b.wait();
                 let c = Config::load(&p, false).unwrap();
-                assert_eq!(c.general.mode, Mode::Transient);
+                assert_eq!(c.general.mode, Mode::Resident);
                 std::fs::read_to_string(&p).unwrap()
             })
         })

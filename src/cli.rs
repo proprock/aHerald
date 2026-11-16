@@ -698,6 +698,52 @@ mod tests {
         assert!(!help().contains("-child") && !help().contains("test-after-apply"));
     }
 
+    /// `--notify` uses the resident unless `--transient` is given, whatever the configuration
+    /// says; `--hook` and `--event` follow a flag, then `[general] mode`, whose default is resident.
+    #[test]
+    fn selected_mode_for_each_operation_flag_and_configuration() {
+        use crate::config::Config;
+        let transient = {
+            let mut config = Config::default();
+            config.general.mode = Mode::Transient;
+            config
+        };
+        let operations: [&[&str]; 3] = [
+            &["--notify", "pi", "--kind", "permission_required"],
+            &["--hook"],
+            &["--event", "error"],
+        ];
+        for operation in operations {
+            let is_notify = operation[0] == "--notify";
+            for (flag, expected_default, expected_transient) in [
+                (
+                    None,
+                    Mode::Resident,
+                    if is_notify {
+                        Mode::Resident
+                    } else {
+                        Mode::Transient
+                    },
+                ),
+                (Some("--resident"), Mode::Resident, Mode::Resident),
+                (Some("--transient"), Mode::Transient, Mode::Transient),
+            ] {
+                let cli =
+                    Cli::parse(operation.iter().copied().chain(flag).map(str::to_string)).unwrap();
+                assert_eq!(
+                    cli.selected_mode(&Config::default()),
+                    expected_default,
+                    "{operation:?} {flag:?} with the built-in default"
+                );
+                assert_eq!(
+                    cli.selected_mode(&transient),
+                    expected_transient,
+                    "{operation:?} {flag:?} with mode = \"transient\""
+                );
+            }
+        }
+    }
+
     #[test]
     fn help_fits_a_hundred_columns() {
         for line in help().lines() {
