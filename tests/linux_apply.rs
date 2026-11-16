@@ -569,6 +569,100 @@ fn linux_idle_resident_has_no_periodic_wakeups_and_still_shows_and_clears_a_card
 
 #[test]
 #[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn linux_card_that_cannot_be_drawn_keeps_the_resident_and_is_shown_after_recovery() {
+    let (conn, screen) = x11rb::connect(None).unwrap();
+    let root = conn.setup().roots[screen].root;
+    let f = Fixture::new("render-fault");
+    // Debug builds read the fault beside the configuration: every placement fails, as when
+    // all outputs are off ("X11: no monitor").
+    let fault = f.root.join("aherald.fault");
+    std::fs::write(&fault, "placement").unwrap();
+    let pid = f.start();
+    let send = |kind: &str, session: &str| {
+        let mut event = Event::demo(kind).unwrap();
+        event.session_id = Some(session.into());
+        assert!(matches!(
+            pipe::request(&f.scope, &Request::Event { event }, Duration::from_secs(1)).unwrap(),
+            Response::Accepted
+        ));
+    };
+    send("permission_required", "one");
+    let until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < until {
+        assert!(
+            window(&conn, root).is_none_or(|w| !shown(&conn, w)),
+            "card shown without placement"
+        );
+        assert_eq!(
+            f.status().map(|(pid, ..)| pid),
+            Some(pid),
+            "resident exited or restarted"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send("input_required", "two");
+    assert_eq!(
+        f.status().map(|(pid, queued, _)| (pid, queued)),
+        Some((pid, 2))
+    );
+    // One failure episode is one log line, however many draws failed in it.
+    let log = std::fs::read_to_string(f.root.join("aherald.log")).unwrap_or_default();
+    assert_eq!(log.matches("render.failed").count(), 1, "log: {log}");
+    std::fs::remove_file(&fault).unwrap();
+    // A failed card is retried on the next wake, not on a timer: the recovery needs an event.
+    send("input_required", "three");
+    f.wait(
+        || window(&conn, root).is_some_and(|w| shown(&conn, w)),
+        "card shown after the fault was removed",
+    );
+    assert_eq!(
+        f.status().map(|(pid, queued, _)| (pid, queued)),
+        Some((pid, 3))
+    );
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
+fn linux_transient_card_that_cannot_be_drawn_ends_its_process() {
+    let f = Fixture::new("render-fault-transient");
+    std::fs::write(f.root.join("aherald.fault"), "placement").unwrap();
+    let mut child = Command::new(&f.exe)
+        .arg("--config")
+        .arg(&f.config)
+        .args(["--transient", "--event", "turn_complete"])
+        .spawn()
+        .unwrap();
+    // The launcher returns once the detached display process acknowledges; that one must end too.
+    let running = || {
+        std::fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<u32>().ok())
+            .filter(|pid| {
+                std::fs::read_link(format!("/proc/{pid}/exe")).is_ok_and(|exe| exe == f.exe)
+            })
+            .collect::<Vec<_>>()
+    };
+    let exited = support::wait_until(
+        Duration::from_secs(5),
+        Duration::from_millis(30),
+        "transient processes exit after a failed draw",
+        || child.try_wait().unwrap().is_some() && running().is_empty(),
+    );
+    if exited.is_err() {
+        let _ = child.kill();
+        for pid in running() {
+            // SAFETY: kill takes two integers and touches no memory of ours; the PID was just
+            // read as a process of this fixture's private executable.
+            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        }
+    }
+    let _ = child.wait();
+    exited.unwrap();
+    assert!(f.status().is_none(), "a transient card started a resident");
+}
+
+#[test]
+#[ignore = "requires an isolated X11 display and private D-Bus session"]
 fn linux_context_adapters_reach_cards_and_the_tray_switch() {
     use std::io::Write;
     let (conn, screen) = x11rb::connect(None).unwrap();

@@ -1,5 +1,6 @@
 //! Single resident card. The GUI never waits for asset decoding or IPC.
 use crate::reentry::{Deferred, Gate};
+use crate::render_fault::injected as fault;
 use crate::{
     animation::PreparedAnimation,
     artwork_worker::ArtworkWorker,
@@ -23,16 +24,6 @@ use windows::{
     },
     core::{PCWSTR, w},
 };
-/// Debug builds only: lets native tests inject a render failure by writing its name
-/// to `aherald.fault` beside the configuration (isolated per resident instance).
-#[cfg(debug_assertions)]
-fn fault(directory: &std::path::Path, name: &str) -> bool {
-    std::fs::read_to_string(directory.join("aherald.fault")).is_ok_and(|v| v.trim() == name)
-}
-#[cfg(not(debug_assertions))]
-fn fault(_: &std::path::Path, _: &str) -> bool {
-    false
-}
 /// How long a newly selected card waits for its artwork before showing the text card.
 const ART_WAIT_MS: u64 = 300;
 /// A payload-free wake: quota data stays in the service under its own mutex.
@@ -78,7 +69,7 @@ struct Ui {
     usage_surface: Option<Surface>,
     audio_cancel: Arc<AtomicBool>,
     error: Option<String>,
-    render_failed: bool,
+    render: crate::render_fault::Episode,
     timer_ms: Option<u32>,
     tooltip: String,
     /// The tray icon update error already shown on a card, so a repeating one is shown once.
@@ -136,11 +127,7 @@ impl Ui {
     }
     /// Fixed operational codes only; never payloads or external error text.
     fn log(&self, record: crate::operational_log::Record) {
-        crate::operational_log::init(
-            &self.config.diagnostic_directory,
-            self.config.general.logging,
-        );
-        crate::operational_log::log(record);
+        crate::render_fault::log(&self.config, record);
     }
     /// Redraws everything at the DPI of the monitor the next card will appear on. Cards
     /// are drawn at that DPI rather than stretched, so a monitor change or a DPI change
@@ -177,15 +164,14 @@ impl Ui {
     /// A card that cannot be drawn must not end the resident: hide the window, keep
     /// the queue and retry from scratch on the next wake.
     fn draw(&mut self, hwnd: HWND) {
-        if self.draw_now(hwnd).is_err() {
+        let drawn = self.draw_now(hwnd).is_ok();
+        if !drawn {
             self.placement = None;
             self.composition = None;
             self.hide(hwnd);
-            if !std::mem::replace(&mut self.render_failed, true) {
-                self.log(crate::operational_log::Record::RenderFailure);
-            }
-        } else {
-            self.render_failed = false;
+        }
+        if self.render.record(drawn) {
+            self.log(crate::operational_log::Record::RenderFailure);
         }
         self.schedule(hwnd);
     }
@@ -1151,7 +1137,7 @@ pub(super) fn run_preview(
             usage_surface: None,
             audio_cancel: Arc::new(AtomicBool::new(false)),
             error: None,
-            render_failed: false,
+            render: Default::default(),
             timer_ms: None,
             tooltip: String::new(),
             tray_failure: None,

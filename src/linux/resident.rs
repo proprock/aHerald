@@ -4,6 +4,7 @@ use super::{
     surface::{Composition, Surface},
     x11,
 };
+use crate::operational_log::Record;
 use crate::placement::Area;
 use crate::{
     artwork_worker::ArtworkWorker, card::Card, card_paint::event_card_text,
@@ -280,6 +281,7 @@ struct Ui {
     activation: crate::activation::Worker,
     audio_cancel: Arc<AtomicBool>,
     audio_jobs: Vec<std::thread::JoinHandle<()>>,
+    render: crate::render_fault::Episode,
 }
 
 fn present(
@@ -389,6 +391,7 @@ impl Ui {
             activation: crate::activation::Worker::default(),
             audio_cancel: Arc::new(AtomicBool::new(false)),
             audio_jobs: Vec::new(),
+            render: Default::default(),
         }
     }
 
@@ -426,7 +429,19 @@ impl Ui {
             let usage_card = match entry
                 .filter(|e| !paused && (self.carousel.is_some() || visuals || e.is_usage()))
             {
-                Some(entry) => self.draw(&entry, index, count, now)?,
+                // A one-card notice has nothing to wait for after a failure: it ends with the
+                // error, which its caller logs.
+                Some(entry) if self.transient => self.draw(&entry, index, count, now)?,
+                Some(entry) => {
+                    let drawn = self.draw(&entry, index, count, now);
+                    if self.render.record(drawn.is_ok()) {
+                        crate::render_fault::log(&self.config, Record::RenderFailure);
+                    }
+                    // A card that cannot be drawn must not end the resident: hide it, keep the
+                    // queue and retry from scratch on the next wake. Only a lost X connection
+                    // ends the loop, through hiding here or through the next wait.
+                    drawn.or_else(|_| self.hide_window().map(|()| false))?
+                }
                 None => {
                     self.hide_window()?;
                     false
@@ -765,6 +780,9 @@ impl Ui {
         count: usize,
         now: u64,
     ) -> Result<bool, String> {
+        if crate::render_fault::injected(&self.config.diagnostic_directory, "placement") {
+            return Err("injected placement failure".into());
+        }
         let monitors = self.window.monitors()?;
         self.monitor_watch
             .check(self.config.notifications.monitor, monitors.len());
@@ -1032,12 +1050,12 @@ impl Ui {
         };
         if self.composition.is_none() {
             let text_width = Surface::event_text_width(&entry.event, scale)?;
-            self.composition = Some(Composition::compose_with_text_width(
-                scale,
-                self.art.clone(),
-                text_width,
-                paint,
-            )?);
+            let composed =
+                Composition::compose_with_text_width(scale, self.art.clone(), text_width, paint)?;
+            if composed.degraded {
+                crate::render_fault::log(config, Record::RenderFallback);
+            }
+            self.composition = Some(composed);
             self.presenter.invalidate();
         } else if self.shown_card.as_ref() != Some(&card_key) {
             if let Some(c) = self.composition.as_mut() {
@@ -1054,17 +1072,19 @@ impl Ui {
     /// Ends one pass: waits for an X11 event, a signal from `wake`, or the timeout.
     fn wait(&self, usage_card: bool) -> Result<(), String> {
         // A frame while something is shown or queued; otherwise until work arrives, with a slow
-        // beat only if usage polling or a session-warning deadline keeps the tray fresh.
+        // beat only if usage polling or a session-warning deadline keeps the tray fresh. A card
+        // that could not be drawn waits for the next wake instead of failing at every frame.
         let busy = usage_card
             || self.displayed
             || self.carousel.is_some()
             || self.demo.is_some()
             || self.art_wait.is_some()
             || !self.audio_jobs.is_empty()
-            || self
-                .state
-                .lock()
-                .map_or(true, |guard| !guard.queue.items().is_empty());
+            || !self.render.failing()
+                && self
+                    .state
+                    .lock()
+                    .map_or(true, |guard| !guard.queue.items().is_empty());
         let housekeeping = !usage_card
             && crate::resident_request::idle_poll_needed(
                 self.usage.is_some() && self.config.codex.usage.enabled,
