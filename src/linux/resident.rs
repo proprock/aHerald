@@ -429,6 +429,9 @@ impl Ui {
             let usage_card = match entry
                 .filter(|e| !paused && (self.carousel.is_some() || visuals || e.is_usage()))
             {
+                // A one-card notice has nothing to wait for after a failure: it ends with the
+                // error, which its caller logs.
+                Some(entry) if self.transient => self.draw(&entry, index, count, now)?,
                 Some(entry) => {
                     let drawn = self.draw(&entry, index, count, now);
                     if self.render.record(drawn.is_ok()) {
