@@ -326,6 +326,7 @@ impl Queue {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            tool_use_id: None,
             window: None,
             tty: None,
             ended: false,

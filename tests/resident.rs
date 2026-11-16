@@ -493,6 +493,7 @@ fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Ev
         turn_id: None,
         request_id: None,
         agent_id: None,
+        tool_use_id: None,
         window: None,
         tty: None,
         ended,
