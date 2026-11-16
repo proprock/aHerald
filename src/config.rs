@@ -363,8 +363,8 @@ impl TryFrom<String> for Color {
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
-    Resident,
     #[default]
+    Resident,
     Transient,
 }
 

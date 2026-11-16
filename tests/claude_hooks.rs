@@ -5,7 +5,8 @@ fn invoke(args: &[&str], input: &[u8]) -> std::process::Output {
     support::run_bounded_with_input(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
             .args(args)
-            .args(["--config", "tests/fixtures/quiet.toml"])
+            // Never reach or start the user's resident: the default mode is resident.
+            .args(["--transient", "--config", "tests/fixtures/quiet.toml"])
             .stdin(Stdio::piped()),
         input,
         support::START_BOUND,

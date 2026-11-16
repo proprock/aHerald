@@ -7,8 +7,9 @@
 # Booleans accept true or false. Unknown keys and invalid values are rejected.
 
 [general]
-# Delivery mode: "transient" (default) or "resident". CLI mode flags take priority.
-mode = "transient"
+# Delivery mode: "resident" (default) or "transient". CLI mode flags take priority.
+# `--notify` always uses the resident unless `--transient` is given.
+mode = "resident"
 # Diagnostic level: "off", "error", "warn" (default), "info", "debug", "trace".
 # "debug" adds timings of hot paths; `aherald --perf-report` summarizes them.
 logging = "warn"

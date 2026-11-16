@@ -15,6 +15,7 @@ Read one hook payload from standard input; Codex unless \fB--agent claude\fR is 
 Report an event of a harness without hooks (OpenCode, Pi, Goose, Crush).
 \fIKIND\fR is turn_complete, permission_required, input_required, error or interrupted.
 \fB--activity\fR reports that work resumed; \fB--ended\fR that the session ended (evidence only, never shown).
+It uses the resident, starting it for a first event, unless \fB--transient\fR is given.
 .TP
 .B --demo \fR[\fISECONDS\fR]
 Loop a configuration preview; exit through its tray menu.
@@ -28,6 +29,10 @@ Interactively select user hook integrations and usage settings.
 .TP
 .B --resident
 Start the notification service for the current user.
+.TP
+.B --transient
+Show one card in a short-lived process and exit.
+Without either flag the \fB[general] mode\fR setting decides; its default is resident.
 .TP
 .B --status
 Show the current resident status.

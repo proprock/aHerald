@@ -115,7 +115,7 @@ fn invalid_startup_config_shows_a_notice_then_exits_but_hook_stays_prompt_and_si
     let before = Instant::now();
     let output = support::run_bounded_with_input(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--hook", "--config"])
+            .args(["--hook", "--transient", "--config"])
             .arg(&path)
             .stdin(Stdio::piped()),
         include_bytes!("fixtures/stop.json"),

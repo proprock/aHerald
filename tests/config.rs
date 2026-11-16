@@ -49,6 +49,22 @@ fn event_duration_outside_the_supported_form_is_rejected() {
 }
 
 #[test]
+fn an_empty_file_means_resident_and_an_explicit_transient_is_kept() {
+    let dir = PathBuf::from(".");
+    assert_eq!(
+        Config::parse("", &dir).unwrap().general.mode,
+        Mode::Resident
+    );
+    assert_eq!(
+        Config::parse("[general]\nmode = \"transient\"", &dir)
+            .unwrap()
+            .general
+            .mode,
+        Mode::Transient
+    );
+}
+
+#[test]
 fn enumerated_settings_parse_every_documented_value() {
     let dir = PathBuf::from(".");
     for (name, mode) in [("resident", Mode::Resident), ("transient", Mode::Transient)] {
@@ -463,7 +479,7 @@ fn hook_configuration_error_is_silent_and_successful() {
     fs::write(&path, "[sounds]\nvolume = 9.0").unwrap();
     let output = support::output(
         Command::new(env!("CARGO_BIN_EXE_aherald"))
-            .args(["--hook", "--config"])
+            .args(["--hook", "--transient", "--config"])
             .arg(&path),
     );
     fs::remove_file(path).unwrap();

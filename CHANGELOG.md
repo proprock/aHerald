@@ -20,6 +20,13 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   what depended on them. The macOS window gains a **Done** button that unlocks after Apply (AH-297).
 
 ### Changed
+- `aherald --notify` (OpenCode, Pi, Goose, Crush) goes through the resident unless `--transient` is
+  given, whatever `[general] mode` says, so the answer to a prompt clears its card; a first event
+  starts the resident, `--activity` and `--ended` never do. The bridge files stay as they are: no
+  setup to run again. `[general] mode` now defaults to `"resident"`, which also applies to `--hook`,
+  `--event` and a start with no operation (it now runs the resident). An existing `config.toml` is
+  never edited and keeps its explicit `mode = "transient"`; change that line to
+  `mode = "resident"` to follow the new default (AH-310).
 - Claude quota in `auto` mode prefers usable statusLine quota within the configured refresh
   interval, capped at one hour, and falls back to the OAuth usage endpoint (AH-300).
 

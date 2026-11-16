@@ -26,7 +26,9 @@ hooks cover tools and sessions only). Any other harness that can run a command c
 
 Only the session id and the working folder, as `{"session_id": ..., "cwd": ...}` on stdin of
 `aherald --notify`; never prompts, replies, tool arguments or credentials. Calls are made one
-after another, each limited to three seconds. Details:
+after another, each limited to three seconds. Each call goes through the resident (the first
+event starts it), so the answer to a prompt clears its card; nobody has to run setup again for
+this. Details:
 
 - **OpenCode:** sub-agent (child) sessions stay silent; retries are not failures, only the final
   `session.execution.failed` is an error. A short headless `opencode run` may end before the

@@ -44,14 +44,16 @@ looks in `%APPDATA%`. If you move the program, move `config.toml` and `assets\` 
 
 ## Modes
 
-- **Transient** (default): every event starts a short-lived process that shows one card and
-  exits. Simple, nothing stays running. Several simultaneous cards are stacked.
-- **Resident**: one background process keeps a queue of events, a tray icon, `< n/m >`
-  navigation between cards, and the optional quota display. The first event starts it
-  automatically; `--resident` starts it without an event.
+- **Resident** (default): one background process keeps a queue of events, a tray icon,
+  `< n/m >` navigation between cards, and the optional quota display. The first event starts it
+  automatically; `--resident`, or a start with no operation, starts it without an event.
+- **Transient**: every event starts a short-lived process that shows one card and
+  exits. Nothing stays running. Several simultaneous cards are stacked. A wait card never
+  leaves by itself, and usage, warnings and messenger forwarding need the resident.
 
-Pick the mode with `[general] mode = "transient"` or `"resident"` in `config.toml`, or per
-run with `--transient` / `--resident`. A running resident keeps the configuration it
+Pick the mode with `[general] mode = "resident"` or `"transient"` in `config.toml`, or per
+run with `--resident` / `--transient`. `aherald --notify` ignores the configured mode and uses
+the resident unless `--transient` is given. A running resident keeps the configuration it
 started with; restart it from the tray (or `--quit`, then start again) after editing.
 
 ## Command line
@@ -66,7 +68,7 @@ aherald [--hook | --event EVENT | --demo [SECONDS] | --status | --quit | --perf-
 | `--hook` | Read an agent hook payload from stdin (used by hook configuration). |
 | `--event EVENT` | Show a card by hand. Events: `turn_complete`, `permission_required`, `input_required`, `error`, `interrupted`. |
 | `--demo [SECONDS]` | Loop through all events to preview your configuration. |
-| `--resident` / `--transient` | Override the configured mode. `--resident` alone runs the service. |
+| `--resident` / `--transient` | Override the configured mode. `--resident` alone runs the service. `--notify` uses the resident unless `--transient` is given. |
 | `--status` / `--quit` | Report on or stop the running resident of the current user. They never start one. |
 | `--raw-output usage --harness codex\|claude` | Print the last answer the running resident got from that harness's usage source, unparsed, to stdout (what it is, where from and its age go to stderr). Needs `[claude.usage]` or `[codex.usage]` enabled. For Claude it is the usage endpoint's response, whatever its status. |
 | `--raw-output statusline` | Print the last payload Claude Code sent to the statusLine wrapper (Claude only; needs the wrapper, see `docs/claude-hooks.md`). It holds paths and costs, so it is shown only on request. |

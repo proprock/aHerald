@@ -118,6 +118,8 @@ pub fn help() -> &'static str {
         "\n",
         "Resident control\n",
         "  --resident | --transient        Run the local notification service, or show one card and exit.\n",
+        "                                  Without either: [general] mode (resident by default); --notify\n",
+        "                                  always uses the resident unless --transient is given.\n",
         "  --status | --quit               Ask the running resident for its state, or stop it.\n",
         "  --remote-info                   Print the endpoint and token an agent in a container or VM needs;\n",
         "                                  the resident listens only with [remote] enabled = true.\n",
@@ -552,8 +554,15 @@ impl Cli {
         self.agent.unwrap_or(Agent::Codex)
     }
 
+    /// A mode flag wins. Without one, `--notify` uses the resident whatever the configuration says:
+    /// every `config.toml` copied from the example before AH-310 holds an explicit
+    /// `mode = "transient"`, and a wait without a resident can never be resolved.
     pub fn selected_mode(&self, config: &crate::config::Config) -> Mode {
-        self.mode.unwrap_or(config.general.mode)
+        match (self.mode, self.operation) {
+            (Some(mode), _) => mode,
+            (None, Some(Operation::Notify)) => Mode::Resident,
+            (None, _) => config.general.mode,
+        }
     }
 }
 
@@ -696,6 +705,52 @@ mod tests {
             );
         }
         assert!(!help().contains("-child") && !help().contains("test-after-apply"));
+    }
+
+    /// `--notify` uses the resident unless `--transient` is given, whatever the configuration
+    /// says; `--hook` and `--event` follow a flag, then `[general] mode`, whose default is resident.
+    #[test]
+    fn selected_mode_for_each_operation_flag_and_configuration() {
+        use crate::config::Config;
+        let transient = {
+            let mut config = Config::default();
+            config.general.mode = Mode::Transient;
+            config
+        };
+        let operations: [&[&str]; 3] = [
+            &["--notify", "pi", "--kind", "permission_required"],
+            &["--hook"],
+            &["--event", "error"],
+        ];
+        for operation in operations {
+            let is_notify = operation[0] == "--notify";
+            for (flag, expected_default, expected_transient) in [
+                (
+                    None,
+                    Mode::Resident,
+                    if is_notify {
+                        Mode::Resident
+                    } else {
+                        Mode::Transient
+                    },
+                ),
+                (Some("--resident"), Mode::Resident, Mode::Resident),
+                (Some("--transient"), Mode::Transient, Mode::Transient),
+            ] {
+                let cli =
+                    Cli::parse(operation.iter().copied().chain(flag).map(str::to_string)).unwrap();
+                assert_eq!(
+                    cli.selected_mode(&Config::default()),
+                    expected_default,
+                    "{operation:?} {flag:?} with the built-in default"
+                );
+                assert_eq!(
+                    cli.selected_mode(&transient),
+                    expected_transient,
+                    "{operation:?} {flag:?} with mode = \"transient\""
+                );
+            }
+        }
     }
 
     #[test]

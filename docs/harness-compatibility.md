@@ -135,6 +135,9 @@ aherald --notify <harness> --kind <kind> [--activity | --ended]
   `interrupted` (the context and idle warnings stay Codex/Claude only).
 - `--activity` marks progress of a session without a card: it resolves that session's pending
   waits. `--ended` marks the session as over and clears its waits.
+- It goes through the resident unless `--transient` is given, whatever `[general] mode` says. A
+  first event starts the resident, as a Codex or Claude hook does; `--activity` and `--ended`
+  never start one. With `--transient` a wait card never leaves by itself.
 - Stdin may carry JSON; only `session_id` and the folder (`cwd`, or Goose's `working_dir`) are
   read, bounded to 64 KiB and 250 ms. Nothing is echoed or logged.
 - The command always exits 0 and prints nothing to stdout, so it never changes what the harness

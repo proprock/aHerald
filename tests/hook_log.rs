@@ -18,7 +18,7 @@ fn directory(test: &str) -> support::TempDir {
 
 fn invoke(directory: &Path, agent: Option<&str>, input: &[u8]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_aherald"));
-    command.arg("--hook");
+    command.args(["--hook", "--transient"]);
     if let Some(agent) = agent {
         command.args(["--agent", agent]);
     }
