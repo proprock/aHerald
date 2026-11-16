@@ -29,6 +29,7 @@ mod resource_cache;
 mod session_source;
 mod session_warning_adapters;
 mod statusline_launch;
+mod tool_use_id;
 mod transient_names;
 mod tray_usage;
 mod usage;
