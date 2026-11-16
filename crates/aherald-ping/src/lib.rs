@@ -70,21 +70,28 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String>
     Ok(cli)
 }
 
-/// Whether the host takes this event; everything else (tool and prompt activity, subagents,
-/// idle reminders) never leaves the guest. Public only so that `tests/parser_contract.rs` can hold
-/// it to what the host's hook parser accepts.
+/// Whether the host takes this event: turn ends, waits, tool and prompt activity and (Codex) a
+/// completed model request. Everything else (subagent stops, idle reminders, unfinished model
+/// requests) never leaves the guest. Public only so that `tests/parser_contract.rs` can hold it to
+/// what the host's hook parser accepts.
 #[doc(hidden)]
 pub fn wanted(agent: Agent, value: &Value) -> bool {
     let name = value.get("hook_event_name").and_then(Value::as_str);
     match (agent, name) {
+        (_, Some("PreToolUse" | "PostToolUse" | "UserPromptSubmit")) => true,
         (Agent::Claude, Some("Stop" | "StopFailure" | "PermissionRequest" | "SessionEnd")) => true,
         (Agent::Claude, Some("Notification")) => matches!(
             value.get("notification_type").and_then(Value::as_str),
             Some("permission_prompt" | "elicitation_dialog" | "agent_needs_input")
         ),
         (Agent::Codex, Some("Stop" | "PermissionRequest" | "Interrupt" | "SessionEnd")) => true,
+        (Agent::Codex, Some("PostModelRequest")) => is_completed(value),
         _ => false,
     }
+}
+
+fn is_completed(value: &Value) -> bool {
+    value.get("status").and_then(Value::as_str) == Some("completed")
 }
 
 /// The last component of a path, which is all the host keeps of it (the folder name).
@@ -92,18 +99,26 @@ fn folder(path: &str) -> Option<&str> {
     path.rsplit(['/', '\\']).find(|part| !part.is_empty())
 }
 
-/// The payload reduced to the fields the host reads. Tool input, transcript paths, prompts and
-/// the contents of background tasks are never copied: the full working directory becomes its
-/// last component, a task becomes its type, a wakeup becomes whether it recurs.
+/// The payload reduced to the fields the host reads. Tool input and output, token counts,
+/// transcript paths, prompts and the contents of background tasks are never copied: the full
+/// working directory becomes its last component, a task becomes its type, a wakeup becomes whether
+/// it recurs. Only a model request keeps its `status`.
 pub fn redact(value: &Value) -> Value {
     let mut out = Map::new();
+    let model_request =
+        value.get("hook_event_name").and_then(Value::as_str) == Some("PostModelRequest");
     for key in [
         "hook_event_name",
         "session_id",
         "turn_id",
         "agent_id",
+        "tool_use_id",
         "notification_type",
+        "status",
     ] {
+        if key == "status" && !model_request {
+            continue;
+        }
         if let Some(text) = value.get(key).filter(|v| v.is_string()) {
             out.insert(key.into(), text.clone());
         }

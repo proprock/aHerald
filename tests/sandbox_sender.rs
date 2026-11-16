@@ -119,6 +119,37 @@ fn both_senders_deliver_a_stop_to_the_host() {
 }
 
 #[test]
+fn both_senders_deliver_tool_activity_and_codex_progress_as_aherald_ping_does() {
+    let tool = r#"{"hook_event_name":"PreToolUse","session_id":"c-1","turn_id":"t-1","tool_use_id":"call-1","tool_input":{"command":"ls"}}"#;
+    let model = r#"{"hook_event_name":"PostModelRequest","session_id":"c-1","turn_id":"t-1","status":"completed","token_usage":{"input_tokens":5}}"#;
+    for script in SCRIPTS {
+        let host = host();
+        for payload in [tool, model] {
+            let (output, _) = run(
+                script,
+                "codex",
+                payload.as_bytes(),
+                Some(&host.endpoint),
+                Some(TOKEN),
+                &[],
+            );
+            quiet(&output);
+            assert!(output.stdout.is_empty(), "{script}");
+        }
+        let seen = host.seen.lock().unwrap();
+        let [
+            Request::Event { event },
+            Request::CodexProgress { session_id, .. },
+        ] = seen.as_slice()
+        else {
+            panic!("{script}: {seen:?}");
+        };
+        assert!(event.activity, "{script}");
+        assert_eq!(session_id, "c-1", "{script}");
+    }
+}
+
+#[test]
 fn a_codex_stop_prints_the_acknowledgement_the_host_returned() {
     for script in SCRIPTS {
         let host = host();
@@ -243,13 +274,15 @@ fn an_explicit_endpoint_never_runs_a_local_program() {
 }
 
 #[test]
-fn the_example_hook_files_register_only_turn_ends_and_waits() {
+fn the_example_hook_files_register_turn_ends_waits_and_tool_activity() {
     for (file, expected) in [
         (
             "examples/sandbox/claude-settings.json",
             vec![
                 "Notification",
                 "PermissionRequest",
+                "PostToolUse",
+                "PreToolUse",
                 "SessionEnd",
                 "Stop",
                 "StopFailure",
@@ -257,7 +290,15 @@ fn the_example_hook_files_register_only_turn_ends_and_waits() {
         ),
         (
             "examples/sandbox/codex-hooks.json",
-            vec!["Interrupt", "PermissionRequest", "SessionEnd", "Stop"],
+            vec![
+                "Interrupt",
+                "PermissionRequest",
+                "PostModelRequest",
+                "PostToolUse",
+                "PreToolUse",
+                "SessionEnd",
+                "Stop",
+            ],
         ),
     ] {
         let text =

@@ -181,6 +181,20 @@ pub fn process(context: &Context, agent: Agent, body: &[u8]) -> Reply {
     if !agent.hooks_enabled(&context.config) {
         return Reply::status(200);
     }
+    if agent == Agent::Codex {
+        match crate::codex_context::progress(body) {
+            // A guest's progress is activity only: its token count is not this machine's
+            // context, so it never raises the context warning.
+            Ok(Some(progress)) => {
+                return match (context.deliver)(progress.without_tokens().request()) {
+                    Response::Accepted => Reply::status(200),
+                    _ => Reply::status(503),
+                };
+            }
+            Ok(None) => {}
+            Err(_) => return Reply::status(400),
+        }
+    }
     let event = match agent.parse_hook(body) {
         Ok(Some(event)) => event,
         // Valid but not a turn end or wait (for example a SubagentStop): nothing to do.
@@ -194,9 +208,6 @@ pub fn process(context: &Context, agent: Agent, body: &[u8]) -> Reply {
     if busy {
         // As the local hook does: a Stop with background work only settles the session's waits.
         event.activity = true;
-    } else if event.activity {
-        // Per-tool and per-prompt activity is not forwarded from a guest.
-        return Reply::status(200);
     }
     // Never a window or terminal of this machine: a guest's id means nothing here.
     event.window = None;
