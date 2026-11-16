@@ -3,6 +3,26 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-310 — OpenCode, Pi, Goose and Crush events go through the resident, like Codex and Claude.**
+  `aherald --notify` uses the resident unless `--transient` is given, whatever `[general] mode` says;
+  a first event starts the resident, `--activity` and `--ended` never do. `[general] mode` defaults to
+  `"resident"` (`Mode` default and `config.example.toml` together); existing `config.toml` files keep
+  their explicit value and are never edited (`CHANGELOG.md` names the line to change). Bridge files and
+  installed copies are unchanged. Tests that relied on the transient default are pinned to
+  `--transient`; `tests/config_portable.rs` now expects `Mode::Resident` on first load. New tests:
+  `cli::tests::selected_mode_for_each_operation_flag_and_configuration`,
+  `config::an_empty_file_means_resident_and_an_explicit_transient_is_kept`,
+  `external_notify::resident::{a_wait_starts_a_resident_and_the_answer_clears_its_card,
+  transient_notify_starts_no_resident}` (Unix). TDD: red `8a81db7`, green `cf05b6a`; PR #185, merged
+  as `27773c7`. Rust 1.98.1:
+  - Windows 11 Pro 22621.4317 **ran locally**: `cargo test --locked --workspace --all-targets`
+    976 passed, 0 failed; clippy `-D warnings` and fmt clean.
+  - Linux (WSL Debian, xvfb-run) **ran locally** for the affected suites: 151 passed, 0 failed,
+    including both new end-to-end cases.
+  - macOS **compiled/tested in CI only**; CI run 43864477651: Build and test on windows-latest,
+    macos-15 and ubuntu-22.04, MSRV builds, Linux package and console setup, all passed.
+  - Manual run with a real OpenCode or Pi session: **not checked** (moved to AH-316).
+
 - [x] **AH-221 — Flaky native memory-growth test on the Windows runner.**
   Not a leak: the check read `ProcessAppMemoryInfo`, which reports the commit of the whole job
   (cargo and the parent test process with every other test), so a busy suite failed it. In the
