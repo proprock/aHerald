@@ -23,6 +23,17 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [

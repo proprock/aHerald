@@ -24,6 +24,7 @@ fn claude_hooks_never_write_a_decision_to_stdout() {
         "UserPromptSubmit",
         "PreToolUse",
         "PostToolUse",
+        "PostToolUseFailure",
     ] {
         let result = invoke(
             &["--hook", "--agent", "claude"],

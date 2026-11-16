@@ -606,7 +606,9 @@ fn activity_from_an_external_harness_resolves_its_sessions_waits_only() {
 }
 
 #[test]
-fn claude_activity_keeps_its_pending_wait_as_before() {
+fn a_claude_tool_start_keeps_its_pending_wait() {
+    // Since AH-305 a prompt or a tool finish resolves a Claude wait (`claude_waits.rs`); a tool
+    // that only starts says nothing about the answer.
     let mut q = Queue::new(8, 1000);
     let mut wait = event(Kind::PermissionRequired, "s1");
     wait.source = Source::ClaudeHook;
@@ -614,6 +616,8 @@ fn claude_activity_keeps_its_pending_wait_as_before() {
     let mut resumed = event(Kind::TurnComplete, "s1");
     resumed.source = Source::ClaudeHook;
     resumed.activity = true;
+    resumed.tool_use_id = Some("call-1".into());
+    resumed.tool_phase = Some(aherald::events::ToolPhase::Start);
     assert_eq!(q.observe_activity(&resumed), 0);
     assert_eq!(q.items().len(), 1);
 }

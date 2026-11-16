@@ -79,6 +79,7 @@ pub fn wanted(agent: Agent, value: &Value) -> bool {
     let name = value.get("hook_event_name").and_then(Value::as_str);
     match (agent, name) {
         (_, Some("PreToolUse" | "PostToolUse" | "UserPromptSubmit")) => true,
+        (Agent::Claude, Some("PostToolUseFailure")) => true,
         (Agent::Claude, Some("Stop" | "StopFailure" | "PermissionRequest" | "SessionEnd")) => true,
         (Agent::Claude, Some("Notification")) => matches!(
             value.get("notification_type").and_then(Value::as_str),

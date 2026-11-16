@@ -12,7 +12,7 @@ use std::{fs, path::Path};
 /// (once or twice per tool call), so the resident sees every session's progress.
 const ACTIVITY: [&str; 3] = ["UserPromptSubmit", "PreToolUse", "PostToolUse"];
 
-const CLAUDE_EVENTS: [&str; 14] = [
+const CLAUDE_EVENTS: [&str; 16] = [
     "Stop",
     "StopFailure",
     "PermissionRequest",
@@ -21,6 +21,8 @@ const CLAUDE_EVENTS: [&str; 14] = [
     "UserPromptSubmit",
     "PreToolUse",
     "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionDenied",
     "SubagentStop",
     "SessionStart",
     "PreCompact",
@@ -28,7 +30,8 @@ const CLAUDE_EVENTS: [&str; 14] = [
     "TaskCompleted",
     "NotAnEvent",
 ];
-const CODEX_EVENTS: [&str; 10] = [
+const CODEX_EVENTS: [&str; 11] = [
+    "PostToolUseFailure",
     "Stop",
     "PermissionRequest",
     "Interrupt",

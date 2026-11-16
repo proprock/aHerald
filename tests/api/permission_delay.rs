@@ -390,6 +390,48 @@ fn a_denied_request_is_resolved_by_the_next_model_request() {
 }
 
 #[test]
+fn a_shown_card_leaves_on_the_next_model_request() {
+    let mut settings = Config::default();
+    settings.codex.permission_delay_sec = 0;
+    let mut state = resident();
+    send(&mut state, &settings, tool("PreToolUse", "s", "t", "a"), 0);
+    send(&mut state, &settings, permission(), 0);
+    assert_eq!(permission_cards(&state.queue), 1);
+    let progress = Request::CodexProgress {
+        session_id: "s".into(),
+        turn_id: Some("t".into()),
+        agent_id: None,
+    };
+    respond(progress, &mut state, &settings, 500);
+    assert_eq!(permission_cards(&state.queue), 0);
+}
+
+#[test]
+fn a_released_card_waits_for_the_tools_open_when_the_request_arrived() {
+    let mut queue = Queue::new(8, 0);
+    observe(&mut queue, tool("PreToolUse", "s", "t", "a"), 0);
+    hold(&mut queue, permission(), 0);
+    observe(&mut queue, tool("PreToolUse", "s", "t", "late"), 100);
+    assert!(released(&mut queue, 0));
+    observe(&mut queue, tool("PostToolUse", "s", "t", "a"), DELAY + 100);
+    assert_eq!(permission_cards(&queue), 0);
+}
+
+#[test]
+fn a_released_card_ignores_a_tool_that_started_during_the_delay() {
+    let mut queue = Queue::new(8, 0);
+    hold(&mut queue, permission(), 0);
+    observe(&mut queue, tool("PreToolUse", "s", "t", "late"), 100);
+    assert!(released(&mut queue, 0));
+    observe(
+        &mut queue,
+        tool("PostToolUse", "s", "t", "late"),
+        DELAY + 100,
+    );
+    assert_eq!(permission_cards(&queue), 1);
+}
+
+#[test]
 fn the_resident_configured_without_a_delay_shows_the_card_at_once() {
     let mut settings = Config::default();
     settings.codex.permission_delay_sec = 0;

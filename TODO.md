@@ -765,6 +765,28 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   Acceptance: tests pass; `docs/codex-hooks.md`, `docs/claude-hooks.md` and `docs/harnesses.md` each say when
   a wait card leaves; by hand, one real Claude Code permission prompt answered in the terminal clears its
   card before the turn ends (record the version and OS).
+  Progress (2026-11-16, branch `feature/AH-305-codex-wait-resolution`, stacked on AH-304): the Codex part
+  is implemented with a red and a green commit. `pending_approvals::Waiter` holds the one evidence rule
+  for held requests and shown cards; the queue watches each admitted Codex wait card by entry id
+  (a side list pruned against the queue, so `queue::Entry` keeps its fields) and a card released after
+  the delay keeps the tools open when its request arrived. Codex hooks report no input request, so
+  only permission cards are concerned. The test
+  `requests_without_request_identity_are_not_merged_or_resolved_by_tool_results` is now
+  `requests_without_request_identity_are_not_merged` (body unchanged): say so in the pull request.
+  `docs/codex-hooks.md`, `docs/codex-approval-observation.md` and `CHANGELOG.md` updated. Windows: full
+  suite ran locally, 1023 passed, 0 failed, 25 ignored; `kaboost_audit_tdd.py` confirms the pair.
+  Linux and macOS: not checked yet (CI).
+  Claude part (2026-11-16, branch `feature/AH-305-claude-wait-resolution`, stacked on the Codex branch):
+  reference read for Claude Code 2.1.325 and recorded in `docs/claude-hooks.md` ("When a wait card
+  leaves"); a red and a green commit. The wait key now carries the source, and Claude keys by session
+  and agent. `PostToolUseFailure` is bound (setup, plugin, examples, guest sender and contract test).
+  Added guard: a `permission_prompt` notification arriving after its prompt was answered (tool finished,
+  no other tool open) shows no card; the next `PreToolUse` lifts it. `tests/api/queue.rs`
+  `claude_activity_keeps_its_pending_wait_as_before` pinned the old contract and is now
+  `a_claude_tool_start_keeps_its_pending_wait`: say so in the pull request. Follow-ups AH-318
+  (`prompt_id`) and AH-319 (`PermissionDenied`). Remaining: the manual check (one real Claude Code
+  prompt answered in the terminal clears its card before the turn ends; record version and OS), the
+  bridge tests and `docs/harnesses.md`, and the pull requests with their CI.
 
 - [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
   `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
@@ -820,6 +842,25 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   (count, p50 to p99, 1 s histogram to 60 s, CLI and desktop apart, Claude too) and add the figures to
   `docs/notes/ah-304-permission-delay.md`. Acceptance: the note holds the figures; if they argue for another
   default, ask the owner before changing `src/config.rs` and `config.example.toml` together.
+
+- [ ] **AH-318 — Decide whether Claude waits use `prompt_id` instead of the session.**
+  Depends on AH-305. Found in AH-305. The Claude Code hook reference (2.1.325) now documents `prompt_id` as a common input
+  field ("UUID identifying the user prompt currently being processed ... Absent until the first user
+  input"). aHerald keys Claude waits by session (one wait card per session; `docs/claude-hooks.md`). Using
+  `prompt_id` would let a late wait of an earlier prompt be recognized as obsolete, as Codex turns are.
+  Owner decision first: it changes the per-session model. Then record which events carry it (a sanitized
+  live capture), and keep the session key when it is absent. Acceptance: decision recorded; if adopted,
+  pure queue tests for two prompts of one session and an event without `prompt_id`.
+
+- [ ] **AH-319 — Clear a Claude card on `PermissionDenied` (auto mode).**
+  Depends on AH-305. Found in AH-305. `PermissionDenied` fires when auto mode denies a call and carries `tool_use_id`
+  (reference 2.1.325); it never fires for a denial in the dialog. A card of a call auto mode denied now
+  waits for the next prompt or `Stop`. Treat `PermissionDenied` as the finish of its call: parser,
+  `hook_setup::events(Agent::Claude)`, `plugins/aherald/hooks/hooks.json`, the `examples/claude-settings*.json`
+  files, the guest sender and its contract test, `docs/claude-hooks.md`, and a `CHANGELOG.md` note that setup
+  must be run again. First confirm with a live auto-mode session that a card can exist for such a call
+  (a `PermissionRequest` for a call that cannot prompt). Acceptance: a pure test that the card leaves on its
+  call's `PermissionDenied`; the confirmation recorded.
 
 - [ ] **AH-311 — The sound of a new event follows one rule on Windows, macOS and Linux.**
   Today (by reading): with the usage card open, Windows and macOS start no sound until it closes
