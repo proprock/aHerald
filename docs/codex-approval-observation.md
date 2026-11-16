@@ -38,9 +38,10 @@ The documented rejection flow tells the main agent to find a safer path or ask
 the user. It does not guarantee a second PermissionRequest or a human approval
 dialog. Reviewer configuration alone would miss these distinctions; global config
 also does not establish another session's effective settings. Timing delays and
-tool-result inference cannot solve the missing observation or correlate individual
-requests. A hook cannot wait for its own downstream reviewer without blocking
-that approval path.
+tool-result inference do not supply the missing observation; since AH-304 the resident
+uses them as a heuristic that drops most automatically approved requests (see
+[Permission delay](#permission-delay-ah-304)), not as proof. A hook cannot wait for its own
+downstream reviewer without blocking that approval path.
 
 App-server approval requests are useful to clients that own the corresponding
 transport, but aHerald's separate usage connection does not subscribe to arbitrary
@@ -179,3 +180,35 @@ Findings:
 
 Not covered: a person answering the prompt, subagents (`agent_id`), Linux and macOS. The
 sanitized evidence stayed in a disposable `%TEMP%/aherald-ah302-*` directory.
+
+## Permission delay (AH-304)
+
+The resident holds a Codex `PermissionRequest` that has a turn for `[codex]
+permission_delay_sec` (default 3 seconds, range 0..=120, `0` turns the delay off). While it is
+held there is no card, no sound and no messenger forward. It is dropped (debug log line
+`event.dropped auto_resolved`) when one of these arrives for the same `session_id`, `turn_id`
+and `agent_id`:
+
+- the `PostToolUse` of a `tool_use_id` that was open (a `PreToolUse` seen, no `PostToolUse` yet)
+  when the request arrived; with several open ids, once all of them finished;
+- a completed `PostModelRequest` (the next model step after a denial);
+- `UserPromptSubmit`, `Stop` or `Interrupt` of that turn, or `SessionEnd` of the session.
+
+`PreToolUse` alone is never evidence. Otherwise the request becomes an ordinary card when the
+delay ends, with its sound and forward once. A request without a turn, a Claude request and
+every other harness are not held. The resident remembers open tools for 64 turns of 32 ids each
+and holds at most 64 requests; a further request is shown at once.
+
+Cost and limits:
+
+- Every request a person must answer appears `permission_delay_sec` later.
+- **A long-running approved command still shows a card.** Approval is observed only through the
+  call's `PostToolUse`, which arrives when the command has finished. A command the reviewer
+  approves but that runs longer than the delay (a build, a test suite) produces a card, which
+  stays until the turn ends.
+- A tool that starts after the request is not counted, so its finish never drops the request;
+  the rule errs towards showing a card.
+- Transient mode has no state between hooks, so it shows every request at once.
+
+The default comes from the owner's choice on 2026-11-16, not from measured data: the Watchdog
+sample held no `PermissionRequest` rows (see `docs/notes/ah-304-permission-delay.md`).

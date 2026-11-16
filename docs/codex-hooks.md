@@ -20,6 +20,12 @@ expose no request identity. It ignores other fields,
 including messages, transcript paths, and tool arguments. It tolerates missing
 identities for compatibility and unknown fields for forward compatibility.
 
+In resident mode a PermissionRequest that has a turn waits `[codex] permission_delay_sec`
+(default 3, `0` switches it off) before its card, sound and messenger forward, and is dropped
+when the session shows within that time that it was answered (AH-304). The evidence and its
+limits are in [the approval observation notes](codex-approval-observation.md#permission-delay-ah-304).
+Transient mode has no later state and shows the request at once.
+
 For valid Stop input it writes `{}`. PermissionRequest and Interrupt write nothing.
 All hook failures exit successfully, with operational diagnostics only on stderr.
 No response changes permissions, input, or continuation. Input is limited to 64 KiB

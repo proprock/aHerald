@@ -48,8 +48,8 @@ with stable Rust. Keep each milestone usable. Project rules: `AGENTS.md`.
   See docs/installation.md and AH-097/AH-102/AH-103.
 - Keep code comments, documentation, and agent instructions in English.
 - Wait cards and delivery (2026-11-16, after `audit-20261116.agents.md`): a Codex permission card is
-  delayed by default and dropped when its turn moves on within the delay (AH-304; the default comes
-  from Watchdog telemetry). A shown permission or input card of any harness leaves on evidence that
+  delayed by default and dropped when its turn moves on within the delay (AH-304; the owner set the
+  default to 3 s on 2026-11-16, as Watchdog had no `PermissionRequest` data; AH-317 re-measures it). A shown permission or input card of any harness leaves on evidence that
   its request was resolved, not only at the turn end (AH-305). The resident is the default mode:
   `[general] mode` defaults to `"resident"`, and `aherald --notify` uses the resident unless
   `--transient` is given, whatever the configuration says (AH-310). Transient stays supported as an
@@ -292,6 +292,12 @@ shared development-profile and artwork performance changes need no separate port
   reviewer routing and exposes no reviewer/verdict/human-wait signal. Selective
   suppression remains blocked on a supported observable source; preserve current
   notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
+  Restated (2026-11-16, after AH-304): the permission delay drops most automatically approved requests by
+  lifecycle evidence, but it is a heuristic: a long-running approved command still shows a card, and
+  rejection versus fallback to a person stays indistinguishable. What AH-099 still needs: a supported
+  per-request reviewer or human-wait signal from Codex (a `tool_use_id` or verdict on
+  `PermissionRequest`, or an app-server notification for sessions aHerald does not own). Close it when
+  Codex offers one and the outcome tests can be written against it.
 
 - [ ] **AH-277 — Windows console companion checks (left from AH-211).**
   By hand: `aherald-cli` in Windows Terminal and on Windows Server 2019 (output, exit code, an unknown
@@ -703,6 +709,14 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   or restate what it still needs.
   Acceptance: tests pass on Linux; by hand on one OS with a real Codex auto-review session, an approved
   request shows no card and a real human prompt shows one after the delay; record the Codex version.
+  Progress (2026-11-16, branch `feature/AH-304-permission-delay`, stacked on AH-303): implemented with
+  red and green commits and documented. The Watchdog sample has 0 `PermissionRequest` rows (its hooks do
+  not subscribe to it), so there was nothing to measure; the owner chose **3 s** instead of the 8 s
+  fallback (`docs/notes/ah-304-permission-delay.md`; re-measuring is AH-317). Wire choice: `Event` gains
+  `tool_phase` (`start`/`finish`), set by the hook parser, so the resident can tell a tool's start from
+  its finish even without an id. Windows full suite 1010 passed, 0 failed (**ran locally**). Remaining:
+  the manual check with a real Codex auto-review session, the Linux run, the pull request and its CI.
+  AH-099 stays open (restated below).
 
 - [ ] **AH-305 — A shown permission or input card of any harness disappears when its request is resolved.**
   Depends on AH-303; independent of the delay. Today the card stays until `Stop` or `Interrupt` of the turn
@@ -791,6 +805,15 @@ AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
   mode flag, a permission prompt in a real OpenCode or Pi session shows a card through the resident (it
   starts one if none runs), and answering the prompt in the harness clears the card before the turn ends.
   Acceptance: one line in `DONE.md` with the harness version, aHerald version and OS.
+
+- [ ] **AH-317 — Measure the Codex permission delay from real data.**
+  Split from AH-304: its default (3 s, the owner's choice) was set without data, because the live Watchdog
+  hooks do not subscribe to `PermissionRequest` or `PostModelRequest`. Ask the owner whether to bind those
+  events in Watchdog's hook profile (a change to the owner's live hooks, done in the Watchdog repository by
+  its own procedure, never from here). After at least two weeks, run the AH-304 measurement as written
+  (count, p50 to p99, 1 s histogram to 60 s, CLI and desktop apart, Claude too) and add the figures to
+  `docs/notes/ah-304-permission-delay.md`. Acceptance: the note holds the figures; if they argue for another
+  default, ask the owner before changing `src/config.rs` and `config.example.toml` together.
 
 - [ ] **AH-311 — The sound of a new event follows one rule on Windows, macOS and Linux.**
   Today (by reading): with the usage card open, Windows and macOS start no sound until it closes

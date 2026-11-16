@@ -37,6 +37,12 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
   `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
   see TODO.md).
+- Codex permission cards now wait 3 seconds in the resident (`[codex] permission_delay_sec`,
+  0..=120) and are dropped when the session shows the request was answered meanwhile, so most
+  requests the automatic reviewer approves no longer show a card, sound or messenger message. A
+  request a person must answer appears after the delay; a long-running approved command can still
+  show one. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
+  whether a tool started or finished; an older resident ignores that (AH-304, open: see TODO.md).
 
 ### Fixed
 - The Linux resident no longer exits when a card cannot be drawn (for example with every output
