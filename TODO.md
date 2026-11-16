@@ -616,7 +616,7 @@ P2 tasks run in the listed order; AH-266 goes last.
 Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
 `AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
 **compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-302 to AH-305 run
-in this order; the others are independent. Suggested order (AH-310 done): AH-306, AH-311, then AH-302 to
+in this order; the others are independent. Suggested order (AH-310 and AH-306 done): AH-311, then AH-302 to
 AH-305, AH-312, AH-308, and the rest when convenient.
 
 - [ ] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
@@ -749,21 +749,6 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   Acceptance: tests pass; `docs/codex-hooks.md`, `docs/claude-hooks.md` and `docs/harnesses.md` each say when
   a wait card leaves; by hand, one real Claude Code permission prompt answered in the terminal clears its
   card before the turn ends (record the version and OS).
-
-- [ ] **AH-306 — The Linux resident survives a card that cannot be drawn (parity with AH-041).**
-  `Ui::run` returns the error of `self.draw(...)?` and `self.hide_window()?` (`src/linux/resident.rs:429-431`),
-  which ends the process: for example `"X11: no monitor"` (`src/linux/resident.rs:778`) when every output is
-  off. Windows hides the window, logs `Record::RenderFailure` once and retries
-  (`src/windows/resident_overlay.rs:179`). Do the same on Linux: keep the queue, hide, log once per failure
-  episode, retry on the next wake; end the loop only when the X connection itself is lost. macOS already
-  hides and retries (`Ui::step`, `src/mac/resident.rs:591-599`) but logs nothing: add the same single
-  `RenderFailure` line there, and `RenderFallback` for a degraded composition on macOS and Linux (only
-  `src/windows/resident_overlay.rs:469` logs it).
-  Put the "failed once, log once, reset on success" state in a shared helper rather than a third copy.
-  Tests: under Xvfb, a resident with an injected draw failure (reuse the debug fault files Windows reads with
-  `fault(...)`, moved to a shared module) stays alive, answers `--status`, and shows the next card after the
-  fault is removed; extend `tests/resident_render_faults.rs` instead of a new file if it fits.
-  Acceptance: the test passes on Linux; macOS is reported as CI only.
 
 - [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
   `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
