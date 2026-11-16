@@ -48,8 +48,8 @@ with stable Rust. Keep each milestone usable. Project rules: `AGENTS.md`.
   See docs/installation.md and AH-097/AH-102/AH-103.
 - Keep code comments, documentation, and agent instructions in English.
 - Wait cards and delivery (2026-11-16, after `audit-20261116.agents.md`): a Codex permission card is
-  delayed by default and dropped when its turn moves on within the delay (AH-304; the default comes
-  from Watchdog telemetry). A shown permission or input card of any harness leaves on evidence that
+  delayed by default and dropped when its turn moves on within the delay (AH-304; the owner set the
+  default to 3 s on 2026-11-16, as Watchdog had no `PermissionRequest` data; AH-317 re-measures it). A shown permission or input card of any harness leaves on evidence that
   its request was resolved, not only at the turn end (AH-305). The resident is the default mode:
   `[general] mode` defaults to `"resident"`, and `aherald --notify` uses the resident unless
   `--transient` is given, whatever the configuration says (AH-310). Transient stays supported as an
@@ -292,6 +292,12 @@ shared development-profile and artwork performance changes need no separate port
   reviewer routing and exposes no reviewer/verdict/human-wait signal. Selective
   suppression remains blocked on a supported observable source; preserve current
   notifications. See [evidence and remaining acceptance](docs/codex-approval-observation.md).
+  Restated (2026-11-16, after AH-304): the permission delay drops most automatically approved requests by
+  lifecycle evidence, but it is a heuristic: a long-running approved command still shows a card, and
+  rejection versus fallback to a person stays indistinguishable. What AH-099 still needs: a supported
+  per-request reviewer or human-wait signal from Codex (a `tool_use_id` or verdict on
+  `PermissionRequest`, or an app-server notification for sessions aHerald does not own). Close it when
+  Codex offers one and the outcome tests can be written against it.
 
 - [ ] **AH-277 — Windows console companion checks (left from AH-211).**
   By hand: `aherald-cli` in Windows Terminal and on Windows Server 2019 (output, exit code, an unknown
@@ -558,6 +564,17 @@ P2 tasks run in the listed order; AH-266 goes last.
   it proves (a canceled request never waits for the gate). Acceptance: 40 loaded lib-suite runs on
   `windows-latest` without this failure, and the test still fails when cancellation is ignored.
 
+- [ ] **AH-320 — `repeated_card_rendering_and_dpi_resize_release_native_resources` fails its thread count on a runner.**
+  `src/windows/overlay.rs`: after the render cycles the test asserts the process has as many threads as
+  before. CI run 43922624880 on `37752d9` (pull request #189, which changes no Windows source) failed
+  on `windows-latest` with `threads()` 6 against 4; the same test passed 5 of 5 locally (Windows 11,
+  2026-11-16). Depends on nothing. Do first: find which threads appear (system thread-pool workers
+  started by `DwmFlush` or layered-window updates are the first suspect) with the `Manual` workflow
+  under load. Then compare only threads this process can leak, or let idle pool workers exit before
+  counting, without loosening the check that rendering leaks no thread it started. Acceptance: 40 loaded
+  lib-suite runs on `windows-latest` without this failure, and the test still fails when a render
+  cycle leaks a thread.
+
 ### P2 — structural refactoring of the residents (in this order)
 
 ## Milestone 13 — Messenger notifications (2026-11-06)
@@ -615,22 +632,9 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
 `AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
-**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-302 to AH-305 run
-in this order; the others are independent. Suggested order (AH-310 and AH-306 done): AH-311, then AH-302 to
-AH-305, AH-312, AH-308, and the rest when convenient.
-
-- [ ] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
-  Blocks AH-304 and AH-305. Source reading of `rust-v0.169.0` (`codex-rs/core/src/tools/approvals.rs`,
-  `tools/registry.rs`) says: `PreToolUse`, then `PermissionRequest`, then the reviewer, then the tool, then
-  `PostToolUse` (only when the tool succeeded), then the next `PostModelRequest`. Confirm it on a real session.
-  Extend `tests/live/codex_approval_observation.ps1` (or add a `.sh` twin) so its recorder keeps, per hook
-  call, only: event name, `turn_id` and `tool_use_id` as short hashes, `agent_id` presence, and a monotonic
-  sequence number. No tool input, prompt or path. Run three cases with `approvals_reviewer = "auto_review"`:
-  a request the reviewer approves, one it denies, and two tool calls in one model step where one needs
-  approval. Record the Codex version.
-  Acceptance: `docs/codex-approval-observation.md` gains a table with the observed order per case, states
-  whether `PreToolUse` or `PostToolUse` of a sibling call can arrive between a `PermissionRequest` and its
-  resolution, and `docs/harness-compatibility.md` names the tested version. No production code changes.
+**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-303 to AH-305 run
+in this order; the others are independent. Suggested order (AH-310, AH-306 and AH-302 done): AH-311, then
+AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
 
 - [ ] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
   Depends on AH-302. Today `events::parse_hook` drops `tool_use_id` (`src/events.rs:380`), Codex activity is
@@ -661,6 +665,15 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   payload with a hostile id is rejected; `SECRET` in `tool_input` never appears in the serialized event.
   Update `crates/aherald-ping` and both shell senders only if the listener contract changes
   (`tests/` contract test `parser_contract.rs` must stay green).  Acceptance: the tests pass on Linux; Windows and macOS compile in CI.
+  Progress (2026-11-16, branch `feature/AH-303-codex-progress`, stacked on AH-302): all four parts and their
+  docs are committed. Choice for part 2: a main-agent report with tokens stays `CodexContext` (with an
+  optional `turn_id` an old resident ignores); a subagent or tokenless report goes as the new
+  `CodexProgress`, which an old resident rejects at no loss. Guest token counts are dropped. Hook time
+  (WSL Debian, xvfb, release, private resident, median of 50, two rounds): before 12380/12152 µs, after
+  12604/12866 µs, so +0.2 to +0.7 ms. Local runs: Windows full suite 987 passed, 0 failed; Linux (WSL)
+  1035 passed with only the `workspace` test failing for a missing `python3`, as on `master`, and the
+  three xvfb extras passed; macOS not checked. Remaining: the pull request and its CI on all three
+  platforms.
 
 - [ ] **AH-304 — Hold a Codex permission card until the request is still open (`[codex] permission_delay_sec`).**
   Depends on AH-303. Agreed 2026-11-16: the delay is **on by default**; `0` switches it off. Range 0..=120.
@@ -707,6 +720,20 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   or restate what it still needs.
   Acceptance: tests pass on Linux; by hand on one OS with a real Codex auto-review session, an approved
   request shows no card and a real human prompt shows one after the delay; record the Codex version.
+  Progress (2026-11-16, branch `feature/AH-304-permission-delay`, stacked on AH-303): implemented with
+  red and green commits and documented. The Watchdog sample has 0 `PermissionRequest` rows (its hooks do
+  not subscribe to it), so there was nothing to measure; the owner chose **3 s** instead of the 8 s
+  fallback (`docs/notes/ah-304-permission-delay.md`; re-measuring is AH-317). Wire choice: `Event` gains
+  `tool_phase` (`start`/`finish`), set by the hook parser, so the resident can tell a tool's start from
+  its finish even without an id. A second red/green pair: a prompt or completed model request forgets the
+  turn's open tools (a denied call never sends `PostToolUse`), and phase-less tool activity from an older
+  hook is ignored. Pull request notes: the first red commit carries compile-only stubs in `src/`; the
+  green commit corrected one red expectation (a 64-card queue releases 63 of 64 held requests, since the
+  65th was already queued); the release runs in `resident_request::tick`, not `Queue::tick`, because it
+  needs `Controls::forward`; a hook from before AH-303 forwards activity without `tool_use_id` only with
+  the idle warning on, and its `PreToolUse` then counts as a prompt and can drop a real wait.
+  Remaining: the manual check with a real Codex auto-review session, macOS (CI), the pull request and
+  its CI. AH-099 stays open (restated below).
 
 - [ ] **AH-305 — A shown permission or input card of any harness disappears when its request is resolved.**
   Depends on AH-303; independent of the delay. Today the card stays until `Stop` or `Interrupt` of the turn
@@ -749,6 +776,28 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   Acceptance: tests pass; `docs/codex-hooks.md`, `docs/claude-hooks.md` and `docs/harnesses.md` each say when
   a wait card leaves; by hand, one real Claude Code permission prompt answered in the terminal clears its
   card before the turn ends (record the version and OS).
+  Progress (2026-11-16, branch `feature/AH-305-codex-wait-resolution`, stacked on AH-304): the Codex part
+  is implemented with a red and a green commit. `pending_approvals::Waiter` holds the one evidence rule
+  for held requests and shown cards; the queue watches each admitted Codex wait card by entry id
+  (a side list pruned against the queue, so `queue::Entry` keeps its fields) and a card released after
+  the delay keeps the tools open when its request arrived. Codex hooks report no input request, so
+  only permission cards are concerned. The test
+  `requests_without_request_identity_are_not_merged_or_resolved_by_tool_results` is now
+  `requests_without_request_identity_are_not_merged` (body unchanged): say so in the pull request.
+  `docs/codex-hooks.md`, `docs/codex-approval-observation.md` and `CHANGELOG.md` updated. Windows: full
+  suite ran locally, 1023 passed, 0 failed, 25 ignored; `kaboost_audit_tdd.py` confirms the pair.
+  Linux and macOS: not checked yet (CI).
+  Claude part (2026-11-16, branch `feature/AH-305-claude-wait-resolution`, stacked on the Codex branch):
+  reference read for Claude Code 2.1.325 and recorded in `docs/claude-hooks.md` ("When a wait card
+  leaves"); a red and a green commit. The wait key now carries the source, and Claude keys by session
+  and agent. `PostToolUseFailure` is bound (setup, plugin, examples, guest sender and contract test).
+  Added guard: a `permission_prompt` notification arriving after its prompt was answered (tool finished,
+  no other tool open) shows no card; the next `PreToolUse` lifts it. `tests/api/queue.rs`
+  `claude_activity_keeps_its_pending_wait_as_before` pinned the old contract and is now
+  `a_claude_tool_start_keeps_its_pending_wait`: say so in the pull request. Follow-ups AH-318
+  (`prompt_id`) and AH-319 (`PermissionDenied`). Remaining: the manual check (one real Claude Code
+  prompt answered in the terminal clears its card before the turn ends; record version and OS), the
+  bridge tests and `docs/harnesses.md`, and the pull requests with their CI.
 
 - [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
   `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
@@ -795,6 +844,34 @@ AH-305, AH-312, AH-308, and the rest when convenient.
   mode flag, a permission prompt in a real OpenCode or Pi session shows a card through the resident (it
   starts one if none runs), and answering the prompt in the harness clears the card before the turn ends.
   Acceptance: one line in `DONE.md` with the harness version, aHerald version and OS.
+
+- [ ] **AH-317 — Measure the Codex permission delay from real data.**
+  Split from AH-304: its default (3 s, the owner's choice) was set without data, because the live Watchdog
+  hooks do not subscribe to `PermissionRequest` or `PostModelRequest`. Ask the owner whether to bind those
+  events in Watchdog's hook profile (a change to the owner's live hooks, done in the Watchdog repository by
+  its own procedure, never from here). After at least two weeks, run the AH-304 measurement as written
+  (count, p50 to p99, 1 s histogram to 60 s, CLI and desktop apart, Claude too) and add the figures to
+  `docs/notes/ah-304-permission-delay.md`. Acceptance: the note holds the figures; if they argue for another
+  default, ask the owner before changing `src/config.rs` and `config.example.toml` together.
+
+- [ ] **AH-318 — Decide whether Claude waits use `prompt_id` instead of the session.**
+  Depends on AH-305. Found in AH-305. The Claude Code hook reference (2.1.325) now documents `prompt_id` as a common input
+  field ("UUID identifying the user prompt currently being processed ... Absent until the first user
+  input"). aHerald keys Claude waits by session (one wait card per session; `docs/claude-hooks.md`). Using
+  `prompt_id` would let a late wait of an earlier prompt be recognized as obsolete, as Codex turns are.
+  Owner decision first: it changes the per-session model. Then record which events carry it (a sanitized
+  live capture), and keep the session key when it is absent. Acceptance: decision recorded; if adopted,
+  pure queue tests for two prompts of one session and an event without `prompt_id`.
+
+- [ ] **AH-319 — Clear a Claude card on `PermissionDenied` (auto mode).**
+  Depends on AH-305. Found in AH-305. `PermissionDenied` fires when auto mode denies a call and carries `tool_use_id`
+  (reference 2.1.325); it never fires for a denial in the dialog. A card of a call auto mode denied now
+  waits for the next prompt or `Stop`. Treat `PermissionDenied` as the finish of its call: parser,
+  `hook_setup::events(Agent::Claude)`, `plugins/aherald/hooks/hooks.json`, the `examples/claude-settings*.json`
+  files, the guest sender and its contract test, `docs/claude-hooks.md`, and a `CHANGELOG.md` note that setup
+  must be run again. First confirm with a live auto-mode session that a card can exist for such a call
+  (a `PermissionRequest` for a call that cannot prompt). Acceptance: a pure test that the card leaves on its
+  call's `PermissionDenied`; the confirmation recorded.
 
 - [ ] **AH-311 — The sound of a new event follows one rule on Windows, macOS and Linux.**
   Today (by reading): with the usage card open, Windows and macOS start no sound until it closes

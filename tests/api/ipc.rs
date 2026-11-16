@@ -1,4 +1,16 @@
 use aherald::ipc;
+
+#[test]
+fn a_codex_context_report_keeps_its_turn_across_the_wire() {
+    let request: ipc::Request = serde_json::from_value(serde_json::json!(
+        {"operation":"codex_context","report":{"session_id":"s","tokens":5,"turn_id":"t"}}
+    ))
+    .unwrap();
+    let frame = ipc::encode(&request).unwrap();
+    let back = serde_json::to_value(ipc::decode::<ipc::Request>(&frame).unwrap()).unwrap();
+    assert_eq!(back["report"]["turn_id"], "t");
+}
+
 #[test]
 fn frames_round_trip_and_reject_invalid_length_version_and_json() {
     let frame = ipc::encode(&vec!["status"]).unwrap();

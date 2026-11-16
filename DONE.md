@@ -3,6 +3,20 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
+  `tests/live/codex_approval_observation.ps1 -HookOrder` runs three ephemeral `codex exec` sessions with
+  `approvals_reviewer="auto_review"` (approved, denied, two sibling calls in one model step where one is
+  escalated); its recorder keeps per hook call only the event name, salted 8-character hashes of `turn_id`
+  and `tool_use_id`, `agent_id` presence and a mutex-ordered sequence number. Live on 2026-11-16 with
+  `codex-cli 0.169.0` (npm, tag `rust-v0.169.0`) on Windows 11 Pro 22621 (**ran locally**; Linux and macOS
+  **not checked**). The order matches the source reading: `PreToolUse`, `PermissionRequest`, reviewer, tool,
+  `PostToolUse` only when the call ran, next `PostModelRequest`. A `codex exec --json` run of the deny prompt
+  reported the command `declined`. A sibling's `PostToolUse` arrived between a `PermissionRequest` and its
+  resolution; both sibling `PreToolUse` calls arrived before it. `PermissionRequest` has no `tool_use_id`.
+  The probe needs `windows.sandbox="elevated"` because `--ignore-user-config` drops it; without it every
+  command asked for approval. Table and findings in `docs/codex-approval-observation.md`; version in
+  `docs/harness-compatibility.md`. No production code changed. Not covered: a person answering, subagents.
+
 - [x] **AH-306 — The Linux resident survives a card that cannot be drawn (parity with AH-041).**
   A failed Linux draw (for example `X11: no monitor` with every output off) hides the card, keeps the
   queue and retries on the next wake; only a lost X connection ends the loop, and a failing card does not

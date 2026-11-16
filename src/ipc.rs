@@ -57,6 +57,15 @@ pub enum Request {
     CodexContext {
         report: crate::codex_context::Report,
     },
+    /// A completed Codex model request with no context report (a subagent's, or one without a
+    /// token count): activity of its session. An older resident rejects it and loses nothing.
+    CodexProgress {
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+    },
 }
 /// What `--raw-output` can return.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

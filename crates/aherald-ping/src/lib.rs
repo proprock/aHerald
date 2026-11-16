@@ -70,21 +70,29 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String>
     Ok(cli)
 }
 
-/// Whether the host takes this event; everything else (tool and prompt activity, subagents,
-/// idle reminders) never leaves the guest. Public only so that `tests/parser_contract.rs` can hold
-/// it to what the host's hook parser accepts.
+/// Whether the host takes this event: turn ends, waits, tool and prompt activity and (Codex) a
+/// completed model request. Everything else (subagent stops, idle reminders, unfinished model
+/// requests) never leaves the guest. Public only so that `tests/parser_contract.rs` can hold it to
+/// what the host's hook parser accepts.
 #[doc(hidden)]
 pub fn wanted(agent: Agent, value: &Value) -> bool {
     let name = value.get("hook_event_name").and_then(Value::as_str);
     match (agent, name) {
+        (_, Some("PreToolUse" | "PostToolUse" | "UserPromptSubmit")) => true,
+        (Agent::Claude, Some("PostToolUseFailure")) => true,
         (Agent::Claude, Some("Stop" | "StopFailure" | "PermissionRequest" | "SessionEnd")) => true,
         (Agent::Claude, Some("Notification")) => matches!(
             value.get("notification_type").and_then(Value::as_str),
             Some("permission_prompt" | "elicitation_dialog" | "agent_needs_input")
         ),
         (Agent::Codex, Some("Stop" | "PermissionRequest" | "Interrupt" | "SessionEnd")) => true,
+        (Agent::Codex, Some("PostModelRequest")) => is_completed(value),
         _ => false,
     }
+}
+
+fn is_completed(value: &Value) -> bool {
+    value.get("status").and_then(Value::as_str) == Some("completed")
 }
 
 /// The last component of a path, which is all the host keeps of it (the folder name).
@@ -92,18 +100,26 @@ fn folder(path: &str) -> Option<&str> {
     path.rsplit(['/', '\\']).find(|part| !part.is_empty())
 }
 
-/// The payload reduced to the fields the host reads. Tool input, transcript paths, prompts and
-/// the contents of background tasks are never copied: the full working directory becomes its
-/// last component, a task becomes its type, a wakeup becomes whether it recurs.
+/// The payload reduced to the fields the host reads. Tool input and output, token counts,
+/// transcript paths, prompts and the contents of background tasks are never copied: the full
+/// working directory becomes its last component, a task becomes its type, a wakeup becomes whether
+/// it recurs. Only a model request keeps its `status`.
 pub fn redact(value: &Value) -> Value {
     let mut out = Map::new();
+    let model_request =
+        value.get("hook_event_name").and_then(Value::as_str) == Some("PostModelRequest");
     for key in [
         "hook_event_name",
         "session_id",
         "turn_id",
         "agent_id",
+        "tool_use_id",
         "notification_type",
+        "status",
     ] {
+        if key == "status" && !model_request {
+            continue;
+        }
         if let Some(text) = value.get(key).filter(|v| v.is_string()) {
             out.insert(key.into(), text.clone());
         }
@@ -319,18 +335,20 @@ mod tests {
     }
 
     #[test]
-    fn only_turn_ends_and_waits_are_wanted() {
-        for name in ["Stop", "StopFailure", "PermissionRequest", "SessionEnd"] {
-            let value = json!({"hook_event_name": name});
-            assert!(wanted(Agent::Claude, &value), "{name}");
-        }
+    fn turn_ends_waits_and_activity_are_wanted() {
         for name in [
+            "Stop",
+            "StopFailure",
+            "PermissionRequest",
+            "SessionEnd",
             "PreToolUse",
             "PostToolUse",
             "UserPromptSubmit",
-            "SubagentStop",
-            "Notification",
         ] {
+            let value = json!({"hook_event_name": name});
+            assert!(wanted(Agent::Claude, &value), "{name}");
+        }
+        for name in ["SubagentStop", "Notification", "PostModelRequest"] {
             assert!(
                 !wanted(Agent::Claude, &json!({"hook_event_name": name})),
                 "{name}"
@@ -346,7 +364,15 @@ mod tests {
         }
         let idle = json!({"hook_event_name": "Notification", "notification_type": "idle_prompt"});
         assert!(!wanted(Agent::Claude, &idle));
-        for name in ["Stop", "PermissionRequest", "Interrupt", "SessionEnd"] {
+        for name in [
+            "Stop",
+            "PermissionRequest",
+            "Interrupt",
+            "SessionEnd",
+            "PreToolUse",
+            "PostToolUse",
+            "UserPromptSubmit",
+        ] {
             assert!(
                 wanted(Agent::Codex, &json!({"hook_event_name": name})),
                 "{name}"
@@ -357,11 +383,49 @@ mod tests {
             Agent::Codex,
             &json!({"hook_event_name": "StopFailure"})
         ));
-        assert!(!wanted(
+        // A model request is progress only once it completed.
+        assert!(wanted(
             Agent::Codex,
-            &json!({"hook_event_name": "PostModelRequest"})
+            &json!({"hook_event_name": "PostModelRequest", "status": "completed"})
         ));
+        for status in [json!("failed"), json!("cancelled"), Value::Null] {
+            assert!(!wanted(
+                Agent::Codex,
+                &json!({"hook_event_name": "PostModelRequest", "status": status})
+            ));
+        }
         assert!(!wanted(Agent::Codex, &json!({})));
+    }
+
+    #[test]
+    fn tool_activity_keeps_its_call_id_and_a_model_request_its_status() {
+        let tool = redact(&json!({
+            "hook_event_name": "PostToolUse",
+            "session_id": "s-1",
+            "turn_id": "t-1",
+            "tool_use_id": "call-1",
+            "tool_name": "Bash",
+            "tool_input": {"command": "cat ~/.ssh/id_rsa"},
+            "tool_response": "private",
+            "status": "ok",
+        }));
+        assert_eq!(
+            tool,
+            json!({"hook_event_name": "PostToolUse", "session_id": "s-1", "turn_id": "t-1", "tool_use_id": "call-1"})
+        );
+        let model = redact(&json!({
+            "hook_event_name": "PostModelRequest",
+            "session_id": "s-1",
+            "turn_id": "t-1",
+            "agent_id": "a-1",
+            "status": "completed",
+            "token_usage": {"input_tokens": 5},
+            "model": "private",
+        }));
+        assert_eq!(
+            model,
+            json!({"hook_event_name": "PostModelRequest", "session_id": "s-1", "turn_id": "t-1", "agent_id": "a-1", "status": "completed"})
+        );
     }
 
     #[test]
@@ -420,7 +484,7 @@ mod tests {
 
     #[test]
     fn prepare_drops_unwanted_and_unparseable_input() {
-        assert!(prepare(Agent::Claude, br#"{"hook_event_name":"PreToolUse"}"#).is_none());
+        assert!(prepare(Agent::Claude, br#"{"hook_event_name":"SubagentStop"}"#).is_none());
         assert!(prepare(Agent::Claude, b"{nope").is_none());
         assert!(prepare(Agent::Claude, &vec![b' '; MAX_INPUT * 2]).is_none());
         let body = prepare(

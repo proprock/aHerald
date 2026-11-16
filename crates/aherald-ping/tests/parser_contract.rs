@@ -8,13 +8,11 @@ use serde_json::{Value, json};
 use std::{fs, path::Path};
 
 /// Events the host's parser reads as lifecycle evidence only (`Event::activity`): a prompt or tool
-/// use proves the session is working again, never a card. Both sides see the same stream in a
-/// local install, but a guest forwards nothing for them, deliberately: every tool call would
-/// otherwise cost a network round trip and leak the cadence of the session. Anything else on
-/// which the two disagree is a bug.
-const DROPPED_BY_THE_SENDER: [&str; 3] = ["UserPromptSubmit", "PreToolUse", "PostToolUse"];
+/// use proves the session is working again, never a card. Since AH-303 a guest forwards them too
+/// (once or twice per tool call), so the resident sees every session's progress.
+const ACTIVITY: [&str; 3] = ["UserPromptSubmit", "PreToolUse", "PostToolUse"];
 
-const CLAUDE_EVENTS: [&str; 14] = [
+const CLAUDE_EVENTS: [&str; 16] = [
     "Stop",
     "StopFailure",
     "PermissionRequest",
@@ -23,6 +21,8 @@ const CLAUDE_EVENTS: [&str; 14] = [
     "UserPromptSubmit",
     "PreToolUse",
     "PostToolUse",
+    "PostToolUseFailure",
+    "PermissionDenied",
     "SubagentStop",
     "SessionStart",
     "PreCompact",
@@ -30,7 +30,8 @@ const CLAUDE_EVENTS: [&str; 14] = [
     "TaskCompleted",
     "NotAnEvent",
 ];
-const CODEX_EVENTS: [&str; 9] = [
+const CODEX_EVENTS: [&str; 11] = [
+    "PostToolUseFailure",
     "Stop",
     "PermissionRequest",
     "Interrupt",
@@ -38,9 +39,13 @@ const CODEX_EVENTS: [&str; 9] = [
     "UserPromptSubmit",
     "PreToolUse",
     "PostToolUse",
+    "PostModelRequest",
     "SessionStart",
     "NotAnEvent",
 ];
+/// `PostModelRequest` statuses: only a completed request is progress.
+const MODEL_REQUEST_STATUSES: [Option<&str>; 4] =
+    [Some("completed"), Some("failed"), Some("cancelled"), None];
 const NOTIFICATION_TYPES: [&str; 6] = [
     "permission_prompt",
     "elicitation_dialog",
@@ -50,12 +55,15 @@ const NOTIFICATION_TYPES: [&str; 6] = [
     "",
 ];
 
-/// Whether the host shows or counts the event, apart from the lifecycle evidence the sender
-/// drops on purpose.
+/// Whether the host shows or counts the event: a card, a wait's evidence, activity, or (Codex) a
+/// completed model request's progress.
 fn host_takes(agent: Host, payload: &Value) -> bool {
     let bytes = serde_json::to_vec(payload).unwrap();
+    if agent == Host::Codex && aherald::codex_context::progress(&bytes).unwrap().is_some() {
+        return true;
+    }
     match agent.parse_hook(&bytes) {
-        Ok(Some(event)) => !event.activity,
+        Ok(Some(_)) => true,
         Ok(None) => false,
         Err(error) => panic!("the host rejects {payload}: {error}"),
     }
@@ -103,6 +111,13 @@ fn the_sender_forwards_exactly_what_the_host_codex_parser_takes() {
     for name in CODEX_EVENTS {
         assert_agree(Host::Codex, Agent::Codex, &payload(name, None));
     }
+    for status in MODEL_REQUEST_STATUSES {
+        let mut value = payload("PostModelRequest", None);
+        if let Some(status) = status {
+            value["status"] = status.into();
+        }
+        assert_agree(Host::Codex, Agent::Codex, &value);
+    }
 }
 
 #[test]
@@ -127,19 +142,17 @@ fn the_recorded_codex_payloads_agree_too() {
 }
 
 #[test]
-fn the_events_the_sender_drops_on_purpose_are_the_ones_the_host_reads_as_activity() {
-    // Pins the exception list above: it names events the host really parses as activity, so the
-    // list cannot hide a disagreement about a real turn end or wait.
-    for agent in [Host::Claude, Host::Codex] {
-        for name in DROPPED_BY_THE_SENDER {
-            let bytes = serde_json::to_vec(&payload(name, None)).unwrap();
-            let event = agent.parse_hook(&bytes).unwrap().unwrap();
-            assert!(event.activity, "{} {name}", agent.label());
-        }
-    }
+fn the_sender_forwards_the_events_the_host_reads_as_activity() {
     for (host, sender) in [(Host::Claude, Agent::Claude), (Host::Codex, Agent::Codex)] {
-        for name in DROPPED_BY_THE_SENDER {
-            assert!(!wanted(sender, &payload(name, None)), "{}", host.label());
+        for name in ACTIVITY {
+            let bytes = serde_json::to_vec(&payload(name, None)).unwrap();
+            let event = host.parse_hook(&bytes).unwrap().unwrap();
+            assert!(event.activity, "{} {name}", host.label());
+            assert!(
+                wanted(sender, &payload(name, None)),
+                "{} {name}",
+                host.label()
+            );
         }
     }
 }

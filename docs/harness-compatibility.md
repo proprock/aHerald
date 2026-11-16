@@ -108,6 +108,31 @@ shipped examples and a recorder in place of aherald:
   `ctx.hasUI` is true: that also silences `pi -p` scripts, which is intended.
 - Not verified: compaction and queued follow-ups.
 
+## Codex 0.169.0 (AH-302)
+
+Hook order around an automatically reviewed approval was checked live on 2026-11-16 with
+`codex-cli 0.169.0` (npm `@openai/codex@0.169.0`, tag `rust-v0.169.0`) on Windows 11 build 22621:
+`PreToolUse`, `PermissionRequest`, the reviewer, the tool, `PostToolUse` only when the call ran,
+then the next `PostModelRequest`. `PermissionRequest` carries no `tool_use_id` in this version. The
+cases, the table and the sibling-call finding are in
+[the approval observation](codex-approval-observation.md#hook-order-around-automatic-review-ah-302).
+
+## Claude Code 2.1.325 (AH-305)
+
+Read from the hook reference (`https://code.claude.com/docs/en/hooks.md`) on 2026-11-16, Claude
+Code 2.1.325 installed; the payload shapes come from the reference's examples, not from a live
+capture.
+
+- `PreToolUse`, `PostToolUse`, `PostToolUseFailure` and `PermissionDenied` carry `tool_use_id`;
+  `PermissionRequest` does not. aHerald now also binds `PostToolUseFailure` (the finish of a
+  failed call).
+- A permission denied in the dialog sends no hook: neither `PostToolUseFailure` nor
+  `PermissionDenied`.
+- `PermissionDenied` (auto-mode denials, AH-319) and the common `prompt_id` field (AH-318) are
+  not used yet.
+
+What aHerald does with these events is in [the Claude hook guide](claude-hooks.md#when-a-wait-card-leaves).
+
 ## Repeating the probes
 
 ```sh

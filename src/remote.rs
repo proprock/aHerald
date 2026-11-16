@@ -181,6 +181,20 @@ pub fn process(context: &Context, agent: Agent, body: &[u8]) -> Reply {
     if !agent.hooks_enabled(&context.config) {
         return Reply::status(200);
     }
+    if agent == Agent::Codex {
+        match crate::codex_context::progress(body) {
+            // A guest's progress is activity only: its token count is not this machine's
+            // context, so it never raises the context warning.
+            Ok(Some(progress)) => {
+                return match (context.deliver)(progress.without_tokens().request()) {
+                    Response::Accepted => Reply::status(200),
+                    _ => Reply::status(503),
+                };
+            }
+            Ok(None) => {}
+            Err(_) => return Reply::status(400),
+        }
+    }
     let event = match agent.parse_hook(body) {
         Ok(Some(event)) => event,
         // Valid but not a turn end or wait (for example a SubagentStop): nothing to do.
@@ -194,9 +208,6 @@ pub fn process(context: &Context, agent: Agent, body: &[u8]) -> Reply {
     if busy {
         // As the local hook does: a Stop with background work only settles the session's waits.
         event.activity = true;
-    } else if event.activity {
-        // Per-tool and per-prompt activity is not forwarded from a guest.
-        return Reply::status(200);
     }
     // Never a window or terminal of this machine: a guest's id means nothing here.
     event.window = None;
@@ -657,14 +668,82 @@ mod tests {
     }
 
     #[test]
-    fn tool_and_prompt_activity_is_not_delivered() {
+    fn tool_and_prompt_activity_is_delivered_without_a_window() {
         let (_remote, addr, seen) = listen("");
-        for name in ["PreToolUse", "PostToolUse", "UserPromptSubmit"] {
-            let body = format!(r#"{{"hook_event_name":"{name}","session_id":"s-1"}}"#);
-            let (status, _) = post(addr, Some(TOKEN), "/v1/hook?agent=claude", body.as_bytes());
-            assert_eq!(status, 200, "{name}");
+        for agent in ["claude", "codex"] {
+            for name in ["PreToolUse", "PostToolUse", "UserPromptSubmit"] {
+                let body = format!(
+                    r#"{{"hook_event_name":"{name}","session_id":"s-1","tool_use_id":"call-1","window":4242,"tty":"/dev/pts/9"}}"#
+                );
+                let target = format!("/v1/hook?agent={agent}");
+                let (status, body) = post(addr, Some(TOKEN), &target, body.as_bytes());
+                assert_eq!((status, body.as_str()), (200, ""), "{agent} {name}");
+            }
         }
-        assert!(seen.lock().unwrap().is_empty());
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 6, "{seen:?}");
+        for request in seen.iter() {
+            let Request::Event { event } = request else {
+                panic!("{request:?}");
+            };
+            assert!(event.activity);
+            assert_eq!((event.window, event.tty.as_deref()), (None, None));
+        }
+        // AH-304: the host can tell a guest tool's start from its finish.
+        let phases: Vec<_> = seen
+            .iter()
+            .filter_map(|r| match r {
+                Request::Event { event } => Some(event.tool_phase),
+                _ => None,
+            })
+            .collect();
+        use crate::events::ToolPhase::{Finish, Start};
+        assert_eq!(
+            phases,
+            [
+                Some(Start),
+                Some(Finish),
+                None,
+                Some(Start),
+                Some(Finish),
+                None
+            ]
+        );
+    }
+
+    #[test]
+    fn a_guest_model_request_is_progress_without_its_token_count() {
+        let (_remote, addr, seen) = listen("[codex.warnings]\ncontext_tokens=1\n");
+        for agent_id in ["", r#","agent_id":"child""#] {
+            let body = format!(
+                r#"{{"hook_event_name":"PostModelRequest","session_id":"c-1","turn_id":"t-1","status":"completed","token_usage":{{"input_tokens":500}}{agent_id}}}"#
+            );
+            let (status, body) = post(addr, Some(TOKEN), "/v1/hook?agent=codex", body.as_bytes());
+            assert_eq!((status, body.as_str()), (200, ""));
+        }
+        let failed =
+            br#"{"hook_event_name":"PostModelRequest","session_id":"c-1","status":"failed"}"#;
+        assert_eq!(
+            post(addr, Some(TOKEN), "/v1/hook?agent=codex", failed).0,
+            200
+        );
+        let seen = seen.lock().unwrap();
+        let [first, second] = seen.as_slice() else {
+            panic!("{seen:?}");
+        };
+        for (request, agent) in [(first, None), (second, Some("child"))] {
+            let Request::CodexProgress {
+                session_id,
+                turn_id,
+                agent_id,
+            } = request
+            else {
+                panic!("{request:?}");
+            };
+            assert_eq!(session_id, "c-1");
+            assert_eq!(turn_id.as_deref(), Some("t-1"));
+            assert_eq!(agent_id.as_deref(), agent);
+        }
     }
 
     #[test]

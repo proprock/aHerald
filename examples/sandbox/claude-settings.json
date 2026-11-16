@@ -1,6 +1,39 @@
 {
-  "description": "aHerald hooks for Claude Code inside a container or VM: only turn ends and waits, so no request is made per tool call. Replace the script path, set AHERALD_ENDPOINT and AHERALD_TOKEN (aherald --remote-info on the host) and merge into ~/.claude/settings.json.",
+  "description": "aHerald hooks for Claude Code inside a container or VM: turn ends, waits and tool activity (one or two requests per tool call). Replace the script path, set AHERALD_ENDPOINT and AHERALD_TOKEN (aherald --remote-info on the host) and merge into ~/.claude/settings.json.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/aherald-ping.sh claude",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [

@@ -205,6 +205,10 @@ session_names = false
 # Transient mode also requires session_names = true. Each card starts its own
 # `codex app-server` child (about 140 ms).
 transient_names = false
+# Seconds a Codex permission request waits in the resident before its card, sound and messenger
+# forward. A request answered within that time (by the automatic reviewer, for example) shows
+# nothing. 0 shows every request at once; range 0..=120. Needs resident mode.
+permission_delay_sec = 3
 
 [claude]
 # Accept Claude Code hooks delivered with --hook --agent claude; default true.

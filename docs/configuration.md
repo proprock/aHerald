@@ -31,6 +31,12 @@ uses the resident unless `--transient` is given. A `config.toml` created by an o
 an explicit `mode = "transient"` and is never edited: change that line to `mode = "resident"` to
 follow the new default.
 
+`[codex] permission_delay_sec` (default `3`, range 0..=120) holds a Codex permission request in
+the resident for that many seconds before its card, sound and messenger forward; a request the
+session shows answered meanwhile (by the automatic reviewer, for example) shows nothing. Set it to
+`0` for the behaviour before AH-304: every request at once. Transient mode ignores it. Details in
+[Permission delay](codex-approval-observation.md#permission-delay-ah-304).
+
 Default hook invocation is `aherald.exe --hook --resident`. The PowerShell wrapper
 in `examples/hooks.windows.json` retains `| Out-String` for GUI executable response
 capture. Add `--config` only when using a custom file; no automatic hook edits occur.
@@ -296,18 +302,20 @@ with those two variables set:
 
 - `examples/sandbox/aherald-ping.sh claude|codex`, a shell script that needs `curl`; register it
   with `examples/sandbox/claude-settings.json` or `codex-hooks.json` (AH-225). The Claude plugin's
-  `aherald-hook.sh` does the same when `AHERALD_ENDPOINT` is set, but it registers per-tool events
-  too, so prefer the example files in a guest.
+  `aherald-hook.sh` does the same when `AHERALD_ENDPOINT` is set, but it also registers
+  `UserPromptSubmit`, which posts the prompt, so prefer the example files in a guest.
 - `aherald-ping`, a small program with no dependencies (AH-226): `aherald-ping --hook --agent
-  claude` replaces `aherald --hook --agent claude` in the guest's hook line. It drops everything
-  but turn ends and waits itself and keeps only the fields aHerald reads: no tool input, prompt,
+  claude` replaces `aherald --hook --agent claude` in the guest's hook line. It drops the events
+  aHerald does not use itself and keeps only the fields aHerald reads: no tool input, prompt,
   transcript path or full working directory leaves the guest. `aherald-ping --self-test` checks the
   address and token without making a card.
 
-- Only turn ends and waits are taken (`Stop`, `StopFailure`, `PermissionRequest`, `Notification`,
-  `SessionEnd`); per-tool and per-prompt activity is dropped, so context and idle warnings do not
-  work for a guest's sessions. The payload is parsed here, so a guest can never name a window or
-  terminal of this machine, and a card from a guest is never suppressed for being "watched".
+- Turn ends and waits make cards (`Stop`, `StopFailure`, `PermissionRequest`, `Notification`,
+  `SessionEnd`). Tool and prompt activity and completed Codex model requests only mark the session
+  as working, which dismisses its idle reminder (AH-303); a guest's token counts are dropped, so
+  context warnings do not work for a guest's sessions. The payload is parsed here, so a guest can
+  never name a window or terminal of this machine, and a card from a guest is never suppressed for
+  being "watched".
 - The token only keeps other local clients out. There is no TLS: bind to loopback or a private
   bridge, not to `0.0.0.0`. With the shell sender a `PermissionRequest` payload carries the tool
   input (for Bash, the command waiting for approval); aHerald never stores or logs it, but on the

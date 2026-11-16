@@ -195,7 +195,7 @@ impl Ui {
         } else if self
             .shared
             .lock()
-            .is_ok_and(|s| s.warnings.has_deadline() || !s.queue.items().is_empty())
+            .is_ok_and(|s| s.has_deadline() || !s.queue.items().is_empty())
         {
             Some(1000)
         } else if crate::resident_request::idle_poll_needed(

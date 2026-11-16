@@ -177,6 +177,14 @@ pub struct Event {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// The tool call of `PreToolUse`/`PostToolUse`/`PostToolUseFailure` activity; `None` for
+    /// every other event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
+    /// Whether tool activity is the call's start (`PreToolUse`) or finish (`PostToolUse`);
+    /// `None` for every other event. An older resident ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_phase: Option<ToolPhase>,
     /// Terminal window that hosts the session, recorded by supported hook processes.
     /// Untrusted: re-checked against an executable allowlist before it is activated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,6 +206,13 @@ pub struct Event {
     /// Notice text for `Source::App`, or the measured context/idle warning label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+/// The step of a tool call that tool activity reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolPhase {
+    Start,
+    Finish,
 }
 const MAX_FOLDER_CHARS: usize = 40;
 const MAX_NOTICE_CHARS: usize = 80;
@@ -244,6 +259,8 @@ impl Event {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -268,6 +285,8 @@ impl Event {
             turn_id: None,
             request_id: None,
             agent_id: None,
+            tool_use_id: None,
+            tool_phase: None,
             window: None,
             tty: None,
             ended: false,
@@ -291,6 +310,9 @@ impl Event {
         if self.window == Some(0) {
             return Err("invalid event window".into());
         }
+        if self.tool_phase.is_some() && !self.activity {
+            return Err("invalid event tool phase".into());
+        }
         if let Source::External(key) = &self.source
             && !is_harness_key(key)
         {
@@ -306,15 +328,38 @@ impl Event {
             &self.turn_id,
             &self.request_id,
             &self.agent_id,
+            &self.tool_use_id,
         ]
         .into_iter()
         .flatten()
         {
-            if id.is_empty() || id.len() > 256 || id.chars().any(char::is_control) {
+            if !is_identity(id) {
                 return Err("invalid event identity".into());
             }
         }
         Ok(())
+    }
+}
+
+/// A session, turn, request, agent or tool-call id a hook may carry: 1..=256 bytes, no
+/// control characters.
+pub fn is_identity(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
+}
+
+/// The tool call id of `PreToolUse`/`PostToolUse` (and Claude's `PostToolUseFailure`); no other
+/// event keeps one.
+pub(crate) fn tool_use_id(event_name: &str, id: Option<String>) -> Option<String> {
+    tool_phase(event_name).and(id)
+}
+
+/// The tool call step of `PreToolUse`/`PostToolUse`/`PostToolUseFailure`; no other event has
+/// one. A failed call has finished too.
+pub(crate) fn tool_phase(event_name: &str) -> Option<ToolPhase> {
+    match event_name {
+        "PreToolUse" => Some(ToolPhase::Start),
+        "PostToolUse" | "PostToolUseFailure" => Some(ToolPhase::Finish),
+        _ => None,
     }
 }
 
@@ -354,7 +399,7 @@ pub fn external_event(
     let session_id = fields
         .as_ref()
         .and_then(|f| f.session_id.as_ref()?.as_str())
-        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
+        .filter(|id| is_identity(id))
         .map(str::to_owned);
     let folder = fields.and_then(|f| hook_folder(f.cwd.or(f.working_dir)));
     Event {
@@ -364,6 +409,8 @@ pub fn external_event(
         turn_id: None,
         request_id: None,
         agent_id: None,
+        tool_use_id: None,
+        tool_phase: None,
         window: None,
         tty: None,
         ended,
@@ -382,6 +429,7 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: Option<String>,
         turn_id: Option<String>,
         agent_id: Option<String>,
+        tool_use_id: Option<String>,
         cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
@@ -401,6 +449,8 @@ pub fn parse_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     let event = Event {
         kind,
         source: Source::CodexHook,
+        tool_use_id: tool_use_id(&hook.hook_event_name, hook.tool_use_id),
+        tool_phase: tool_phase(&hook.hook_event_name),
         session_id: hook.session_id,
         turn_id: hook.turn_id,
         request_id: None,

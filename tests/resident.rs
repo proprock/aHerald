@@ -167,9 +167,10 @@ fn sixteen_concurrent_hooks_reach_one_resident_exactly_once() {
     let root = std::env::temp_dir().join(format!("aherald-burst-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let config = root.join("config.toml");
+    // Without the AH-304 delay the requests are cards at once, so `queued` counts them.
     std::fs::write(
         &config,
-        "[notifications]\nenabled=false\n[sounds]\nenabled=false",
+        "[notifications]\nenabled=false\n[sounds]\nenabled=false\n[codex]\npermission_delay_sec=0",
     )
     .unwrap();
     let scope = Scope::current(&format!("burst-test-{}", std::process::id())).unwrap();
@@ -493,6 +494,8 @@ fn claude_event(kind: aherald::events::Kind, ended: bool) -> aherald::events::Ev
         turn_id: None,
         request_id: None,
         agent_id: None,
+        tool_use_id: None,
+        tool_phase: None,
         window: None,
         tty: None,
         ended,

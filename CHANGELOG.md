@@ -29,6 +29,28 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   `mode = "resident"` to follow the new default (AH-310).
 - Claude quota in `auto` mode prefers usable statusLine quota within the configured refresh
   interval, capped at one hour, and falls back to the OAuth usage endpoint (AH-300).
+- Tool and prompt activity from Codex and Claude Code hooks now reaches a running resident even with
+  the idle warning off, and a completed Codex model request reports progress for every agent,
+  subagents included. Tool activity keeps its `tool_use_id`. A resident older than this release
+  rejects the subagent progress; the hook drops that answer silently and the resident keeps working. Guests behind `[remote]` deliver tool activity
+  and Codex model requests too (their token counts are dropped), so idle reminders now work for
+  guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
+  `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
+  see TODO.md).
+- Codex permission cards now wait 3 seconds in the resident (`[codex] permission_delay_sec`,
+  0..=120) and are dropped when the session shows the request was answered meanwhile: a request
+  answered within the delay (by the automatic reviewer, for example) shows no card, sound or
+  messenger message. A request a person must answer appears after the delay; a long-running
+  approved command can still show one until it finishes. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
+  whether a tool started or finished; an older resident ignores that (AH-304, open: see TODO.md).
+- A Codex permission card already on screen leaves as soon as the same session, turn and agent show
+  that the request was answered: every tool that was open when it arrived finished, the next model
+  request completed, or a prompt was submitted. Before, it stayed until the turn ended. A messenger
+  message already sent is not recalled. Claude Code permission and input cards leave the same way,
+  per session and agent: every tool open on arrival finished (`PostToolUse` or the newly bound
+  `PostToolUseFailure`), or a prompt was submitted; the `permission_prompt` notification of a prompt
+  already answered shows no card. Run `aherald --setup --harness claude --apply` (or reinstall the
+  plugin) again to bind `PostToolUseFailure` (AH-305, open: see TODO.md).
 
 ### Fixed
 - The Linux resident no longer exits when a card cannot be drawn (for example with every output

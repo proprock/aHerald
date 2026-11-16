@@ -124,13 +124,14 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
         session_id: Option<String>,
         notification_type: Option<String>,
         agent_id: Option<String>,
+        tool_use_id: Option<String>,
         cwd: Option<serde_json::Value>,
     }
     let hook: Hook = serde_json::from_slice(bytes).map_err(|_| "invalid hook JSON")?;
     let mut ended = false;
     let activity = matches!(
         hook.hook_event_name.as_str(),
-        "UserPromptSubmit" | "PreToolUse" | "PostToolUse"
+        "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure"
     );
     let kind = match hook.hook_event_name.as_str() {
         "Stop" => Kind::TurnComplete,
@@ -155,6 +156,8 @@ fn parse_claude_hook(bytes: &[u8]) -> Result<Option<Event>, String> {
     let event = Event {
         kind,
         source: Source::ClaudeHook,
+        tool_use_id: crate::events::tool_use_id(&hook.hook_event_name, hook.tool_use_id),
+        tool_phase: crate::events::tool_phase(&hook.hook_event_name),
         session_id: hook.session_id,
         turn_id: None,
         request_id: None,

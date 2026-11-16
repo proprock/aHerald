@@ -32,6 +32,7 @@ pub mod notice;
 pub mod notification;
 pub mod operational_log;
 pub mod paths;
+pub mod pending_approvals;
 pub mod perf;
 pub mod perf_report;
 pub mod pet;

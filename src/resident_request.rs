@@ -47,6 +47,14 @@ impl<T> Shared<T> {
     }
 }
 
+impl<T> Shared<T> {
+    /// Whether the resident must wake up by itself: a session warning or a held permission
+    /// request is due later. The one predicate all three residents ask.
+    pub fn has_deadline(&self) -> bool {
+        self.warnings.has_deadline() || self.queue.has_held()
+    }
+}
+
 impl<T> Controls for Shared<T> {
     fn queue(&mut self) -> &mut Queue {
         &mut self.queue
@@ -70,6 +78,10 @@ impl<T> Controls for Shared<T> {
 
 /// Called by native loops even when the presentation queue is empty.
 pub fn tick(state: &mut impl Controls, settings: &Config, now: u64) {
+    // A held permission request is admitted like any event, which a pause does not stop.
+    for event in state.queue().release_due(now) {
+        state.forward(&event);
+    }
     let paused = state.paused();
     if paused {
         return;
@@ -323,6 +335,35 @@ fn invalid() -> (Response, Effects) {
     )
 }
 
+/// A completed Codex model request as activity of its session, turn and agent; `None` when an
+/// id is invalid.
+fn codex_progress(
+    session_id: &str,
+    turn_id: Option<String>,
+    agent_id: Option<String>,
+) -> Option<crate::events::Event> {
+    let mut event = crate::events::Event::demo("turn_complete").ok()?;
+    event.source = Source::CodexHook;
+    event.session_id = Some(session_id.to_owned());
+    event.turn_id = turn_id;
+    event.agent_id = agent_id;
+    event.activity = true;
+    event.validate().ok()?;
+    Some(event)
+}
+
+/// Activity settles idle reminders and an external harness's waits; it is never a card.
+fn observe_activity(
+    event: &crate::events::Event,
+    state: &mut impl Controls,
+    settings: &Config,
+    now: u64,
+) {
+    state.warnings().observe(event, settings, now);
+    state.queue().clear_session_warnings(event);
+    state.queue().observe_activity(event);
+}
+
 /// Puts aHerald's own notices into the resident's queue (see `notice::install`). `wake` runs
 /// with the state locked, after a notice was queued, and wakes the presentation loop.
 pub fn notice_sink<S: Controls + Send + 'static>(
@@ -431,7 +472,13 @@ pub fn respond(
     settings: &Config,
     now: u64,
 ) -> (Response, Effects) {
-    respond_with_focus(request, state, settings, now, crate::focus::observe)
+    let answer = respond_with_focus(request, state, settings, now, crate::focus::observe);
+    for _ in 0..state.queue().take_auto_resolved() {
+        crate::operational_log::log(crate::operational_log::Record::EventDropped(
+            "auto_resolved",
+        ));
+    }
+    answer
 }
 
 fn respond_with_focus(
@@ -490,20 +537,40 @@ fn respond_with_focus(
             if !report.valid() {
                 return invalid();
             }
-            let warning = state.warnings().context(
+            let Some(progress) = codex_progress(&report.session_id, report.turn_id.clone(), None)
+            else {
+                return invalid();
+            };
+            observe_activity(&progress, state, settings, now);
+            if let Some(event) = state.warnings().context(
                 crate::agent::Agent::Codex,
                 &report.session_id,
                 Some(report.tokens),
                 settings,
-            );
-            let wake = warning.is_some();
-            if let Some(event) = warning {
+            ) {
                 deliver_warning(event, state, settings, now);
             }
             (
                 Response::Accepted,
                 Effects {
-                    wake,
+                    wake: true,
+                    ..Effects::default()
+                },
+            )
+        }
+        Request::CodexProgress {
+            session_id,
+            turn_id,
+            agent_id,
+        } => {
+            let Some(progress) = codex_progress(&session_id, turn_id, agent_id) else {
+                return invalid();
+            };
+            observe_activity(&progress, state, settings, now);
+            (
+                Response::Accepted,
+                Effects {
+                    wake: true,
                     ..Effects::default()
                 },
             )
@@ -520,10 +587,8 @@ fn respond_with_focus(
             if event.validate().is_err() {
                 return invalid();
             }
-            state.warnings().observe(&event, settings, now);
-            state.queue().clear_session_warnings(&event);
             if event.activity {
-                state.queue().observe_activity(&event);
+                observe_activity(&event, state, settings, now);
                 return (
                     Response::Accepted,
                     Effects {
@@ -532,6 +597,8 @@ fn respond_with_focus(
                     },
                 );
             }
+            state.warnings().observe(&event, settings, now);
+            state.queue().clear_session_warnings(&event);
             if event.source == Source::App {
                 // The settings of the events belong to the agents: a notice is always shown.
                 let duration = NOTICE_MS.saturating_add(settings.notifications.fade_out_ms);
@@ -575,9 +642,10 @@ fn respond_with_focus(
             };
             let outputs = crate::focus::outputs(settings, observe(&event, settings));
             let accepted = event.clone();
+            let delay_ms = settings.codex.permission_delay_sec.saturating_mul(1000);
             match state
                 .queue()
-                .push_with_outputs(event, now, duration, outputs)
+                .push_with_delay(event, now, duration, outputs, delay_ms)
             {
                 Outcome::Full | Outcome::Invalid => (
                     Response::Rejected,
@@ -588,6 +656,13 @@ fn respond_with_focus(
                 ),
                 Outcome::Duplicate => (Response::Accepted, dropped("duplicate")),
                 Outcome::Obsolete => (Response::Accepted, dropped("obsolete")),
+                Outcome::Held => (
+                    Response::Accepted,
+                    Effects {
+                        wake: true,
+                        ..Effects::default()
+                    },
+                ),
                 outcome @ (Outcome::Queued | Outcome::Resolved) => {
                     if outcome == Outcome::Queued {
                         state.forward(&accepted);
@@ -957,6 +1032,7 @@ mod tests {
         let report = crate::codex_context::Report {
             session_id: "codex-context-test".into(),
             tokens: 101,
+            turn_id: None,
         };
         let request = Request::CodexContext {
             report: report.clone(),
@@ -978,6 +1054,7 @@ mod tests {
                 report: crate::codex_context::Report {
                     session_id: "".into(),
                     tokens: 200,
+                    turn_id: None,
                 },
             },
             &mut s,
@@ -986,6 +1063,53 @@ mod tests {
         );
         assert!(matches!(reply, Response::Rejected));
         assert_eq!(s.queue.items().len(), 1);
+    }
+
+    /// A `codex_progress` request as a newer hook sends it.
+    fn progress(json: serde_json::Value) -> Request {
+        serde_json::from_value(json).expect("codex_progress is a request")
+    }
+
+    #[test]
+    fn codex_progress_dismisses_its_sessions_idle_reminder() {
+        use crate::events::Kind;
+        let settings = Config::parse(
+            "[codex.warnings]\nidle_enabled=true\nidle_minutes=1\n[events.turn_complete]\nenabled=false",
+            std::path::Path::new("."),
+        )
+        .unwrap();
+        let mut s = state(8);
+        s.paused = false;
+        let mut completion = Event::demo("turn_complete").unwrap();
+        completion.source = Source::CodexHook;
+        completion.session_id = Some("s".into());
+        respond(Request::Event { event: completion }, &mut s, &settings, 0);
+        tick(&mut s, &settings, 60_001);
+        assert_eq!(s.queue.items()[0].event.kind, Kind::IdleWarning);
+        let (reply, effects) = respond(
+            progress(
+                serde_json::json!({"operation":"codex_progress","session_id":"s","turn_id":"t"}),
+            ),
+            &mut s,
+            &settings,
+            70_000,
+        );
+        assert!(matches!(reply, Response::Accepted));
+        assert!(effects.wake);
+        assert!(s.queue.items().is_empty(), "progress is new activity");
+    }
+
+    #[test]
+    fn codex_progress_with_a_hostile_identity_is_rejected() {
+        let settings = Config::default();
+        for json in [
+            serde_json::json!({"operation":"codex_progress","session_id":""}),
+            serde_json::json!({"operation":"codex_progress","session_id":"s","turn_id":"a\u{7}"}),
+            serde_json::json!({"operation":"codex_progress","session_id":"s","agent_id":"x".repeat(257)}),
+        ] {
+            let (reply, _) = respond(progress(json.clone()), &mut state(8), &settings, 0);
+            assert!(matches!(reply, Response::Rejected), "{json}");
+        }
     }
 
     #[test]

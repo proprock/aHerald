@@ -18,10 +18,16 @@ You are inside a container or VM. Make your hook events reach aHerald on the hos
      `~/.local/bin/aherald-ping.sh <claude|codex>` as the hook command. It needs `curl`.
 4. Register hooks, merging into existing settings and keeping the user's other hooks:
    - Claude Code, `~/.claude/settings.json`: events `Notification`, `PermissionRequest`, `Stop`,
-     `StopFailure`, `SessionEnd`, each `{"hooks":[{"type":"command","command":"<hook command>","timeout":3}]}`.
+     `StopFailure`, `SessionEnd`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, each
+     `{"hooks":[{"type":"command","command":"<hook command>","timeout":3}]}`.
    - Codex, `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`): events `Stop`,
-     `PermissionRequest`, `Interrupt`, `SessionEnd`, same shape.
-   Do not register `PreToolUse`, `PostToolUse` or `UserPromptSubmit`.
+     `PermissionRequest`, `Interrupt`, `SessionEnd`, `PreToolUse`, `PostToolUse`,
+     `PostModelRequest`, same shape.
+   The tool and model-request events only dismiss idle reminders and answered wait cards on the
+   host. With the script they post each tool's input (and a failure's error) to the host in plain
+   text (`aherald-ping` strips it to ids): ask the user before registering `PreToolUse`,
+   `PostToolUse` and `PostToolUseFailure` with the script, and leave them out if the user
+   does not want a request per tool call. Do not register `UserPromptSubmit`.
 5. Verify: with `aherald-ping`, run `aherald-ping --self-test`; it must print `ok:`. With the script,
    `curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "Authorization: Bearer $AHERALD_TOKEN" "$AHERALD_ENDPOINT/v1/ping"` must print 200.
    If it fails: refused or timed out means the host address, bind or firewall is wrong or the

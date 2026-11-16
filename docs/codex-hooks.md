@@ -20,6 +20,12 @@ expose no request identity. It ignores other fields,
 including messages, transcript paths, and tool arguments. It tolerates missing
 identities for compatibility and unknown fields for forward compatibility.
 
+In resident mode a PermissionRequest that has a turn waits `[codex] permission_delay_sec`
+(default 3, `0` switches it off) before its card, sound and messenger forward, and is dropped
+when the session shows within that time that it was answered (AH-304). The evidence and its
+limits are in [the approval observation notes](codex-approval-observation.md#permission-delay-ah-304).
+Transient mode has no later state and shows the request at once.
+
 For valid Stop input it writes `{}`. PermissionRequest and Interrupt write nothing.
 All hook failures exit successfully, with operational diagnostics only on stderr.
 No response changes permissions, input, or continuation. Input is limited to 64 KiB
@@ -91,6 +97,22 @@ with a valid session and turn identity from Codex. Different turns, sources and
 subagents remain isolated. Processing also runs with presentation disabled or
 paused. Demo events never resolve Codex waits. Incomplete identities and subagent
 waits without a supported terminal source remain manually dismissible.
+
+A permission card already shown also leaves before the turn ends, on the same
+evidence that resolves a request held for `[codex] permission_delay_sec`
+([details](codex-approval-observation.md)), always for the same session, turn
+and agent: every tool that was open when the request arrived finished
+(`PostToolUse` with its `tool_use_id`), the next model request completed
+(`PostModelRequest`), or a prompt was submitted. A tool that started after the
+request never counts, and with no tool open on arrival only a model request,
+prompt, Stop, Interrupt or session end clears the card. A card released after
+the delay keeps the tools that were open when the request arrived. A messenger
+message already sent is not recalled. This needs the resident; Codex hooks
+report no input request, so only permission cards are concerned. A hook run by
+aHerald 0.17.0 or older forwards tool activity only with the idle warning on,
+and without `tool_use_id` or phase; the resident then treats its `PreToolUse`
+like a prompt, which can clear the card early (the same limit as for a held
+request).
 
 Interrupt retains at most 128 terminated-turn identities to suppress delayed
 wait delivery. Stop does not: another Stop hook can continue the same turn, so

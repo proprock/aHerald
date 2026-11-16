@@ -36,8 +36,8 @@ There is no autostart: a resident must be running. The token is a file (`remote-
 | | `aherald-ping` | `aherald-ping.sh` |
 |---|---|---|
 | Needs | nothing (static binary) | `sh`, `curl`, `head` |
-| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval, in plain text |
-| Drops unwanted events itself | yes | register only the five events (example files) |
+| Drops tool input, prompts, transcript path, full cwd | yes | no: a `PermissionRequest` carries the command awaiting approval, a `PreToolUse` or `PostToolUse` the tool input (and output), and a `PostToolUseFailure` the tool input and error, in plain text |
+| Drops unwanted events itself | yes | register only the events in the example files |
 | Where | release asset `aherald-ping-<version>-linux-<arch>-musl` | `examples/sandbox/aherald-ping.sh` |
 
 Prefer `aherald-ping` wherever you can copy a binary in. Set `AHERALD_ENDPOINT` and `AHERALD_TOKEN`
@@ -48,7 +48,10 @@ and register the hooks:
 - Codex: merge `examples/sandbox/codex-hooks.json` into `$CODEX_HOME/hooks.json`.
 
 Both files call `/usr/local/bin/aherald-ping.sh`; to use the binary instead, change the command to
-`/usr/local/bin/aherald-ping --hook --agent claude` (or `codex`). Or paste
+`/usr/local/bin/aherald-ping --hook --agent claude` (or `codex`). With the script, the
+`PreToolUse` and `PostToolUse` entries post each tool's input (and output) to the host in plain
+text; the binary strips it, or drop those entries and give up idle reminders. Never register
+`UserPromptSubmit` with the script: it posts the prompt. Or paste
 [the setup instructions](sandbox-setup-for-agents.md) to the agent inside the guest.
 
 A hook never fails or delays the agent for more than about a second: a missing resident, a wrong
@@ -89,8 +92,17 @@ prompt. Whatever the bind, limit who can reach the port with a firewall rule.
 ## 4. What crosses and what does not
 
 - Taken: `Stop`, `StopFailure`, `PermissionRequest`, `Notification` (permission and input prompts),
-  `SessionEnd`; for Codex `Stop`, `PermissionRequest`, `Interrupt`, `SessionEnd`. Tool and prompt
-  activity stay in the guest, so context and idle warnings do not work for guest sessions.
+  `SessionEnd`; for Codex `Stop`, `PermissionRequest`, `Interrupt`, `SessionEnd`.
+- Activity: `PreToolUse`, `PostToolUse` and `UserPromptSubmit` from both agents, Claude
+  `PostToolUseFailure`, and Codex `PostModelRequest` with `status` `completed`. They make no card;
+  they tell the resident the session is working, which dismisses its idle reminder, and that a
+  wait was answered, which clears its card. The example files register the tool events (Claude:
+  `PostToolUseFailure` too) and, for Codex, `PostModelRequest`: one or two requests per tool call
+  and one per model request. Leave
+  them out if that traffic matters more than idle reminders. `aherald-ping` sends only the event
+  name, `session_id`, `turn_id`, `agent_id`, `tool_use_id` and, for `PostModelRequest`, `status`.
+- The host ignores a guest's token counts, so context warnings do not work for guest sessions; idle
+  warnings do.
 - The host parses the payload itself: a guest cannot name a window or terminal of your machine, and
   a card from a guest is never hidden because you are "watching" a session.
 - No TLS and no per-guest tokens. A guest holding the token can raise cards for any session id.
