@@ -47,6 +47,14 @@ with stable Rust. Keep each milestone usable. Project rules: `AGENTS.md`.
   Uninstall removes only the installation's saved hook bindings before its binary.
   See docs/installation.md and AH-097/AH-102/AH-103.
 - Keep code comments, documentation, and agent instructions in English.
+- Wait cards and delivery (2026-11-16, after `audit-20261116.agents.md`): a Codex permission card is
+  delayed by default and dropped when its turn moves on within the delay (AH-304; the default comes
+  from Watchdog telemetry). A shown permission or input card of any harness leaves on evidence that
+  its request was resolved, not only at the turn end (AH-305). The resident is the default mode:
+  `[general] mode` defaults to `"resident"`, and `aherald --notify` uses the resident unless
+  `--transient` is given, whatever the configuration says (AH-310). Transient stays supported as an
+  explicit choice. The `[remote]` listener passes guest tool and model
+  progress, identities only, so the same rules hold for agents in containers (AH-303).
 
 ## Task tracking
 
@@ -617,6 +625,309 @@ P2 tasks run in the listed order; AH-266 goes last.
   scope: `release.yml` (a rerun touches publication, a separate decision) and `ci.yml`.
   Acceptance: the test passes; a deliberate or natural runner shortage leads to one automatic rerun, a failing
   test does not; the evidence goes into `DONE.md`.
+
+## Milestone 15 — Audit follow-ups (2026-11-16)
+
+Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
+`AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
+**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-302 to AH-305 run
+in this order; the others are independent. Suggested order: AH-310, AH-306, AH-311, then AH-302 to
+AH-305, AH-312, AH-308, and the rest when convenient.
+
+- [ ] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
+  Blocks AH-304 and AH-305. Source reading of `rust-v0.169.0` (`codex-rs/core/src/tools/approvals.rs`,
+  `tools/registry.rs`) says: `PreToolUse`, then `PermissionRequest`, then the reviewer, then the tool, then
+  `PostToolUse` (only when the tool succeeded), then the next `PostModelRequest`. Confirm it on a real session.
+  Extend `tests/live/codex_approval_observation.ps1` (or add a `.sh` twin) so its recorder keeps, per hook
+  call, only: event name, `turn_id` and `tool_use_id` as short hashes, `agent_id` presence, and a monotonic
+  sequence number. No tool input, prompt or path. Run three cases with `approvals_reviewer = "auto_review"`:
+  a request the reviewer approves, one it denies, and two tool calls in one model step where one needs
+  approval. Record the Codex version.
+  Acceptance: `docs/codex-approval-observation.md` gains a table with the observed order per case, states
+  whether `PreToolUse` or `PostToolUse` of a sibling call can arrive between a `PermissionRequest` and its
+  resolution, and `docs/harness-compatibility.md` names the tested version. No production code changes.
+
+- [ ] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
+  Depends on AH-302. Today `events::parse_hook` drops `tool_use_id` (`src/events.rs:380`), Codex activity is
+  forwarded only with the idle warning on (`src/commands/deliver.rs:189`), and a `PostModelRequest` returns
+  before any event is built (`src/commands/deliver.rs:137-150`).
+  1. Add `tool_use_id: Option<String>` to `events::Event` (`#[serde(default, skip_serializing_if)]`, validated
+     like the other identities in `Event::validate`). Fill it in `parse_hook` for `PreToolUse` and
+     `PostToolUse`. An old resident ignores the unknown field already.
+  2. Add `Request::CodexProgress { session_id, turn_id, agent_id }` to `src/ipc.rs` for a completed
+     `PostModelRequest`, or extend `codex_context::Report` with optional `turn_id`; choose the one that keeps
+     old residents accepting new hooks, and say which in the pull request. Subagent reports (`agent_id`)
+     must reach the queue too; today `codex_context::parse` drops them.
+  3. In `dispatch`, forward Codex and Claude tool activity (`PreToolUse`, `PostToolUse`,
+     `UserPromptSubmit`) to a running resident always, not only with the idle warning on: AH-304 and AH-305
+     need it for every session. Keep `forward_if_running` (never start a resident for activity) and its
+     bound. Measure the added hook time per tool call on one OS (median of 50 runs, before and after) and
+     put the numbers in the pull request; if it exceeds 5 ms, stop and ask.
+  4. Guests (agreed 2026-11-16): the `[remote]` listener passes the same activity instead of dropping it
+     (`src/remote.rs:197-200`), still without `window` or `tty`. `aherald-ping` sends for these events only
+     the fields the host reads (event name, `session_id`, `turn_id`, `agent_id`, `tool_use_id`, and
+     `status` for `PostModelRequest`); the two shell senders post the payload as they do today. Add
+     `PreToolUse`, `PostToolUse` and, for Codex, `PostModelRequest` to `examples/sandbox/claude-settings.json`
+     and `examples/sandbox/codex-hooks.json`. Update `docs/sandboxes.md`, `docs/sandbox-setup-for-agents.md`
+     and `docs/privacy.md` (what a guest now sends and how often: once or twice per tool call). The listener
+     test `tool_and_prompt_activity_is_not_delivered` changes on purpose: say so in the pull request.
+     Keep the three senders consistent (`tests/sandbox_sender.rs`, `crates/aherald-ping/tests/`).
+  Tests (pure, `src/events.rs` and `tests/api/`): the id is parsed, validated and survives the wire; a
+  payload with a hostile id is rejected; `SECRET` in `tool_input` never appears in the serialized event.
+  Update `crates/aherald-ping` and both shell senders only if the listener contract changes
+  (`tests/` contract test `parser_contract.rs` must stay green).  Acceptance: the tests pass on Linux; Windows and macOS compile in CI.
+
+- [ ] **AH-304 — Hold a Codex permission card until the request is still open (`[codex] permission_delay_sec`).**
+  Depends on AH-303. Agreed 2026-11-16: the delay is **on by default**; `0` switches it off. Range 0..=120.
+  Choose the default from real data before writing the constant. The owner's live Watchdog instance
+  (sibling project `watchdog`; its location and commands are in that repository's `LIVE.md`, which is
+  machine-local: never copy its paths, session ids or any row into this repository) records every Codex
+  hook with `hook_event_name`, `session_id`, `turn_id`, `tool_use_id` and `received_at_us` in the SQLite
+  table `event_facts` (`docs/storage.md` and `src/agent_watchdog/facts_query.py` there; open the database
+  read-only). For each Codex `PermissionRequest`, compute the time to the first later event of the same
+  session and turn that counts as evidence below (`PostToolUse`, the next model request, `Stop`,
+  `Interrupt`). Report the count, p50, p75, p90, p95 and p99, and a histogram in 1 s buckets up to 60 s,
+  separately for the Codex CLI and desktop profiles if both have rows (Watchdog captures `PermissionRequest`
+  only where its hook profile enables it: state which profiles and how many days the sample covers).
+  Expect two groups: automatic review (seconds) and a person (tens of seconds or more). Take the default as
+  the smallest whole second that covers at least 90 % of the first group, and not above 15 without asking.
+  If the sample has fewer than 50 requests or shows no clear first group, use 8 and say so. Write the
+  figures (numbers only) to `docs/notes/ah-304-permission-delay.md` with the date, the Codex versions and
+  the chosen value. Repeat for Claude `PermissionRequest` rows and record them in the same note: they decide
+  whether Claude needs the delay too, which is a separate decision.
+  Behaviour: a Codex `PermissionRequired` event with `permission_delay_sec > 0` is held in the queue for that
+  time: no card, no sound, no messenger forward (`Controls::forward` at `src/resident_request.rs:593` runs only
+  when the card is released). While held, the event is dropped (`Outcome::Resolved`, debug line
+  `auto_resolved`) when evidence of the same `session_id`, `turn_id` and `agent_id` arrives:
+  - `PostToolUse` whose `tool_use_id` was open (a `PreToolUse` seen, no `PostToolUse` yet) when the request
+    arrived; with several open ids, only when all of them have completed;
+  - a completed `PostModelRequest`;
+  - `Stop`, `Interrupt`, `SessionEnd`, `UserPromptSubmit`.
+  `PreToolUse` alone is not evidence unless AH-302 showed it is safe. Claude and external harnesses are
+  unchanged. Transient mode has no later state: document that the delay needs the resident.
+  Design: keep it pure in `src/queue.rs` (or a small `src/pending_approvals.rs` the queue owns): a held list
+  with a release deadline on the caller's clock, a per-turn set of open tool ids bounded to 64 turns and 32
+  ids each (drop the oldest), and `Queue::tick` releasing due entries through the normal admission path.
+  The residents must wake for the deadline: expose it next to `warnings.has_deadline()` so the three
+  loops (`src/windows/resident_overlay.rs:209`, `src/linux/resident.rs:1068`, the macOS wait) need one shared
+  predicate, not three edits of logic.
+  Tests (pure): approved in time, denied then `PostModelRequest`, human wait released after the delay with
+  sound and forward exactly once, two open tools with one finishing, another session and another turn do not
+  resolve it, a subagent's event does not resolve the parent's, delay 0 behaves as today, bounds hold; the
+  built-in default equals the value in `config.example.toml` (the default-config parity test, AH-256).
+  `CHANGELOG.md` gets a `Changed` entry: Codex permission cards now wait by default, and how to restore
+  the old behaviour.
+  Docs: `config.example.toml`, `docs/configuration.md`, `docs/codex-hooks.md`, `docs/codex-approval-observation.md`
+  (the heuristic, its cost, and the long-running-command false positive), `CHANGELOG.md`. Then close AH-099
+  or restate what it still needs.
+  Acceptance: tests pass on Linux; by hand on one OS with a real Codex auto-review session, an approved
+  request shows no card and a real human prompt shows one after the delay; record the Codex version.
+
+- [ ] **AH-305 — A shown permission or input card of any harness disappears when its request is resolved.**
+  Depends on AH-303; independent of the delay. Today the card stays until `Stop` or `Interrupt` of the turn
+  (`Queue::observe_terminal`, `src/queue.rs:155`). Apply the AH-304 evidence rules to cards already in the
+  queue, by extending `Queue::observe_activity` (`src/queue.rs:144`) for `Source::CodexHook`.
+  Agreed 2026-11-16: every harness gets this, in one pull request per harness, Codex first.
+  **Claude.** Its hooks carry no turn id and one session holds at most one wait card (`same`,
+  `src/queue.rs:68`). Before coding, read the current Claude Code hook reference and record in
+  `docs/claude-hooks.md`, with the version: which of `PreToolUse`, `PostToolUse` and `PostToolUseFailure`
+  carry `tool_use_id`; which event follows a permission the user denies; whether `PermissionRequest` or the
+  `permission_prompt` notification fires for a call that the `auto` permission mode approves by itself
+  (if it does, note it for AH-304's Claude question); and what follows an answered `elicitation_dialog` and
+  `agent_needs_input`. Never invent a field: an id that is not documented is not used. Evidence, always for
+  the same `session_id` and `agent_id`:
+  - a tool finish (`PostToolUse` or `PostToolUseFailure`) whose `tool_use_id` was open when the wait arrived;
+    with several open ids, when all of them have finished. Without documented ids, any tool finish counts
+    only if no other tool of that session was open;
+  - `UserPromptSubmit`; `Stop`, `StopFailure` and `SessionEnd` already resolve it.
+  A subagent's events (`agent_id` set) never resolve the main session's card, and the reverse. If Claude gets
+  a new hook event (`PostToolUseFailure`), add it in the same change to `hook_setup::events(Agent::Claude)`,
+  `plugins/aherald/hooks/hooks.json`, the `examples/claude-settings*.json` files and `docs/claude-hooks.md`,
+  and say in `CHANGELOG.md` that setup must be run again.
+  **OpenCode, Pi, Goose, Crush.** Any `--activity` of the session already resolves its waits
+  (`Queue::observe_activity`); with AH-310 that reaches the resident by default. Add only the missing tests:
+  one per bridge in `tests/bridges/bridges.test.mjs` that the answer to a prompt (`permission.replied`,
+  `ui_prompt_end`, `PermissionResult`) sends `--activity`, and one queue test that it clears the card. Goose
+  reports no waits: nothing to do.
+  **Shape.** One evidence function in the queue for all sources, with the per-harness difference reduced to
+  "waits by turn" (Codex) or "by session" (Claude, external); do not add a second copy of the open-tool
+  bookkeeping of AH-304.
+  Tests (pure, `tests/api/queue.rs` and `tests/api/codex_lifecycle.rs`): the card resolves on the matching
+  `PostToolUse` and on `PostModelRequest`; a sibling tool, another turn and another session leave it; the
+  selection moves to the next visible card. This changes an agreed contract on purpose: the test
+  `requests_without_request_identity_are_not_merged_or_resolved_by_tool_results`
+  (`tests/api/codex_lifecycle.rs:84`) keeps its "not merged" assertion and loses the "or resolved by tool
+  results" part of its name; say so in the pull request.
+  Claude tests (pure): the card leaves on the matching tool finish, on a failed tool, and on a new prompt;
+  a parallel tool that was open, a subagent and another session leave it; a `PermissionRequest` followed by
+  its `permission_prompt` notification is still one card.
+  Acceptance: tests pass; `docs/codex-hooks.md`, `docs/claude-hooks.md` and `docs/harnesses.md` each say when
+  a wait card leaves; by hand, one real Claude Code permission prompt answered in the terminal clears its
+  card before the turn ends (record the version and OS).
+
+- [ ] **AH-306 — The Linux resident survives a card that cannot be drawn (parity with AH-041).**
+  `Ui::run` returns the error of `self.draw(...)?` and `self.hide_window()?` (`src/linux/resident.rs:429-431`),
+  which ends the process: for example `"X11: no monitor"` (`src/linux/resident.rs:778`) when every output is
+  off. Windows hides the window, logs `Record::RenderFailure` once and retries
+  (`src/windows/resident_overlay.rs:179`). Do the same on Linux: keep the queue, hide, log once per failure
+  episode, retry on the next wake; end the loop only when the X connection itself is lost. macOS already
+  hides and retries (`Ui::step`, `src/mac/resident.rs:591-599`) but logs nothing: add the same single
+  `RenderFailure` line there, and `RenderFallback` for a degraded composition on macOS and Linux (only
+  `src/windows/resident_overlay.rs:469` logs it).
+  Put the "failed once, log once, reset on success" state in a shared helper rather than a third copy.
+  Tests: under Xvfb, a resident with an injected draw failure (reuse the debug fault files Windows reads with
+  `fault(...)`, moved to a shared module) stays alive, answers `--status`, and shows the next card after the
+  fault is removed; extend `tests/resident_render_faults.rs` instead of a new file if it fits.
+  Acceptance: the test passes on Linux; macOS is reported as CI only.
+
+- [ ] **AH-307 — Transient mode on macOS: implement it or say that it is absent.**
+  `notification::show` returns `Err("Windows is required")` on macOS (`src/notification.rs:52-56`) while
+  `[general] mode = "transient"` is the default until AH-310 lands (afterwards an explicit choice, and the
+  value in every existing `config.toml`), and the README says the behaviour is identical. By reading:
+  `show` acknowledges the parent first (`process::acknowledge`) and then returns the error, so
+  `aherald --event turn_complete` and `aherald --notify x --kind error` succeed and show nothing. Confirm
+  with one run on the M1 before changing anything.
+  Preferred: show the card through `mac::resident::run_notice`, as `startup_notice` already does, with sound.
+  Otherwise: make macOS fall back to the resident, and add the limit to README "Limits",
+  `docs/portable-macos.md` and `docs/configuration.md`. Either way replace the error text with one that names
+  the cause and the fix.
+  Acceptance: a test of the chosen behaviour in the macOS CI leg; one manual line with the macOS version.
+
+- [ ] **AH-308 — One resident step for the three window systems.**
+  The three `Ui` structs still repeat the same decisions (see the audit, A1). Extract, one pull request each,
+  into platform-independent modules with pure tests, and delete the copies in the same change:
+  1. `card::Heading` for an Apply + Test sample (verbatim in `src/windows/resident_overlay.rs:405-416` and
+     `src/linux/resident.rs:1002-1014`; check `src/mac/resident.rs`).
+  2. The artwork wait: `pending`, `art_wait`, `ART_WAIT_MS`, "prepared for another scale, ask again"
+     (`src/linux/resident.rs:892-927` is the cleanest form) as one state machine over `ArtworkWorker`.
+  3. "Compose again or only update the text" (`shown_card` / `CardKey`).
+  4. Sound start and cancel, including how the tray Sound switch reaches `audio::start_controlled`
+     (Linux clones `Config` per call at `src/linux/resident.rs:733`; find what Windows and macOS do).
+  5. The once-a-second and on-change tray usage refresh.
+  Then split `Ui::draw_now` in `src/windows/resident_overlay.rs:245` along the Linux steps.
+  Acceptance per step: the new module has tests that run on Linux; all three residents call it; no behaviour
+  change (existing tests untouched); Windows and macOS reported as CI only plus one manual card check each.
+
+- [ ] **AH-309 — A capability table per harness and OS, and per-harness event switches.**
+  1. Docs: one table in `docs/harnesses.md` (linked from the README) with rows for Codex, Claude Code,
+     OpenCode, Pi, Goose, Crush and columns for each signal, wait resolution, session name, click to
+     activate, focus suppression, usage, context and idle warnings, remote delivery, each cell per OS where it
+     differs, and "why not" for a gap (harness limit or not built). Sources: `src/agent.rs:52-64`,
+     `src/focus.rs`, `src/activation.rs`, `docs/harness-compatibility.md`.
+  2. Ask the owner, then implement if agreed: `[events.<kind>.<harness>] enabled` / `sound_enabled`
+     overrides (`Events` is indexed by kind only, `src/config.rs:184`), so a kind can be off for one harness.
+     Old files stay valid. Tests in `tests/config.rs` and `src/resident_request.rs`.
+  Acceptance: the table matches the code (each "yes" names the test or manual evidence); item 2 only after
+  the owner's answer.
+
+- [ ] **AH-310 — OpenCode, Pi, Goose and Crush events go through the resident, like Codex and Claude.**
+  The Codex and Claude hook commands carry `--resident` (`src/hook_setup.rs:58-63`). The bridges call
+  `aherald --notify <harness> ...` with no mode (`examples/harnesses/opencode-aherald.ts:23`,
+  `pi-aherald.ts:22`, `crushrc`, `goose-hooks.json`), so `[general] mode` decides, and its default is
+  `transient`. In transient mode `--activity` and `--ended` are dropped (`src/commands/deliver.rs:193-199`),
+  a `permission_required` card never leaves by itself, nothing is forwarded to a messenger, and on macOS
+  no card appears (AH-307).
+  Agreed 2026-11-16, two changes; the bridge files and the installed copies stay as they are, so nobody
+  has to run setup again.
+  1. **`--notify` uses the resident unless `--transient` is given**, whatever `[general] mode` says. In
+     `Cli::selected_mode` (`src/cli.rs:555`) an `Operation::Notify` without a mode flag is `Mode::Resident`.
+     The configuration is ignored here on purpose: every `config.toml` created so far was copied from the
+     example and holds an explicit `mode = "transient"`, so honouring it would leave existing installations
+     as they are, and a wait without a resident cannot be resolved. A first event starts the resident as a
+     Codex or Claude hook does (`resident::forward`); activity and `--ended` never start one
+     (`forward_if_running`).
+  2. **`[general] mode` defaults to `"resident"`** (usage, warnings, the queue and the messenger need the
+     resident anyway). Change `Mode`'s default in `src/config.rs` and the active line and its comment in
+     `config.example.toml` together (the default-config parity test, AH-256, must stay green). It governs
+     `--hook` and `--event` without a mode flag, and a start with no operation, which now runs the resident
+     (`src/commands/deliver.rs` `start`). `--transient` and `mode = "transient"` keep working; an existing
+     `config.toml` keeps its explicit value and is never edited (say so in `CHANGELOG.md` with the one line
+     to change by hand).
+     Blast radius to check before editing, and list in the pull request: every test and fixture that relies
+     on the transient default (`tests/fixtures/*.toml`, `tests/config.rs`, `tests/cli.rs`,
+     `tests/native_overlay.rs`, `tests/native_notice.rs`, `tests/process*.rs`, `tests/hooks.rs`,
+     `tests/claude_hooks.rs`, `tests/unix_hook.rs`): pin the mode in the test (`--transient` or the fixture)
+     instead of changing what it asserts; a test that starts the program without a private scope and runtime
+     directory must get one, so it can never reach or start a resident of the real user. Also check the
+     installers and packaging scripts (`installer/windows.iss`, `scripts/package-*.sh`, `scripts/*.ps1`,
+     `tests/installer_windows.ps1`, `tests/macos_app_lifecycle.sh`, `tests/linux_deb_lifecycle.sh`) for
+     commands that assumed a start with no flag does nothing.
+  Docs for both: `--help` (`src/cli.rs`; the test that every public flag is listed), `docs/aherald.1`,
+  `README.md` ("Try it" no longer needs `--resident`), `docs/configuration.md`, `docs/portable*.md`,
+  `docs/harnesses.md`, `docs/harness-compatibility.md` ("The `--notify` input") and `CHANGELOG.md`
+  (`Changed`). Check that `examples/harnesses/crushrc` and the README table need no edit.
+  Tests first: a `src/cli.rs` unit test of `selected_mode` for `--notify`, `--hook` and `--event`, each with
+  no flag, `--resident`, `--transient`, and configuration `mode = "transient"`; a `tests/config.rs` case that
+  an empty file means resident and an explicit `"transient"` is kept; `tests/external_notify.rs` gains a
+  case where `--notify x --kind permission_required` starts an isolated resident with one queued card and a
+  following `--activity` leaves zero (use the fixture of `tests/remote_listener.rs` on Unix, or the shared
+  one of AH-312 if it exists), and one where `--transient` starts none.
+  Acceptance: the tests pass on Linux; Windows and macOS in CI; one manual run with a real OpenCode or Pi
+  session if one is installed, otherwise reported as not checked.
+
+- [ ] **AH-311 — The sound of a new event follows one rule on Windows, macOS and Linux.**
+  Today (by reading): with the usage card open, Windows and macOS start no sound until it closes
+  (`src/windows/resident_overlay.rs:315-322`, `src/mac/resident.rs:736-752`) while Linux plays at once
+  (`src/linux/resident.rs:414`); and a card whose window is suppressed by focus but whose sound is not plays
+  on Windows and Linux but not on macOS when no other card is visible, because macOS returns before
+  `take_unannounced` (`src/mac/resident.rs:753-767`).
+  Rule to implement (the Linux one, which matches "every new event sounds once"): each pass takes the
+  unannounced entries and starts their sounds before any decision about what to draw, unless paused.
+  Put "which sounds start this pass" into one platform-independent function (inputs: paused, the sound
+  switch, playing count, the queue, the Apply + Test sample; output: entries to play and whether to cancel)
+  with pure tests for: usage card selected, no visible card, paused, sound switched off, the preview sample
+  sounding once per visit, and `MAX_SOUNDS`. All three residents call it; this is step 4 of AH-308, done first.
+  Acceptance: the pure tests pass; Linux ran locally; Windows and macOS CI only, plus one manual check each
+  (open the usage card, send `aherald --resident --event error` with a sound configured, hear it).
+
+- [ ] **AH-312 — One resident contract suite that runs on every OS.**
+  The end-to-end resident tests are Windows-only (`tests/resident.rs`, `resident_fixture.rs`,
+  `resident_render_faults.rs`, `tray*.rs`, `hook_lifecycle.rs`); macOS has two tests
+  (`tests/mac_resident.rs`) and Linux one file (`tests/linux_apply.rs`). Most scenarios in
+  `tests/resident.rs` observe only `--status` and exit codes, so they need no window handle.
+  1. Extract an OS-neutral fixture into `tests/support/resident.rs`: start a resident with a unique scope
+     and private runtime directory, wait for readiness through `--status`, send events with the built
+     executable, stop and reap it on drop. Reuse the Windows fixture, `Resident` in `tests/remote_listener.rs`
+     and the one in `tests/mac_resident.rs`; do not write a fourth.
+  2. Move these scenarios into `tests/resident_contract.rs` (no `#![cfg]`): sixteen concurrent hooks reach
+     one resident exactly once; start-up races between status, forwarding and quit; a crashed resident is
+     replaced and accepts events; a disabled kind still resolves waits; `SessionEnd` clears a wait and never
+     starts a resident; a second resident exits quietly. Keep window-specific assertions in the Windows file.
+  3. CI: run the suite under `xvfb-run` and a private D-Bus on Linux (as `linux_apply`), and plainly on the
+     macOS and Windows runners. Add the file to `.github/platform-flags.sh` rules only if it is gated, and keep
+     `tests/ci_platform_flags.sh` green. A missing display on a CI runner must fail, not skip.
+  4. Add one transient test outside Windows (`--transient --event turn_complete` on Linux under Xvfb: the
+     process shows a window and exits by its timer), so AH-307 has a place for its macOS case.
+  Acceptance: the suite passes on the three CI legs; no existing Windows assertion was removed; the run
+  time added per leg is stated in the pull request.
+
+- [ ] **AH-313 — The `[remote]` listener blocks in `accept` instead of polling every 20 ms.**
+  `run` in `src/remote.rs:404-453` sets the listener non-blocking and sleeps `POLL` (20 ms) between tries: 50
+  wake-ups a second for as long as `[remote]` is on, against "an idle resident does not wake up
+  periodically". Use a blocking `accept` and stop it from `Drop` by setting the flag and connecting to the
+  bound address once (std only, same on all three OSes); keep the 30 s bind retry, sleeping on a condition
+  variable or `park_timeout` that `Drop` can interrupt.
+  Tests: the existing listener tests stay green (stop on drop, bind retry, connection cap, stalled client);
+  add one Linux test in the style of `linux_idle_resident_has_no_periodic_wakeups...`
+  (`tests/linux_apply.rs:517`) that counts voluntary context switches of an idle resident with `[remote]`
+  enabled.
+  Acceptance: tests pass on Linux; Windows and macOS CI only.
+
+- [ ] **AH-314 — Small consistency fixes found by the audit.**
+  1. `examples/hooks.windows.json` and `examples/hooks.macos.json` lack `PostModelRequest`, which
+     `hook_setup::events(Agent::Codex)` installs, so a manual Codex setup gets no context warning. Add it,
+     and add a test that parses every shipped example and the plugin `hooks.json` and compares their event
+     names with `hook_setup::events` (the sandbox examples are an explicit subset: assert the subset).
+  2. Replace the error text `"Windows is required"` in `src/notification.rs:55` (with AH-307 if that lands
+     first).
+  3. Stale comments: `tests/unsupported_platform.rs:1-2` and the version in `src/codex_context.rs:1`
+     (re-verify the `PostModelRequest` fields against the current Codex release and record it in
+     `docs/harness-compatibility.md`).
+  4. `Source::Usage.label()` returns `"Codex"` (`src/events.rs:93`): find its callers; if the Claude usage
+     card or a forwarded message can show it, fix the label, otherwise leave a comment why it is unused.
+  5. `TODO.md`: remove the empty "P2 — structural refactoring of the residents" heading and the pointer to
+     the missing `audit-20261105.md` (or restore the file).
+  Acceptance: the new test fails before item 1 and passes after; the other items need no test.
 
 - [ ] **AH-294 — Codex plugin for aHerald and its catalog entry.**
   Depends on AH-293 (done). `proprock/marketplace` also carries a Codex catalog (`.agents/plugins/marketplace.json`);
