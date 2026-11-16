@@ -148,7 +148,7 @@ mod resident {
             eprintln!("skipped: no X display (run under xvfb-run)");
             return;
         }
-        let runtime = support::TempDir::new("ah310-notify");
+        let runtime = support::TempDir::new("n310");
         let _stop = Stop(&runtime);
         let wait = aherald(
             &runtime,
@@ -174,7 +174,7 @@ mod resident {
 
     #[test]
     fn transient_notify_starts_no_resident() {
-        let runtime = support::TempDir::new("ah310-transient");
+        let runtime = support::TempDir::new("t310");
         let _stop = Stop(&runtime);
         let output = aherald(
             &runtime,
