@@ -37,8 +37,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   rejects the subagent progress; the hook drops that answer silently and the resident keeps working. Guests behind `[remote]` deliver tool activity
   and Codex model requests too (their token counts are dropped), so idle reminders now work for
   guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
-  `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
-  see TODO.md).
+  `PostToolUse` and, for Codex, `PostModelRequest`. The measured median hook overhead was under 1 ms
+  (AH-303).
 - Codex permission cards now wait 3 seconds in the resident (`[codex] permission_delay_sec`,
   0..=120) and are dropped when the session shows the request was answered meanwhile: a request
   answered within the delay (by the automatic reviewer, for example) produces no card, sound or
