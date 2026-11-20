@@ -3,6 +3,23 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
+  Events carry an optional validated `tool_use_id`. Codex and Claude tool and prompt activity reach
+  an already running resident even with idle warnings disabled. A main-agent `PostModelRequest` with
+  tokens uses `CodexContext` with an optional `turn_id`. Subagent and tokenless reports use
+  `CodexProgress`. The remote listener delivers activity and progress without window or terminal
+  identity and drops token counts. Guest subscriptions, senders, and privacy docs were updated.
+  Tests cover parsing, validation, wire fields, delivery to a running resident and guest forwarding.
+  [PR #189](https://github.com/proprock/aHerald/pull/189) merged as `e03ff1c` (aHerald 0.17.0 source).
+  - Windows **ran locally**: 987 tests passed, 0 failed.
+  - Linux (WSL Debian with Xvfb) **ran locally**: 1035 tests passed, the `workspace` test failed
+    because `python3` was unavailable, and the three Xvfb extras passed. Two rounds of 50 release
+    hook calls with a private resident measured medians of 12380/12152 µs before and 12604/12866 µs
+    after, an increase of 0.2–0.7 ms.
+  - macOS **compiled/tested in CI only**. The [PR CI run](https://github.com/proprock/aHerald/actions/runs/43924608066)
+    passed `cargo test --locked --workspace --all-targets` and doctests on Windows, Linux and macOS,
+    including the Linux `workspace` test, and passed the Rust 1.88 MSRV builds on all three platforms.
+
 - [x] **AH-302 — Record the Codex hook order around an automatically reviewed approval.**
   `tests/live/codex_approval_observation.ps1 -HookOrder` runs three ephemeral `codex exec` sessions with
   `approvals_reviewer="auto_review"` (approved, denied, two sibling calls in one model step where one is

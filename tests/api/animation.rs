@@ -35,8 +35,8 @@ fn sprite_extraction_is_row_major_and_timing_is_deterministic() {
     fixture.png("sheet.png", &image);
     let animation = Animation::load(&fixture.0).unwrap();
     assert_eq!(animation.frames.len(), 4);
-    for i in 0..4 {
-        assert_eq!(animation.frames[i].get_pixel(0, 0).0, [i as u8, 0, 0, 255]);
+    for (i, frame) in animation.frames.iter().enumerate() {
+        assert_eq!(frame.get_pixel(0, 0).0, [i as u8, 0, 0, 255]);
     }
     assert_eq!(animation.index_at(99), 0);
     assert_eq!(animation.index_at(100), 1);

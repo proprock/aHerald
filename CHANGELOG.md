@@ -10,6 +10,8 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-20
+
 ### Added
 - The Claude Usage card shows Fable's weekly quota, scheduled reset, data age and share of the
   overall weekly budget when available from the OAuth usage endpoint (AH-301).
@@ -35,14 +37,15 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
   rejects the subagent progress; the hook drops that answer silently and the resident keeps working. Guests behind `[remote]` deliver tool activity
   and Codex model requests too (their token counts are dropped), so idle reminders now work for
   guest sessions; the example hook files in `examples/sandbox/` register `PreToolUse`,
-  `PostToolUse` and, for Codex, `PostModelRequest`. A hook takes under 1 ms longer (AH-303, open:
-  see TODO.md).
+  `PostToolUse` and, for Codex, `PostModelRequest`. The measured median hook overhead was under 1 ms
+  (AH-303).
 - Codex permission cards now wait 3 seconds in the resident (`[codex] permission_delay_sec`,
   0..=120) and are dropped when the session shows the request was answered meanwhile: a request
-  answered within the delay (by the automatic reviewer, for example) shows no card, sound or
-  messenger message. A request a person must answer appears after the delay; a long-running
-  approved command can still show one until it finishes. Set `permission_delay_sec = 0` for the old behaviour. Tool activity now also states
-  whether a tool started or finished; an older resident ignores that (AH-304, open: see TODO.md).
+  answered within the delay (by the automatic reviewer, for example) produces no card, sound or
+  messenger message, including Telegram. A request still open at the deadline can produce a card,
+  sound and message. A long-running approved command can reach the deadline before completion is
+  observed. Set `permission_delay_sec = 0` to restore immediate delivery. Tool activity now also
+  states whether a tool started or finished. See AH-304 in `TODO.md` for remaining acceptance.
 - A Codex permission card already on screen leaves as soon as the same session, turn and agent show
   that the request was answered: every tool that was open when it arrived finished, the next model
   request completed, or a prompt was submitted. Before, it stayed until the turn ended. A messenger
@@ -574,7 +577,8 @@ configuration work.
   the notification service does not run there yet (AH-062 onward). Unix IPC isolates
   by user id only; there is no logon-session equivalent.
 
-[Unreleased]: https://github.com/proprock/aHerald/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/proprock/aHerald/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/proprock/aHerald/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/proprock/aHerald/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/proprock/aHerald/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/proprock/aHerald/compare/v0.14.0...v0.15.0

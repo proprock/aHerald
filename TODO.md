@@ -632,48 +632,9 @@ P2 tasks run in the listed order; AH-266 goes last.
 
 Source: `audit-20261116.agents.md` (local, untracked; it lists what was not read). Conventions:
 `AGENTS.md` applies. Test first, with red and green commits. Report each platform as **ran locally**,
-**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. AH-303 to AH-305 run
-in this order; the others are independent. Suggested order (AH-310, AH-306 and AH-302 done): AH-311, then
-AH-303 to AH-305, AH-312, AH-308, and the rest when convenient.
-
-- [ ] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
-  Depends on AH-302. Today `events::parse_hook` drops `tool_use_id` (`src/events.rs:380`), Codex activity is
-  forwarded only with the idle warning on (`src/commands/deliver.rs:189`), and a `PostModelRequest` returns
-  before any event is built (`src/commands/deliver.rs:137-150`).
-  1. Add `tool_use_id: Option<String>` to `events::Event` (`#[serde(default, skip_serializing_if)]`, validated
-     like the other identities in `Event::validate`). Fill it in `parse_hook` for `PreToolUse` and
-     `PostToolUse`. An old resident ignores the unknown field already.
-  2. Add `Request::CodexProgress { session_id, turn_id, agent_id }` to `src/ipc.rs` for a completed
-     `PostModelRequest`, or extend `codex_context::Report` with optional `turn_id`; choose the one that keeps
-     old residents accepting new hooks, and say which in the pull request. Subagent reports (`agent_id`)
-     must reach the queue too; today `codex_context::parse` drops them.
-  3. In `dispatch`, forward Codex and Claude tool activity (`PreToolUse`, `PostToolUse`,
-     `UserPromptSubmit`) to a running resident always, not only with the idle warning on: AH-304 and AH-305
-     need it for every session. Keep `forward_if_running` (never start a resident for activity) and its
-     bound. Measure the added hook time per tool call on one OS (median of 50 runs, before and after) and
-     put the numbers in the pull request; if it exceeds 5 ms, stop and ask.
-  4. Guests (agreed 2026-11-16): the `[remote]` listener passes the same activity instead of dropping it
-     (`src/remote.rs:197-200`), still without `window` or `tty`. `aherald-ping` sends for these events only
-     the fields the host reads (event name, `session_id`, `turn_id`, `agent_id`, `tool_use_id`, and
-     `status` for `PostModelRequest`); the two shell senders post the payload as they do today. Add
-     `PreToolUse`, `PostToolUse` and, for Codex, `PostModelRequest` to `examples/sandbox/claude-settings.json`
-     and `examples/sandbox/codex-hooks.json`. Update `docs/sandboxes.md`, `docs/sandbox-setup-for-agents.md`
-     and `docs/privacy.md` (what a guest now sends and how often: once or twice per tool call). The listener
-     test `tool_and_prompt_activity_is_not_delivered` changes on purpose: say so in the pull request.
-     Keep the three senders consistent (`tests/sandbox_sender.rs`, `crates/aherald-ping/tests/`).
-  Tests (pure, `src/events.rs` and `tests/api/`): the id is parsed, validated and survives the wire; a
-  payload with a hostile id is rejected; `SECRET` in `tool_input` never appears in the serialized event.
-  Update `crates/aherald-ping` and both shell senders only if the listener contract changes
-  (`tests/` contract test `parser_contract.rs` must stay green).  Acceptance: the tests pass on Linux; Windows and macOS compile in CI.
-  Progress (2026-11-16, branch `feature/AH-303-codex-progress`, stacked on AH-302): all four parts and their
-  docs are committed. Choice for part 2: a main-agent report with tokens stays `CodexContext` (with an
-  optional `turn_id` an old resident ignores); a subagent or tokenless report goes as the new
-  `CodexProgress`, which an old resident rejects at no loss. Guest token counts are dropped. Hook time
-  (WSL Debian, xvfb, release, private resident, median of 50, two rounds): before 12380/12152 µs, after
-  12604/12866 µs, so +0.2 to +0.7 ms. Local runs: Windows full suite 987 passed, 0 failed; Linux (WSL)
-  1035 passed with only the `workspace` test failing for a missing `python3`, as on `master`, and the
-  three xvfb extras passed; macOS not checked. Remaining: the pull request and its CI on all three
-  platforms.
+**compiled/tested in CI only**, **checked by hand on hardware** or **not checked**. Suggested order
+(AH-310, AH-306, AH-302 and AH-303 done): AH-311, then AH-304, AH-305, AH-312, AH-308, and the rest
+when convenient.
 
 - [ ] **AH-304 — Hold a Codex permission card until the request is still open (`[codex] permission_delay_sec`).**
   Depends on AH-303. Agreed 2026-11-16: the delay is **on by default**; `0` switches it off. Range 0..=120.

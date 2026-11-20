@@ -8,6 +8,92 @@ use std::{path::PathBuf, time::Duration};
 mod support;
 
 #[test]
+fn codex_permission_webhook_only_sends_a_wait_still_open_at_the_deadline() {
+    use std::{io::ErrorKind, net::TcpListener, time::Instant};
+    use support::{ResidentFixture, fake_http::serve_request, wait_until};
+
+    const OK: &str = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let config = format!(
+        r#"
+[notifications]
+enabled = false
+[sounds]
+enabled = false
+[[forward.sinks]]
+type = "webhook"
+kinds = ["permission_required"]
+include_folder = true
+url = "http://127.0.0.1:{port}/bot-test/sendMessage"
+content_type = "application/json"
+body = '{{"chat_id":"test","text":"{{{{text}}}}"}}'
+"#
+    );
+    let mut fixture = ResidentFixture::new("permission-webhook", &config);
+    fixture.start().expect("start the private resident");
+
+    let send = |name: &str, session: &str| {
+        let payload = serde_json::json!({
+            "hook_event_name": name,
+            "session_id": session,
+            "turn_id": "turn",
+            "tool_use_id": "tool",
+            "cwd": format!("C:/fixtures/{session}"),
+        });
+        let event = aherald::events::parse_hook(payload.to_string().as_bytes())
+            .unwrap()
+            .expect("recognized Codex hook");
+        let reply = pipe::request(
+            &fixture.scope,
+            &Request::Event { event },
+            Duration::from_secs(1),
+        )
+        .expect("deliver the hook event");
+        assert!(matches!(reply, Response::Accepted));
+    };
+
+    send("PreToolUse", "auto-approved");
+    send("PermissionRequest", "auto-approved");
+    send("PostToolUse", "auto-approved");
+    let submitted = Instant::now();
+    send("PermissionRequest", "human-wait");
+
+    let mut captured = None;
+    wait_until(
+        Duration::from_secs(8),
+        Duration::from_millis(20),
+        "permission webhook",
+        || match listener.accept() {
+            Ok((stream, _)) => {
+                assert!(submitted.elapsed() >= Duration::from_secs(3));
+                captured = Some(serve_request(stream, OK));
+                true
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+            Err(error) => panic!("cannot accept the webhook: {error}"),
+        },
+    )
+    .expect("the human wait reaches the webhook");
+    let captured = captured.unwrap();
+    assert!(captured.starts_with("POST /bot-test/sendMessage "));
+    assert!(captured.contains("human-wait"));
+    assert!(!captured.contains("auto-approved"));
+    let duplicate = wait_until(
+        Duration::from_millis(250),
+        Duration::from_millis(15),
+        "duplicate permission webhook",
+        || match listener.accept() {
+            Ok(_) => true,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+            Err(error) => panic!("cannot check for duplicate webhooks: {error}"),
+        },
+    );
+    assert!(duplicate.is_err(), "an unexpected second webhook arrived");
+}
+
+#[test]
 fn resident_crash_restarts_and_accepts_fresh_events() {
     use windows::Win32::{Foundation::*, System::Threading::*};
     let scope = Scope::current(&format!("resident-crash-{}", std::process::id())).unwrap();
