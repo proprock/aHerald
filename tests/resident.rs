@@ -9,11 +9,13 @@ mod support;
 
 #[test]
 fn codex_permission_webhook_only_sends_a_wait_still_open_at_the_deadline() {
-    use std::time::Instant;
-    use support::{ResidentFixture, fake_http::fake_api, wait_until};
+    use std::{io::ErrorKind, net::TcpListener, time::Instant};
+    use support::{ResidentFixture, fake_http::serve_request, wait_until};
 
     const OK: &str = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-    let (port, requests) = fake_api(vec![OK, OK]);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
     let config = format!(
         r#"
 [notifications]
@@ -57,21 +59,38 @@ body = '{{"chat_id":"test","text":"{{{{text}}}}"}}'
     send("PostToolUse", "auto-approved");
     let submitted = Instant::now();
     send("PermissionRequest", "human-wait");
-    assert!(requests.lock().unwrap().is_empty());
 
+    let mut captured = None;
     wait_until(
         Duration::from_secs(8),
         Duration::from_millis(20),
         "permission webhook",
-        || !requests.lock().unwrap().is_empty(),
+        || match listener.accept() {
+            Ok((stream, _)) => {
+                assert!(submitted.elapsed() >= Duration::from_secs(3));
+                captured = Some(serve_request(stream, OK));
+                true
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+            Err(error) => panic!("cannot accept the webhook: {error}"),
+        },
     )
     .expect("the human wait reaches the webhook");
-    assert!(submitted.elapsed() >= Duration::from_secs(3));
-    let captured = requests.lock().unwrap();
-    assert_eq!(captured.len(), 1);
-    assert!(captured[0].starts_with("POST /bot-test/sendMessage "));
-    assert!(captured[0].contains("human-wait"));
-    assert!(!captured[0].contains("auto-approved"));
+    let captured = captured.unwrap();
+    assert!(captured.starts_with("POST /bot-test/sendMessage "));
+    assert!(captured.contains("human-wait"));
+    assert!(!captured.contains("auto-approved"));
+    let duplicate = wait_until(
+        Duration::from_millis(250),
+        Duration::from_millis(15),
+        "duplicate permission webhook",
+        || match listener.accept() {
+            Ok(_) => true,
+            Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+            Err(error) => panic!("cannot check for duplicate webhooks: {error}"),
+        },
+    );
+    assert!(duplicate.is_err(), "an unexpected second webhook arrived");
 }
 
 #[test]
