@@ -19,7 +19,10 @@ use crate::{
     events::Event,
     local::Scope,
 };
-use objc2::{MainThreadMarker, rc::Retained};
+use objc2::{
+    MainThreadMarker,
+    rc::{Retained, autoreleasepool},
+};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask, NSEventType,
 };
@@ -1044,34 +1047,39 @@ fn present(
         };
         // Events queued before the loop started are picked up by the first step.
         while !stop.load(Ordering::Acquire) {
-            ui.step();
-            let wait = if ui.animating() {
-                NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
-            } else if crate::resident_request::idle_poll_needed(
-                ui.config.codex.usage.enabled,
-                ui.claude.is_some(),
-                ui.shared.lock().is_ok_and(|s| s.has_deadline()),
-            ) {
-                // Usage polling keeps the icon and tooltip fresh while nothing is shown.
-                NSDate::dateWithTimeIntervalSinceNow(1.0)
-            } else {
-                NSDate::distantFuture()
-            };
-            // SAFETY: the default mode is a valid run-loop mode and the loop runs on the main thread.
-            let event = unsafe {
-                app.nextEventMatchingMask_untilDate_inMode_dequeue(
-                    NSEventMask::Any,
-                    Some(&wait),
-                    NSDefaultRunLoopMode,
-                    true,
-                )
-            };
-            if let Some(event) = event {
-                app.sendEvent(&event);
-            }
-            ui.handle_clicks();
-            ui.handle_scrolls();
-            ui.handle_commands();
+            // `NSApplication::run` drains an autorelease pool on every turn; this hand-rolled
+            // loop must do the same, or every autoreleased event, date, image and layer
+            // backing made during a turn lives until the process exits (AH-321).
+            autoreleasepool(|_| {
+                ui.step();
+                let wait = if ui.animating() {
+                    NSDate::dateWithTimeIntervalSinceNow(FRAME_MS as f64 / 1000.0)
+                } else if crate::resident_request::idle_poll_needed(
+                    ui.config.codex.usage.enabled,
+                    ui.claude.is_some(),
+                    ui.shared.lock().is_ok_and(|s| s.has_deadline()),
+                ) {
+                    // Usage polling keeps the icon and tooltip fresh while nothing is shown.
+                    NSDate::dateWithTimeIntervalSinceNow(1.0)
+                } else {
+                    NSDate::distantFuture()
+                };
+                // SAFETY: the default mode is a valid run-loop mode and the loop runs on the main thread.
+                let event = unsafe {
+                    app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                        NSEventMask::Any,
+                        Some(&wait),
+                        NSDefaultRunLoopMode,
+                        true,
+                    )
+                };
+                if let Some(event) = event {
+                    app.sendEvent(&event);
+                }
+                ui.handle_clicks();
+                ui.handle_scrolls();
+                ui.handle_commands();
+            });
         }
         ui.audio_cancel.store(true, Ordering::Release);
         for job in ui.audio.drain(..) {
