@@ -10,6 +10,12 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Fixed
+- The macOS resident no longer grows without bound: its event loop now drains an autorelease
+  pool on every turn, so events, card frames and their layer backings are freed. Before, an
+  animating card leaked about 40 MB per second and a resident left running for days could reach
+  tens of gigabytes (AH-321).
+
 ## [0.18.0] - 2026-11-20
 
 ### Added

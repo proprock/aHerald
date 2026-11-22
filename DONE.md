@@ -3,6 +3,24 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-321 — Drain an autorelease pool on every turn of the macOS resident loop.**
+  The resident runs its own `nextEventMatchingMask`/`sendEvent` loop instead of `NSApp.run()`, and
+  nothing drained the main thread's autorelease pool, so every `NSEvent`, `NSDate`, card `NSImage`,
+  its `CGImage` and CoreAnimation backing lived until exit. A resident up 12 days measured a
+  10 GB footprint (6.2 GB CG image, 2.6 GB CoreAnimation) with 17,759 `NSEvent`s and 3,144 `CGImage`s
+  alive (`footprint`, `heap`). Each loop turn now runs inside `objc2::rc::autoreleasepool`. Worker
+  threads make no Cocoa calls and the setup window uses `app.run()`, so neither needed a change;
+  Windows and Linux have no autorelease pools, so there is no parity work.
+  - macOS 26.6.2 (Apple Silicon) **checked by hand on hardware**: `aherald --demo 1` sampled with
+    `footprint` every 30 s for 270 s. On `origin/master` (`e9b15ab`) the footprint grew from 1.4 GB to
+    13 GB (CG image 9.5 GB, CoreAnimation 3.7 GB). With the fix it stayed at 27–31 MB (CG image
+    1.9 MB, CoreAnimation 1 MB). A single `--event turn_complete --transient` card animated smoothly.
+  - macOS **ran locally**: `cargo fmt --all -- --check`, `cargo clippy --locked --workspace
+    --all-targets -- -D warnings`, `cargo test --locked --workspace --all-targets` and `--doc` passed.
+  - Windows and Linux **not checked**: the change is in `src/mac/` only.
+  - No automated test: draining the pool is not observable from a unit test; the manual footprint
+    comparison above is the evidence.
+
 - [x] **AH-303 — Carry `tool_use_id` and deliver Codex progress to the resident.**
   Events carry an optional validated `tool_use_id`. Codex and Claude tool and prompt activity reach
   an already running resident even with idle warnings disabled. A main-agent `PostModelRequest` with
