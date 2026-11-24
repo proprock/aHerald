@@ -4,24 +4,29 @@
 //! `enabled`, session ends and obsolete waits are settled before it. It never feeds anything back,
 //! and a slow or hung one cannot delay cards: each sink has its own worker thread and a bounded
 //! queue that drops its oldest message when full.
-use crate::{events::Event, events::Kind};
+use crate::{
+    agent::Agent,
+    events::{Event, Kind},
+    session_source::{self, CodexNames},
+};
 use std::{
     collections::VecDeque,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
 /// What a sink may know about a card: the kind, the harness and, only when allowed, the folder
-/// name and the computer name. Never a prompt, an assistant message, a path or a session name.
+/// name, the computer name and the session name. No prompts, assistant messages or paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub kind: String,
     pub harness: String,
     pub folder: Option<String>,
     pub host: Option<String>,
+    pub session_name: Option<String>,
     pub text: String,
 }
 
@@ -31,26 +36,31 @@ impl Message {
     /// text starts with a header line, `host/folder`, `host` or `folder`, and a blank line; with
     /// neither it is just `Claude: turn complete`.
     pub fn from_event(event: &Event, include_folder: bool, host: Option<&str>) -> Self {
-        let kind = event.kind.name().to_owned();
-        let harness = event.source.label().to_owned();
-        let folder = event.folder.clone().filter(|_| include_folder);
-        let host = host.map(str::to_owned);
-        let line = format!("{harness}: {}", kind.replace('_', " "));
-        let header = match (&host, &folder) {
+        let mut message = Self {
+            kind: event.kind.name().to_owned(),
+            harness: event.source.label().to_owned(),
+            folder: event.folder.clone().filter(|_| include_folder),
+            host: host.map(str::to_owned),
+            session_name: None,
+            text: String::new(),
+        };
+        message.text = message.render_text();
+        message
+    }
+
+    fn render_text(&self) -> String {
+        let kind = self.kind.replace('_', " ");
+        let location = match (&self.host, &self.folder) {
             (Some(host), Some(folder)) => Some(format!("{host}/{folder}")),
             (Some(only), None) | (None, Some(only)) => Some(only.clone()),
             (None, None) => None,
         };
-        let text = match header {
-            Some(header) => format!("{header}\n\n{line}"),
-            None => line,
-        };
-        Self {
-            kind,
-            harness,
-            folder,
-            host,
-            text,
+        let harness = &self.harness;
+        match (&self.session_name, location) {
+            (Some(name), Some(location)) => format!("{harness} ({location}): {name}\n{kind}"),
+            (Some(name), None) => format!("{harness}: {name}\n{kind}"),
+            (None, Some(location)) => format!("{location}\n\n{harness}: {kind}"),
+            (None, None) => format!("{harness}: {kind}"),
         }
     }
 }
@@ -103,6 +113,8 @@ pub struct Route {
     pub include_folder: bool,
     /// Whether they name this computer.
     pub include_host: bool,
+    /// Whether they name the session.
+    pub include_session_name: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -136,14 +148,27 @@ pub fn redact(text: &str, secrets: &[String]) -> String {
 /// The messages waiting for one sink's worker.
 #[derive(Default)]
 struct Queue {
-    messages: VecDeque<Message>,
+    messages: VecDeque<PendingMessage>,
     closed: bool,
+}
+
+struct PendingMessage {
+    message: Message,
+    name: Option<Arc<PendingName>>,
+}
+
+/// Resolve once per event, even when several destinations ask for the name.
+struct PendingName {
+    agent: Agent,
+    id: String,
+    resolved: OnceLock<Option<String>>,
 }
 
 struct Channel {
     kinds: Vec<Kind>,
     include_folder: bool,
     include_host: bool,
+    include_session_name: bool,
     queue: Arc<(Mutex<Queue>, Condvar)>,
     capacity: usize,
 }
@@ -153,12 +178,16 @@ pub struct Dispatcher {
     channels: Vec<Channel>,
     /// Reads the computer's name; called only for a card that a sink with `include_host` wants.
     host: Box<dyn Fn() -> Option<String> + Send + Sync>,
+    codex_names: Option<Arc<CodexNames>>,
 }
 
 impl Drop for Dispatcher {
     /// Tells the workers to stop. They are not joined: one may be inside a hung network call, and
     /// it ends on its own when that call times out.
     fn drop(&mut self) {
+        if let Some(names) = &self.codex_names {
+            names.stop();
+        }
         for channel in &self.channels {
             let (lock, wake) = &*channel.queue;
             lock.lock().unwrap_or_else(|e| e.into_inner()).closed = true;
@@ -176,7 +205,18 @@ impl Dispatcher {
         enabled: bool,
         post: impl Fn(&str) + Send + Sync + 'static,
     ) -> Self {
+        Self::start_with_names(routes, policy, enabled, None, post)
+    }
+
+    pub(crate) fn start_with_names(
+        routes: Vec<Route>,
+        policy: Policy,
+        enabled: bool,
+        codex_names: Option<CodexNames>,
+        post: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Self {
         let post: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(post);
+        let codex_names = codex_names.map(Arc::new);
         let channels = routes
             .into_iter()
             .map(|route| {
@@ -185,11 +225,13 @@ impl Dispatcher {
                     kinds: route.kinds.clone(),
                     include_folder: route.include_folder,
                     include_host: route.include_host,
+                    include_session_name: route.include_session_name,
                     queue: queue.clone(),
                     capacity: policy.queue.max(1),
                 };
                 let post = post.clone();
-                std::thread::spawn(move || work(route, policy, &queue, &*post));
+                let names = codex_names.clone();
+                std::thread::spawn(move || work(route, policy, &queue, names.as_deref(), &*post));
                 channel
             })
             .collect();
@@ -197,6 +239,7 @@ impl Dispatcher {
             enabled: Arc::new(AtomicBool::new(enabled)),
             channels,
             host: Box::new(crate::host_name::local),
+            codex_names,
         }
     }
 
@@ -212,26 +255,50 @@ impl Dispatcher {
     /// Queues `message` for every sink that wants its kind, unless forwarding is off. Never
     /// blocks on the network.
     pub fn submit(&self, kind: Kind, message: Message) {
-        self.submit_with(kind, |_| message.clone());
+        self.submit_with(kind, |_| PendingMessage {
+            message: message.clone(),
+            name: None,
+        });
     }
 
-    /// `submit` for an accepted card: each sink gets the message its own `include_folder` and
-    /// `include_host` allow. The computer's name is read once per card, and only if a sink that
-    /// wants this kind asked for it.
+    /// Queues an accepted card with the metadata each matching sink has opted into.
     pub fn submit_event(&self, event: &Event) {
+        if !self.enabled() {
+            return;
+        }
         let host = self
             .channels
             .iter()
             .any(|c| c.include_host && c.kinds.contains(&event.kind))
             .then(|| (self.host)())
             .flatten();
+        let name = self
+            .channels
+            .iter()
+            .any(|c| c.include_session_name && c.kinds.contains(&event.kind))
+            .then(|| session_source::name_target(event))
+            .flatten()
+            .filter(|(agent, _)| *agent == Agent::Claude || self.codex_names.is_some())
+            .map(|(agent, id)| {
+                Arc::new(PendingName {
+                    agent,
+                    id: id.to_owned(),
+                    resolved: OnceLock::new(),
+                })
+            });
         self.submit_with(event.kind, |channel| {
             let host = host.as_deref().filter(|_| channel.include_host);
-            Message::from_event(event, channel.include_folder, host)
+            PendingMessage {
+                message: Message::from_event(event, channel.include_folder, host),
+                name: name
+                    .as_ref()
+                    .filter(|_| channel.include_session_name)
+                    .cloned(),
+            }
         });
     }
 
-    fn submit_with(&self, kind: Kind, message: impl Fn(&Channel) -> Message) {
+    fn submit_with(&self, kind: Kind, message: impl Fn(&Channel) -> PendingMessage) {
         if !self.enabled() {
             return;
         }
@@ -261,12 +328,13 @@ fn work(
     mut route: Route,
     policy: Policy,
     queue: &(Mutex<Queue>, Condvar),
+    codex_names: Option<&CodexNames>,
     post: &(dyn Fn(&str) + Send + Sync),
 ) {
     let (lock, wake) = queue;
     let mut last_error = None;
     loop {
-        let message = {
+        let PendingMessage { mut message, name } = {
             let mut waiting = lock.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 if waiting.closed {
@@ -278,6 +346,16 @@ fn work(
                 waiting = wake.wait(waiting).unwrap_or_else(|e| e.into_inner());
             }
         };
+        if let Some(name) = name {
+            let resolved = name.resolved.get_or_init(|| match name.agent {
+                Agent::Claude => session_source::claude_name(&name.id),
+                Agent::Codex => codex_names?.name(&name.id),
+            });
+            if let Some(name) = resolved {
+                message.session_name = Some(name.clone());
+                message.text = message.render_text();
+            }
+        }
         let mut result = Ok(());
         let mut asked = None;
         for attempt in 0..policy.attempts.max(1) {
@@ -310,6 +388,7 @@ mod tests {
             harness: "Claude".into(),
             folder: None,
             host: None,
+            session_name: None,
             text: text.into(),
         }
     }
@@ -351,6 +430,7 @@ mod tests {
             secrets: Vec::new(),
             include_folder: false,
             include_host: false,
+            include_session_name: false,
         }
     }
 
@@ -463,6 +543,7 @@ mod tests {
             secrets: Vec::new(),
             include_folder: false,
             include_host: false,
+            include_session_name: false,
         };
         let dispatcher = Dispatcher::start(vec![route], fast(2, 1), true, quiet());
         dispatcher.submit(Kind::TurnComplete, message("in flight"));
@@ -519,6 +600,7 @@ mod tests {
             secrets: Vec::new(),
             include_folder: false,
             include_host: false,
+            include_session_name: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -549,6 +631,7 @@ mod tests {
             secrets: vec!["123:SECRET".into()],
             include_folder: false,
             include_host: false,
+            include_session_name: false,
         };
         let posted = Arc::new(Mutex::new(Vec::<String>::new()));
         let record = posted.clone();
@@ -702,6 +785,108 @@ mod tests {
     }
 
     #[test]
+    fn codex_session_name_is_resolved_once_and_only_sent_to_opted_in_sinks() {
+        use crate::app_server::{Error, Transport};
+        use serde_json::{Value, json};
+
+        struct Server {
+            response: Option<Value>,
+            reads: Sender<String>,
+        }
+
+        impl Transport for Server {
+            fn send(&mut self, request: &Value, _: Duration) -> Result<(), Error> {
+                self.response = match request["method"].as_str() {
+                    Some("initialize") => {
+                        self.reads.send("initialize".into()).unwrap();
+                        Some(json!({"id": request["id"], "result": {}}))
+                    }
+                    Some("initialized") => None,
+                    Some("thread/read") => {
+                        let session = request["params"]["threadId"].as_str().unwrap();
+                        assert_eq!(request["params"]["includeTurns"], false);
+                        self.reads.send(session.into()).unwrap();
+                        if session == "unknown-thread" {
+                            Some(json!({"id": request["id"], "error": {
+                                "code": -32600, "message": "thread not found"
+                            }}))
+                        } else {
+                            Some(json!({"id": request["id"], "result": {"thread": {
+                                "id": session, "name": " Fix\n tests\u{202e} "
+                            }}}))
+                        }
+                    }
+                    other => panic!("unexpected app-server method {other:?}"),
+                };
+                Ok(())
+            }
+
+            fn receive(&mut self, _: Duration) -> Result<Value, Error> {
+                self.response.take().ok_or(Error::Timeout)
+            }
+        }
+
+        let (reads, observed) = channel();
+        let names = CodexNames::new(move |_| {
+            Ok(Server {
+                response: None,
+                reads: reads.clone(),
+            })
+        });
+        let (first, first_seen) = stub(0, "");
+        let (second, second_seen) = stub(0, "");
+        let (plain, plain_seen) = stub(0, "");
+        let named = |sink, include_host| Route {
+            include_session_name: true,
+            include_folder: true,
+            include_host,
+            ..route(sink, &[Kind::TurnComplete])
+        };
+        let dispatcher = Dispatcher::start_with_names(
+            vec![
+                named(first, false),
+                named(second, true),
+                route(plain, &[Kind::TurnComplete]),
+            ],
+            fast(8, 1),
+            true,
+            Some(names),
+            quiet(),
+        )
+        .with_host_source(|| Some("workstation".into()));
+        let mut event = event(Kind::TurnComplete, Some("project"));
+        event.source = crate::events::Source::CodexHook;
+        event.session_id = Some("unknown-thread".into());
+        dispatcher.submit_event(&event);
+        event.session_id = Some("named-thread".into());
+        dispatcher.submit_event(&event);
+
+        for (received, location) in [
+            (first_seen, "project"),
+            (second_seen, "workstation/project"),
+        ] {
+            assert_eq!(
+                received.recv_timeout(WAIT).unwrap(),
+                format!("{location}\n\nCodex: turn complete")
+            );
+            assert_eq!(
+                received.recv_timeout(WAIT).unwrap(),
+                format!("Codex ({location}): Fix tests\nturn complete")
+            );
+        }
+        for _ in 0..2 {
+            assert_eq!(
+                plain_seen.recv_timeout(WAIT).unwrap(),
+                "Codex: turn complete"
+            );
+        }
+        assert_eq!(
+            observed.try_iter().collect::<Vec<_>>(),
+            ["initialize", "unknown-thread", "named-thread"]
+        );
+    }
+
+    #[test]
     fn a_server_delay_replaces_the_fixed_backoff_up_to_a_cap() {
         let backoff = Duration::from_secs(2);
         assert_eq!(retry_delay(backoff, None), backoff);
@@ -747,6 +932,7 @@ mod tests {
             secrets: Vec::new(),
             include_folder: false,
             include_host: false,
+            include_session_name: false,
         };
         // A backoff far longer than the test: only the server's delay can explain a quick retry.
         let policy = Policy {

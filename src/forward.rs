@@ -5,7 +5,7 @@
 //! or a log.
 use crate::{
     command_sink::CommandSink,
-    config::{Forward, SinkConfig, SinkType},
+    config::{Config, Forward, SinkConfig, SinkType},
     events::Event,
     sink::{Dispatcher, Policy, Route, Sink},
     template::expand_env,
@@ -47,6 +47,7 @@ fn route(sink: &SinkConfig, env: &impl Fn(&str) -> Option<String>) -> Result<Rou
         secrets,
         include_folder: sink.include_folder,
         include_host: sink.include_host,
+        include_session_name: sink.include_session_name,
     })
 }
 
@@ -96,17 +97,26 @@ fn running() -> std::sync::MutexGuard<'static, Option<Dispatcher>> {
 
 /// Builds the configured sinks from the real environment and starts them. A sink that cannot be
 /// built is a card; with no sink built nothing runs and the tray shows no messenger switch.
-pub fn start(forward: &Forward) {
+pub fn start(config: &Config) {
+    let forward = &config.forward;
     let built = build(forward, |name| std::env::var(name).ok());
     for notice in &built.notices {
         crate::notice::post(notice);
     }
     stop();
     if !built.routes.is_empty() {
-        install(Dispatcher::start(
+        let names = (config.codex.session_names
+            && built.routes.iter().any(|route| route.include_session_name))
+        .then(|| {
+            crate::session_source::CodexNames::new(
+                crate::app_server::StdioTransport::codex_controlled,
+            )
+        });
+        install(Dispatcher::start_with_names(
             built.routes,
             Policy::default(),
             forward.enabled,
+            names,
             |text| crate::notice::post(&format!("Messenger forwarding, {text}")),
         ));
     }

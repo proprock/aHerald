@@ -110,6 +110,37 @@ fn telegram_as_a_webhook_sends_the_token_in_the_path_and_a_json_body() {
 }
 
 #[test]
+fn a_webhook_can_use_the_session_name_in_json() {
+    let (port, requests) = fake_api(vec![OK]);
+    let config = format!(
+        r#"
+[[forward.sinks]]
+type = "webhook"
+include_session_name = true
+url = "http://127.0.0.1:{port}/topic"
+content_type = "application/json"
+body = '{{"session":"{{session_name}}","text":"{{text}}"}}'
+"#
+    );
+    let (dispatcher, _) = dispatcher(&config, &[]);
+    let report = aherald::statusline::parse(
+        br#"{"session_id":"forward-webhook-name","session_name":"Test \"quotes\""}"#,
+    )
+    .unwrap();
+    aherald::statusline::with_store(|store| store.record(report, 0));
+    let mut event = event(None);
+    event.session_id = Some("forward-webhook-name".into());
+    dispatcher.submit_event(&event);
+    let request = wait_for(|| requests.lock().unwrap().first().cloned());
+    let body: serde_json::Value =
+        serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"session": "Test \"quotes\"", "text": "Claude: Test \"quotes\"\ninput required"})
+    );
+}
+
+#[test]
 fn the_default_body_is_the_plain_message_text_and_the_folder_is_opt_in() {
     let (port, requests) = fake_api(vec![OK]);
     let config = format!(

@@ -4,9 +4,8 @@ Codex hook events retain their existing `session_id`; no hook or IPC format chan
 is needed (AH-085 added the optional `folder`: the last component of the hook's `cwd`).
 A card's first row is `<harness>, <folder>` (`Codex, aHerald`; only the harness when
 there is no usable folder, and `aHerald demo` for demo cards). The second row is the
-Codex `<thread.name>`; it stays empty, and keeps its height, until a lookup completes,
-for unnamed/inaccessible threads, and with unavailable Codex. A session ID is never
-shown. Claude cards have no name row content (AH-059). Long text is ellipsized within
+Codex `<thread.name>` or the session name from Claude's statusLine report. The row
+stays empty and keeps its height while there is no known name. Long text is ellipsized within
 the card. The folder is display-only: only the last path component is kept, control and
 bidirectional-override characters are removed, it is cut at 40 characters, and it is
 never logged.
@@ -16,9 +15,9 @@ resident. Transient mode additionally requires `[codex] transient_names = true`.
 When disabled, no name-lookup worker or app-server child is started; usage polling
 remains independent.
 
-In the resident with name lookup and Codex usage polling enabled, names are read over the usage
-worker's own app-server connection (`usage_service::NameLookup`): requests are
-strictly serial on that one connection, so only one `codex app-server` child runs.
+When both card name lookup and Codex usage polling are enabled in the resident, they
+share the usage worker's app-server connection (`usage_service::NameLookup`). That
+worker sends requests serially over one `codex app-server` child.
 An unknown thread (a JSON-RPC error) leaves the connection open; a lost connection
 follows the usage worker's reconnect backoff and yields the ID fallback meanwhile.
 With usage polling off, and in transient mode (one card per process), the worker
@@ -37,6 +36,12 @@ and selected sessions refresh after 60 seconds. Missing/failed lookups are cache
 for the same interval. Clearing a stored name restores the ID fallback after refresh.
 Title updates neither restart notification expiry nor reset animation playback.
 Shutdown cancels the metadata transport and reaps only the owned app-server child.
+
+On Windows, macOS and Linux, a messenger sink can opt in to send the same session name with
+`include_session_name = true`. Forwarding uses a background worker independent of card
+rendering. For Codex, it can open its own lazy read-only app-server connection when
+`[codex] session_names = true`. For Claude, it uses the session name already held by the
+resident from the statusLine report. See [messenger forwarding](configuration.md#messenger-forwarding-ah-213).
 
 Names are not logged or written to configuration. Display normalizes whitespace,
 removes directional formatting controls, and bounds titles to 120 characters.
