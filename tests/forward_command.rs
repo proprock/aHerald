@@ -69,6 +69,51 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 #[test]
+fn forwarding_distinguishes_named_sessions_in_one_folder_and_falls_back_when_unnamed() {
+    let dir = scratch("session-name");
+    let out = dir.join("out");
+    let config = format!(
+        r#"
+[[forward.sinks]]
+type = "command"
+kinds = ["input_required"]
+include_folder = true
+include_session_name = true
+command = ["sh", "-c", "cat >> \"$1\"", "sh", "{}"]
+stdin = "{{text}}\nname=[{{session_name}}]\n"
+"#,
+        out.display()
+    );
+    let (dispatcher, posted) = dispatcher(&config, &[]);
+    for (id, name) in [
+        ("forward-command-alpha", Some("First session")),
+        ("forward-command-beta", Some("Second session")),
+        ("forward-command-unnamed", None),
+    ] {
+        if let Some(name) = name {
+            let payload = serde_json::json!({"session_id": id, "session_name": name});
+            let report = aherald::statusline::parse(payload.to_string().as_bytes()).unwrap();
+            aherald::statusline::with_store(|store| store.record(report, 0));
+        }
+        let mut event = event(Some("project"));
+        event.session_id = Some(id.into());
+        dispatcher.submit_event(&event);
+    }
+    let delivered = wait_for(|| {
+        let contents = std::fs::read_to_string(&out).ok()?;
+        contents.ends_with("name=[]\n").then_some(contents)
+    });
+    assert_eq!(
+        delivered,
+        "project\n\nClaude (First session): input required\nname=[First session]\n\
+         project\n\nClaude (Second session): input required\nname=[Second session]\n\
+         project\n\nClaude: input required\nname=[]\n"
+    );
+    assert!(posted.lock().unwrap().is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_card_reaches_the_program_as_arguments_and_standard_input_without_a_shell() {
     let dir = scratch("deliver");
     let out = dir.join("out");
