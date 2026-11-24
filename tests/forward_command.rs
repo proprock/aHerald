@@ -105,8 +105,8 @@ stdin = "{{text}}\nname=[{{session_name}}]\n"
     });
     assert_eq!(
         delivered,
-        "project\n\nClaude (First session): input required\nname=[First session]\n\
-         project\n\nClaude (Second session): input required\nname=[Second session]\n\
+        "Claude (project): First session\ninput required\nname=[First session]\n\
+         Claude (project): Second session\ninput required\nname=[Second session]\n\
          project\n\nClaude: input required\nname=[]\n"
     );
     assert!(posted.lock().unwrap().is_empty());
