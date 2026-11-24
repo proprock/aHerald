@@ -50,18 +50,17 @@ impl Message {
 
     fn render_text(&self) -> String {
         let kind = self.kind.replace('_', " ");
-        let line = match &self.session_name {
-            Some(name) => format!("{} ({name}): {kind}", self.harness),
-            None => format!("{}: {kind}", self.harness),
-        };
-        let header = match (&self.host, &self.folder) {
+        let location = match (&self.host, &self.folder) {
             (Some(host), Some(folder)) => Some(format!("{host}/{folder}")),
             (Some(only), None) | (None, Some(only)) => Some(only.clone()),
             (None, None) => None,
         };
-        match header {
-            Some(header) => format!("{header}\n\n{line}"),
-            None => line,
+        let harness = &self.harness;
+        match (&self.session_name, location) {
+            (Some(name), Some(location)) => format!("{harness} ({location}): {name}\n{kind}"),
+            (Some(name), None) => format!("{harness}: {name}\n{kind}"),
+            (None, Some(location)) => format!("{location}\n\n{harness}: {kind}"),
+            (None, None) => format!("{harness}: {kind}"),
         }
     }
 }
@@ -837,22 +836,24 @@ mod tests {
         let (first, first_seen) = stub(0, "");
         let (second, second_seen) = stub(0, "");
         let (plain, plain_seen) = stub(0, "");
-        let named = |sink| Route {
+        let named = |sink, include_host| Route {
             include_session_name: true,
             include_folder: true,
+            include_host,
             ..route(sink, &[Kind::TurnComplete])
         };
         let dispatcher = Dispatcher::start_with_names(
             vec![
-                named(first),
-                named(second),
+                named(first, false),
+                named(second, true),
                 route(plain, &[Kind::TurnComplete]),
             ],
             fast(8, 1),
             true,
             Some(names),
             quiet(),
-        );
+        )
+        .with_host_source(|| Some("workstation".into()));
         let mut event = event(Kind::TurnComplete, Some("project"));
         event.source = crate::events::Source::CodexHook;
         event.session_id = Some("unknown-thread".into());
@@ -860,14 +861,17 @@ mod tests {
         event.session_id = Some("named-thread".into());
         dispatcher.submit_event(&event);
 
-        for received in [first_seen, second_seen] {
+        for (received, location) in [
+            (first_seen, "project"),
+            (second_seen, "workstation/project"),
+        ] {
             assert_eq!(
                 received.recv_timeout(WAIT).unwrap(),
-                "project\n\nCodex: turn complete"
+                format!("{location}\n\nCodex: turn complete")
             );
             assert_eq!(
                 received.recv_timeout(WAIT).unwrap(),
-                "project\n\nCodex (Fix tests): turn complete"
+                format!("Codex ({location}): Fix tests\nturn complete")
             );
         }
         for _ in 0..2 {

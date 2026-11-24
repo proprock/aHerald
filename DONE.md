@@ -5,9 +5,10 @@ passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
 - [x] **AH-322 — Include session names in messenger forwarding.**
   A webhook or command sink can opt in with `include_session_name = true` and use
-  `{session_name}` in its template. The shared resident path resolves the accepted event's
+  `{session_name}` in its template. A named message starts with `Harness (folder): Session`,
+  followed by the event on the next line. The shared resident path resolves the accepted event's
   session in the sink worker using the existing Codex app-server or Claude statusLine source.
-  Unavailable names leave the event line unchanged. Tests cover two named sessions in the
+  Unavailable names use the established unnamed format. Tests cover two named sessions in the
   same folder, per-sink privacy, unknown Codex threads, title sanitization and JSON escaping.
   - 2026-11-24, aHerald 0.18.0 source, Rust 1.99.1, Ubuntu 22.04.5 **ran locally**.
     `cargo fmt --all -- --check`, workspace Clippy and doctests passed. The workspace

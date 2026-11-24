@@ -127,9 +127,15 @@ content_type = "application/json"
 body = '{"chat_id": "123456789", "text": "{text}"}'
 ```
 
-With a known session name, the message can read `Claude (Review): input required` below a
-`workstation/my-project` header. Claude names come from the statusLine wrapper. Codex names require
-`[codex] session_names = true`. See the examples, placeholders and delivery rules in
+With a known session name, the message has two lines.
+
+```text
+Claude (workstation/my-project): Review
+input required
+```
+
+Claude names come from the statusLine wrapper. Codex names require `[codex] session_names = true`.
+See the examples, placeholders and delivery rules in
 [configuration](docs/configuration.md#messenger-forwarding-ah-213).
 
 ### Or run a command

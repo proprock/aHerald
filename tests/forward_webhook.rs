@@ -136,7 +136,7 @@ body = '{{"session":"{{session_name}}","text":"{{text}}"}}'
         serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(
         body,
-        serde_json::json!({"session": "Test \"quotes\"", "text": "Claude (Test \"quotes\"): input required"})
+        serde_json::json!({"session": "Test \"quotes\"", "text": "Claude: Test \"quotes\"\ninput required"})
     );
 }
 
