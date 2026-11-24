@@ -146,7 +146,12 @@ pub struct Store {
 impl Store {
     /// Records one report received at `now` (Unix seconds).
     pub fn record(&mut self, report: Report, now: i64) {
-        if let Some(name) = report.session_name {
+        // Reports can arrive directly over IPC as well as through `parse`.
+        if let Some(name) = report
+            .session_name
+            .as_deref()
+            .and_then(crate::session_source::clean)
+        {
             self.names.retain(|(id, _)| *id != report.session_id);
             if self.names.len() >= MAX_NAMES {
                 self.names.pop_front();
@@ -486,6 +491,16 @@ mod tests {
         }
         assert_eq!(store.name("b"), None);
         assert_eq!(store.name(&format!("s{}", MAX_NAMES - 1)), Some("x"));
+    }
+
+    #[test]
+    fn a_statusline_report_is_sanitized_when_stored() {
+        let mut store = Store::default();
+        let tail = "x".repeat(150);
+        let name = format!("  Fix\n\t\u{202e} tests {tail}  ");
+        store.record(report("a", Some(&name), None), 0);
+        let stored = store.name("a").unwrap();
+        assert_eq!(stored, format!("Fix tests {}", "x".repeat(110)));
     }
 
     #[test]

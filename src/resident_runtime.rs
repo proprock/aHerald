@@ -55,7 +55,7 @@ pub fn start<T: Send + 'static>(
         started,
         wake.clone(),
     ));
-    crate::forward::start(&config.forward);
+    crate::forward::start(config);
     runtime.remote = crate::remote::start_if_enabled(
         config,
         path,

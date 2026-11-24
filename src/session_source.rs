@@ -1,9 +1,9 @@
 //! Bounded, read-only title lookup. Hooks and GUI never wait for Codex metadata.
-use crate::{card::Heading, events::Event};
+use crate::{agent::Agent, card::Heading, events::Event};
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -139,38 +139,10 @@ impl Service {
     /// Resolves names over a connection opened on the first lookup. `connect` receives the
     /// flag that cancels a pending read when the service is dropped.
     fn connect<T: crate::app_server::Transport + Send + 'static>(
-        mut connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
+        connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
     ) -> Self {
-        use crate::app_server::Client;
         let stop = Arc::new(AtomicBool::new(false));
-        let cancel = stop.clone();
-        let mut client = None;
-        let mut failures = LookupFailures::default();
-        Self::start(
-            move |id| {
-                let result = (|| {
-                    if client.is_none() {
-                        client = Some(Client::initialize(
-                            connect(cancel.clone())?,
-                            Duration::from_millis(750),
-                        )?);
-                    }
-                    client
-                        .as_mut()
-                        .ok_or(crate::app_server::Error::Disconnected)?
-                        .read_thread_name(id)
-                })();
-                failures.observe(result.is_err());
-                match result {
-                    Ok(name) => name,
-                    Err(_) => {
-                        client = None;
-                        None
-                    }
-                }
-            },
-            stop,
-        )
+        Self::start(codex_lookup(connect, stop.clone()), stop)
     }
     /// Names come from the usage worker's `codex app-server` connection, so no second
     /// child process runs. Only useful while Codex usage polling is enabled.
@@ -203,21 +175,9 @@ impl Service {
                 entry.name = name;
             }
         }
-        // Claude names arrive with the statusLine reports; nothing is looked up for them.
-        if event.source == crate::events::Source::ClaudeHook {
-            let id = event.session_id.as_deref()?;
-            return crate::statusline::with_store(|store| store.name(id).map(str::to_owned));
-        }
-        if !event
-            .source
-            .agent()
-            .is_some_and(|agent| agent.names_sessions())
-        {
-            return None;
-        }
-        let id = event.session_id.as_deref()?;
-        if event.validate().is_err() {
-            return None;
+        let (agent, id) = name_target(event)?;
+        if agent == Agent::Claude {
+            return claude_name(id);
         }
         if !self.entries.contains_key(id) && self.entries.len() >= 64 {
             // Do not evict in-flight work: a later result must never label another session.
@@ -246,6 +206,88 @@ impl Service {
         entry.name.clone()
     }
 }
+
+pub(crate) fn name_target(event: &Event) -> Option<(Agent, &str)> {
+    let agent = event.source.agent()?;
+    let id = event.session_id.as_deref()?;
+    event.validate().ok()?;
+    Some((agent, id))
+}
+
+/// Claude names arrive with statusLine reports and are already sanitized.
+pub(crate) fn claude_name(id: &str) -> Option<String> {
+    crate::statusline::with_store(|store| store.name(id).map(str::to_owned))
+}
+
+/// Creates a lazy read-only lookup for use on a worker thread.
+fn codex_lookup<T: crate::app_server::Transport + Send>(
+    mut connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send,
+    stop: Arc<AtomicBool>,
+) -> impl FnMut(&str) -> Option<String> + Send {
+    use crate::app_server::{Client, Error};
+    let mut client = None;
+    let mut failures = LookupFailures::default();
+    move |id| {
+        let result = (|| {
+            if client.is_none() {
+                client = Some(Client::initialize(
+                    connect(stop.clone())?,
+                    Duration::from_millis(750),
+                )?);
+            }
+            let name = client
+                .as_mut()
+                .ok_or(Error::Disconnected)?
+                .read_thread_name(id);
+            match name {
+                // An unknown thread still leaves a usable connection for the next session.
+                Err(Error::Remote(_)) => Ok(None),
+                result => result,
+            }
+        })();
+        failures.observe(result.is_err());
+        match result {
+            Ok(name) => name,
+            Err(_) => {
+                client = None;
+                None
+            }
+        }
+    }
+}
+
+type CodexLookup = dyn FnMut(&str) -> Option<String> + Send;
+
+/// One lazy connection shared by the messenger's sink workers.
+pub(crate) struct CodexNames {
+    lookup: Mutex<Box<CodexLookup>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl CodexNames {
+    pub(crate) fn new<T: crate::app_server::Transport + Send + 'static>(
+        connect: impl FnMut(Arc<AtomicBool>) -> Result<T, crate::app_server::Error> + Send + 'static,
+    ) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        Self {
+            lookup: Mutex::new(Box::new(codex_lookup(connect, stop.clone()))),
+            stop,
+        }
+    }
+
+    pub(crate) fn name(&self, id: &str) -> Option<String> {
+        let mut lookup = self.lookup.lock().ok()?;
+        if self.stop.load(Ordering::Acquire) {
+            return None;
+        }
+        lookup(id).and_then(|name| clean(&name))
+    }
+
+    pub(crate) fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 pub(crate) fn clean(name: &str) -> Option<String> {
     let text: String = name
         .chars()

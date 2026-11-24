@@ -163,6 +163,7 @@ mod tests {
             harness: "Claude".into(),
             folder: folder.map(str::to_owned),
             host: None,
+            session_name: None,
             text: "Claude: input required".into(),
         }
     }

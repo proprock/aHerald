@@ -10,6 +10,10 @@ publishes that section as the notes. The full procedure is in `RELEASE.md`.
 
 ## [Unreleased]
 
+### Added
+- Messenger sinks can include the Codex or Claude session name with `include_session_name = true`.
+  The name appears beside the harness and is available as `{session_name}` in templates (AH-322).
+
 ### Fixed
 - The macOS resident no longer grows without bound: its event loop now drains an autorelease
   pool on every turn, so events, card frames and their layer backings are freed. Before, an

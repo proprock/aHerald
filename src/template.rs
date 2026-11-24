@@ -2,7 +2,7 @@
 //! `config.toml` (used by the webhook and the command sink):
 //! - `${NAME}` is replaced once, when the sink is built, by the environment variable `NAME`. Every
 //!   value substituted this way is a secret to scrub from error text.
-//! - `{text}`, `{kind}`, `{harness}`, `{folder}` and `{host}` are replaced at each send. For a JSON content
+//! - Card placeholders (such as `{text}` and `{session_name}`) are replaced at each send. For a JSON content
 //!   type the value is escaped to sit inside a JSON string, so the template writes its own quotes:
 //!   `"text": "{text}"`; a form body is percent-encoded.
 use crate::sink::Message;
@@ -84,7 +84,7 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
-/// Fills `{text}`, `{kind}`, `{harness}`, `{folder}` and `{host}` in one pass, so a value that itself
+/// Fills card placeholders in one pass, so a value that itself
 /// contains a placeholder is not expanded again. Other braces (JSON) are left alone.
 pub fn render(template: &str, message: &Message, mode: Escape) -> String {
     let escape = |value: &str| match mode {
@@ -106,6 +106,10 @@ pub fn render(template: &str, message: &Message, mode: Escape) -> String {
             ("{harness}", message.harness.as_str()),
             ("{folder}", message.folder.as_deref().unwrap_or("")),
             ("{host}", message.host.as_deref().unwrap_or("")),
+            (
+                "{session_name}",
+                message.session_name.as_deref().unwrap_or(""),
+            ),
         ]
         .into_iter()
         .find(|(name, _)| tail.starts_with(name));
@@ -143,6 +147,7 @@ mod tests {
             harness: "Claude".into(),
             folder: Some("project".into()),
             host: None,
+            session_name: None,
             text: text.into(),
         }
     }

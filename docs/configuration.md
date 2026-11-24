@@ -136,6 +136,7 @@ type = "webhook"
 kinds = ["turn_complete", "permission_required", "input_required", "error"]  # the default
 include_folder = false    # the default; see below
 include_host = false      # the default; see below
+include_session_name = false
 url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
 ```
 
@@ -150,9 +151,13 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
 
   The header is `host/folder` with both, only the host or only the folder with one, and absent
   (no blank line either) with neither, so the default message is exactly `Claude: input required`.
-  An event that carries no folder leaves it out. Never a prompt, an assistant message, a path or a
-  session name. The folder name and the computer name go to a third party, which is why both are
-  off by default (per sink).
+  An event that carries no folder leaves it out. The sink sends only the event kind, harness
+  and metadata that you opt in to share.
+- **`include_session_name = true`** adds the known name after the harness, for example
+  `Codex (Review): turn complete`. It is off by default for each sink. The same sources supply the
+  names on cards. Codex uses its local app-server with `[codex] session_names = true`. Claude uses
+  session names received by the local resident from its statusLine wrapper. The lookup runs in
+  the background. An unavailable name leaves the event line in its default format.
 - **`include_host`:** the computer's name, as the system reports it (control characters removed,
   at most 64 characters, not shortened or hashed). If it cannot be read or is empty, the sink sends the
   computer's IP address instead: the address of the network interface that the default route
@@ -206,13 +211,14 @@ url = "https://ntfy.sh/${AHERALD_NTFY_TOPIC}"
   `NAME`. Use it for every secret: the token, a secret topic, a webhook address. The value is
   scrubbed from every error and card. A missing or empty variable shows a card naming the
   variable. Put no secret literally in `url` or `body`: aHerald does not check for it.
-- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`** (in `body` only) are replaced at each
-  send. `{text}` is the whole message, including the header line and the blank line when there is
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`, `{session_name}`** (in `body` only) are
+  replaced at each send. `{text}` is the whole message, including the header line and the blank line when there is
   a header (two lines, for example `workstation-1/aHerald`, a blank line, `Claude: input required`);
   a JSON body escapes the line breaks and a form body encodes them (`%0A`), a plain-text body keeps
-  them. `{folder}` is empty unless `include_folder = true` and `{host}` unless `include_host =
-  true`; use the single placeholders when a body wants its own layout. They are filled in one pass: a value that contains `{kind}` is not
-  expanded again, and other braces (JSON) stay as written.
+  them. The folder, host and session placeholders are empty when their corresponding setting
+  is off or the value is unavailable. Use the single placeholders to set your own layout.
+  Replacement runs in one pass, so a value containing `{kind}` and other braces such as JSON
+  braces stay as written.
 - **`content_type`** defaults to `text/plain; charset=utf-8` and also chooses how the values are
   made safe, because a folder name can hold any character:
   a JSON type (`application/json`, `…+json`) escapes them to sit inside a JSON string, so write your
@@ -239,23 +245,24 @@ command = ["signal-cli", "-a", "${AHERALD_SIGNAL_NUMBER}", "send", "-m", "{text}
   folder name with spaces, quotes, `;` or `$(...)` stays one argument and nothing runs. The program
   is found through `PATH` of the resident (a resident started from the Run key, the installer or a
   desktop autostart entry has a shorter `PATH` than your terminal; use a full path if in doubt). No
-  argument may start with `{folder}`, because a folder named `-x` would read as an option.
+  argument may start with `{folder}` or `{session_name}`, because a name such as `-x` would read
+  as an option.
 - **`stdin`** (optional) is written to the program's standard input, then closed. Use it for mail
   bodies and for anything that must stay out of the argument list.
 - **`${NAME}`** (in `command` and `stdin`) is replaced when aHerald starts, as for a webhook, and
   scrubbed from errors. Other local users can list a program's arguments with `ps`, so for a secret
   prefer `stdin`, or let the program read its own configuration or environment; the program
   inherits the resident's environment.
-- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`** are filled at each send, as written
-  (nothing is escaped, since nothing parses them). `{text}` can hold two lines and a blank line (see
-  above); an argument carries it whole. `{folder}` is empty unless `include_folder = true` and
-  `{host}` unless `include_host = true`.
+- **`{text}`, `{kind}`, `{harness}`, `{folder}`, `{host}`, `{session_name}`** are filled at each
+  send as written. `{text}` can hold a header, a blank line and an event line in one argument.
+  The folder, host and session placeholders are empty when their corresponding setting is off
+  or the value is unavailable.
 - **Result:** exit status 0 is a success. Anything else, a program that is not found, or one that
   runs over 10 seconds (it is killed) is one error card per distinct error, naming the exit status
   and never the program's output or arguments. Retries, the queue of 32 and the per-sink worker
   are those of a webhook.
-- **`ssh` runs its arguments through a shell on the other machine**, so do not put `{text}` in a
-  remote command line. Send it on standard input and let the remote side read it:
+- **`ssh` runs its arguments through a shell on the other machine.** Send values such as
+  `{text}` and `{session_name}` on standard input for the remote program to read.
 
 ```toml
 [[forward.sinks]]

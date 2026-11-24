@@ -119,15 +119,18 @@ enabled = true
 
 [[forward.sinks]]
 type = "webhook"
-include_folder = true     # optional: add the folder name, which then goes to the third party
-include_host = true       # optional: add this computer's name (several computers, one chat)
+include_folder = true       # optional: send the folder name
+include_host = true         # optional: send this computer's name
+include_session_name = true # optional: send the session name when available
 url = "https://api.telegram.org/bot${AHERALD_TELEGRAM_TOKEN}/sendMessage"
 content_type = "application/json"
 body = '{"chat_id": "123456789", "text": "{text}"}'
 ```
 
-A message reads `Claude: input required [my-project]`. The Telegram and ntfy examples, the
-placeholders and the delivery rules are in [configuration](docs/configuration.md#messenger-forwarding-ah-213).
+With a known session name, the message can read `Claude (Review): input required` below a
+`workstation/my-project` header. Claude names come from the statusLine wrapper. Codex names require
+`[codex] session_names = true`. See the examples, placeholders and delivery rules in
+[configuration](docs/configuration.md#messenger-forwarding-ah-213).
 
 ### Or run a command
 

@@ -96,10 +96,13 @@ pub struct SinkConfig {
     /// only when asked for. It heads the message, as `host/folder` when the folder is on too.
     #[serde(default)]
     pub include_host: bool,
+    /// Whether this destination may receive the session's name when available.
+    #[serde(default)]
+    pub include_session_name: bool,
     /// Webhook: the address to POST to; `${NAME}` is replaced by an environment variable.
     pub url: Option<String>,
     /// Webhook: the body template; `${NAME}` as above, then `{text}`, `{kind}`, `{harness}` and
-    /// `{folder}` and `{host}` at each send. Default `{text}`.
+    /// `{folder}`, `{host}` and `{session_name}` at each send. Default `{text}`.
     pub body: Option<String>,
     /// Webhook: default `text/plain; charset=utf-8`; it also chooses how the values are escaped.
     pub content_type: Option<String>,
@@ -142,12 +145,14 @@ impl SinkConfig {
                 {
                     return bad("command", "must start with the program to run");
                 }
-                // A folder name can begin with "-", which a program would read as an option.
-                if command
-                    .iter()
-                    .any(|argument| argument.starts_with("{folder}"))
-                {
-                    return bad("command", "must not start an argument with {folder}");
+                // A user-supplied name can begin with "-" and be read as an option.
+                for placeholder in ["{folder}", "{session_name}"] {
+                    if command.iter().any(|arg| arg.starts_with(placeholder)) {
+                        return bad(
+                            "command",
+                            &format!("must not start an argument with {placeholder}"),
+                        );
+                    }
                 }
                 for (setting, present) in [
                     ("url", self.url.is_some()),

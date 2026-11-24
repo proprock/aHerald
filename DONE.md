@@ -3,6 +3,23 @@
 Tasks moved here from TODO.md after every deliverable and acceptance criterion
 passed. Open follow-ups and deferred items stay in TODO.md under new IDs.
 
+- [x] **AH-322 — Include session names in messenger forwarding.**
+  A webhook or command sink can opt in with `include_session_name = true` and use
+  `{session_name}` in its template. The shared resident path resolves the accepted event's
+  session in the sink worker using the existing Codex app-server or Claude statusLine source.
+  Unavailable names leave the event line unchanged. Tests cover two named sessions in the
+  same folder, per-sink privacy, unknown Codex threads, title sanitization and JSON escaping.
+  - 2026-11-24, aHerald 0.18.0 source, Rust 1.99.1, Ubuntu 22.04.5 **ran locally**.
+    `cargo fmt --all -- --check`, workspace Clippy and doctests passed. The workspace
+    all-targets run passed the integration tests and had one timing failure in the audio unit
+    tests. The library rerun with `--test-threads=1` passed all 332 enabled tests. Under Xvfb,
+    the remote listener, external notifications, Linux apply and usage tests passed. An isolated
+    Linux resident forwarded four same-folder events for two Codex and two Claude sessions, with
+    the expected names at the opted-in sink and no names at the second sink. The probe used a
+    fake Codex app-server, synthetic Claude statusLine reports and local command receivers.
+  - Windows and macOS execution **not checked**. Cross-target Clippy with `--all-targets`
+    passed for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` (macOS without default features).
+
 - [x] **AH-321 — Drain an autorelease pool on every turn of the macOS resident loop.**
   The resident runs its own `nextEventMatchingMask`/`sendEvent` loop instead of `NSApp.run()`, and
   nothing drained the main thread's autorelease pool, so every `NSEvent`, `NSDate`, card `NSImage`,
